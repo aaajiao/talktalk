@@ -1,0 +1,48 @@
+# macOS
+.DS_Store
+# Finder custom folder icon metadata (Icon followed by a carriage return)
+Icon?
+
+# Swift / SwiftPM / Xcode
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Secrets: the OpenAI key lives in the macOS Keychain, never in files
+.env
+.env.*
+
+# Model weights and caches (downloaded at install time, never committed)
+models/
+*.safetensors
+
+# Local agent settings and workspaces
+.claude/
+.codex/
+
+# Build outputs: app bundles (scripts/build-app.sh), driver and bench tools (scripts/build-driver.sh)
+/build/
+
+# Audio: voice references and bench outputs never go into git (C8, licensing.md §1)
+*.wav
+*.caf
+*.m4a
+*.mp3
+*.flac
+*.aiff
+
+# Local benchmark output may contain device and request identifiers
+/tools/bench/results/
+/tools/bench/driver/results/
+
+# Credentials and local debug artifacts
+*.pem
+*.key
+*.profraw

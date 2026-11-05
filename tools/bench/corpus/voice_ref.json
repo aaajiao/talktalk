@@ -1,0 +1,29 @@
+{
+  "set": "voice_ref",
+  "record": true,
+  "lang": "zh",
+  "measurement": "T1（6/8/10/12 s 参考扫描）、T7（跨语种克隆的参考音）、T17（声音）",
+  "how": "本文件不含稿子：参考稿只有 ARCHITECTURE.md §9.1 的固定稿 zh-v1（42 个汉字，两句），照那里逐字使用，不在这里复制或另编。在 TalkTalk-Dev.app 里用 `--bench enroll` 录（走 §9.2 的录制流程）。",
+  "script_ref": {
+    "doc": "docs/ARCHITECTURE.md",
+    "section": "9.1",
+    "script_id": "zh-v1",
+    "han_chars": 42
+  },
+  "durations": {
+    "targets_s": [
+      6,
+      8,
+      10,
+      12
+    ],
+    "how_obtained": "待 T1 定。§9.1 只写了“M0-T1 用约 6 / 8 / 10 / 12 s 四档参考做扫描”，没写四档怎么得到；固定稿在 3.8–6 字/s 下自然落在约 7.8–11.9 s，6 s 和 12 s 两端可能要用不同语速读，或另行取舍，由 T1 决定，这里不发明新稿子。"
+  },
+  "items": [
+    {
+      "id": "ref-zh-v1",
+      "script_id": "zh-v1",
+      "note": "文本见 §9.1"
+    }
+  ]
+}

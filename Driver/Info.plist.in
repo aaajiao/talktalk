@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  TalkTalkAudio.driver Info.plist template; scripts/build-driver.sh fills the @...@ fields
+  from scripts/lib/versions.sh.
+
+  "sandboxSafe" is the key libASPL's example and the Tuwa driver installed on this Mac use.
+  ARCHITECTURE.md §8.3 called it "AudioServerPlugIn_IsSandboxSafe"; that name does not appear
+  in the 27.2 SDK headers, so it is not used here.
+
+  AudioServerPlugIn_MachServices is empty: the plug-in talks to no other process (§8.3).
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>@EXECUTABLE@</string>
+	<key>CFBundleIdentifier</key>
+	<string>@BUNDLE_ID@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>TalkTalkAudio</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>MacOSX</string>
+	</array>
+	<key>LSMinimumSystemVersion</key>
+	<string>@MIN_MACOS@</string>
+	<key>CFPlugInFactories</key>
+	<dict>
+		<key>@FACTORY_UUID@</key>
+		<string>@FACTORY_FUNC@</string>
+	</dict>
+	<key>CFPlugInTypes</key>
+	<dict>
+		<key>443ABAB8-E7B3-491A-B985-BEB9187030DB</key>
+		<array>
+			<string>@FACTORY_UUID@</string>
+		</array>
+	</dict>
+	<key>AudioServerPlugIn_MachServices</key>
+	<array/>
+	<key>sandboxSafe</key>
+	<true/>
+	<key>TalkTalkMicMode</key>
+	<string>@MIC_MODE@</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>talktalk virtual microphone (personal use). Includes libASPL (MIT).</string>
+</dict>
+</plist>

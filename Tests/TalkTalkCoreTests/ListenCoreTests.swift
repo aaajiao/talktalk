@@ -1,0 +1,324 @@
+import Foundation
+import Testing
+@testable import TalkTalkCore
+
+@Suite struct TimeMapTests {
+    let rate = 48_000.0
+    let period = 480   // 10 ms
+    func ns(_ ms: Double) -> HostTime { HostTime(ms * 1_000_000) }
+
+    @Test func contiguousCallbacksMapLinearly() {
+        var m = TimeMap(sampleRate: rate)
+        let t0: HostTime = 5_000_000_000
+        for i in 0..<100 { #expect(m.observe(host: t0 + ns(Double(i) * 10), frames: period, ioPeriodFrames: period) == .contiguous) }
+        #expect(m.framesSoFar == 48_000)
+        #expect(m.hostTime(atFrame: 24_000) == t0 + ns(500))
+        #expect(m.frame(atHost: t0 + ns(250)) == 12_000)
+        #expect(m.segments.count == 1)
+    }
+
+    /// §3.1: a 300 ms gap (tap rebuild) is filled with zeros; conversions on both sides stay
+    /// within one IO period.
+    @Test func gapOf300msIsFilledAndConversionsStayWithinOnePeriod() {
+        var m = TimeMap(sampleRate: rate)
+        let t0: HostTime = 1_000_000_000
+        for i in 0..<50 { _ = m.observe(host: t0 + ns(Double(i) * 10), frames: period, ioPeriodFrames: period) }
+        // Next callback expected at t0 + 500 ms; it arrives 300 ms late.
+        let obs = m.observe(host: t0 + ns(800), frames: period, ioPeriodFrames: period)
+        #expect(obs == .fillZeros(14_400))
+        for i in 1..<50 { _ = m.observe(host: t0 + ns(800 + Double(i) * 10), frames: period, ioPeriodFrames: period) }
+        // A frame 200 ms after the gap: audio frame index = 500 ms + 300 ms fill + 200 ms.
+        let f = Int64(rate * 1.0)
+        let h = m.hostTime(atFrame: f)!
+        #expect(abs(Int64(bitPattern: h &- (t0 + ns(1000)))) <= Int64(ns(10)))
+        #expect(abs(m.frame(atHost: t0 + ns(1000))! - f) <= Int64(period))
+        // Before the gap still maps through the first segment.
+        #expect(m.hostTime(atFrame: 4_800) == t0 + ns(100))
+    }
+
+    @Test func gapLongerThanTwoSecondsAsksForARestart() {
+        var m = TimeMap(sampleRate: rate)
+        _ = m.observe(host: ns(1000), frames: period, ioPeriodFrames: period)
+        #expect(m.observe(host: ns(1010 + 2500), frames: period, ioPeriodFrames: period) == .restart(gapMs: 2500))
+        #expect(m.framesSoFar == Int64(2 * period))
+        #expect(m.hostTime(atFrame: Int64(period)) == ns(3510))
+    }
+
+    @Test func slowDriftReanchorsWithoutFill() {
+        var m = TimeMap(sampleRate: rate)
+        var host: HostTime = 0
+        // The device runs 200 ppm fast relative to the host clock for 60 s.
+        for _ in 0..<6000 {
+            #expect(m.observe(host: host, frames: period, ioPeriodFrames: period) == .contiguous)
+            host += HostTime(10_000_000.0 * 1.0002)
+        }
+        let h = m.hostTime(atFrame: m.framesSoFar - Int64(period))!
+        #expect(abs(Int64(bitPattern: h &- (host - HostTime(10_000_000.0 * 1.0002)))) <= Int64(ns(10)))
+        #expect(m.segments.count > 1)
+    }
+
+    @Test func machTicksRoundTrip() {
+        let t = HostClock.now()
+        let ticks = HostClock.machTicks(fromNanos: t)
+        #expect(abs(Int64(bitPattern: HostClock.nanos(fromMachTicks: ticks) &- t)) < 100)
+    }
+}
+
+@Suite struct LCPCommitterTests {
+    @Test func commitsTheAgreedPrefixOnly() {
+        var c = LCPCommitter(unit: .word)
+        #expect(c.update(hypothesis: "we should") == [])
+        #expect(c.update(hypothesis: "we should move") == ["we", "should"])
+        #expect(c.update(hypothesis: "we should move the meeting") == ["move"])
+        #expect(c.committedText == "we should move")
+    }
+
+    @Test func caseAndEdgePunctuationDoNotBreakAgreement() {
+        var c = LCPCommitter(unit: .word)
+        c.update(hypothesis: "hello everyone")
+        #expect(c.update(hypothesis: "Hello, everyone.") == ["Hello,", "everyone."])
+    }
+
+    @Test func revisionsOfCommittedTokensAreCountedNotApplied() {
+        var c = LCPCommitter(unit: .word)
+        c.update(hypothesis: "the bass is")
+        c.update(hypothesis: "the bass is loud")
+        #expect(c.committedText == "the bass is")
+        c.update(hypothesis: "the base is loud")
+        #expect(c.revisions == 1)
+        #expect(c.committedText == "the bass is")
+    }
+
+    @Test func chineseCommitsByCharacter() {
+        var c = LCPCommitter(unit: .for(.zh))
+        c.update(hypothesis: "我们明天")
+        #expect(c.update(hypothesis: "我们明天开会") == ["我", "们", "明", "天"])
+        #expect(c.committedText == "我们明天")
+    }
+
+    @Test func finalCommitsEverything() {
+        var c = LCPCommitter(unit: .word)
+        c.update(hypothesis: "see you")
+        #expect(c.commitFinal("see you tomorrow.") == ["see", "you", "tomorrow."])
+    }
+}
+
+@Suite struct ListenSegmenterTests {
+    func seg(_ lang: Lang = .en) throws -> ListenSegmenter {
+        ListenSegmenter(lang: lang, profile: try TestResources.profile().listen)
+    }
+
+    func finals(_ a: [ListenSegmenter.Action]) -> [ListenSegmenter.SentenceFinal] {
+        a.compactMap { if case let .sentenceFinal(f) = $0 { f } else { nil } }
+    }
+
+    func drafts(_ a: [ListenSegmenter.Action]) -> [String] {
+        a.compactMap { if case let .draft(_, t) = $0 { t } else { nil } }
+    }
+
+    @Test func spontaneousAsrFinalClosesTheSentenceAtOnce() throws {
+        var s = try seg()
+        _ = s.volatile("good morning", nowMs: 0)
+        let a = s.final("Good morning everyone.", nowMs: 900)
+        let f = finals(a)
+        #expect(f.count == 1)
+        #expect(f[0].text == "Good morning everyone.")
+        #expect(f[0].trigger == .asrFinal)
+        #expect(f[0].triggerAtMs == 900)
+        #expect(s.sentence == 2)
+    }
+
+    /// M0-T10: en-US `.fastResults` sends a final in the middle of a sentence.
+    @Test func midSentenceFinalWithoutPunctuationKeepsTheSentenceOpen() throws {
+        var s = try seg()
+        _ = s.volatile("so the plan", nowMs: 0)
+        #expect(finals(s.final("So the plan for", nowMs: 400)).isEmpty)
+        #expect(s.sentence == 1)
+        #expect(s.stableText == "So the plan for")
+        _ = s.volatile("next week", nowMs: 600)
+        #expect(s.sourceLine == "So the plan for next week")
+        let f = finals(s.final("next week is ready.", nowMs: 900))
+        #expect(f.first?.text == "So the plan for next week is ready.")
+        #expect(f.first?.trigger == .asrFinal)
+    }
+
+    @Test func triggerAfterOnlyFinalsClosesWithoutWaiting() throws {
+        var s = try seg()
+        _ = s.volatile("thank you", nowMs: 0)
+        _ = s.final("Thank you all", nowMs: 300)
+        var t = 300, out: [ListenSegmenter.Action] = []
+        while out.isEmpty, t < 3000 {
+            t += 50
+            out = s.tick(nowMs: t, silenceMs: t - 300)
+        }
+        #expect(!out.contains { if case .finalize = $0 { true } else { false } })
+        let f = finals(out)
+        #expect(f.first?.text == "Thank you all")
+        #expect(f.first?.finalTimeout == false)
+        #expect(f.first?.finalAtMs == f.first?.triggerAtMs)
+        #expect(!s.awaitingFinal)
+    }
+
+    @Test func silenceTriggersFinalizeThenTheFinalClosesWithTheTriggerTime() throws {
+        var s = try seg()
+        var actions: [ListenSegmenter.Action] = []
+        actions += s.volatile("let us", nowMs: 0)
+        actions += s.volatile("let us start", nowMs: 300)
+        actions += s.volatile("let us start now", nowMs: 600)
+        var t = 600
+        var fin: ListenSegmenter.Action?
+        while fin == nil, t < 3000 {
+            t += 50
+            let a = s.tick(nowMs: t, silenceMs: t - 600)
+            fin = a.first { if case .finalize = $0 { true } else { false } }
+        }
+        guard case let .finalize(id, trigger, through) = fin else { Issue.record("no finalize"); return }
+        #expect(id == 1)
+        #expect(trigger == .silence)
+        #expect(through == 1400)       // 800 ms of silence (en)
+        #expect(s.awaitingFinal)
+        // Volatiles while waiting are ignored.
+        #expect(s.volatile("let us start now please", nowMs: 1500).isEmpty)
+        let f = finals(s.final("Let us start now.", nowMs: 1650))
+        #expect(f.first?.triggerAtMs == 1400)
+        #expect(f.first?.finalAtMs == 1650)
+        #expect(f.first?.finalTimeout == false)
+        #expect(!s.awaitingFinal)
+    }
+
+    @Test func missingFinalTimesOutWithTheHypothesis() throws {
+        var s = try seg()
+        _ = s.volatile("this is", nowMs: 0)
+        _ = s.volatile("this is it", nowMs: 100)
+        var t = 100, out: [ListenSegmenter.SentenceFinal] = []
+        while out.isEmpty, t < 6000 {
+            t += 50
+            out = finals(s.tick(nowMs: t, silenceMs: t - 100))
+        }
+        #expect(out.first?.text == "this is it")
+        #expect(out.first?.finalTimeout == true)
+        #expect(out.first!.finalAtMs - out.first!.triggerAtMs == 1500)
+    }
+
+    @Test func draftsEveryTwoNewStableWordsAtMostTwicePerSecond() throws {
+        var s = try seg()
+        var d: [String] = []
+        let words = "we need to decide on the budget for next year today".split(separator: " ").map(String.init)
+        for i in 1...words.count {
+            d += drafts(s.volatile(words.prefix(i).joined(separator: " "), nowMs: i * 200))
+        }
+        // Stable = LCP-2, i.e. one word behind the hypothesis. ≥2 new words, ≥500 ms apart.
+        #expect(!d.isEmpty)
+        #expect(d.first == "we need")
+        for (a, b) in zip(d, d.dropFirst()) {
+            #expect(FinalizeTrigger.wordCount(b) - FinalizeTrigger.wordCount(a) >= 2)
+        }
+        #expect(d.count <= (words.count * 200) / 500 + 1)
+    }
+
+    @Test func intervalDraftAfterOneSecondEvenForOneNewWord() throws {
+        var s = try seg()
+        _ = s.volatile("okay", nowMs: 0)
+        _ = s.volatile("okay so", nowMs: 100)       // stable "okay"
+        var d: [String] = []
+        for t in stride(from: 150, through: 1100, by: 50) { d += drafts(s.tick(nowMs: t, silenceMs: 0)) }
+        #expect(d == ["okay"])
+    }
+
+    @Test func germanWaitsLongerForSilence() throws {
+        var s = try seg(.de)
+        _ = s.volatile("wir müssen", nowMs: 0)
+        _ = s.volatile("wir müssen das", nowMs: 100)
+        var kind: FinalizeTrigger.Kind?, at = 0
+        for t in stride(from: 150, through: 2000, by: 50) {
+            for case let .finalize(_, k, through) in s.tick(nowMs: t, silenceMs: t - 100) { kind = k; at = through }
+            if kind != nil { break }
+        }
+        #expect(kind == .silence)
+        #expect(at == 1100)
+    }
+}
+
+@Suite struct EchoFilterTests {
+    @Test func textOverlapAloneNeverDrops() {
+        var f = EchoFilter()
+        f.recordPlayed(text: "So that's 300,000 euros for next year.", startMs: 0, endMs: 3000)
+        #expect(f.decide(text: "So, 300,000 euros, right?", startMs: 10_000, echoScore: 0.1) == .keep)
+    }
+
+    @Test func overlapWithAcousticEchoDrops() {
+        var f = EchoFilter()
+        f.recordPlayed(text: "So that's 300,000 euros for next year.", startMs: 0, endMs: 3000)
+        guard case let .drop(reason, o) = f.decide(text: "that's 300,000 euros for next year", startMs: 10_000, echoScore: 0.7) else {
+            Issue.record("expected drop"); return
+        }
+        #expect(reason == .ttsEcho)
+        #expect(o >= 0.99)
+    }
+
+    @Test func overlapDuringPlaybackDropsWithoutAcousticScore() {
+        var f = EchoFilter()
+        f.recordPlayed(text: "Let me walk you through the plan", startMs: 1000, endMs: 3000)
+        #expect(f.decide(text: "walk you through the plan", startMs: 4500, echoScore: nil) != .keep)
+        #expect(f.decide(text: "walk you through the plan", startMs: 5500, echoScore: nil) == .keep)
+    }
+
+    @Test func oldClausesFallOutOfTheWindow() {
+        var f = EchoFilter()
+        f.recordPlayed(text: "budget approved", startMs: 0, endMs: 1000)
+        #expect(f.decide(text: "budget approved", startMs: 22_000, echoScore: 0.9) == .keep)
+    }
+
+    @Test func passthroughEchoNeedsTheAcousticScore() {
+        var f = EchoFilter()
+        f.recordPassthrough(startMs: 0, endMs: 4000)
+        #expect(f.decide(text: "anything", startMs: 5000, echoScore: 0.6) == .drop(reason: .passthroughEcho, overlap: 0))
+        #expect(f.decide(text: "anything", startMs: 5000, echoScore: 0.2) == .keep)
+    }
+
+    @Test func numbersStayWholeTokens() {
+        #expect(EchoFilter.tokens("So, 300,000 euros, right?") == ["so", "300000", "euros", "right"])
+    }
+}
+
+@Suite struct EventLogTests {
+    @Test func freeTextCannotBeLoggedAsATag() {
+        let log = EventLog(inMemory: { 42 })
+        log.event("listen.final", ["chars": 12, "trigger": .tag("silence"), "oops": .tag("Hello world, secret text")])
+        let e = log.recorded
+        #expect(e.count == 1)
+        #expect(e[0]["ev"] as? String == "listen.final")
+        #expect(e[0]["trigger"] as? String == "silence")
+        #expect(e[0]["oops"] as? String == "?")
+        #expect(e[0]["t"] as? UInt64 == 42)
+    }
+
+    @Test func writesJSONLinesWithPrivatePermissions() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tt-eventlog-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let log = try EventLog(sessionID: "test", directory: dir)
+        log.event("sys.wake")
+        log.event("mt.end", ["ms": 812, "late": false])
+        log.close()
+        let text = try String(contentsOf: log.url!, encoding: .utf8)
+        #expect(text.split(separator: "\n").count == 2)
+        let attrs = try FileManager.default.attributesOfItem(atPath: log.url!.path)
+        #expect((attrs[.posixPermissions] as? Int) == 0o600)
+    }
+
+    @Test func pruneKeepsTheNewestSessions() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tt-eventlog-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for i in 0..<25 {
+            let u = dir.appendingPathComponent("s\(i).jsonl")
+            FileManager.default.createFile(atPath: u.path, contents: Data("{}\n".utf8))
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: Double(-i * 60))], ofItemAtPath: u.path)
+        }
+        EventLog.prune(dir)
+        let left = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        #expect(left.count == EventLog.maxSessions - 1)
+        #expect(left.contains("s0.jsonl"))
+        #expect(!left.contains("s24.jsonl"))
+    }
+}

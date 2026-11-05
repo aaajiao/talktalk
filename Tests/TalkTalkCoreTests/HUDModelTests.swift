@@ -1,0 +1,322 @@
+import Foundation
+import Testing
+@testable import TalkTalkCore
+
+/// The §11 / §3.8 "state → text" table. The expected strings are copied from ARCHITECTURE.md.
+@Suite struct HUDModelTests {
+    static let warnings: [(HUDModel.Warning, String, HUDLine.Style)] = [
+        (.meetingNotUsingMic, "会议没用 TalkTalk Mic", .red),
+        (.remoteHearsYourVoice, "会议正在用实体麦，对方仍可能听到原声；按键翻译已停用", .red),
+        (.floorPaused(segments: 3), "对方在说话 · 已暂停 3 段 · 双击右⌥清空", .yellow),
+        (.numberMaybeWrong("三十万"), "数字可能有误：三十万", .yellow),
+        (.skipped(segments: 2), "已跳过 2 段", .yellow),
+        (.segmentNotSent, "这段未发送", .yellow),
+        (.sentenceMaybeIncomplete, "该句可能不完整", .yellow),
+        (.unsupportedTextNotSent, "这段文字暂不支持，未发送", .yellow),
+        (.speakerMode, "正在外放，请戴耳机", .yellow),
+        (.audioRestarting, "音频系统重启中", .yellow),
+        (.meetingSilent, "会议当前没有声音", .normal),
+        (.meetingSeemsOver, "会议似乎已结束", .normal),
+        (.tccUnconfirmed, "没能确认系统录音权限", .yellow),
+        (.defaultInputChanged(to: "MacBook Pro 麦克风"), "系统默认输入被改成了 MacBook Pro 麦克风", .yellow),
+        (.switchedBackAfterInsert(device: "AirPods"), "AirPods 接入后系统换了默认输入，已切回 TalkTalk Mic", .normal),
+        (.switchBackFailed(current: "MacBook Pro 麦克风"), "没能切回 TalkTalk Mic，系统默认输入是 MacBook Pro 麦克风", .yellow),
+        (.defaultInputRestored(to: "MacBook Pro 麦克风"), "默认输入已还原为 MacBook Pro 麦克风", .normal),
+        (.openAIUnreachable, "OpenAI 暂时连不上，改用 Apple 翻译", .yellow),
+        (.openAIKeyInvalid, "OpenAI key 无效或额度用完，已改用 Apple 翻译", .yellow),
+        (.modelRetired, "所选模型已下线，已换回 gpt-6-luna", .yellow),
+        (.passthroughTip, "会议默认传原声；按住右⌥翻译，松开后等译音播完再恢复原声", .normal),
+        (.defaultInputRestoredElsewhere(to: "MacBook Pro 麦克风", original: "Tuwa Mic", originalMissing: false),
+         "默认输入已还原为 MacBook Pro 麦克风（原来的 Tuwa Mic 是虚拟设备，不还原到它）", .normal),
+        (.defaultInputRestoredElsewhere(to: "MacBook Pro 麦克风", original: "ear4", originalMissing: true),
+         "默认输入已还原为 MacBook Pro 麦克风（原来的 ear4 不在了）", .normal),
+        (.defaultInputNotSwitched(.micMissing), "TalkTalk Mic 不在，系统默认输入没有切换", .yellow),
+        (.defaultInputNotSwitched(.noPhysicalInput), "没有实体麦克风，系统默认输入没有切换", .yellow),
+        (.defaultInputNotSwitched(.writeFailed), "没能把系统默认输入切到 TalkTalk Mic", .yellow),
+        (.defaultInputNotSwitched(.recordWriteFailed), "没能写下还原记录，系统默认输入没有切换", .yellow),
+        (.defaultInputNotSwitched(.guardLaunchFailed), "还原守护进程没能启动，系统默认输入没有切换", .yellow),
+        (.defaultInputNotSwitched(.micNotSelectable), "TalkTalk Mic 现在不能设为默认输入，系统默认输入没有切换", .yellow),
+    ]
+
+    @Test func everyWarningHasItsText() {
+        for (w, text, style) in Self.warnings {
+            var m = HUDModel()
+            m.post(w, now: 0)
+            #expect(m.lines(now: 0) == [HUDLine(text, style)], "\(w)")
+        }
+    }
+
+    @Test func conditionsStayNoticesFade() {
+        var m = HUDModel()
+        m.post(.meetingNotUsingMic, now: 0)
+        m.post(.segmentNotSent, now: 0)
+        #expect(m.lines(now: 3.9).count == 2)
+        #expect(m.lines(now: 4.0) == [HUDLine("会议没用 TalkTalk Mic", .red)])
+        #expect(m.lines(now: 1000) == [HUDLine("会议没用 TalkTalk Mic", .red)])
+        m.clear(.meetingNotUsingMic)
+        #expect(m.lines(now: 1000).isEmpty)
+        #expect(m.nextExpiry(after: 0) == 4)
+        #expect(m.nextExpiry(after: 1000) == nil)
+    }
+
+    @Test func countedConditionReplacesItsOlderCount() {
+        var m = HUDModel()
+        m.post(.floorPaused(segments: 1), now: 0)
+        m.post(.floorPaused(segments: 2), now: 0)
+        #expect(m.lines(now: 0) == [HUDLine("对方在说话 · 已暂停 2 段 · 双击右⌥清空", .yellow)])
+        m.clear(.floorPaused(segments: 0))
+        #expect(m.lines(now: 0).isEmpty)
+    }
+
+    @Test func keyInvalidOncePerMeeting() {
+        var m = HUDModel()
+        m.meetingStarted()
+        m.post(.openAIKeyInvalid, now: 0)
+        m.post(.openAIKeyInvalid, now: 10)
+        #expect(!m.lines(now: 10).contains { $0.text.hasPrefix("OpenAI key") })
+        m.meetingEnded()
+        m.meetingStarted()
+        m.post(.openAIKeyInvalid, now: 20)
+        #expect(m.lines(now: 20).contains { $0.text.hasPrefix("OpenAI key") })
+        // Unreachable is not limited.
+        m.post(.openAIUnreachable, now: 30)
+        m.post(.openAIUnreachable, now: 40)
+        #expect(m.lines(now: 43).filter { $0.text.hasPrefix("OpenAI 暂时") }.count == 1)
+    }
+
+    @Test func redWarningsComeFirst() {
+        var m = HUDModel()
+        m.meetingStarted()
+        m.pushToTalkAvailable = true
+        m.post(.speakerMode, now: 0)
+        m.post(.remoteHearsYourVoice, now: 0)
+        let l = m.lines(now: 0)
+        #expect(l.map(\.text) == ["会议正在用实体麦，对方仍可能听到原声；按键翻译已停用", "按住右⌥说中文翻译", "正在外放，请戴耳机"])
+    }
+
+    // MARK: passthrough (§3.8)
+
+    @Test func shortCommandPressShowsNothing() {
+        var m = HUDModel()
+        m.passthrough(.pressed, now: 0)
+        #expect(m.lines(now: 0.1).isEmpty)
+        m.passthrough(.cancelled, now: 0.3)          // released before 400 ms / a ⌘ shortcut
+        #expect(m.lines(now: 0.3).isEmpty)
+        #expect(m.lines(now: 2).isEmpty)
+        m.passthrough(.refused(reason: nil), now: 3) // outside meeting mode / setting off
+        #expect(m.lines(now: 3).isEmpty)
+    }
+
+    @Test func passthroughLines() {
+        var m = HUDModel()
+        m.passthrough(.pressed, now: 0)
+        m.passthrough(.waitingForClause, now: 0.4)
+        #expect(m.lines(now: 0.5) == [HUDLine("原声 · 等这句说完", .red)])
+        m.passthrough(.opened, now: 1)
+        m.passthrough(.level(0.4), now: 1.1)
+        #expect(m.lines(now: 1.1) == [HUDLine("原声 · 对方正在听你说", .redBanner, level: 0.4)])
+        m.passthrough(.countdown(secondsLeft: 6), now: 24)
+        #expect(m.lines(now: 24) == [HUDLine("原声 · 对方正在听你说", .redBanner, level: 0.4)])
+        m.passthrough(.countdown(secondsLeft: 5), now: 25)
+        #expect(m.lines(now: 25) == [HUDLine("原声 · 对方正在听你说 · 还剩 5 s", .redBanner, level: 0.4)])
+        m.passthrough(.countdown(secondsLeft: 1), now: 29)
+        #expect(m.lines(now: 29).first?.text == "原声 · 对方正在听你说 · 还剩 1 s")
+        m.passthrough(.closed(reason: "超过 30 s"), now: 30)
+        #expect(m.lines(now: 30.5) == [HUDLine("原声已关闭：超过 30 s")])
+        #expect(m.nextExpiry(after: 30.5) == 31)
+        #expect(m.lines(now: 31).isEmpty)
+    }
+
+    @Test func normalCloseShowsOneSecond() {
+        var m = HUDModel()
+        m.passthrough(.opened, now: 0)
+        m.passthrough(.closed(reason: nil), now: 2)
+        #expect(m.lines(now: 2.99) == [HUDLine("原声已关闭")])
+        #expect(m.lines(now: 3).isEmpty)
+    }
+
+    @Test func everyCloseReasonLine() {
+        // PassthroughCloseReason.hudText values (§3.8 关闭原因).
+        for r in ["按了其他键", "超过 30 s", "音频系统重启", "会议没用 TalkTalk Mic", "先等提示音再说", "原声直通已中断"] {
+            var m = HUDModel()
+            m.passthrough(.opened, now: 0)
+            m.passthrough(.closed(reason: r), now: 1)
+            #expect(m.lines(now: 1) == [HUDLine("原声已关闭：\(r)")])
+        }
+    }
+
+    @Test func everyRefusalShowsGrayForOneAndAHalfSeconds() {
+        // PassthroughPolicy.DenyReason / PassthroughRefusal hudText values (§3.8 不可用时).
+        let reasons = ["外放时不能用原声直通", "会议 App 正在用实体麦，对方本来就听得到你", "会议没用 TalkTalk Mic",
+                       "安全输入开启中", "先等提示音再说", "原声直通暂不可用", "自检进行中，原声直通暂不可用",
+                       "按键说话进行中", "按键监听失效，原声直通暂不可用", "音频系统重启中", "当前麦克风不能用于原声直通"]
+        for r in reasons {
+            var m = HUDModel()
+            m.passthrough(.pressed, now: 0)
+            m.passthrough(.refused(reason: r), now: 0.5)
+            #expect(m.lines(now: 0.5) == [HUDLine(r, .secondary)])
+            #expect(m.lines(now: 1.99) == [HUDLine(r, .secondary)])
+            #expect(m.lines(now: 2.0).isEmpty)
+        }
+    }
+
+    @Test func passthroughShowsWithoutMeetingSubtitles() {
+        // The HUD has its own visibility: it does not depend on the subtitle panel.
+        var m = HUDModel()
+        m.meetingStarted()
+        m.passthrough(.opened, now: 0)
+        #expect(m.isVisible(now: 0))
+        #expect(m.lines(now: 0).first?.style == .redBanner)
+    }
+
+    @Test func releaseWhileWaitingForTheClauseClearsTheLine() {
+        var m = HUDModel()
+        m.passthrough(.pressed, now: 0)
+        m.passthrough(.waitingForClause, now: 0.4)
+        m.passthrough(.cancelled, now: 0.9)
+        #expect(m.lines(now: 0.9).isEmpty)
+    }
+
+    @Test func silentRefusalWhileWaitingClearsTheLine() {
+        var m = HUDModel()
+        m.passthrough(.waitingForClause, now: 0.4)
+        m.passthrough(.refused(reason: nil), now: 0.6)   // e.g. setting turned off
+        #expect(m.lines(now: 0.6).isEmpty)
+    }
+
+    @Test func cancelDoesNotClearAFadingCloseLine() {
+        var m = HUDModel()
+        m.passthrough(.opened, now: 0)
+        m.passthrough(.closed(reason: nil), now: 1)
+        m.passthrough(.cancelled, now: 1.25)
+        #expect(m.lines(now: 1.25) == [HUDLine("原声已关闭")])
+    }
+
+    @Test func levelAndCountdownIgnoredWhenNotOpen() {
+        var m = HUDModel()
+        m.passthrough(.level(0.9), now: 0)
+        m.passthrough(.countdown(secondsLeft: 3), now: 0)
+        #expect(m.lines(now: 0).isEmpty)
+    }
+
+    // MARK: push to talk (M2)
+
+    @Test func meetingAudioSeparatesNormalProgressFromPhysicalMicRisk() {
+        var model = HUDModel()
+        model.meetingStarted()
+        for audio in [HUDModel.MeetingAudio.original, .translating, .draining] {
+            model.meetingAudio = audio
+            #expect(model.lines(now: 0) == [HUDLine(audio.text, .normal)])
+        }
+        model.meetingAudio = .unavailable(reason: "设备待确认")
+        #expect(model.lines(now: 0) == [HUDLine("TalkTalk 音频暂不可用：设备待确认", .yellow)])
+        model.post(.remoteHearsYourVoice, now: 0)
+        #expect(model.lines(now: 0).contains(HUDLine("会议正在用实体麦，对方仍可能听到原声；按键翻译已停用", .red)))
+        #expect(!model.lines(now: 0).contains { $0.text.contains("原声已关闭") })
+    }
+
+    @Test func pushToTalkLines() {
+        var m = HUDModel()
+        #expect(m.lines(now: 0).isEmpty)          // outside meeting mode: nothing
+        m.meetingStarted()
+        #expect(m.lines(now: 0).isEmpty)          // no push to talk wired yet (M1): no hint
+        m.pushToTalkAvailable = true
+        #expect(m.lines(now: 0) == [HUDLine("按住右⌥说中文翻译", .secondary)])
+        m.pushToTalk = .holding(level: 0.5, preview: "明年的预算", committed: ["我们先看"], queued: 2)
+        #expect(m.lines(now: 0) == [HUDLine("正在识别中文", .normal, level: 0.5), HUDLine("✓ 我们先看", .check),
+                                    HUDLine("明年的预算", .secondary), HUDLine("待播 2 段", .secondary)])
+        m.pushToTalk = .playing(lang: .de, voice: .mine, source: .openAI, queued: 0)
+        #expect(m.lines(now: 0) == [HUDLine("正在播放译音（DE）"), HUDLine("我的声音", .secondary),
+                                    HUDLine("OpenAI", .secondary)])
+        m.pushToTalk = .playing(lang: .en, voice: .system, source: .apple, queued: 1)
+        #expect(m.lines(now: 0) == [HUDLine("正在播放译音（EN）"), HUDLine("系统声音", .secondary),
+                                    HUDLine("Apple 本地翻译", .secondary), HUDLine("待播 1 段", .secondary)])
+        m.pushToTalk = .playing(lang: .en, voice: .fallbackModel, source: .openAI, queued: 0)
+        #expect(m.lines(now: 0)[1] == HUDLine("备用模型", .secondary))
+    }
+
+    @Test func meetingEndClearsEverythingButSysInputNotices() {
+        var m = HUDModel()
+        m.meetingStarted()
+        m.post(.meetingNotUsingMic, now: 0)
+        m.post(.segmentNotSent, now: 0)
+        m.passthrough(.opened, now: 0)
+        m.meetingEnded()
+        #expect(m.lines(now: 0).isEmpty)
+    }
+
+    @Test func speechTranscriptSurvivesReleaseAndDrainThenExpiresOrIsReplaced() {
+        var model = HUDModel()
+        model.meetingStarted(); model.pushToTalkAvailable = true; model.speechWorkPending = true
+        let original = String(repeating: "完整原文不能截断。", count: 12)
+        model.receiveTranscript(.init(press: 1, source: original, target: "", isFinal: false), now: 0)
+        model.pushToTalk = .idle // releasing/playing callbacks do not own the transcript
+        #expect(model.visibleTranscript(at: 100)?.source == original)
+        model.receiveTranscript(.init(press: 1, source: original, target: "The complete translation.", isFinal: true,
+                                      unsubmittedSource: "短尾"), now: 100)
+        model.meetingAudio = .unavailable(reason: "paused") // paused output is still busy
+        model.refreshTranscriptLifetime(now: 100)
+        #expect(model.nextExpiry(after: 100) == nil)
+        #expect(model.visibleTranscript(at: 200)?.unsubmittedSource == "短尾")
+        model.speechWorkPending = false; model.refreshTranscriptLifetime(now: 200)
+        #expect(model.nextExpiry(after: 200) == 210)
+        model.expireTranscript(at: 210, reading: true)
+        #expect(model.visibleTranscript(at: 211) != nil)
+        model.receiveTranscript(.init(press: 2, source: "新一轮", target: "", isFinal: false), now: 211)
+        model.receiveTranscript(.init(press: 1, source: "迟到的旧结果", target: "old", isFinal: true), now: 212)
+        #expect(model.visibleTranscript(at: 220)?.source == "新一轮")
+        model.receiveTranscript(.init(press: 2, source: "新一轮定稿", target: "New turn.", isFinal: true), now: 220)
+        model.receiveTranscript(.init(press: 2, source: "迟到的草稿", target: "", isFinal: false), now: 221)
+        #expect(model.visibleTranscript(at: 229)?.source == "新一轮定稿")
+        model.expireTranscript(at: 230)
+        #expect(model.transcript == nil)
+        model.receiveTranscript(.init(press: 2, source: "不能复活过期结果", target: "", isFinal: true), now: 231)
+        #expect(model.transcript == nil)
+    }
+
+    /// The restore notice may arrive just before or after meetingEnded (listen's order): it stays
+    /// its 4 s either way, and so does an entry result posted around meetingStarted.
+    @Test func sysInputNoticesOutliveMeetingStartAndEnd() {
+        let restored = HUDLine("默认输入已还原为 MacBook Pro 麦克风")
+        var before = HUDModel()
+        before.meetingStarted()
+        before.post(.defaultInputRestored(to: "MacBook Pro 麦克风"), now: 1)
+        before.meetingEnded()
+        #expect(before.lines(now: 2) == [restored])
+        #expect(before.lines(now: 5).isEmpty)
+
+        var after = HUDModel()
+        after.meetingStarted()
+        after.meetingEnded()
+        after.post(.defaultInputRestored(to: "MacBook Pro 麦克风"), now: 1)
+        #expect(after.lines(now: 2) == [restored])
+
+        var entry = HUDModel()
+        entry.post(.defaultInputNotSwitched(.micNotSelectable), now: 0)
+        entry.meetingStarted()
+        #expect(entry.lines(now: 1).contains(HUDLine(SysInputDialogPlan.EntryIssue.micNotSelectable.text, .yellow)))
+
+        let sys: [HUDModel.Warning] = [.defaultInputChanged(to: "X"), .switchedBackAfterInsert(device: "X"),
+                                       .defaultInputRestored(to: "X"),
+                                       .defaultInputRestoredElsewhere(to: "X", original: "Y", originalMissing: true),
+                                       .defaultInputNotSwitched(.writeFailed), .switchBackFailed(current: "X")]
+        let others: [HUDModel.Warning] = [.segmentNotSent, .meetingNotUsingMic, .passthroughTip, .openAIKeyInvalid]
+        let sysFlags = sys.map { $0.isSysInput }, otherFlags = others.map { $0.isSysInput }
+        #expect(sysFlags == [true, true, true, true, true, true])
+        #expect(otherFlags == [false, false, false, false])
+    }
+}
+
+@Suite struct RefreshLimiterTests {
+    @Test func atMostTwicePerSecond() {
+        var r = RefreshLimiter()
+        #expect(r.request(now: 0) == .now)
+        r.didRender(now: 0)
+        #expect(r.request(now: 0.1) == .at(0.5))
+        #expect(r.request(now: 0.2) == .merged)
+        r.didRender(now: 0.5)
+        #expect(r.request(now: 1.25) == .now)
+        r.didRender(now: 1.25)
+        #expect(r.request(now: 1.5) == .at(1.75))
+    }
+}

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "comment": "TargetTextGate (ARCHITECTURE.md §5.4): meta-talk and refusal patterns, matched case-insensitively against the whole first line (ICU regex). Fillers: a line made only of these words and punctuation is rejected.",
+  "meta": [
+    "^here(?:'s| is) (?:the|my|your) translation\\b",
+    "^(?:the )?translation\\s*:",
+    "^\\(?\\s*no (?:content|text|translation)\\b",
+    "\\(no content\\)",
+    "^hier ist (?:die|meine) übersetzung\\b",
+    "^übersetzung\\s*:",
+    "^\\(?\\s*kein (?:inhalt|text)\\b",
+    "^i (?:cannot|can't|can not|am unable to|'m unable to)\\b",
+    "^(?:i'm|i am) sorry\\b",
+    "^sorry,? (?:i|but)\\b",
+    "^as an ai\\b",
+    "^ich kann (?:das|dies|diesen|diese|hier|leider)?\\s*(?:nicht|keine)\\b",
+    "^es tut mir leid\\b",
+    "^(?:note|hinweis|anmerkung)\\s*:",
+    "^\\[[^\\]]*\\]$",
+    "^\\([^)]*\\)$",
+    "^<(?!none>)[^>]*>$"
+  ],
+  "fillers": {
+    "en": ["um", "uh", "er", "erm", "hmm", "hm", "mm", "uhm"],
+    "de": ["äh", "ähm", "öh", "hm", "hmm", "mhm"]
+  }
+}

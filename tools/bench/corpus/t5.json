@@ -1,0 +1,977 @@
+{
+  "set": "t5",
+  "record": true,
+  "lang": "zh",
+  "stop": "auto",
+  "silence_stop_s": 1.0,
+  "max_s": 10,
+  "measurement": "T5 (SPEAK ASR：0.6B / 1.7B / Apple finalize 的 CER、术语正确率、语种门误丢率)；§5.2、§5.4",
+  "how": "每条一段，按屏幕上的字读出来。带 spoken 字段的条目里有阿拉伯数字：按 spoken 的读法读（界面应显示 spoken 读法）。标 filler 的两条是纯语气词，读得自然就行。英文术语和产品名按你平时的说法读（可以是中文口音的英文）。语速用开会时的语速。读错了就重录，不要在录音里改口。CER 的参考文本：有 spoken 用 spoken，否则用 text。 在 TalkTalk-Dev.app 里用 `--bench record --set t5` 录。",
+  "items": [
+    {
+      "id": "t5-001",
+      "text": "iPhone 17 的销量比预期高了百分之十五。",
+      "spoken": "iPhone 十七的销量比预期高了百分之十五。",
+      "mixed": true,
+      "tags": [
+        "number:percent"
+      ],
+      "terms": [
+        "iPhone"
+      ],
+      "est_s": 3.9
+    },
+    {
+      "id": "t5-002",
+      "text": "项目整体进展还算顺利，只是有两个风险点需要关注。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 5.1
+    },
+    {
+      "id": "t5-003",
+      "text": "这笔费用大概是五千块钱。",
+      "mixed": false,
+      "tags": [
+        "number:money"
+      ],
+      "terms": [],
+      "est_s": 2.4
+    },
+    {
+      "id": "t5-004",
+      "text": "我们在三号楼十二层开会。",
+      "mixed": false,
+      "tags": [
+        "number:other"
+      ],
+      "terms": [],
+      "est_s": 2.4
+    },
+    {
+      "id": "t5-005",
+      "text": "这个我来跟进，下周一之前给大家一个回复。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.2
+    },
+    {
+      "id": "t5-006",
+      "text": "我们需要一个 demo 给客户看。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "demo"
+      ],
+      "est_s": 2.8
+    },
+    {
+      "id": "t5-007",
+      "text": "这个问题我回头确认一下。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 2.4
+    },
+    {
+      "id": "t5-008",
+      "text": "麻烦把屏幕共享一下。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 2.0
+    },
+    {
+      "id": "t5-009",
+      "text": "我把会议纪要整理好以后发给大家。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-010",
+      "text": "这一点我不太同意。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 1.8
+    },
+    {
+      "id": "t5-011",
+      "text": "单价是 49.9 美元，不含税。",
+      "spoken": "单价是四十九点九美元，不含税。",
+      "mixed": false,
+      "tags": [
+        "number:money"
+      ],
+      "terms": [],
+      "est_s": 3.1
+    },
+    {
+      "id": "t5-012",
+      "text": "先不要急着下结论，我们再观察一段时间。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.0
+    },
+    {
+      "id": "t5-013",
+      "text": "他们的新产品叫 Notion AI，功能和我们有重叠。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "Notion AI"
+      ],
+      "est_s": 4.6
+    },
+    {
+      "id": "t5-014",
+      "text": "我再补充一点，供应商那边的交付时间可能会延后。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.9
+    },
+    {
+      "id": "t5-015",
+      "text": "先在 staging 环境测试，没问题再发到 production。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "staging",
+        "production"
+      ],
+      "est_s": 4.0
+    },
+    {
+      "id": "t5-016",
+      "text": "我们的目标是把错误率控制在 1% 以内。",
+      "spoken": "我们的目标是把错误率控制在百分之一以内。",
+      "mixed": false,
+      "tags": [
+        "number:percent"
+      ],
+      "terms": [],
+      "est_s": 4.2
+    },
+    {
+      "id": "t5-017",
+      "text": "请稍等，我看一下文档。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 2.2
+    },
+    {
+      "id": "t5-018",
+      "text": "这个季度的毛利率下降了两个百分点。",
+      "mixed": false,
+      "tags": [
+        "number:percent"
+      ],
+      "terms": [],
+      "est_s": 3.6
+    },
+    {
+      "id": "t5-019",
+      "text": "系统已经连续运行了七十二个小时。",
+      "mixed": false,
+      "tags": [
+        "number:duration"
+      ],
+      "terms": [],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-020",
+      "text": "服务器部署在 AWS 上，数据库用的是 PostgreSQL。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "AWS",
+        "PostgreSQL"
+      ],
+      "est_s": 4.2
+    },
+    {
+      "id": "t5-021",
+      "text": "上周的评审会上大家已经讨论过这个问题了。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.2
+    },
+    {
+      "id": "t5-022",
+      "text": "这份合同是两千零五年签的。",
+      "mixed": false,
+      "tags": [
+        "number:date"
+      ],
+      "terms": [],
+      "est_s": 2.7
+    },
+    {
+      "id": "t5-023",
+      "text": "关于这个方案，我想听听大家的看法。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 3.5
+    },
+    {
+      "id": "t5-024",
+      "text": "截止时间是下周三中午十二点。",
+      "mixed": false,
+      "tags": [
+        "number:date"
+      ],
+      "terms": [],
+      "est_s": 2.9
+    },
+    {
+      "id": "t5-025",
+      "text": "我们需要一个更清晰的负责人分工。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-026",
+      "text": "我这边没有问题。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 1.6
+    },
+    {
+      "id": "t5-027",
+      "text": "先别 merge，等 CI 跑完再说。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "merge",
+        "CI"
+      ],
+      "est_s": 2.9
+    },
+    {
+      "id": "t5-028",
+      "text": "这部分需求还不够明确，需要产品再确认一下。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.4
+    },
+    {
+      "id": "t5-029",
+      "text": "我们打算接入 OpenAI 的接口来做翻译。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "OpenAI"
+      ],
+      "est_s": 3.4
+    },
+    {
+      "id": "t5-030",
+      "text": "测试环境昨天晚上出了点问题，现在已经恢复了。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.6
+    },
+    {
+      "id": "t5-031",
+      "text": "请用 GitHub Issues 来跟踪这些问题。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "GitHub Issues"
+      ],
+      "est_s": 3.1
+    },
+    {
+      "id": "t5-032",
+      "text": "发布日期是 2026 年 3 月 15 日。",
+      "spoken": "发布日期是二零二六年三月十五日。",
+      "mixed": false,
+      "tags": [
+        "number:date"
+      ],
+      "terms": [],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-033",
+      "text": "完成度大约是 75%，剩下的下周做完。",
+      "spoken": "完成度大约是百分之七十五，剩下的下周做完。",
+      "mixed": false,
+      "tags": [
+        "number:percent"
+      ],
+      "terms": [],
+      "est_s": 4.4
+    },
+    {
+      "id": "t5-034",
+      "text": "谢谢大家，今天的会就到这里。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 2.9
+    },
+    {
+      "id": "t5-035",
+      "text": "我们第三季度的目标已经完成了。",
+      "mixed": false,
+      "tags": [
+        "number:date"
+      ],
+      "terms": [],
+      "est_s": 3.1
+    },
+    {
+      "id": "t5-036",
+      "text": "会议定在十二月十二号下午三点。",
+      "mixed": false,
+      "tags": [
+        "number:date"
+      ],
+      "terms": [],
+      "est_s": 3.1
+    },
+    {
+      "id": "t5-037",
+      "text": "Kubernetes 集群的配置要再检查一遍。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "Kubernetes"
+      ],
+      "est_s": 3.0
+    },
+    {
+      "id": "t5-038",
+      "text": "呃，这个，怎么说呢，就是那个。",
+      "mixed": false,
+      "tags": [
+        "filler"
+      ],
+      "terms": [],
+      "est_s": 3.0
+    },
+    {
+      "id": "t5-039",
+      "text": "这个修复大概需要两周时间。",
+      "mixed": false,
+      "tags": [
+        "number:duration"
+      ],
+      "terms": [],
+      "est_s": 2.7
+    },
+    {
+      "id": "t5-040",
+      "text": "我们的 KPI 主要看留存和活跃度。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "KPI"
+      ],
+      "est_s": 3.2
+    },
+    {
+      "id": "t5-041",
+      "text": "请大家会后把各自的意见发到群里。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-042",
+      "text": "客户那边反馈说界面有点复杂，不太容易上手。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.4
+    },
+    {
+      "id": "t5-043",
+      "text": "请把 PR 链接发给我，我来 review。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "PR",
+        "review"
+      ],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-044",
+      "text": "这个地方的逻辑有点绕，建议拆成两步来做。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.2
+    },
+    {
+      "id": "t5-045",
+      "text": "第三个问题，我想请技术负责人回答。",
+      "mixed": false,
+      "tags": [
+        "number:other"
+      ],
+      "terms": [],
+      "est_s": 3.5
+    },
+    {
+      "id": "t5-046",
+      "text": "从用户的角度来看，这样改会更直观。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 3.5
+    },
+    {
+      "id": "t5-047",
+      "text": "这件事情牵涉到好几个部门，需要大家一起配合。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.6
+    },
+    {
+      "id": "t5-048",
+      "text": "这个 feature 的 roadmap 还没有最终确定。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "feature",
+        "roadmap"
+      ],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-049",
+      "text": "我们不妨换个思路，从成本的角度重新算一算。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.4
+    },
+    {
+      "id": "t5-050",
+      "text": "大家有什么补充吗？没有的话我继续往下讲。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.2
+    },
+    {
+      "id": "t5-051",
+      "text": "这个项目的预算是三十万欧元。",
+      "mixed": false,
+      "tags": [
+        "number:money"
+      ],
+      "terms": [],
+      "est_s": 2.9
+    },
+    {
+      "id": "t5-052",
+      "text": "MacBook Pro 上的表现比我们预想的要好。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "MacBook Pro"
+      ],
+      "est_s": 3.8
+    },
+    {
+      "id": "t5-053",
+      "text": "等一下，我想确认一个细节。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 2.6
+    },
+    {
+      "id": "t5-054",
+      "text": "请在 Teams 里发一个 meeting invite。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "Teams",
+        "meeting",
+        "invite"
+      ],
+      "est_s": 3.0
+    },
+    {
+      "id": "t5-055",
+      "text": "今年的增长率是 3.5%。",
+      "spoken": "今年的增长率是百分之三点五。",
+      "mixed": false,
+      "tags": [
+        "number:percent"
+      ],
+      "terms": [],
+      "est_s": 2.9
+    },
+    {
+      "id": "t5-056",
+      "text": "我们用 Slack 同步进度，不用再发邮件了。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "Slack"
+      ],
+      "est_s": 3.9
+    },
+    {
+      "id": "t5-057",
+      "text": "嗯……那个……就是……然后……",
+      "mixed": false,
+      "tags": [
+        "filler"
+      ],
+      "terms": [],
+      "est_s": 3.0
+    },
+    {
+      "id": "t5-058",
+      "text": "这个功能要等 Apple 发布新的 SDK 才能做。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "Apple",
+        "SDK"
+      ],
+      "est_s": 4.0
+    },
+    {
+      "id": "t5-059",
+      "text": "我们先把最小可用的版本做出来，再慢慢迭代。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.4
+    },
+    {
+      "id": "t5-060",
+      "text": "每次请求平均耗时 1.2 秒。",
+      "spoken": "每次请求平均耗时一点二秒。",
+      "mixed": false,
+      "tags": [
+        "number:duration"
+      ],
+      "terms": [],
+      "est_s": 2.7
+    },
+    {
+      "id": "t5-061",
+      "text": "这个 SaaS 产品每月收费 99 美元。",
+      "spoken": "这个 SaaS 产品每月收费九十九美元。",
+      "mixed": true,
+      "tags": [
+        "number:money"
+      ],
+      "terms": [
+        "SaaS"
+      ],
+      "est_s": 3.4
+    },
+    {
+      "id": "t5-062",
+      "text": "我们的 GPU 利用率只有百分之三十。",
+      "mixed": true,
+      "tags": [
+        "number:percent"
+      ],
+      "terms": [
+        "GPU"
+      ],
+      "est_s": 3.4
+    },
+    {
+      "id": "t5-063",
+      "text": "如果没有其他问题，我们就进入下一个议题。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.2
+    },
+    {
+      "id": "t5-064",
+      "text": "设计稿已经放到 Figma 里了，大家可以直接评论。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "Figma"
+      ],
+      "est_s": 4.5
+    },
+    {
+      "id": "t5-065",
+      "text": "发布会定在 3 月 8 日，Keynote 已经准备好了。",
+      "spoken": "发布会定在三月八日，Keynote 已经准备好了。",
+      "mixed": true,
+      "tags": [
+        "number:date"
+      ],
+      "terms": [
+        "Keynote"
+      ],
+      "est_s": 4.1
+    },
+    {
+      "id": "t5-066",
+      "text": "团队里有人在用 Claude 写代码。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "Claude"
+      ],
+      "est_s": 2.8
+    },
+    {
+      "id": "t5-067",
+      "text": "总共收到了一百二十八条反馈。",
+      "mixed": false,
+      "tags": [
+        "number:other"
+      ],
+      "terms": [],
+      "est_s": 2.9
+    },
+    {
+      "id": "t5-068",
+      "text": "大概有三分之二的用户用的是手机。",
+      "mixed": false,
+      "tags": [
+        "number:other"
+      ],
+      "terms": [],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-069",
+      "text": "测试跑了两个小时，一共发现了 12 个 bug。",
+      "spoken": "测试跑了两个小时，一共发现了十二个 bug。",
+      "mixed": true,
+      "tags": [
+        "number:duration",
+        "number:other"
+      ],
+      "terms": [
+        "bug"
+      ],
+      "est_s": 4.3
+    },
+    {
+      "id": "t5-070",
+      "text": "一共有十二个人参加了这次测试。",
+      "mixed": false,
+      "tags": [
+        "number:other"
+      ],
+      "terms": [],
+      "est_s": 3.1
+    },
+    {
+      "id": "t5-071",
+      "text": "转化率比上个月提高了百分之二十。",
+      "mixed": false,
+      "tags": [
+        "number:percent"
+      ],
+      "terms": [],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-072",
+      "text": "麻烦在 Jira 里新建一个 ticket。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "Jira",
+        "ticket"
+      ],
+      "est_s": 2.9
+    },
+    {
+      "id": "t5-073",
+      "text": "好，那就这么定了。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 1.8
+    },
+    {
+      "id": "t5-074",
+      "text": "我建议把这个决定推迟到下次会议。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-075",
+      "text": "这是一个很好的问题，让我想一想怎么回答。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.2
+    },
+    {
+      "id": "t5-076",
+      "text": "这个接口的返回格式需要和后端再对一下。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.0
+    },
+    {
+      "id": "t5-077",
+      "text": "对，这正是我想说的。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 2.0
+    },
+    {
+      "id": "t5-078",
+      "text": "会议预计持续四十五分钟。",
+      "mixed": false,
+      "tags": [
+        "number:duration"
+      ],
+      "terms": [],
+      "est_s": 2.4
+    },
+    {
+      "id": "t5-079",
+      "text": "这个 API 的文档需要再更新一下。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "API"
+      ],
+      "est_s": 3.2
+    },
+    {
+      "id": "t5-080",
+      "text": "不好意思，刚才网络卡了一下，能请你再说一遍吗？",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.8
+    },
+    {
+      "id": "t5-081",
+      "text": "上线时间改到 11 月 20 日。",
+      "spoken": "上线时间改到十一月二十日。",
+      "mixed": false,
+      "tags": [
+        "number:date"
+      ],
+      "terms": [],
+      "est_s": 2.7
+    },
+    {
+      "id": "t5-082",
+      "text": "大家能听到我说话吗？",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 2.0
+    },
+    {
+      "id": "t5-083",
+      "text": "每个月的服务费是 2800 元。",
+      "spoken": "每个月的服务费是两千八百元。",
+      "mixed": false,
+      "tags": [
+        "number:money"
+      ],
+      "terms": [],
+      "est_s": 2.9
+    },
+    {
+      "id": "t5-084",
+      "text": "延迟已经降到三百毫秒以内。",
+      "mixed": false,
+      "tags": [
+        "number:duration"
+      ],
+      "terms": [],
+      "est_s": 2.7
+    },
+    {
+      "id": "t5-085",
+      "text": "我觉得我们应该先把风险列出来再做决定。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.0
+    },
+    {
+      "id": "t5-086",
+      "text": "这个模型跑在 GPU 上，延迟比 CPU 低很多。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "GPU",
+        "CPU"
+      ],
+      "est_s": 4.2
+    },
+    {
+      "id": "t5-087",
+      "text": "这个 endpoint 需要加上 token 验证。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "endpoint",
+        "token"
+      ],
+      "est_s": 2.9
+    },
+    {
+      "id": "t5-088",
+      "text": "第一季度的销量是去年同期的两倍。",
+      "mixed": false,
+      "tags": [
+        "number:other"
+      ],
+      "terms": [],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-089",
+      "text": "前端用 React，后端用 Swift 和 Python。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "React",
+        "Swift",
+        "Python"
+      ],
+      "est_s": 3.4
+    },
+    {
+      "id": "t5-090",
+      "text": "好的，我们开始吧。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 1.8
+    },
+    {
+      "id": "t5-091",
+      "text": "预计可以节省两百万人民币的成本。",
+      "mixed": false,
+      "tags": [
+        "number:money"
+      ],
+      "terms": [],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-092",
+      "text": "你的声音有点小，可以离麦克风近一点吗？",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 4.0
+    },
+    {
+      "id": "t5-093",
+      "text": "先说结论，方案可行。",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 2.0
+    },
+    {
+      "id": "t5-094",
+      "text": "这个 bug 在 iOS 上能复现，安卓上没问题。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "bug",
+        "iOS"
+      ],
+      "est_s": 4.2
+    },
+    {
+      "id": "t5-095",
+      "text": "请给我们十分钟准备一下。",
+      "mixed": false,
+      "tags": [
+        "number:duration"
+      ],
+      "terms": [],
+      "est_s": 2.4
+    },
+    {
+      "id": "t5-096",
+      "text": "合同金额大约是 1.5 亿元。",
+      "spoken": "合同金额大约是一点五亿元。",
+      "mixed": false,
+      "tags": [
+        "number:money"
+      ],
+      "terms": [],
+      "est_s": 2.7
+    },
+    {
+      "id": "t5-097",
+      "text": "预算已经用掉了百分之八十五。",
+      "mixed": false,
+      "tags": [
+        "number:percent"
+      ],
+      "terms": [],
+      "est_s": 2.9
+    },
+    {
+      "id": "t5-098",
+      "text": "请问这个功能的优先级是怎么定的？",
+      "mixed": false,
+      "tags": [],
+      "terms": [],
+      "est_s": 3.3
+    },
+    {
+      "id": "t5-099",
+      "text": "Zoom 的虚拟背景会占用不少资源。",
+      "mixed": true,
+      "tags": [],
+      "terms": [
+        "Zoom"
+      ],
+      "est_s": 3.2
+    },
+    {
+      "id": "t5-100",
+      "text": "这个 API 的响应时间大约是 200 毫秒。",
+      "spoken": "这个 API 的响应时间大约是两百毫秒。",
+      "mixed": true,
+      "tags": [
+        "number:duration"
+      ],
+      "terms": [
+        "API"
+      ],
+      "est_s": 3.7
+    }
+  ]
+}

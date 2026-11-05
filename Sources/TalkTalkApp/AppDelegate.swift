@@ -1,0 +1,398 @@
+import AppKit
+import Observation
+import TalkTalkApple
+import TalkTalkAudio
+import TalkTalkCore
+import TalkTalkCloudUI
+import TalkTalkSession
+import TalkTalkVoice
+
+/// The normal launch path (ARCHITECTURE.md §13): `TalkTalk` with no arguments starts the menu
+/// bar app. One instance per build flavor (SingleInstance); a second launch brings the running
+/// one's settings window forward and exits.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static var retained: AppDelegate?
+
+    let state = AppState()
+    private var statusItem: StatusItemController?
+    private var settings: SettingsWindowController?
+    private var meeting: MeetingController?
+    private var onboarding: OnboardingWindowController?
+    private var systemInput: SystemInputController?
+    private var speak: SpeakController?
+    private let hud = PTTHUD()
+    /// §1 / §7.6: the app's engine instance and the voice lifecycle built with it.
+    let engineHost = EngineHost()
+    private let smokeOut: String?
+    private let isSmoke: Bool
+    private var quitting = false
+
+    init(smoke: Bool, smokeOut: String?) {
+        isSmoke = smoke
+        self.smokeOut = smokeOut
+        super.init()
+    }
+
+    static func run(smoke: Bool = false, smokeOut: String? = nil) -> Never {
+        guard SingleInstance.acquire() else {
+            SingleInstance.signalRunningInstance()
+            exit(0)
+        }
+        let app = NSApplication.shared
+        let delegate = AppDelegate(smoke: smoke, smokeOut: smokeOut)
+        retained = delegate
+        app.delegate = delegate
+        app.setActivationPolicy(.accessory)
+        app.run()
+        exit(0)
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = MainMenu.make(settingsTarget: self)
+        state.voiceStore.removeStaleStaging()   // §9.2: staging left by a crash
+        let settings = SettingsWindowController(state: state, engineHost: engineHost)
+        self.settings = settings
+        // §11 首次引导 (app-ui): step 5 shares the settings window's TranslationPage.
+        let onboardingModel = OnboardingFlowModel(appState: state, engine: AppUIModels.shared.engine,
+                                                  translation: settings.translation)
+        onboardingModel.voice.engineHost = engineHost
+        let onboarding = OnboardingWindowController(model: onboardingModel)
+        AppUIModels.shared.general.onRestartOnboarding = { [weak onboarding] in
+            onboarding?.model.restart()
+            onboarding?.show()
+        }
+        self.onboarding = onboarding
+        let privacy = isSmoke ? nil : PrivacySettings.shared
+        let meeting = MeetingController(state: state, hud: hud, privacy: privacy,
+            engineProcess: { [bridge = engineHost.speakBridge] in bridge.process })
+        self.meeting = meeting
+        state.onToggleListening = { [weak meeting] mode in meeting?.toggle(mode: mode) }
+        hud.anchor = { [weak meeting] in meeting?.panel.frame }
+        meeting.prepareCloud = { [weak settings] in
+            let prefs = TranslationPreferences.load(.standard)
+            guard prefs.cloudConsentGiven, prefs.listenCloudEnabled || prefs.speakCloudEnabled else { return false }
+            settings?.translation.load()
+            guard let model = settings?.translation.model else { return false }
+            await model.loadModels()
+            return model.preferences.model != prefs.model
+        }
+        let profile = try? PolicyProfile.loadDefault()
+        let output = isSmoke ? nil : profile.flatMap { try? SpeakOutput(profile: $0) }
+        if let output { engineHost.setAuditionMonitor(MonitorAudition(monitor: output.monitor)) }
+        // §8.6: not in the smoke run, which must not read or write the real default input.
+        let systemInput = isSmoke ? nil : SystemInputController(state: state, events: meeting.events, hud: hud,
+            waitForFeed: true, monitorUID: { output?.monitor.isSelfListenAudible == true ? output?.monitor.device?.uid : nil })
+        self.systemInput = systemInput
+        settings.driver.systemInput = systemInput   // 组件 › 虚拟麦克风 / 完全卸载 (§8.4)
+        settings.driver.isChannel1Busy = { output?.isChannel1Busy ?? false }
+        if let output, let profile, let systemInput {
+            let speak = SpeakController(state: state, meeting: meeting, systemInput: systemInput,
+                engineHost: engineHost, output: output, profile: profile, hud: hud,
+                privacy: privacy,
+                selfTestRunning: { [weak settings, weak privacy] in
+                    settings?.driver.model?.selfTestRunning == true || privacy?.diagnosticsStatus.isAudioSelfTestRunning == true
+                })
+            speak.onChange = { [weak self] in self?.updateIcon() }
+            speak.onMonitorAvailabilityChange = { [weak settings, weak onboardingModel] in
+                settings?.voice.refreshMonitorAvailability()
+                onboardingModel?.voice.refreshMonitorAvailability()
+            }
+            onboardingModel.startSpeakDemo = { [weak speak] in
+                guard let speak else { throw SpeakController.DemoFailure.unavailable }
+                try await speak.beginOnboardingDemo()
+            }
+            onboardingModel.stopSpeakDemo = { [weak speak] in speak?.endOnboardingDemo() }
+            speak.onDemoPlayed = { [weak onboardingModel] in onboardingModel?.demoPlayed() }
+            speak.onDemoFailure = { [weak onboardingModel] message in onboardingModel?.demoFailed(message) }
+            speak.onDemoStatus = { [weak onboardingModel] message in onboardingModel?.demoStatus(message) }
+            self.speak = speak
+        }
+        onboardingModel.driverPage = settings.driver
+        onboardingModel.startMeetingMicCheck = { [weak systemInput] update in systemInput?.startOnboardingCheck(update) }
+        onboardingModel.stopMeetingMicCheck = { [weak systemInput] in systemInput?.stopOnboardingCheck() }
+        if let privacy {
+            privacy.diagnosticsStatus.beforeAudioSelfTest = { [weak engineHost] in await engineHost?.engine()?.stop() }
+            privacy.diagnosticsStatus.canRunAudioSelfTest = { [weak self, weak settings, weak onboardingModel] in
+                guard let self, let settings, let onboardingModel else { return false }
+                return !state.meetingActive && !state.meetingStarting && speak?.isActive != true
+                    && settings.voice.enrollment == nil && settings.voice.auditioning == nil
+                    && onboardingModel.voice.enrollment == nil && onboardingModel.voice.auditioning == nil
+                    && !AppUIModels.shared.engine.running && settings.driver.model?.selfTestRunning != true
+            }
+            meeting.canStartMeeting = { [weak privacy, weak self] in
+                privacy?.diagnosticsStatus.isAudioSelfTestRunning != true && self?.speak?.isActive != true
+            }
+            settings.voice.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
+            onboardingModel.voice.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
+            settings.driver.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
+        }
+        meeting.beforeUserEnd = { [weak systemInput] in systemInput?.confirmUserEnd() ?? true }
+        let status = StatusItemController(state: state, actions: .init(
+            openSettings: { [weak self] section in self?.settings?.show(section) },
+            toggleMeeting: { [weak meeting] in meeting?.toggle() },
+            startCaptions: { [weak meeting] in meeting?.toggle(mode: .captions) },
+            quit: { NSApp.terminate(nil) },
+            sources: { [weak meeting] in meeting?.sources().map { ($0.id, $0.name) } ?? [] },
+            lastSource: { [weak meeting] in meeting?.lastSource },
+            chooseSource: { [weak meeting] id in meeting?.lastSource = id },
+            stillInMeeting: { [weak meeting] in meeting?.stillInMeeting() },
+            openOnboarding: { [weak onboarding] in onboarding?.show() },
+            canPlayAnnouncement: { [weak speak] in speak?.canPlayAnnouncement ?? false },
+            playAnnouncement: { [weak speak] in speak?.playAnnouncement() },
+            usesGlobalListenFallback: { [weak meeting] in meeting?.session?.usesGlobalFallback ?? false },
+            setGlobalListenFallback: { [weak meeting] enabled in meeting?.setGlobalListenFallback(enabled) },
+            systemInputItems: { [weak systemInput] in
+                guard let s = systemInput else { return (false, false, false) }
+                return (s.showsSwitchBack, s.showsRestoreNow, s.showsResumeFromRecord)
+            },
+            switchBackToMic: { [weak systemInput] in systemInput?.switchBack() },
+            restoreDefaultInput: { [weak systemInput] in systemInput?.restoreNow() }))
+        statusItem = status
+        meeting.onActiveChange = { [weak self] _ in self?.updateIcon() }
+        meeting.onTranslationChange = { [weak self] in self?.updateIcon() }
+        systemInput?.onStatusChange = { [weak self] in self?.updateIcon() }
+
+        DistributedNotificationCenter.default().addObserver(
+            forName: SingleInstance.reopenNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.showFront() }
+        }
+
+        // §7.5 item 6, in the background; the menu shows a status line when something is missing.
+        Task { [state, isSmoke] in
+            if !isSmoke { await AppleSpeechASR.reserveInstalledLocales() }   // the smoke run changes nothing
+            let r = await AppleStartupCheckItem().run()
+            state.appleCheck = r.level == .ok ? nil : "Apple：" + r.summary
+        }
+
+        // The installer (onboarding step 4, Settings › 组件) changed the installation: build or
+        // drop the engine instance; Settings' 重启引擎 restarts that instance.
+        engineHost.onChange = { [weak self] in self?.engineChanged() }
+        engineChanged()
+        followInstallation()
+
+        systemInput?.start()
+        speak?.prepareLaunchTakeover()
+        updateIcon()
+        hud.setSubtitlesVisible(state.subtitlesVisible)
+
+        if isSmoke {
+            runSmoke()
+        } else if onboardingModel.needsOnboarding {
+            onboarding.show()   // §11 首次引导, resumes at the saved step
+        }
+        if !isSmoke {
+            Task { await AppUIModels.shared.general.refreshNotifications() }
+        }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard !isSmoke else { return }
+        Task { await AppUIModels.shared.general.refreshNotifications() }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showFront()
+        return false
+    }
+
+    @objc func openSettings(_ sender: Any?) { settings?.show() }
+
+    private func engineChanged() {
+        let engine = engineHost.engine()
+        let components = AppUIModels.shared.engine
+        // nil on success; EngineFailure's description already says "去设置 › 组件 修复".
+        // restartFromSettings also schedules the §7.6 idle exit after the restart.
+        components.restart = engine == nil ? nil : { [weak engineHost] in
+            do { try await engineHost?.restartFromSettings(); return nil } catch { return "\(error)" }
+        }
+        components.stopEngine = { [weak engineHost] in await engineHost?.engine()?.stop() }
+    }
+
+    private func followInstallation() {
+        let model = AppUIModels.shared.engine
+        withObservationTracking { _ = (model.state, model.record) } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.engineHost.sync()
+                self?.followInstallation()
+            }
+        }
+    }
+
+    /// §11 icon from the meeting, its translation and the system input's leftovers (§8.6).
+    private func updateIcon() {
+        statusItem?.setIcon(MenuBarIcon.compute(meetingActive: state.meetingActive,
+                                                systemInput: systemInput?.switcher.status ?? .idle,
+                                                translationDegraded: state.listenTranslationDegraded && state.listenTranslation != .appleOnly,
+                                                micGuard: systemInput?.micGuard.state ?? .init(),
+                                                mode: state.meetingMode,
+                                                talkTalkMicReadWhileInactive: systemInput?.micReadWhileInactive ?? false,
+                                                componentsMissing: engineHost.engine() == nil,
+                                                listenReady: meeting?.session?.listenLanguage != nil,
+                                                warming: speak?.warming ?? false,
+                                                speaking: speak?.speaking ?? false,
+                                                passthroughOpen: speak?.passthroughOpen ?? false,
+                                                speakerMode: systemInput?.route.state.speakerMode,
+                                                systemVoice: state.voiceProfilePresent && engineHost.routing.source == .systemVoice,
+                                                speakTranslationDegraded: (speak?.degraded ?? false) && meeting?.cloud.box.speak != nil))
+    }
+
+    /// A second launch or a Dock click: the unfinished onboarding, else settings.
+    private func showFront() {
+        if let o = onboarding, o.model.needsOnboarding { o.show() } else { settings?.show() }
+    }
+
+    /// A confirmed quit (menu, ⌘Q, logout / shutdown): the system-input question first (§8.6).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if quitting { return .terminateLater }
+        let reply = systemInput?.quit() ?? .terminateNow
+        guard reply == .terminateNow else { return reply }
+        quitting = true
+        AppUIModels.shared.engine.installer?.cancel()
+        settings?.voice.endRecording()
+        Task {
+            await speak?.shutdown()
+            await engineHost.engine()?.stop()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        settings?.voice.endRecording()
+        ListenDemo.removeTemporaryFiles()
+    }
+
+    /// `--smoke-ui` (dev build): opens settings on 我的声音, reports what is on screen, quits after
+    /// 1.5 s. Never opens the microphone (no take is started), so it needs no TCC grant.
+    private func runSmoke() {
+        settings?.show(.voice)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [self] in
+            let window = NSApp.windows.first { $0.isVisible && $0.identifier?.rawValue == "TalkTalkSettings" }
+            var r: [String: Any] = [
+                "op": "smoke-ui",
+                "flavor": BuildFlavor.current.rawValue,
+                "status_item": statusItem != nil,
+                "settings_visible": window != nil,
+                "section": settings?.navigation.selection?.rawValue ?? "",
+                "profile_present": state.voiceProfilePresent,
+                "recording_view": settings?.voice.enrollment != nil,
+                "onboarding_needed": onboarding?.model.needsOnboarding ?? false,
+                "system_input_switcher": systemInput != nil,   // must be false: smoke never touches the default input
+                "speak_output": speak != nil,
+                "activation_policy": NSApp.activationPolicy() == .regular ? "regular" : "accessory",
+            ]
+            if let window {
+                r["window_size"] = [Int(window.frame.width), Int(window.frame.height)]
+                if let fit = window.contentView?.fittingSize { r["content_fitting_size"] = [Int(fit.width), Int(fit.height)] }
+                if let screen = window.screen { r["screen_visible_height"] = Int(screen.visibleFrame.height) }
+            }
+            if let panel = meeting?.panel {
+                // The subtitle panel's configuration (§11), with a sample board; no audio involved.
+                panel.apply(.source("so the budget for next year"))
+                panel.apply(.final(sentence: 1, text: "明年的预算", source: "the budget for next year", approx: true, numberWarning: false))
+                panel.apply(.draft(sentence: 2, text: "草稿"))
+                panel.setVisible(true)
+                let cb = panel.collectionBehavior
+                r["subtitle_panel"] = [
+                    "visible": panel.isVisible,
+                    "sharing_none": panel.sharingTypeIsNone,
+                    "all_spaces": cb.contains(.canJoinAllSpaces),
+                    "full_screen_aux": cb.contains(.fullScreenAuxiliary),
+                    "click_through": panel.clickThrough,
+                    "lines": panel.shownLines,
+                ] as [String: Any]
+                panel.setVisible(false)
+                panel.clear()
+            }
+            if let devices = settings?.voice.enrollment?.devices {
+                r["devices"] = devices.map { ["transport": $0.info.transport, "accepted": $0.verdict.isAccepted] as [String: Any] }
+            }
+            smokeOnboarding(into: r)
+        }
+    }
+
+    /// app-ui's onboarding on a throwaway defaults suite (the user's own progress is untouched):
+    /// step 1 is passed with the dev facts *before* the window opens, so its automatic afplay
+    /// probe (TCC) never runs; then the window is shown and the rest is walked with `devFinish`.
+    private func smokeOnboarding(into result: [String: Any]) {
+        #if TALKTALK_DEV
+        guard let settings else { writeResult(result, to: smokeOut); exit(0) }
+        let suite = "talktalk.smoke.onboarding"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        // voice.engineHost stays nil: step 6 cannot start a take (no microphone in the smoke run).
+        let model = OnboardingFlowModel(defaults: defaults, appState: state, engine: AppUIModels.shared.engine,
+                                        translation: settings.translation, autoProbe: false)
+        let o = OnboardingWindowController(model: model)
+        let first = model.step
+        model.devAdvance()
+        o.show()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [self] in
+            var r = result
+            let w = NSApp.windows.first { $0.isVisible && $0.title == "欢迎使用 TalkTalk" }
+            let shown = model.step
+            let visited = [first].compactMap { $0 } + model.devFinish()
+            r["onboarding_window"] = [
+                "visible": w != nil,
+                "size": w.map { [Int($0.frame.width), Int($0.frame.height)] } ?? [],
+                "shown_step": shown.map { "\($0)" } ?? "done",
+                "visited": visited.map { "\($0)" },
+                "finished": model.step == nil,
+                "closed_on_finish": !o.isVisible,
+            ] as [String: Any]
+            o.close()
+            defaults.removePersistentDomain(forName: suite)
+            writeResult(r, to: smokeOut)
+            exit(0)
+        }
+        #else
+        writeResult(result, to: smokeOut)
+        exit(0)
+        #endif
+    }
+}
+
+/// An accessory app has no menu bar of its own, but the settings window still needs the Edit
+/// menu's key equivalents (⌘C / ⌘V / ⌘A in the OpenAI key box) and ⌘W / ⌘Q.
+enum MainMenu {
+    @MainActor static func make(settingsTarget: AnyObject? = nil) -> NSMenu {
+        let main = NSMenu()
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(NSMenuItem(title: "关于 TalkTalk", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(.separator())
+        let settings = NSMenuItem(title: "设置…", action: #selector(AppDelegate.openSettings(_:)), keyEquivalent: ",")
+        settings.target = settingsTarget
+        appMenu.addItem(settings)
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: "隐藏 TalkTalk", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        let hideOthers = NSMenuItem(title: "隐藏其他", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(hideOthers)
+        appMenu.addItem(NSMenuItem(title: "全部显示", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: "退出 TalkTalk", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appItem.submenu = appMenu
+        main.addItem(appItem)
+
+        let editItem = NSMenuItem()
+        let edit = NSMenu(title: "编辑")
+        edit.addItem(NSMenuItem(title: "撤销", action: Selector(("undo:")), keyEquivalent: "z"))
+        edit.addItem(NSMenuItem(title: "重做", action: Selector(("redo:")), keyEquivalent: "Z"))
+        edit.addItem(.separator())
+        edit.addItem(NSMenuItem(title: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        edit.addItem(NSMenuItem(title: "拷贝", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        edit.addItem(NSMenuItem(title: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        edit.addItem(NSMenuItem(title: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editItem.submenu = edit
+        main.addItem(editItem)
+
+        let windowItem = NSMenuItem()
+        let window = NSMenu(title: "窗口")
+        window.addItem(NSMenuItem(title: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        windowItem.submenu = window
+        main.addItem(windowItem)
+        return main
+    }
+}

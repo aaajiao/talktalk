@@ -1,0 +1,8 @@
+# talktalk-engine runtime requirements (source of truth; compile with scripts/lock-deps.sh).
+# mlx-audio is pinned to the merge commit of #1117 because v0.6.4 has #1096 but not #1117
+# (checked 2026-11-04 via the GitHub compare API; see docs/decisions/m0-results.md).
+mlx==0.32.4
+mlx-metal==0.32.4
+mlx-audio @ https://github.com/Neywa-Labs/mlx-audio/archive/f65753b55f011f4cc8b1dbc7622ae8110b7b7fbb.tar.gz
+transformers==5.20.2
+numpy==2.4.3

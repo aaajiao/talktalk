@@ -1,0 +1,159 @@
+{
+  "set": "t7_de",
+  "record": false,
+  "lang": "de",
+  "measurement": "T7 (跨语种克隆质量) 与 T7b (德语替代引擎对比，de 同一份)；§9、§14 M0 表 T7",
+  "how": "这是喂给 TTS 的文本，不用录音。用 voice_ref 里你自己的中文参考（ICL、x-vector、可选英文参考、12/16 码本）各合成 30 句，Qwen3-ASR 回读 WER、说话人相似度，再由你盲评“像我”和口音（1–5 分）。01 号就是 §9.2 试听用的那一句，可用来和 voice build 的试听对照。",
+  "items": [
+    {
+      "id": "t7-de-01",
+      "text": "Danke Ihnen allen. Ich gebe Ihnen kurz einen Überblick über den aktuellen Stand des Projekts.",
+      "words": 15
+    },
+    {
+      "id": "t7-de-02",
+      "text": "Das Wetter war ziemlich unangenehm, aber die Ergebnisse des dritten Quartals waren besser als erwartet.",
+      "words": 15
+    },
+    {
+      "id": "t7-de-03",
+      "text": "Könnten Sie das Treffen bitte auf Mittwochnachmittag verschieben, weil mehrere Kollegen diese Woche unterwegs sind?",
+      "words": 15
+    },
+    {
+      "id": "t7-de-04",
+      "text": "Wir haben die neue Version am Donnerstag veröffentlicht, und die Rückmeldungen waren bisher sehr positiv.",
+      "words": 15
+    },
+    {
+      "id": "t7-de-05",
+      "text": "Unsere größte Sorge sind die Kosten für den Betrieb des Modells, nicht die Qualität der Übersetzung.",
+      "words": 16
+    },
+    {
+      "id": "t7-de-06",
+      "text": "Welche dieser drei Möglichkeiten würden Sie wählen, wenn das Budget halbiert würde?",
+      "words": 12
+    },
+    {
+      "id": "t7-de-07",
+      "text": "Ich fürchte, dem kann ich nicht zustimmen, aber ich schaue mir die Zahlen gerne noch einmal an.",
+      "words": 17
+    },
+    {
+      "id": "t7-de-08",
+      "text": "Der Vertrag wurde im Jahr zweitausendfünf unterschrieben und seitdem jedes Jahr verlängert.",
+      "words": 12
+    },
+    {
+      "id": "t7-de-09",
+      "text": "Bitte denken Sie daran, dass der Kunde eine funktionierende Demo möchte und keine lange Präsentation.",
+      "words": 15
+    },
+    {
+      "id": "t7-de-10",
+      "text": "Herr Li aus dem Büro in Shanghai wird in der zweiten Hälfte der Besprechung dazukommen.",
+      "words": 15
+    },
+    {
+      "id": "t7-de-11",
+      "text": "Wir haben eine Latenz von dreihundert Millisekunden gemessen, das liegt deutlich unter unserem Ziel.",
+      "words": 14
+    },
+    {
+      "id": "t7-de-12",
+      "text": "Das ist eine sehr gute Frage, und ehrlich gesagt habe ich noch keine vollständige Antwort.",
+      "words": 15
+    },
+    {
+      "id": "t7-de-13",
+      "text": "Der Lieferant hat versprochen, die Hardware bis zum zwölften Dezember zu liefern.",
+      "words": 12
+    },
+    {
+      "id": "t7-de-14",
+      "text": "Warum fangen wir nicht mit der einfachsten Lösung an und schauen, ob sie das Problem wirklich löst?",
+      "words": 17
+    },
+    {
+      "id": "t7-de-15",
+      "text": "Alles auf der Liste ist erledigt, außer der Dokumentation und der abschließenden Prüfung.",
+      "words": 13
+    },
+    {
+      "id": "t7-de-16",
+      "text": "Wow, das ist viel schneller, als ich gedacht hätte!",
+      "words": 9
+    },
+    {
+      "id": "t7-de-17",
+      "text": "Ich schicke Ihnen den Link gleich nach dem Gespräch, zusammen mit den Folien.",
+      "words": 13
+    },
+    {
+      "id": "t7-de-18",
+      "text": "Wir haben etwa anderthalb Millionen Nutzer, und ungefähr dreißig Prozent davon sind jede Woche aktiv.",
+      "words": 15
+    },
+    {
+      "id": "t7-de-19",
+      "text": "Könnten Sie das bitte noch einmal sagen? Die Leitung war etwas gestört.",
+      "words": 12
+    },
+    {
+      "id": "t7-de-20",
+      "text": "Wir haben zum dritten Mal dasselbe Problem, deshalb brauchen wir eine dauerhafte Lösung.",
+      "words": 13
+    },
+    {
+      "id": "t7-de-21",
+      "text": "Lassen Sie uns die Diskussion kurz halten, denn wir haben nur noch zwanzig Minuten.",
+      "words": 14
+    },
+    {
+      "id": "t7-de-22",
+      "text": "Die neue Oberfläche funktioniert auf Smartphones, Tablets und Laptops ohne zusätzliche Einrichtung.",
+      "words": 12
+    },
+    {
+      "id": "t7-de-23",
+      "text": "Ob wir zwei weitere Entwickler einstellen oder die Arbeit auslagern, hängt von den Ergebnissen im nächsten Monat ab.",
+      "words": 18
+    },
+    {
+      "id": "t7-de-24",
+      "text": "Ich schätze Ihre Geduld sehr, während wir die technischen Probleme gelöst haben.",
+      "words": 12
+    },
+    {
+      "id": "t7-de-25",
+      "text": "Bitte prüfen Sie den Pull-Request noch vor dem Mittagessen, denn der Release-Zweig schließt um vierzehn Uhr.",
+      "words": 16
+    },
+    {
+      "id": "t7-de-26",
+      "text": "Das Projekt liegt im Plan, aber es gibt noch einige Risiken, die wir im Auge behalten müssen.",
+      "words": 17
+    },
+    {
+      "id": "t7-de-27",
+      "text": "Was müsste passieren, damit Sie von Ihrem derzeitigen Anbieter zu uns wechseln?",
+      "words": 12
+    },
+    {
+      "id": "t7-de-28",
+      "text": "Leider ist das Budget für das nächste Jahr noch nicht genehmigt worden.",
+      "words": 12
+    },
+    {
+      "id": "t7-de-29",
+      "text": "Wenn das Netz wieder ausfällt, schalten wir automatisch auf die Ersatzverbindung um.",
+      "words": 12
+    },
+    {
+      "id": "t7-de-30",
+      "text": "Das war es von meiner Seite. Vielen Dank fürs Zuhören und noch einen schönen Tag.",
+      "words": 15
+    }
+  ]
+}

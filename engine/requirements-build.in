@@ -1,0 +1,4 @@
+# Build backend for the mlx-audio sdist, installed first so the main lock can use
+# --no-build-isolation (pip does not hash-check build-isolation dependencies).
+setuptools
+wheel

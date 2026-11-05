@@ -1,0 +1,259 @@
+{
+  "set": "t1_en",
+  "record": false,
+  "lang": "en",
+  "measurement": "T1 (TTS Base ICL 空载：TTFA / RTF / 跑飞 / 回声 / 内存)；§14 M0 表 T1",
+  "how": "这是喂给 TTS 的文本，不用录音。每个 (参考时长 × 模型 × streaming_interval × 编译步) 组合都把全部 50 句各合成一遍。id 的 01–30 是 ≤3 词的短句，31–50 是 4–25 词的长句，可按 id 分组统计。",
+  "items": [
+    {
+      "id": "t1-en-01",
+      "text": "Yes.",
+      "words": 1
+    },
+    {
+      "id": "t1-en-02",
+      "text": "Right.",
+      "words": 1
+    },
+    {
+      "id": "t1-en-03",
+      "text": "Okay.",
+      "words": 1
+    },
+    {
+      "id": "t1-en-04",
+      "text": "Thank you.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-05",
+      "text": "Sounds good.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-06",
+      "text": "I agree.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-07",
+      "text": "Let's begin.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-08",
+      "text": "One moment, please.",
+      "words": 3
+    },
+    {
+      "id": "t1-en-09",
+      "text": "Good morning.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-10",
+      "text": "Not yet.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-11",
+      "text": "Exactly.",
+      "words": 1
+    },
+    {
+      "id": "t1-en-12",
+      "text": "Please continue.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-13",
+      "text": "That works.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-14",
+      "text": "I disagree.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-15",
+      "text": "Can you repeat?",
+      "words": 3
+    },
+    {
+      "id": "t1-en-16",
+      "text": "Next slide, please.",
+      "words": 3
+    },
+    {
+      "id": "t1-en-17",
+      "text": "Any questions?",
+      "words": 2
+    },
+    {
+      "id": "t1-en-18",
+      "text": "Understood.",
+      "words": 1
+    },
+    {
+      "id": "t1-en-19",
+      "text": "Let me check.",
+      "words": 3
+    },
+    {
+      "id": "t1-en-20",
+      "text": "Welcome, everyone.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-21",
+      "text": "Thanks for joining.",
+      "words": 3
+    },
+    {
+      "id": "t1-en-22",
+      "text": "See you Monday.",
+      "words": 3
+    },
+    {
+      "id": "t1-en-23",
+      "text": "It's done.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-24",
+      "text": "Sorry, say again?",
+      "words": 3
+    },
+    {
+      "id": "t1-en-25",
+      "text": "Good point.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-26",
+      "text": "We're live.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-27",
+      "text": "Three percent.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-28",
+      "text": "Ten minutes.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-29",
+      "text": "Release is Friday.",
+      "words": 3
+    },
+    {
+      "id": "t1-en-30",
+      "text": "Agreed, thanks.",
+      "words": 2
+    },
+    {
+      "id": "t1-en-31",
+      "text": "Let me quickly walk you through where the project stands today.",
+      "words": 11
+    },
+    {
+      "id": "t1-en-32",
+      "text": "We expect the first release to be ready by the end of the quarter.",
+      "words": 14
+    },
+    {
+      "id": "t1-en-33",
+      "text": "Could you share your screen so everyone can see the numbers?",
+      "words": 11
+    },
+    {
+      "id": "t1-en-34",
+      "text": "The budget is three hundred thousand euros, which is twenty percent higher than last year.",
+      "words": 15
+    },
+    {
+      "id": "t1-en-35",
+      "text": "I think we should postpone the decision until we have more data from the pilot customers.",
+      "words": 16
+    },
+    {
+      "id": "t1-en-36",
+      "text": "Our main risk is that the supplier may deliver two weeks later than planned.",
+      "words": 14
+    },
+    {
+      "id": "t1-en-37",
+      "text": "Please send me the meeting notes and I will follow up with everyone by Monday.",
+      "words": 15
+    },
+    {
+      "id": "t1-en-38",
+      "text": "The latency is now below three hundred milliseconds, even when the system is under heavy load.",
+      "words": 16
+    },
+    {
+      "id": "t1-en-39",
+      "text": "If there are no further questions, let's move on to the next item on the agenda.",
+      "words": 16
+    },
+    {
+      "id": "t1-en-40",
+      "text": "We started the test on the twelfth of December and have collected feedback from forty-two users so far.",
+      "words": 18
+    },
+    {
+      "id": "t1-en-41",
+      "text": "Sorry, the connection dropped for a moment, so could you please repeat the last part of your answer?",
+      "words": 18
+    },
+    {
+      "id": "t1-en-42",
+      "text": "From the customer's point of view, the new interface is much simpler, but it still needs a clearer explanation of the pricing.",
+      "words": 22
+    },
+    {
+      "id": "t1-en-43",
+      "text": "Before we finalize the plan, I would like to hear from the engineering team whether this schedule is realistic.",
+      "words": 19
+    },
+    {
+      "id": "t1-en-44",
+      "text": "Thank you all for your time today, and please send your comments to the team channel before the end of the week.",
+      "words": 22
+    },
+    {
+      "id": "t1-en-45",
+      "text": "It is a great question, and I need a moment to think about how to answer it properly.",
+      "words": 18
+    },
+    {
+      "id": "t1-en-46",
+      "text": "We should start with the smallest version that works, then improve it step by step based on what users tell us.",
+      "words": 21
+    },
+    {
+      "id": "t1-en-47",
+      "text": "Mister Zhang will present the results from the third quarter, followed by a short discussion.",
+      "words": 15
+    },
+    {
+      "id": "t1-en-48",
+      "text": "The server crashed last night, but it has been restored and we are monitoring it closely.",
+      "words": 16
+    },
+    {
+      "id": "t1-en-49",
+      "text": "To be honest, I am not sure that this approach will scale once we have ten times as many users as today.",
+      "words": 22
+    },
+    {
+      "id": "t1-en-50",
+      "text": "On behalf of the whole team, I would like to thank our customers, partners and colleagues for their patience, feedback and support during the launch.",
+      "words": 25
+    }
+  ]
+}

@@ -1,0 +1,259 @@
+{
+  "set": "t1_de",
+  "record": false,
+  "lang": "de",
+  "measurement": "T1 (TTS Base ICL 空载：TTFA / RTF / 跑飞 / 回声 / 内存)；§14 M0 表 T1",
+  "how": "这是喂给 TTS 的文本，不用录音。每个 (参考时长 × 模型 × streaming_interval × 编译步) 组合都把全部 50 句各合成一遍。id 的 01–30 是 ≤3 词的短句，31–50 是 4–25 词的长句，可按 id 分组统计。",
+  "items": [
+    {
+      "id": "t1-de-01",
+      "text": "Ja.",
+      "words": 1
+    },
+    {
+      "id": "t1-de-02",
+      "text": "Genau.",
+      "words": 1
+    },
+    {
+      "id": "t1-de-03",
+      "text": "Okay.",
+      "words": 1
+    },
+    {
+      "id": "t1-de-04",
+      "text": "Danke schön.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-05",
+      "text": "Klingt gut.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-06",
+      "text": "Einverstanden.",
+      "words": 1
+    },
+    {
+      "id": "t1-de-07",
+      "text": "Fangen wir an.",
+      "words": 3
+    },
+    {
+      "id": "t1-de-08",
+      "text": "Einen Moment, bitte.",
+      "words": 3
+    },
+    {
+      "id": "t1-de-09",
+      "text": "Guten Morgen.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-10",
+      "text": "Noch nicht.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-11",
+      "text": "Richtig.",
+      "words": 1
+    },
+    {
+      "id": "t1-de-12",
+      "text": "Bitte weiter.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-13",
+      "text": "Das passt.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-14",
+      "text": "Ich widerspreche.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-15",
+      "text": "Können Sie wiederholen?",
+      "words": 3
+    },
+    {
+      "id": "t1-de-16",
+      "text": "Nächste Folie, bitte.",
+      "words": 3
+    },
+    {
+      "id": "t1-de-17",
+      "text": "Noch Fragen?",
+      "words": 2
+    },
+    {
+      "id": "t1-de-18",
+      "text": "Verstanden.",
+      "words": 1
+    },
+    {
+      "id": "t1-de-19",
+      "text": "Ich prüfe das.",
+      "words": 3
+    },
+    {
+      "id": "t1-de-20",
+      "text": "Willkommen zusammen.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-21",
+      "text": "Danke fürs Kommen.",
+      "words": 3
+    },
+    {
+      "id": "t1-de-22",
+      "text": "Bis Montag.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-23",
+      "text": "Es ist erledigt.",
+      "words": 3
+    },
+    {
+      "id": "t1-de-24",
+      "text": "Wie bitte?",
+      "words": 2
+    },
+    {
+      "id": "t1-de-25",
+      "text": "Guter Punkt.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-26",
+      "text": "Wir sind live.",
+      "words": 3
+    },
+    {
+      "id": "t1-de-27",
+      "text": "Drei Prozent.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-28",
+      "text": "Zehn Minuten.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-29",
+      "text": "Release ist Freitag.",
+      "words": 3
+    },
+    {
+      "id": "t1-de-30",
+      "text": "Einverstanden, danke.",
+      "words": 2
+    },
+    {
+      "id": "t1-de-31",
+      "text": "Ich gebe Ihnen kurz einen Überblick über den aktuellen Stand des Projekts.",
+      "words": 12
+    },
+    {
+      "id": "t1-de-32",
+      "text": "Wir erwarten, dass die erste Version bis Ende des Quartals fertig ist.",
+      "words": 12
+    },
+    {
+      "id": "t1-de-33",
+      "text": "Könnten Sie bitte Ihren Bildschirm teilen, damit alle die Zahlen sehen können?",
+      "words": 12
+    },
+    {
+      "id": "t1-de-34",
+      "text": "Das Budget beträgt dreihunderttausend Euro und liegt damit zwanzig Prozent über dem Vorjahr.",
+      "words": 13
+    },
+    {
+      "id": "t1-de-35",
+      "text": "Ich denke, wir sollten die Entscheidung verschieben, bis wir mehr Daten von den Pilotkunden haben.",
+      "words": 15
+    },
+    {
+      "id": "t1-de-36",
+      "text": "Unser größtes Risiko ist, dass der Lieferant zwei Wochen später liefern könnte als geplant.",
+      "words": 14
+    },
+    {
+      "id": "t1-de-37",
+      "text": "Bitte schicken Sie mir das Protokoll, dann melde ich mich bis Montag bei allen.",
+      "words": 14
+    },
+    {
+      "id": "t1-de-38",
+      "text": "Die Latenz liegt jetzt unter dreihundert Millisekunden, selbst bei hoher Last.",
+      "words": 11
+    },
+    {
+      "id": "t1-de-39",
+      "text": "Wenn es keine weiteren Fragen gibt, gehen wir zum nächsten Punkt der Tagesordnung über.",
+      "words": 14
+    },
+    {
+      "id": "t1-de-40",
+      "text": "Wir haben den Test am zwölften Dezember gestartet und bisher Rückmeldungen von zweiundvierzig Nutzern gesammelt.",
+      "words": 15
+    },
+    {
+      "id": "t1-de-41",
+      "text": "Entschuldigung, die Verbindung war kurz weg. Könnten Sie den letzten Teil Ihrer Antwort bitte wiederholen?",
+      "words": 15
+    },
+    {
+      "id": "t1-de-42",
+      "text": "Aus Sicht der Kunden ist die neue Oberfläche viel einfacher, aber die Preise müssen noch klarer erklärt werden.",
+      "words": 18
+    },
+    {
+      "id": "t1-de-43",
+      "text": "Bevor wir den Plan abschließen, möchte ich vom Entwicklungsteam hören, ob dieser Zeitplan realistisch ist.",
+      "words": 15
+    },
+    {
+      "id": "t1-de-44",
+      "text": "Vielen Dank für Ihre Zeit heute, und bitte senden Sie Ihre Anmerkungen bis Ende der Woche an den Team-Kanal.",
+      "words": 19
+    },
+    {
+      "id": "t1-de-45",
+      "text": "Das ist eine gute Frage, und ich brauche einen Moment, um sie richtig zu beantworten.",
+      "words": 15
+    },
+    {
+      "id": "t1-de-46",
+      "text": "Wir sollten mit der kleinsten funktionierenden Version anfangen und sie dann Schritt für Schritt verbessern.",
+      "words": 15
+    },
+    {
+      "id": "t1-de-47",
+      "text": "Herr Zhang stellt die Ergebnisse des dritten Quartals vor, danach folgt eine kurze Diskussion.",
+      "words": 14
+    },
+    {
+      "id": "t1-de-48",
+      "text": "Der Server ist gestern Nacht ausgefallen, läuft aber wieder und wir beobachten ihn genau.",
+      "words": 14
+    },
+    {
+      "id": "t1-de-49",
+      "text": "Ehrlich gesagt bin ich nicht sicher, ob dieser Ansatz funktioniert, wenn wir zehnmal so viele Nutzer haben.",
+      "words": 17
+    },
+    {
+      "id": "t1-de-50",
+      "text": "Im Namen des ganzen Teams danke ich unseren Kunden, Partnern und Kollegen für ihre Geduld, Rückmeldungen und Unterstützung beim Start.",
+      "words": 20
+    }
+  ]
+}

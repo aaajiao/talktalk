@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "source": "M0-T1 lite fit, user voice reference, good clips only (docs/decisions/m0-results.md, 2026-11-04)",
+  "words": "max(1, number of whitespace-separated words)",
+  "formula": "intercept_s + per_word_s * words",
+  "default": "de",
+  "languages": {
+    "en": {"intercept_s": 0.391, "per_word_s": 0.340},
+    "de": {"intercept_s": 0.134, "per_word_s": 0.430}
+  }
+}

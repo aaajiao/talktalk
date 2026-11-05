@@ -1,0 +1,65 @@
+#!/bin/bash
+# shellcheck disable=SC2015  # ok/no always return 0, so "A && ok || no" is a safe if-then-else
+# CPython manifest tests (no network): bytecode caches never fail --check, sources and binaries do,
+# old manifests that still list .pyc files keep passing, and a real interpreter run (as in the smoke
+# step, and as an installer step that forgot -B would) leaves the tree verifiable.
+# Run: scripts/tests/test-python-manifest.sh
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../lib/common.sh
+. "$here/../lib/common.sh"
+
+work="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tt-pymanifest-test.XXXXXX")"
+trap '/bin/rm -rf "$work"' EXIT
+py="$work/python"
+/bin/mkdir -p "$py/bin" "$py/lib/python3.12/encodings/__pycache__"
+printf 'print("hi")\n' > "$py/lib/python3.12/encodings/aliases.py"
+printf 'STALE' > "$py/lib/python3.12/encodings/__pycache__/aliases.cpython-312.pyc"
+printf '#!/bin/sh\n' > "$py/bin/python3"; /bin/chmod +x "$py/bin/python3"
+
+pass=0; fail=0
+ok() { pass=$((pass + 1)); printf 'ok   %s\n' "$1"; }
+no() { fail=$((fail + 1)); printf 'FAIL %s\n' "$1"; }
+
+tt_manifest_build "$py" > "$work/manifest"
+/usr/bin/grep -q '__pycache__' "$work/manifest" && no "manifest excludes bytecode" || ok "manifest excludes bytecode"
+tt_manifest_check "$py" "$work/manifest" && ok "fresh tree verifies" || no "fresh tree verifies"
+
+printf 'REWRITTEN' > "$py/lib/python3.12/encodings/__pycache__/aliases.cpython-312.pyc"
+/bin/mkdir -p "$py/lib/python3.12/json/__pycache__"; printf 'NEW' > "$py/lib/python3.12/json/__pycache__/x.cpython-312.pyc"
+tt_manifest_check "$py" "$work/manifest" && ok "rewritten and new .pyc do not fail the check" || no "pyc tolerance"
+
+printf 'tampered\n' >> "$py/lib/python3.12/encodings/aliases.py"
+tt_manifest_check "$py" "$work/manifest" 2>/dev/null && no "modified source detected" || ok "modified source detected"
+printf 'print("hi")\n' > "$py/lib/python3.12/encodings/aliases.py"
+
+/bin/rm -f "$py/bin/python3"
+tt_manifest_check "$py" "$work/manifest" 2>/dev/null && no "missing binary detected" || ok "missing binary detected"
+printf '#!/bin/sh\n' > "$py/bin/python3"; /bin/chmod +x "$py/bin/python3"
+
+# manifest written by the first installer (listed .pyc files); the pyc has since been rewritten
+{ /bin/cat "$work/manifest"; printf '%s  %s\n' "$(printf 'STALE' | /usr/bin/shasum -a 256 | /usr/bin/cut -d' ' -f1)" \
+    "lib/python3.12/encodings/__pycache__/aliases.cpython-312.pyc"; } > "$work/manifest.old"
+tt_manifest_check "$py" "$work/manifest.old" && ok "old manifest with .pyc lines still verifies" || no "old manifest compat"
+
+: > "$work/empty"
+tt_manifest_check "$py" "$work/empty" 2>/dev/null && no "empty manifest rejected" || ok "empty manifest rejected"
+
+# a real interpreter writing bytecode into a verified tree (the bug seen on the first real install)
+real="$work/real"; /bin/mkdir -p "$real/lib"
+printf 'X = 1\n' > "$real/lib/mod.py"
+tt_manifest_build "$real" > "$work/manifest.real"
+# Use the installed engine CPython when there is one (the interpreter that hit the bug); else the system
+# one. -I ignores PYTHONDONTWRITEBYTECODE; the cache file is named explicitly because Apple's
+# /usr/bin/python3 otherwise redirects bytecode to ~/Library/Caches/com.apple.python.
+pybin="$HOME/Library/Application Support/TalkTalk/engine/python/bin/python3"
+[ -x "$pybin" ] || pybin=/usr/bin/python3
+"$pybin" -I -c 'import importlib.util as u, os, py_compile, sys
+src = sys.argv[1]; d = os.path.join(os.path.dirname(src), "__pycache__")
+py_compile.compile(src, cfile=os.path.join(d, os.path.basename(u.cache_from_source(src))), doraise=True)' \
+  "$real/lib/mod.py"
+/usr/bin/find "$real" -name '*.pyc' | /usr/bin/grep -q . && ok "interpreter wrote bytecode into the tree" || no "interpreter wrote bytecode into the tree"
+tt_manifest_check "$real" "$work/manifest.real" && ok "tree verifies after an interpreter run" || no "after interpreter run"
+
+printf '%d passed, %d failed\n' "$pass" "$fail"
+[ "$fail" = 0 ]
