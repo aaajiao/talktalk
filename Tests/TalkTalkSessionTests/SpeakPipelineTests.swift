@@ -112,18 +112,22 @@ private actor SpeakTestASR: ClipASREngine {
     let fails: Bool
     let delay: Duration
     let analyzers: SpeakTestAnalyzers?
+    let repeatsFirstFromContextOnShortClip: Bool
     private(set) var calls = 0
     private(set) var contexts: [String?] = []
     init(text: String = "你好世界", fails: Bool = false, delay: Duration = .zero,
-         analyzers: SpeakTestAnalyzers? = nil, texts: [String] = []) {
+         analyzers: SpeakTestAnalyzers? = nil, texts: [String] = [], repeatsFirstFromContextOnShortClip: Bool = false) {
         self.text = text; self.fails = fails; self.delay = delay; self.analyzers = analyzers
         self.texts = texts
+        self.repeatsFirstFromContextOnShortClip = repeatsFirstFromContextOnShortClip
     }
     func transcribe(_ clip: PCMClip16k, hint: Lang, context: String?, job: JobID,
                     priority: Priority, deadline: HostTime?) async throws -> ASRFinal {
         calls += 1
         contexts.append(context)
-        let recognized = texts.isEmpty ? text : texts[min(calls - 1, texts.count - 1)]
+        var recognized = texts.isEmpty ? text : texts[min(calls - 1, texts.count - 1)]
+        if repeatsFirstFromContextOnShortClip, clip.samples.count < 16_000,
+           let previous = texts.first, context?.contains(previous) == true { recognized = previous }
         analyzers?.opened()
         defer { analyzers?.closed() }
         try await Task.sleep(for: delay)
@@ -238,9 +242,9 @@ struct SpeakPipelineTests {
             asrContext: asrContext, commitWhileHeld: whileHeld)
         return (pipeline, mic, host, tts)
     }
-    private func clip(at: HostTime) -> SpeakClip {
+    private func clip(at: HostTime, isFinal: Bool = true) -> SpeakClip {
         .init(pcm: .init(samples: Array(repeating: 0.1, count: 16_000), start: at, end: at + 1_000_000_000),
-              index: 0, isFinal: true, speechMs: 1000, cutReason: .release)
+              index: 0, isFinal: isFinal, speechMs: 1000, cutReason: isFinal ? .release : .vadDip)
     }
 
     @Test func releaseUsesASRFallbackAndProducesOneTargetLanguageClause() async throws {
@@ -267,17 +271,40 @@ struct SpeakPipelineTests {
                                                asrContext: { "TalkTalk" })
         let now = HostClock.now()
         await pipeline.handle(.began(at: now))
-        mic.press.cc.yield(clip(at: now))
+        mic.press.cc.yield(clip(at: now, isFinal: false))
         #expect(await until { await mt.calls == 1 })
-        mic.press.cc.yield(clip(at: now + 1_000_000_000))
+        mic.press.cc.yield(clip(at: now + 1_000_000_000, isFinal: false))
         #expect(await until { await mt.calls == 2 })
         await pipeline.handle(.released(at: now + 2_000_000_000, reason: .keyUp))
         await pipeline.handle(.began(at: now + 3_000_000_000))
-        mic.press.cc.yield(clip(at: now + 3_000_000_000))
+        mic.press.cc.yield(clip(at: now + 3_000_000_000, isFinal: false))
         #expect(await until { await mt.calls == 3 })
         let contexts = await primary.contexts
         #expect(contexts == ["TalkTalk", "上一轮的第一句。\nTalkTalk", "TalkTalk"])
         await pipeline.stop()
+    }
+
+    @Test func releaseTailKeepsGlossaryWithoutRepeatingPreviousContext() async throws {
+        let preceding = "我们讨论竹子的材料。"
+        for tail in ["新的安排。", preceding] {
+            let primary = SpeakTestASR(texts: [preceding, tail], repeatsFirstFromContextOnShortClip: true)
+            let mt = SpeakTestMT()
+            let (pipeline, mic, _, _) = try fixture(mt: mt, primary: primary, whileHeld: true,
+                                                   asrContext: { "TalkTalk" })
+            let now = HostClock.now()
+            await pipeline.handle(.began(at: now))
+            mic.press.cc.yield(clip(at: now, isFinal: false))
+            #expect(await until { await mt.calls == 1 })
+            mic.press.cc.yield(.init(pcm: .init(samples: Array(repeating: 0.1, count: 10_240),
+                start: now + 1_000_000_000, end: now + 1_640_000_000),
+                index: 1, isFinal: true, speechMs: 640, cutReason: .release))
+            await pipeline.handle(.released(at: now + 1_640_000_000, reason: .keyUp))
+            #expect(await until { await mt.calls == 2 })
+            #expect(await primary.contexts == ["TalkTalk", "TalkTalk"])
+            // Both a new short utterance and an intentional repetition reach MT unchanged.
+            #expect(await mt.requests.map(\.text) == [preceding, tail])
+            await pipeline.stop()
+        }
     }
 
     @Test func cloneContinuityWaitsForItsPredecessorAndResetsOnNewTurn() async throws {
@@ -328,9 +355,12 @@ struct SpeakPipelineTests {
         #expect(await until { log.recorded.contains { $0["ev"] as? String == "speak.tts_complete" } })
         let events = log.recorded
         let source = try #require(events.first { $0["ev"] as? String == "speak.clip_committed" })
+        let recognized = try #require(events.first { $0["ev"] as? String == "speak.asr_result" })
         let request = try #require(events.first { $0["ev"] as? String == "speak.tts_requested" })
         let complete = try #require(events.first { $0["ev"] as? String == "speak.tts_complete" })
         #expect(source["clip_ms"] as? Int == 1000 && source["speech_ms"] as? Int == 1000)
+        #expect(source["clip_overlap_ms"] as? Int == 0)
+        #expect(recognized["source_characters"] as? Int == 4 && recognized["same_previous"] as? Bool == false)
         #expect(source["cut_reason"] as? String == "release")
         #expect(request["clause"] as? Int == source["clause"] as? Int)
         #expect(request["members"] as? Int == 1)
@@ -339,7 +369,7 @@ struct SpeakPipelineTests {
         #expect(complete["job"] as? Int == request["job"] as? Int)
         #expect(complete["audio_ms"] as? Int == 500)
         #expect(complete["attempts"] as? Int == 1 && complete["echo_aborts"] as? Int == 0)
-        for event in [source, request, complete] {
+        for event in [source, recognized, request, complete] {
             let line = String(decoding: try JSONSerialization.data(withJSONObject: event), as: UTF8.self)
             #expect(DiagnosticsWhitelist.scrubEventLine(Substring(line)) != nil)
             #expect(!line.contains("Hello world") && !line.contains("你好世界"))

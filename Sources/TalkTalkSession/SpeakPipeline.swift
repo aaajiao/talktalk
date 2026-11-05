@@ -94,6 +94,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private var thermalSerious = false, lowPower = false
     /// Recognition context belongs to one recording turn; glossary hints may span turns.
     private var lastSource: (press: UInt64, text: String)?
+    private var lastClipEnd: (press: UInt64, end: HostTime)?
     private var renderMembers: [UInt64: [UInt64]] = [:]
     private var renderVoice: [JobID: VoiceHandle] = [:]
     private var renderText: [JobID: String] = [:]
@@ -415,8 +416,14 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             publishTranscript()
         }
         ledger.commit(id, press: press, at: committedAt)
+        let overlapMs = lastClipEnd.flatMap { previous -> Int? in
+            guard previous.press == press, previous.end > clip.pcm.start else { return nil }
+            return HostClock.ms(clip.pcm.start, to: previous.end)
+        } ?? 0
+        lastClipEnd = (press, clip.pcm.end)
         log.event("speak.clip_committed", ["clause": .int(Int(id)), "press": .int(Int(press)),
             "clip_ms": .int(HostClock.ms(clip.pcm.start, to: clip.pcm.end)), "speech_ms": .int(clip.speechMs),
+            "clip_overlap_ms": .int(overlapMs),
             "cut_reason": .tag(clip.cutReason.rawValue)], at: committedAt)
         let previous = asrTail
         let recognition = Task<ASRFinal, Error> { [weak self] in
@@ -439,7 +446,10 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private func recognize(_ clip: SpeakClip, clause id: UInt64, job: JobID, token: UInt32) async throws -> ASRFinal {
         guard active(id, token: token), let row = clauses[id] else { throw CancellationError() }
         if let primaryASR {
-            let previous = lastSource.flatMap { $0.press == row.press ? $0.text : nil }
+            // Release tails can contain little speech: keep glossary hints, but not a full
+            // preceding sentence that the recognizer could repeat in place of the remaining audio.
+            let previous = (clip.isFinal || clip.cutReason == .release) ? nil
+                : lastSource.flatMap { $0.press == row.press ? $0.text : nil }
             let context = [previous, asrContext()].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
             do {
                 // The 600 ms budget begins when this clip actually reaches the recognizer,
@@ -479,6 +489,10 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             try Task.checkCancellation()
             guard active(id, token: token) else { return }
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let samePrevious = lastSource.map { $0.press == row.press && $0.text == text && !text.isEmpty } ?? false
+            log.event("speak.asr_result", ["clause": .int(Int(id)), "press": .int(Int(row.press)),
+                "source_characters": .int(text.count), "same_previous": .bool(samePrevious),
+                "cut_reason": .tag(clip.cutReason.rawValue)])
             if gate.isFiller(text) { log.event("seg.filler"); discard(id, warning: nil); return }
             let external = speakerMode()
             let overlap = external ? await echo.remoteVADOverlap(from: clip.pcm.start, to: clip.pcm.end) : nil
