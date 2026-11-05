@@ -450,6 +450,7 @@ final class ListenDemo {
             }
             let player = try AVAudioPlayer(data: wavData)
             self.player = player
+            panel.setPresentation(.video)
             panel.clear()
             showingPanel = true
             panel.setVisible(true)

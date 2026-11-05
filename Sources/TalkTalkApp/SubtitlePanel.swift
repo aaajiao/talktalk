@@ -3,26 +3,25 @@ import AppKit
 import TalkTalkCore
 import TalkTalkSession
 
-/// One non-activating window for remote subtitles and the local speech HUD. Both sections keep
-/// their own scroll space, while the title bar, text and background move the same saved window.
+/// One non-activating window with independent text cells. Meeting mode has two bilingual
+/// rows; video mode has a compact subtitle strip. The parent only places fixed viewports.
 @MainActor
 final class SubtitlePanel {
+    enum Presentation: String { case meeting, video }
+    private(set) var presentation: Presentation = .meeting
     private let panel: NSPanel
     private let content = ConversationContentView()
     private let backgroundEffect = NSVisualEffectView()
-    private let body = ConversationContentView()
-    private let scroll = ConversationScrollView()
-    private let speechScroll = ConversationScrollView()
-    private let remoteHeading = ConversationLabel(wrappingLabelWithString: String(localized: "对方 / 视频"))
+    private let remoteColumns = ConversationColumnsView()
+    private var speechView: NSView?
+    private let remoteHeading = ConversationLabel(wrappingLabelWithString: String(localized: "对方"))
     private let speechHeading = ConversationLabel(wrappingLabelWithString: String(localized: "我的发言"))
     private let divider = NSBox()
-    private let sourceLabel = ConversationLabel(wrappingLabelWithString: "")
-    private let finalLabels = [ConversationLabel(wrappingLabelWithString: ""), ConversationLabel(wrappingLabelWithString: "")]
-    private let finalSourceLabels = [ConversationLabel(wrappingLabelWithString: ""), ConversationLabel(wrappingLabelWithString: "")]
-    private let draftLabel = ConversationLabel(wrappingLabelWithString: "")
+    private var displayedLines = Array(repeating: "", count: 6)
+    private var resetRemoteScroll = false
     private(set) var board = SubtitleBoard(maxCharactersPerSecond: 9)
     private(set) var baseFontSize: CGFloat = 22
-    var textScale: CGFloat { contentWidth / 760 }
+    var textScale: CGFloat { contentWidth / (presentation == .meeting ? 760 : 960) }
     var fontSize: CGFloat { max(14, baseFontSize * textScale) }
     private var backgroundOpacity: CGFloat = 0.85
     private var manualContentSize: NSSize?
@@ -32,6 +31,7 @@ final class SubtitlePanel {
     private var speechHasLocalContent = false
     private var statusView: NSView?
     private var statusHeight: CGFloat = 0
+    var onPresentationChange: (() -> Void)?
     var onAppearanceChange: (() -> Void)?
     var onHintChange: ((String?) -> Void)?
     private var liveSource = ""
@@ -47,14 +47,15 @@ final class SubtitlePanel {
     private var analysisConfiguration: UInt64 = 0
     private var presentedFinals: [SubtitleBoard.Line] = []
     private var presentedDraft: SubtitleBoard.Line?
-    private var labelsInOrder: [NSTextField] {
-        [finalSourceLabels[0], finalLabels[0], finalSourceLabels[1], finalLabels[1], sourceLabel, draftLabel]
-    }
     var frame: NSRect { panel.frame }
     var screen: NSScreen? { panel.screen }
+    private var defaultContentSize: NSSize {
+        presentation == .meeting ? NSSize(width: 760, height: 480) : NSSize(width: 960, height: 180)
+    }
+    private var minimumWidth: CGFloat { presentation == .meeting ? 480 : 640 }
     var contentWidth: CGFloat {
         let visible = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1440
-        return min(max(480, manualContentSize?.width ?? 760), max(280, visible - 40))
+        return min(max(minimumWidth, manualContentSize?.width ?? defaultContentSize.width), max(280, visible - 40))
     }
 
     init() {
@@ -65,7 +66,7 @@ final class SubtitlePanel {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.sharingType = .none
         panel.hidesOnDeactivate = false
-        panel.title = String(localized: "TalkTalk · 字幕与发言")
+        panel.title = String(localized: "TalkTalk · 会议同传")
         panel.identifier = NSUserInterfaceItemIdentifier("TalkTalkConversation")
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.titleVisibility = .visible
@@ -83,19 +84,7 @@ final class SubtitlePanel {
         backgroundEffect.autoresizingMask = [.width, .height]
         content.addSubview(backgroundEffect)
 
-        scroll.drawsBackground = false
-        scroll.borderType = .noBorder
-        scroll.hasHorizontalScroller = false
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
-        scroll.documentView = body
-        content.addSubview(scroll)
-        speechScroll.drawsBackground = false
-        speechScroll.borderType = .noBorder
-        speechScroll.hasHorizontalScroller = false
-        speechScroll.autohidesScrollers = true
-        speechScroll.scrollerStyle = .overlay
-        content.addSubview(speechScroll)
+        content.addSubview(remoteColumns)
         for heading in [remoteHeading, speechHeading] {
             heading.font = .systemFont(ofSize: 12, weight: .semibold)
             heading.textColor = .secondaryLabelColor
@@ -103,24 +92,8 @@ final class SubtitlePanel {
         }
         divider.boxType = .separator
         content.addSubview(divider)
-        for label in labelsInOrder {
-            label.maximumNumberOfLines = 0
-            label.lineBreakMode = .byWordWrapping
-            label.isSelectable = false
-            label.cell?.isScrollable = false
-            body.addSubview(label)
-        }
-        for label in finalSourceLabels + [sourceLabel] { label.textColor = NSColor(white: 0.65, alpha: 1) }
-        for label in finalLabels { label.textColor = .white }
-        draftLabel.textColor = NSColor(white: 0.68, alpha: 1)
         panel.contentView = content
-        if let screen = NSScreen.main ?? NSScreen.screens.first,
-           let saved = UserDefaults.standard.string(forKey: sizeKey(for: screen)) {
-            let size = NSSizeFromString(saved)
-            if size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 {
-                manualContentSize = size
-            }
-        }
+        if let screen = NSScreen.main ?? NSScreen.screens.first { loadSize(for: screen) }
         setFontSize(22)
         updateBackground()
         placeInitially()
@@ -143,17 +116,26 @@ final class SubtitlePanel {
         if let accessibilityObserver { NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver) }
     }
 
-    func setFontSize(_ size: Double) {
-        baseFontSize = CGFloat(size.isFinite ? min(36, max(16, size)) : 22)
-        updateFonts()
+    func setPresentation(_ value: Presentation) {
+        guard value != presentation else { return }
+        let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens.first
+        if panel.isVisible { savePosition() }
+        presentation = value
+        panel.title = value == .meeting ? String(localized: "TalkTalk · 会议同传") : String(localized: "TalkTalk · 视频字幕")
+        remoteColumns.style = value == .meeting ? .columns : .subtitles
+        if let screen { loadSize(for: screen) }
+        else { manualContentSize = nil }
         render(forceLayout: true)
+        placeInitially(on: screen)
+        onPresentationChange?()
         onAppearanceChange?()
+        updateWindowVisibility()
     }
 
-    private func updateFonts() {
-        for label in finalSourceLabels + [sourceLabel] { label.font = .systemFont(ofSize: max(11, max(12, baseFontSize * 0.65) * textScale)) }
-        for label in finalLabels { label.font = .systemFont(ofSize: fontSize, weight: .medium) }
-        draftLabel.font = .systemFont(ofSize: max(12, max(14, baseFontSize * 0.88) * textScale))
+    func setFontSize(_ size: Double) {
+        baseFontSize = CGFloat(size.isFinite ? min(36, max(16, size)) : 22)
+        render(forceLayout: true)
+        onAppearanceChange?()
     }
 
     func setBackgroundOpacity(_ value: Double) {
@@ -173,9 +155,14 @@ final class SubtitlePanel {
 
     /// PTTHUD supplies only content; it never creates or orders another window.
     func setSpeechContent(_ view: NSView, height: CGFloat, hasLocalSpeech: Bool = false) {
-        if speechScroll.documentView !== view { speechScroll.documentView = view }
+        let changedView = speechView !== view
+        if changedView {
+            speechView?.removeFromSuperview()
+            speechView = view
+            content.addSubview(view)
+        }
         let nextHeight = max(0, height)
-        guard abs(speechHeight - nextHeight) > 0.5 || speechHasLocalContent != hasLocalSpeech else { return }
+        guard changedView || abs(speechHeight - nextHeight) > 0.5 || speechHasLocalContent != hasLocalSpeech else { return }
         let visibilityChanged = (speechHeight > 0) != (nextHeight > 0)
         speechHasLocalContent = hasLocalSpeech
         speechHeight = nextHeight
@@ -233,6 +220,7 @@ final class SubtitlePanel {
     func clear() {
         let hadHint = board.hint != nil
         liveSource = ""; lastPreviewRenderAt = 0; board.clear()
+        resetRemoteScroll = true
         if hadHint { onHintChange?(nil) }
         render()
         observe("subtitle_cleared", at: HostClock.now())
@@ -241,6 +229,7 @@ final class SubtitlePanel {
     func setAnalysisConfiguration(_ id: UInt64) {
         guard analysisConfiguration != id else { return }
         analysisConfiguration = id
+        resetRemoteScroll = true
         presentedFinals = []; presentedDraft = nil
         observe("configuration_reset", at: HostClock.now())
     }
@@ -257,21 +246,44 @@ final class SubtitlePanel {
         }
         if liveSource.isEmpty { renderedSource = "" }
         if board.draft == nil { renderedDraft = nil }
-        var textChanged = false
-        func update(_ label: NSTextField, _ text: String) {
-            guard label.stringValue != text else { return }
-            label.stringValue = text
-            textChanged = true
-        }
-        let lines = Array(board.finals.suffix(finalLabels.count))
-        for index in finalLabels.indices {
+        let lines = Array(board.finals.suffix(2))
+        var nextLines: [String] = []
+        for index in 0..<2 {
             let line = index < lines.count ? lines[index] : nil
-            update(finalSourceLabels[index], line?.source ?? "")
-            update(finalLabels[index], line?.display ?? "")
+            nextLines += [line?.source ?? "", line?.display ?? ""]
         }
-        update(sourceLabel, renderedSource)
-        update(draftLabel, renderedDraft?.text ?? "")
-        if textChanged || forceLayout { layout() }
+        nextLines += [renderedSource, renderedDraft?.text ?? ""]
+        if nextLines != displayedLines || forceLayout || resetRemoteScroll {
+            displayedLines = nextLines
+            let source = NSMutableAttributedString(string: "")
+            let translation = NSMutableAttributedString(string: "")
+            let sourceFont = NSFont.systemFont(ofSize: max(11, max(12, baseFontSize * 0.65) * textScale))
+            let targetFont = NSFont.systemFont(ofSize: fontSize, weight: .medium)
+            let draftFont = NSFont.systemFont(ofSize: max(12, max(14, baseFontSize * 0.88) * textScale))
+            func append(_ text: String, to output: NSMutableAttributedString, font: NSFont, color: NSColor) {
+                guard !text.isEmpty else { return }
+                if output.length > 0 { output.append(NSAttributedString(string: "\n")) }
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.lineBreakMode = .byWordWrapping
+                paragraph.alignment = presentation == .video ? .center : .left
+                paragraph.paragraphSpacing = 12
+                output.append(NSAttributedString(string: text, attributes: [
+                    .font: font, .foregroundColor: color, .paragraphStyle: paragraph,
+                ]))
+            }
+            for line in lines {
+                append(line.source, to: source, font: sourceFont, color: NSColor(white: 0.65, alpha: 1))
+                append(line.display, to: translation, font: targetFont, color: .white)
+            }
+            append(renderedSource, to: source, font: sourceFont, color: NSColor(white: 0.65, alpha: 1))
+            if let renderedDraft {
+                append(renderedDraft.text, to: translation, font: draftFont, color: NSColor(white: 0.68, alpha: 1))
+            }
+            remoteColumns.setText(source: source, translation: translation, resetScroll: resetRemoteScroll)
+            resetRemoteScroll = false
+        }
+        // Text only reflows inside its own cells; it never determines the window or row heights.
+        if forceLayout { layout() }
         recordPresentation()
     }
 
@@ -310,58 +322,39 @@ final class SubtitlePanel {
         let width = contentWidth
         let titleHeight = panel.frame.height - panel.contentRect(forFrameRect: panel.frame).height
         let maxHeight = max(140, visible.height - titleHeight - 40)
-        let hasSpeech = speechHeight > 0
+        let hasSpeech = presentation == .meeting && speechHeight > 0
+        let hasRemoteHeading = presentation == .meeting && subtitlesRequested
         let hasReadingArea = subtitlesRequested || hasSpeech
         let footerSpace = statusHeight > 0 ? statusHeight + (hasReadingArea ? 12 : 0) : 0
-        let sectionChrome: CGFloat = 24 + (subtitlesRequested ? 24 : 0) + (hasSpeech ? 24 : 0) + (subtitlesRequested && hasSpeech ? 22 : 0) + footerSpace
+        let sectionChrome: CGFloat = 24 + (hasRemoteHeading ? 24 : 0) + (hasSpeech ? 24 : 0)
+            + (subtitlesRequested && hasSpeech ? 22 : 0) + footerSpace
         let minHeight: CGFloat = hasReadingArea
             ? min(maxHeight, max(140, sectionChrome + (subtitlesRequested && hasSpeech ? 80 : 48)))
             : max(24, statusHeight + 24)
-        panel.contentMinSize = NSSize(width: min(480, width), height: minHeight)
+        panel.contentMinSize = NSSize(width: min(minimumWidth, width), height: minHeight)
         panel.contentMaxSize = NSSize(width: max(280, visible.width - 40), height: maxHeight)
-        let textWidth = width - 44
-        var y: CGFloat = 0
-        for label in labelsInOrder {
-            label.isHidden = label.stringValue.isEmpty
-            guard !label.isHidden, let font = label.font else { continue }
-            let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byWordWrapping
-            let bounds = (label.stringValue as NSString).boundingRect(
-                with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font, .paragraphStyle: paragraph])
-            let height = ceil(max(font.ascender - font.descender + font.leading, bounds.height)) + 4
-            label.preferredMaxLayoutWidth = textWidth
-            label.frame = NSRect(x: 0, y: y, width: textWidth, height: height)
-            y += height + (finalLabels.contains(where: { $0 === label }) ? 14 : 5)
-        }
-        let bodyHeight = max(24, y)
-        // Hiding subtitle text may leave just the status row. Collapse that strip without
-        // overwriting the saved reading size, which returns when text is shown again.
-        let manualHeight = hasReadingArea ? manualContentSize.map { min(maxHeight, max(minHeight, $0.height)) } : nil
-        let budget = manualHeight.map { max(0, $0 - sectionChrome) } ?? max(160, visible.height * 0.7 - 80 - footerSpace)
-        var viewportHeight = subtitlesRequested ? min(bodyHeight, hasSpeech ? budget * 0.55 : budget) : 0
-        var speechViewportHeight = hasSpeech ? min(speechHeight, budget - viewportHeight) : 0
-        if subtitlesRequested { viewportHeight = min(bodyHeight, budget - speechViewportHeight) }
-        if manualHeight != nil {
-            // A manually sized reading area stays put when status or transcript length changes.
-            if subtitlesRequested, hasSpeech {
-                speechViewportHeight = budget * 0.45
-                viewportHeight = budget - speechViewportHeight
-            } else {
-                viewportHeight = subtitlesRequested ? budget : 0
-                speechViewportHeight = hasSpeech ? budget : 0
-            }
-        }
+        // Each presentation has its own fixed reading size. Status-only mode temporarily
+        // collapses to a strip without overwriting that mode's saved reading dimensions.
+        let height = hasReadingArea
+            ? min(maxHeight, max(minHeight, manualContentSize?.height ?? defaultContentSize.height))
+            : minHeight
+        let budget = max(0, height - sectionChrome)
+        let remoteHeight = subtitlesRequested ? (hasSpeech ? budget * 0.55 : budget) : 0
+        let localHeight = hasSpeech ? budget - remoteHeight : 0
         var top: CGFloat = 12
-        remoteHeading.isHidden = !subtitlesRequested
-        scroll.isHidden = !subtitlesRequested
+        remoteHeading.isHidden = !hasRemoteHeading
+        remoteColumns.isHidden = !subtitlesRequested
         speechHeading.isHidden = !hasSpeech
-        speechScroll.isHidden = !hasSpeech
+        speechView?.isHidden = !hasSpeech
         divider.isHidden = !subtitlesRequested || !hasSpeech
         if subtitlesRequested {
-            remoteHeading.frame = NSRect(x: 16, y: top, width: width - 32, height: 18)
-            top += 24
-            scroll.frame = NSRect(x: 16, y: top, width: width - 32, height: viewportHeight)
-            top += viewportHeight
+            if hasRemoteHeading {
+                remoteHeading.frame = NSRect(x: 16, y: top, width: width - 32, height: 18)
+                top += 24
+            }
+            remoteColumns.frame = NSRect(x: 16, y: top, width: width - 32, height: remoteHeight)
+            remoteColumns.layoutSubtreeIfNeeded()
+            top += remoteHeight
         }
         if hasSpeech {
             if subtitlesRequested {
@@ -370,11 +363,10 @@ final class SubtitlePanel {
             }
             speechHeading.frame = NSRect(x: 16, y: top, width: width - 32, height: 18)
             top += 24
-            speechScroll.frame = NSRect(x: 4, y: top, width: width - 8, height: speechViewportHeight)
-            speechScroll.hasVerticalScroller = speechHeight > speechViewportHeight
-            top += speechViewportHeight
+            speechView?.frame = NSRect(x: 16, y: top, width: width - 32, height: localHeight)
+            speechView?.layoutSubtreeIfNeeded()
         }
-        let size = NSSize(width: width, height: manualHeight ?? min(maxHeight, max(minHeight, top + footerSpace + 12)))
+        let size = NSSize(width: width, height: height)
         let old = panel.frame
         let oldSize = panel.contentRect(forFrameRect: old).size
         let sizeChanged = abs(oldSize.width - size.width) > 0.5 || abs(oldSize.height - size.height) > 0.5
@@ -383,8 +375,6 @@ final class SubtitlePanel {
         backgroundEffect.frame = content.bounds
         statusView?.isHidden = statusHeight <= 0
         statusView?.frame = NSRect(x: 16, y: size.height - 12 - statusHeight, width: width - 32, height: statusHeight)
-        body.frame = NSRect(x: 0, y: 0, width: width - 32, height: bodyHeight)
-        scroll.hasVerticalScroller = bodyHeight > viewportHeight
         // A content refresh must not fight an in-progress drag or overwrite a manual size.
         if sizeChanged {
             let x = min(max(visible.minX + 12, old.midX - width / 2), visible.maxX - width - 12)
@@ -399,7 +389,6 @@ final class SubtitlePanel {
         layout()
         updateWindowVisibility()
         if on {
-            body.alphaValue = 1
             observe("panel_shown", at: HostClock.now())
             recordPresentation()
             guard timer == nil else { return }
@@ -414,13 +403,13 @@ final class SubtitlePanel {
         }
     }
     private func updateWindowVisibility() {
-        if subtitlesRequested || speechHeight > 0 || statusHeight > 0 {
+        if subtitlesRequested || (presentation == .meeting && speechHeight > 0) || statusHeight > 0 {
             if !panel.isVisible { panel.orderFrontRegardless() }
         } else if panel.isVisible { panel.orderOut(nil) }
     }
     var isVisible: Bool { subtitlesRequested && panel.isVisible }
     var isWindowVisible: Bool { panel.isVisible }
-    var speechIsVisible: Bool { speechHeight > 0 && panel.isVisible }
+    var speechIsVisible: Bool { presentation == .meeting && speechHeight > 0 && panel.isVisible }
     var statusIsVisible: Bool { statusHeight > 0 && panel.isVisible }
 
     private func poll() {
@@ -433,29 +422,48 @@ final class SubtitlePanel {
 
     private func userResized() {
         guard !isLayingOut else { return }
-        manualContentSize = panel.contentRect(forFrameRect: panel.frame).size
-        updateFonts()
+        let resized = panel.contentRect(forFrameRect: panel.frame).size
+        let hasReadingArea = subtitlesRequested || (presentation == .meeting && speechHeight > 0)
+        manualContentSize = NSSize(width: resized.width, height: hasReadingArea
+                                   ? resized.height : (manualContentSize?.height ?? defaultContentSize.height))
         render(forceLayout: true)
         onAppearanceChange?()
-        if let screen = panel.screen {
-            UserDefaults.standard.set(NSStringFromSize(panel.contentRect(forFrameRect: panel.frame).size), forKey: sizeKey(for: screen))
+        if let screen = panel.screen, let savedSize = manualContentSize {
+            UserDefaults.standard.set(NSStringFromSize(savedSize), forKey: sizeKey(for: screen))
         }
         savePosition()
     }
 
-    private func key(for screen: NSScreen) -> String {
+    private func screenID(_ screen: NSScreen) -> String {
         let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
-        return "ui.subtitleOrigin.\(number?.stringValue ?? "main")"
+        return number?.stringValue ?? "main"
+    }
+    private func key(for screen: NSScreen) -> String {
+        "ui.subtitleOrigin.\(presentation.rawValue).\(screenID(screen))"
     }
     private func sizeKey(for screen: NSScreen) -> String {
-        let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
-        return "ui.subtitleSize.\(number?.stringValue ?? "main")"
+        "ui.subtitleSize.\(presentation.rawValue).\(screenID(screen))"
     }
-    private func placeInitially() {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-        if let saved = UserDefaults.standard.string(forKey: key(for: screen)) {
+    private func savedGeometry(_ component: String, for screen: NSScreen) -> String? {
+        let key = "ui.subtitle\(component).\(presentation.rawValue).\(screenID(screen))"
+        if let value = UserDefaults.standard.string(forKey: key) { return value }
+        // The former shared geometry belongs only to meeting mode. Video starts independently.
+        guard presentation == .meeting,
+              let value = UserDefaults.standard.string(forKey: "ui.subtitle\(component).\(screenID(screen))") else { return nil }
+        UserDefaults.standard.set(value, forKey: key)
+        return value
+    }
+    private func loadSize(for screen: NSScreen) {
+        manualContentSize = nil
+        guard let saved = savedGeometry("Size", for: screen) else { return }
+        let size = NSSizeFromString(saved)
+        if size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 { manualContentSize = size }
+    }
+    private func placeInitially(on preferredScreen: NSScreen? = nil) {
+        guard let screen = preferredScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        if let saved = savedGeometry("Origin", for: screen) {
             let point = NSPointFromString(saved)
-            if screen.visibleFrame.insetBy(dx: -40, dy: -40).contains(point) {
+            if point.x.isFinite, point.y.isFinite, screen.visibleFrame.insetBy(dx: -40, dy: -40).contains(point) {
                 let visible = screen.visibleFrame
                 panel.setFrameOrigin(NSPoint(x: min(max(point.x, visible.minX + 12), visible.maxX - panel.frame.width - 12),
                                              y: min(max(point.y, visible.minY + 12), visible.maxY - panel.frame.height - 12)))
@@ -478,7 +486,7 @@ final class SubtitlePanel {
     var isResizable: Bool { panel.styleMask.contains(.resizable) }
     var hasManualSize: Bool { manualContentSize != nil }
     var windowNumber: Int { panel.windowNumber }
-    var shownLines: [String] { labelsInOrder.map(\.stringValue) }
+    var shownLines: [String] { displayedLines }
     #if TALKTALK_DEV
     func markPreviewForSmoke() {
         panel.title = String(localized: "TalkTalk · 界面预览（无音频）")

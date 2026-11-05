@@ -15,7 +15,7 @@ final class PTTHUD {
     private var redrawTimer: Timer?
     private var expiryTimer: Timer?
     private let panel: SubtitlePanel
-    private let content = ConversationContentView()
+    private let transcriptColumns = ConversationColumnsView()
     private var width: CGFloat { panel.contentWidth - 8 }
     var onOpenSettings: ((HUDLine.SettingsDestination) -> Void)?
     private let statusRow = NSView()
@@ -31,7 +31,7 @@ final class PTTHUD {
     private var cloudReminder: (apple: () -> Void, copy: () -> Void)?
     private var reminderActions: [HUDButtonAction] = []
     private var shownTranscript: SpeakTranscript?
-    private var transcriptScroll: NSScrollView?
+    private var shownSpeechArea = false
     /// Monotonic seconds; replaceable for a smoke run.
     var clock: () -> Double = { ProcessInfo.processInfo.systemUptime }
 
@@ -124,7 +124,9 @@ final class PTTHUD {
     }
 
     /// SPEAK wires this on once push to talk works; until then no idle shortcut instruction.
-    func setPushToTalkAvailable(_ on: Bool) { change { $0.pushToTalkAvailable = on } }
+    func setPushToTalkAvailable(_ on: Bool) {
+        change { $0.pushToTalkAvailable = on }
+    }
 
     func passthrough(_ e: HUDModel.PassthroughEvent) {
         let now = clock()
@@ -297,7 +299,9 @@ final class PTTHUD {
         shownLines = status.map { [$0.summary] } ?? []
         let summaryChanged = status?.summary != oldStatus?.summary
         let transcriptChanged = transcript != shownTranscript
-        guard force || summaryChanged || transcriptChanged else { return }
+        let showSpeech = subtitlesVisible && model.meetingActive && panel.presentation == .meeting
+        guard force || summaryChanged || transcriptChanged || showSpeech != shownSpeechArea else { return }
+        shownSpeechArea = showSpeech
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -317,26 +321,14 @@ final class PTTHUD {
         statusLabel.frame = NSRect(x: 26, y: 3, width: max(80, statusRow.bounds.width - 96), height: 19)
 
         if force || transcriptChanged {
-            let samePress = transcript?.press == shownTranscript?.press
-            let oldOffset = samePress ? transcriptScroll?.contentView.bounds.origin.y ?? 0 : 0
-            let followTail = samePress && (transcriptScroll.map { ($0.documentView?.bounds.height ?? 0) - $0.documentVisibleRect.maxY < 20 } ?? true)
-            transcriptScroll?.removeFromSuperview()
-            transcriptScroll = nil
+            let newPress = transcript?.press != shownTranscript?.press
             shownTranscript = transcript
-            if let transcript {
-                let view = makeTranscript(transcript, oldOffset: oldOffset, followTail: followTail)
-                transcriptScroll = view
-                content.addSubview(view)
-            }
+            let text = transcriptText(transcript)
+            transcriptColumns.setText(source: text.source, translation: text.translation, resetScroll: newPress)
         }
-        var height: CGFloat = 6
-        if let transcriptScroll {
-            transcriptScroll.frame.origin = NSPoint(x: 12, y: height)
-            height += transcriptScroll.frame.height
-        }
-        height = transcript == nil ? 0 : height + 6
-        content.frame = NSRect(x: 0, y: 0, width: width, height: height)
-        panel.setSpeechContent(content, height: height, hasLocalSpeech: transcript != nil)
+        // The parent owns the row viewport. Each language scrolls directly in its own column;
+        // there is no outer speech scroll view that can swallow wheel events or clip a column.
+        panel.setSpeechContent(transcriptColumns, height: showSpeech ? 180 : 0, hasLocalSpeech: showSpeech)
         panel.setStatusContent(statusRow, height: status == nil ? 0 : Self.rowHeight)
         if status == nil { detailsPopover.close() }
     }
@@ -435,46 +427,30 @@ final class PTTHUD {
         controller.view.window?.sharingType = .none
     }
 
-    private func makeTranscript(_ value: SpeakTranscript, oldOffset: CGFloat, followTail: Bool) -> NSScrollView {
-        let width = self.width - 24
-        let document = ConversationContentView()
-        var y: CGFloat = 8
-        func line(_ text: String, size: CGFloat, color: NSColor, heading: Bool = false) {
+    private func transcriptText(_ value: SpeakTranscript?) -> (source: NSAttributedString, translation: NSAttributedString) {
+        guard let value else { return (NSAttributedString(string: ""), NSAttributedString(string: "")) }
+        let source = NSMutableAttributedString(string: "")
+        func append(_ text: String, size: CGFloat, color: NSColor) {
             guard !text.isEmpty else { return }
-            let label = ConversationLabel(wrappingLabelWithString: text)
-            let font = NSFont.systemFont(ofSize: size, weight: heading ? .semibold : .regular)
-            label.font = font; label.textColor = color
-            label.maximumNumberOfLines = 0; label.lineBreakMode = .byWordWrapping
-            label.preferredMaxLayoutWidth = width - 20
-            let bounds = (text as NSString).boundingRect(
-                with: NSSize(width: width - 20, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font])
-            let height = ceil(bounds.height) + 5
-            label.frame = NSRect(x: 0, y: y, width: width - 20, height: height)
-            document.addSubview(label); y += height + (heading ? 2 : 10)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byWordWrapping
+            paragraph.paragraphSpacing = 10
+            source.append(NSAttributedString(string: text + "\n", attributes: [
+                .font: NSFont.systemFont(ofSize: size), .foregroundColor: color, .paragraphStyle: paragraph
+            ]))
         }
-        line(String(localized: "原文"), size: 12, color: .secondaryLabelColor, heading: true)
-        line(value.source, size: max(11, max(14, panel.baseFontSize * 0.8) * panel.textScale), color: .secondaryLabelColor)
-        if !value.target.isEmpty {
-            line(String(localized: "译文"), size: 12, color: .secondaryLabelColor, heading: true)
-            line(value.target, size: panel.fontSize, color: .labelColor)
-        }
+        append(value.source, size: max(11, max(14, panel.baseFontSize * 0.8) * panel.textScale), color: .secondaryLabelColor)
         if !value.unsubmittedSource.isEmpty {
-            line(String(localized: "未发送草稿"), size: 12, color: .systemOrange, heading: true)
-            line(value.unsubmittedSource, size: max(11, max(14, panel.baseFontSize * 0.75) * panel.textScale), color: .secondaryLabelColor)
+            append(String(localized: "未发送草稿"), size: 12, color: .systemOrange)
+            append(value.unsubmittedSource, size: max(11, max(14, panel.baseFontSize * 0.75) * panel.textScale), color: .secondaryLabelColor)
         }
-        document.frame = NSRect(x: 0, y: 0, width: width, height: y)
-        let cap = min(280, ((panel.screen ?? NSScreen.main)?.visibleFrame.height ?? 800) * 0.35)
-        let height = min(y, max(120, cap))
-        let scroll = ConversationScrollView(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        scroll.drawsBackground = false; scroll.hasVerticalScroller = y > height
-        scroll.autohidesScrollers = true; scroll.scrollerStyle = .overlay
-        scroll.documentView = document
-        scroll.heightAnchor.constraint(equalToConstant: height).isActive = true
-        scroll.widthAnchor.constraint(equalToConstant: width).isActive = true
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: followTail ? max(0, y - height) : min(oldOffset, max(0, y - height))))
-        scroll.reflectScrolledClipView(scroll.contentView)
-        return scroll
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        let translation = NSAttributedString(string: value.target, attributes: [
+            .font: NSFont.systemFont(ofSize: panel.fontSize), .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ])
+        return (source, translation)
     }
 
     // smoke / tests

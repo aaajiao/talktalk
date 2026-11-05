@@ -112,8 +112,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settings?.voice.refreshMonitorAvailability()
                 onboardingModel?.voice.refreshMonitorAvailability()
             }
-            onboardingModel.startSpeakDemo = { [weak speak] in
+            onboardingModel.startSpeakDemo = { [weak speak, weak conversationPanel] in
                 guard let speak else { throw SpeakController.DemoFailure.unavailable }
+                conversationPanel?.setPresentation(.meeting)
                 try await speak.beginOnboardingDemo()
             }
             onboardingModel.stopSpeakDemo = { [weak speak] in speak?.endOnboardingDemo() }

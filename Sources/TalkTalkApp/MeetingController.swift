@@ -53,14 +53,10 @@ final class MeetingController {
         self.privacy = privacy
         self.engineProcess = engineProcess
         state.onListenConfigurationChange = { [weak self] in self?.listenConfigurationChanged() }
-        state.onSubtitleAppearanceChange = { [weak self] in
-            guard let self else { return }
-            self.panel.setFontSize(self.state.subtitleFontSize)
-            self.panel.setBackgroundOpacity(self.state.subtitleBackgroundOpacity)
-        }
+        state.onSubtitleAppearanceChange = { [weak self] in self?.applySubtitleAppearance() }
+        panel.onPresentationChange = { [weak self] in self?.applySubtitleAppearance() }
         state.onSubtitleVisibilityChange = { [weak self] on in self?.setSubtitlesVisible(on) }
-        panel.setFontSize(state.subtitleFontSize)
-        panel.setBackgroundOpacity(state.subtitleBackgroundOpacity)
+        applySubtitleAppearance()
         panel.analysisRecorder = privacy?.subtitleAnalysis
         ui = events.subscribe { [weak self] e in
             switch e {
@@ -105,6 +101,17 @@ final class MeetingController {
     func setSubtitlesVisible(_ on: Bool) {
         panel.setVisible(on && state.meetingActive)
         hud?.setSubtitlesVisible(on)
+    }
+
+    private func applySubtitleAppearance() {
+        switch panel.presentation {
+        case .meeting:
+            panel.setFontSize(state.subtitleFontSize)
+            panel.setBackgroundOpacity(state.subtitleBackgroundOpacity)
+        case .video:
+            panel.setFontSize(state.videoSubtitleFontSize)
+            panel.setBackgroundOpacity(state.videoSubtitleBackgroundOpacity)
+        }
     }
 
     func toggle(mode: MeetingMode = .meeting) {
@@ -236,6 +243,7 @@ final class MeetingController {
         }
         await captionsEngineCleanup?.value
         state.meetingMode = mode
+        panel.setPresentation(mode == .captions ? .video : .meeting)
         try? AppGlossary.store.reload()
         let profile: PolicyProfile
         do { profile = try PolicyProfile.loadDefault() } catch {

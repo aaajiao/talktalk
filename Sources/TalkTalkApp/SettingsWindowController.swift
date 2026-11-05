@@ -44,6 +44,7 @@ final class SettingsNavigation {
     var modelStage: ModelSettingsStage = .recognition
     var componentsTab: ComponentsSettingsTab = .engine
     var diagnosticsTab: DiagnosticsSettingsTab = .privacy
+    var videoSubtitleSettings = false
     var selection: SettingsSection? {
         didSet {
             UserDefaults.standard.set(selection?.rawValue, forKey: Self.key)
@@ -172,7 +173,7 @@ struct SettingsView: View {
         case .meeting:
             MeetingSettingsView(state: state, navigation: navigation)
         case .subtitles:
-            SubtitleSettingsView(state: state)
+            SubtitleSettingsView(state: state, navigation: navigation)
         case .translation:
             ModelSettingsView(state: state, navigation: navigation, translation: translation)
         case .general:

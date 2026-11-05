@@ -46,6 +46,8 @@ final class AppState {
         static let subtitlesVisible = "ui.subtitlesVisible"
         static let subtitleFontSize = "ui.subtitleFontSize"
         static let subtitleBackgroundOpacity = "ui.subtitleBackgroundOpacity"
+        static let videoSubtitleFontSize = "ui.videoSubtitleFontSize"
+        static let videoSubtitleBackgroundOpacity = "ui.videoSubtitleBackgroundOpacity"
         static let speakLanguage = "speak.targetLanguage"
     }
 
@@ -98,6 +100,28 @@ final class AppState {
             onSubtitleAppearanceChange?()
         }
     }
+    private var storedVideoSubtitleFontSize: Double
+    var videoSubtitleFontSize: Double {
+        get { storedVideoSubtitleFontSize }
+        set {
+            let size = newValue.isFinite ? min(36, max(16, newValue)) : 26
+            guard size != storedVideoSubtitleFontSize else { return }
+            storedVideoSubtitleFontSize = size
+            defaults.set(size, forKey: Key.videoSubtitleFontSize)
+            onSubtitleAppearanceChange?()
+        }
+    }
+    private var storedVideoSubtitleBackgroundOpacity: Double
+    var videoSubtitleBackgroundOpacity: Double {
+        get { storedVideoSubtitleBackgroundOpacity }
+        set {
+            let opacity = newValue.isFinite ? min(1, max(0.35, newValue)) : 0.85
+            guard opacity != storedVideoSubtitleBackgroundOpacity else { return }
+            storedVideoSubtitleBackgroundOpacity = opacity
+            defaults.set(opacity, forKey: Key.videoSubtitleBackgroundOpacity)
+            onSubtitleAppearanceChange?()
+        }
+    }
     @ObservationIgnored var onSubtitleAppearanceChange: (() -> Void)?
 
     var speakLanguage: RemoteLanguage {
@@ -146,6 +170,10 @@ final class AppState {
         storedSubtitleFontSize = savedSize.isFinite ? min(36, max(16, savedSize)) : 22
         let savedOpacity = defaults.object(forKey: Key.subtitleBackgroundOpacity) as? Double ?? 0.85
         storedSubtitleBackgroundOpacity = savedOpacity.isFinite ? min(1, max(0.35, savedOpacity)) : 0.85
+        let savedVideoSize = defaults.object(forKey: Key.videoSubtitleFontSize) as? Double ?? 26
+        storedVideoSubtitleFontSize = savedVideoSize.isFinite ? min(36, max(16, savedVideoSize)) : 26
+        let savedVideoOpacity = defaults.object(forKey: Key.videoSubtitleBackgroundOpacity) as? Double ?? 0.85
+        storedVideoSubtitleBackgroundOpacity = savedVideoOpacity.isFinite ? min(1, max(0.35, savedVideoOpacity)) : 0.85
         voiceProfilePresent = voiceStore.hasProfile
     }
 
