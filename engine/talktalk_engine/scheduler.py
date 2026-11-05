@@ -9,6 +9,8 @@ non-preemptible step (a TTS frame, an ASR token, a background chunk). Rules (§6
      class: `<kind>.first` for a job's first step (TTS ICL prefill, ASR encode + prefill), `<kind>`
      for the rest; a class with fewer than 5 samples uses a conservative default (DEFAULT_COST_MS)
   3  otherwise earliest deadline first; ties P0 > P1 > P2 > P3
+  -  tts and voice_warmup share one stateful decoder: a started generator owns it until close,
+     even while parked at the render horizon; ASR may still run between its steps
   6  while SPEAK is active (/v1/session speak_active, or any TTS job queued), P2 is paused
   7  P2 past its deadline is dropped, whether paused, not started or running (a running one is
      cancelled before its next step): counted in expired_dropped, finished with err "expired".
@@ -32,6 +34,7 @@ _seq = itertools.count()
 # (ICL prefill, ASR encode), so they start at the 150 ms non-preemptible bound (rule 4).
 DEFAULT_COST_MS = 20.0
 DEFAULT_FIRST_COST_MS = 150.0
+_TTS_DECODER_JOBS = ("tts", "voice_warmup")
 
 
 def step_class(job):
@@ -202,13 +205,18 @@ class GpuScheduler:
             q = {f"p{i}": sum(1 for j in self.jobs if j.priority == i) for i in range(4)}
             # Jobs pending on purpose, which the app's hang rule (§7.6) must not count (00f65f3
             # review): TTS held by rule 0 (buffer at the horizon, e.g. while playback is paused) and
-            # LISTEN second-pass ASR (P2) held by rule 6 (SPEAK active or any TTS job queued).
+            # LISTEN second-pass ASR (P2) held by rule 6, and generators waiting for the shared
+            # TTS decoder. The decoder owner itself remains runnable unless rule 0 parks it.
             live = [j for j in self.jobs if not j.finished and not j.cancelled.is_set()]
+            owner = self._decoder_owner(live)
+            parked_jobs = {j for j in live if owner is not None and j is not owner and j.kind in _TTS_DECODER_JOBS}
             tts_live = [j for j in live if j.priority == P0]
             buffered = self.buffered_ahead_ms()
-            parked = 0 if buffered is None or buffered < self.horizon_ms else len(tts_live)
+            if buffered is not None and buffered >= self.horizon_ms:
+                parked_jobs.update(tts_live)
             if self.speak_active or tts_live:
-                parked += sum(1 for j in live if j.priority == P2)
+                parked_jobs.update(j for j in live if j.priority == P2)
+            parked = len(parked_jobs)
         age = None if self.last_step_at is None else round(_now_ms() - self.last_step_at, 1)
         rtf = sorted(self.tts_rtf_recent)
         return {"last_step_age_ms": age, "in_long_step": self.in_long_step, "queue": q, "parked": parked,
@@ -241,6 +249,10 @@ class GpuScheduler:
         if self.playout is not None:
             self.playout[2] += audio_ms
 
+    @staticmethod
+    def _decoder_owner(live):
+        return next((j for j in live if j.kind in _TTS_DECODER_JOBS and j.gen is not None), None)
+
     def _pick(self, now):
         live = [j for j in self.jobs if not j.finished]
         if not live:
@@ -248,14 +260,19 @@ class GpuScheduler:
         for j in live:
             if j.cancelled.is_set():
                 return j          # retire cancelled jobs first (closes their generator on this thread)
+        # A warmup uses the same decoder and MLX RNG as a foreground TTS generator. Never
+        # start another one between its yields: reset/prime/close would corrupt its state.
+        # No wait or GPU-thread lock: keep unrelated work eligible while the owner is parked.
+        owner = self._decoder_owner(live)
+        eligible = [j for j in live if owner is None or j is owner or j.kind not in _TTS_DECODER_JOBS]
         buffered = self.buffered_ahead_ms(now)
         tts = [j for j in live if j.priority == P0]
-        tts_runnable = [j for j in tts if buffered is None or buffered < self.horizon_ms]
+        tts_runnable = [j for j in eligible if j.priority == P0 and (buffered is None or buffered < self.horizon_ms)]
         # rule 1
         if tts_runnable and buffered is not None and buffered < 250:
             return min(tts_runnable, key=lambda j: j.seq)
         candidates = []
-        for j in live:
+        for j in eligible:
             if j.priority == P0:
                 if j in tts_runnable:
                     d = now if buffered is None else now + buffered - 250

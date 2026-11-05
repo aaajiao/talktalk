@@ -10,11 +10,17 @@ final class ConversationColumnsView: NSView {
     var style: Style = .columns {
         didSet {
             guard style != oldValue else { return }
-            source.pendingScroll = .top
-            translation.pendingScroll = .top
+            source.setFreezingEnabled(style == .columns)
+            translation.setFreezingEnabled(style == .columns)
             needsLayout = true
             layoutSubtreeIfNeeded()
+            onDisplayedTextChange?()
         }
+    }
+    var onDisplayedTextChange: (() -> Void)?
+    var hasPendingText: Bool { source.hasPendingText || translation.hasPendingText }
+    var isReadingHistory: Bool {
+        style == .columns && (source.isReadingHistory || translation.isReadingHistory)
     }
 
     private let source = Column(title: String(localized: "原文"))
@@ -30,6 +36,13 @@ final class ConversationColumnsView: NSView {
         for column in [source, translation] {
             addSubview(column.heading)
             addSubview(column.scroll)
+            addSubview(column.latestButton)
+            column.onPendingApplied = { [weak self] in
+                guard let self else { return }
+                needsLayout = true
+                layoutSubtreeIfNeeded()
+                onDisplayedTextChange?()
+            }
         }
         divider.boxType = .separator
         addSubview(divider)
@@ -48,6 +61,7 @@ final class ConversationColumnsView: NSView {
         guard sourceChanged || translationChanged else { return }
         needsLayout = true
         layoutSubtreeIfNeeded()
+        onDisplayedTextChange?()
     }
 
     override func layout() {
@@ -59,12 +73,17 @@ final class ConversationColumnsView: NSView {
         let columns = style == .columns
         source.heading.isHidden = !columns
         translation.heading.isHidden = !columns
+        source.latestButton.isHidden = !columns || !source.hasPendingText
+        translation.latestButton.isHidden = !columns || !translation.hasPendingText
         divider.isHidden = !columns
         if columns {
             let gap: CGFloat = 20, headingHeight: CGFloat = 18, top: CGFloat = 24
             let columnWidth = max(0, (width - gap) / 2)
-            source.heading.frame = NSRect(x: 0, y: 0, width: columnWidth, height: headingHeight)
-            translation.heading.frame = NSRect(x: columnWidth + gap, y: 0, width: columnWidth, height: headingHeight)
+            let buttonWidth: CGFloat = 86
+            source.heading.frame = NSRect(x: 0, y: 0, width: max(0, columnWidth - (source.hasPendingText ? buttonWidth + 4 : 0)), height: headingHeight)
+            translation.heading.frame = NSRect(x: columnWidth + gap, y: 0, width: max(0, columnWidth - (translation.hasPendingText ? buttonWidth + 4 : 0)), height: headingHeight)
+            source.latestButton.frame = NSRect(x: max(0, columnWidth - buttonWidth), y: 0, width: buttonWidth, height: 20)
+            translation.latestButton.frame = NSRect(x: width - buttonWidth, y: 0, width: buttonWidth, height: 20)
             source.scroll.frame = NSRect(x: 0, y: top, width: columnWidth, height: max(0, height - top))
             translation.scroll.frame = NSRect(x: columnWidth + gap, y: top, width: columnWidth, height: max(0, height - top))
             divider.frame = NSRect(x: width / 2, y: 0, width: 1, height: height)
@@ -80,17 +99,27 @@ final class ConversationColumnsView: NSView {
     }
 
     @MainActor
-    private final class Column {
+    private final class Column: NSObject {
         enum ScrollPosition: Equatable { case top, tail }
         let heading: ConversationLabel
         let scroll = ConversationScrollView()
+        let latestButton = NSButton(title: String(localized: "回到最新"), target: nil, action: nil)
         private let document = ConversationContentView()
         private let label = ConversationLabel(wrappingLabelWithString: "")
         private var hasContent = false
+        private var pendingText: NSAttributedString?
+        private var allowsFreeze = true
+        private var isLayingOut = false
+        private var scrollObserver: NSObjectProtocol?
+        var onPendingApplied: (() -> Void)?
         var pendingScroll: ScrollPosition?
+        var hasPendingText: Bool { pendingText != nil }
+        var isReadingHistory: Bool { hasContent && (!atBottom || hasPendingText) }
+        private var atBottom: Bool { document.bounds.height - scroll.documentVisibleRect.maxY <= 2 }
 
         init(title: String) {
             heading = ConversationLabel(labelWithString: title)
+            super.init()
             heading.font = .systemFont(ofSize: 12, weight: .semibold)
             heading.textColor = .secondaryLabelColor
             label.maximumNumberOfLines = 0
@@ -107,16 +136,48 @@ final class ConversationColumnsView: NSView {
             scroll.scrollerStyle = .overlay
             scroll.automaticallyAdjustsContentInsets = false
             scroll.setAccessibilityLabel(title)
+            latestButton.bezelStyle = .rounded
+            latestButton.controlSize = .small
+            latestButton.target = self
+            latestButton.action = #selector(returnToLatest)
+            latestButton.isHidden = true
+            scroll.contentView.postsBoundsChangedNotifications = true
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self, !self.isLayingOut, self.hasPendingText, self.atBottom else { return }
+                        self.returnToLatest()
+                    }
+                }
+        }
+
+        isolated deinit {
+            if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+        }
+
+        func setFreezingEnabled(_ enabled: Bool) {
+            allowsFreeze = enabled
+            if let pendingText {
+                label.attributedStringValue = pendingText
+                hasContent = pendingText.length > 0
+            }
+            pendingText = nil
+            pendingScroll = .tail
         }
 
         func setText(_ text: NSAttributedString, reset: Bool) -> Bool {
             let oldText = label.attributedStringValue
-            guard reset || !oldText.isEqual(to: text) else { return false }
-            let firstContent = !hasContent && text.length > 0
-            let atBottom = document.bounds.height - scroll.documentVisibleRect.maxY <= 2
-            if reset || firstContent || text.length == 0 || pendingScroll == .top {
-                pendingScroll = .top
-            } else if oldText.string != text.string, atBottom {
+            if !reset, allowsFreeze, hasContent, !atBottom, text.length > 0, oldText.string != text.string {
+                guard pendingText?.isEqual(to: text) != true else { return false }
+                // One replacement snapshot only: keep the visible reading position and never
+                // append intermediate updates or extend the retained history here.
+                pendingText = NSAttributedString(attributedString: text)
+                return true
+            }
+            let hadPending = pendingText != nil
+            pendingText = nil
+            guard reset || hadPending || !oldText.isEqual(to: text) else { return false }
+            if reset || !hasContent || text.length == 0 || (oldText.string != text.string && atBottom) {
                 pendingScroll = .tail
             }
             // Font/color-only updates (including resize) preserve the reading offset.
@@ -125,7 +186,18 @@ final class ConversationColumnsView: NSView {
             return true
         }
 
+        @objc private func returnToLatest() {
+            guard let pendingText else { return }
+            label.attributedStringValue = pendingText
+            hasContent = pendingText.length > 0
+            self.pendingText = nil
+            pendingScroll = .tail
+            onPendingApplied?()
+        }
+
         func layout(preserving offset: CGFloat) {
+            isLayingOut = true
+            defer { isLayingOut = false }
             scroll.tile()
             let viewport = scroll.contentView.bounds.size
             guard viewport.width > 0, viewport.height > 0 else { return }

@@ -1,6 +1,6 @@
 import TalkTalkCore
 
-/// The last `finalLines` bilingual sentence pairs plus the open sentence's source/draft.
+/// A bounded set of bilingual sentence pairs plus the open sentence's source/draft.
 /// Each final carries its own source, so later volatile speech cannot change that pairing.
 /// Pure presentation state; the panel renders it.
 public struct SubtitleBoard: Sendable, Equatable {
@@ -19,6 +19,7 @@ public struct SubtitleBoard: Sendable, Equatable {
     }
 
     public let finalLines: Int
+    public let retention: SubtitleRetentionPolicy?
     public private(set) var source = ""
     public private(set) var finals: [Line] = []
     public private(set) var draft: Line?
@@ -30,12 +31,17 @@ public struct SubtitleBoard: Sendable, Equatable {
     private var pendingFinals: [Line] = []
     private var pendingDraft: Line?
     private var newestReceived: UInt64 = 0
+    private var firstFinalAt: [UInt64: HostTime] = [:]
+    private var retiredThrough: UInt64 = 0
+    private static let pendingLimit = 2
 
     /// Pacing is opt-in for a rendering UI that calls advance every 100 ms. The oldest queued
     /// line rolls away on overflow instead of building an ever-later subtitle backlog.
-    public init(finalLines: Int = 2, maxCharactersPerSecond: Int = 0) {
+    public init(finalLines: Int = 2, maxCharactersPerSecond: Int = 0,
+                retention: SubtitleRetentionPolicy? = nil) {
         self.finalLines = max(1, finalLines)
         self.maxCharactersPerSecond = max(0, maxCharactersPerSecond)
+        self.retention = retention
     }
 
     public var isEmpty: Bool { source.isEmpty && finals.isEmpty && draft == nil && hint == nil }
@@ -58,10 +64,12 @@ public struct SubtitleBoard: Sendable, Equatable {
             guard s > newestFinal, !finals.contains(where: { $0.sentence == s }) else { break }
             if draft == nil || draft!.sentence <= s { draft = Line(sentence: s, text: t, approx: false, numberWarning: false) }
         case let .final(s, t, source, approx, warn):
+            guard retention == nil || s > retiredThrough else { break }
+            if firstFinalAt[s] == nil { firstFinalAt[s] = now }
             finals.removeAll { $0.sentence == s }
             finals.append(Line(sentence: s, text: t, source: source, approx: approx, numberWarning: warn))
             finals.sort { $0.sentence < $1.sentence }
-            if finals.count > finalLines { finals.removeFirst(finals.count - finalLines) }
+            trimHistory()
             newestFinal = max(newestFinal, s)
             if let d = draft, d.sentence <= s { draft = nil }
         case let .dropped(s):
@@ -79,11 +87,14 @@ public struct SubtitleBoard: Sendable, Equatable {
                 pendingDraft = Line(sentence: id, text: text, approx: false, numberWarning: false)
             }
         case let .final(id, text, source, approx, warning):
+            guard retention == nil || id > retiredThrough else { break }
+            if firstFinalAt[id] == nil { firstFinalAt[id] = now }
             newestReceived = max(newestReceived, id)
             pendingFinals.removeAll { $0.sentence == id }
             pendingFinals.append(Line(sentence: id, text: text, source: source, approx: approx, numberWarning: warning))
             pendingFinals.sort { $0.sentence < $1.sentence }
-            if pendingFinals.count > finalLines { pendingFinals.removeFirst(pendingFinals.count - finalLines) }
+            if pendingFinals.count > Self.pendingLimit { pendingFinals.removeFirst(pendingFinals.count - Self.pendingLimit) }
+            trimReceiptTimes()
             if let pendingDraft, pendingDraft.sentence <= id { self.pendingDraft = nil }
             // Keep the visible draft until its replacement is actually displayed. It also
             // credits the unchanged prefix instead of charging the whole final a second time.
@@ -107,7 +118,9 @@ public struct SubtitleBoard: Sendable, Equatable {
         }
         if let line = pendingFinals.first {
             let existing = finals.first { $0.sentence == line.sentence }
-            let evictedDeadline = finals.first.flatMap { finalReadUntil[$0.sentence] } ?? 0
+            // Retained history is not extra instant-display capacity. Keep the existing
+            // last-two-line reading cadence even when earlier pairs remain scrollable.
+            let evictedDeadline = finals.suffix(finalLines).first.flatMap { finalReadUntil[$0.sentence] } ?? 0
             if existing != nil || finals.count < finalLines || now >= evictedDeadline {
                 pendingFinals.removeFirst()
                 let previous = existing?.text ?? (draft?.sentence == line.sentence ? draft!.text : "")
@@ -115,11 +128,8 @@ public struct SubtitleBoard: Sendable, Equatable {
                                    now + readingTime(for: line.text, replacing: previous))
                 finals.removeAll { $0.sentence == line.sentence }
                 finals.append(line); finals.sort { $0.sentence < $1.sentence }
-                while finals.count > finalLines {
-                    let removed = finals.removeFirst()
-                    finalReadUntil[removed.sentence] = nil
-                }
                 finalReadUntil[line.sentence] = deadline
+                trimHistory()
                 newestFinal = max(newestFinal, line.sentence)
                 if let draft, draft.sentence <= line.sentence { self.draft = nil }
                 return true
@@ -141,9 +151,32 @@ public struct SubtitleBoard: Sendable, Equatable {
         return UInt64(Double(changed) / Double(maxCharactersPerSecond) * 1_000_000_000)
     }
 
+    private mutating func trimHistory() {
+        let start: Int
+        if let retention {
+            start = retention.retainedStartIndex(in: finals.map {
+                .init(at: firstFinalAt[$0.sentence] ?? 0, characters: $0.source.count + $0.text.count)
+            })
+        } else { start = max(0, finals.count - finalLines) }
+        if start > 0 {
+            for removed in finals.prefix(start) {
+                finalReadUntil[removed.sentence] = nil
+                if retention != nil { retiredThrough = max(retiredThrough, removed.sentence) }
+            }
+            finals.removeFirst(start)
+        }
+        trimReceiptTimes()
+    }
+
+    private mutating func trimReceiptTimes() {
+        let live = Set(finals.map(\.sentence) + pendingFinals.map(\.sentence))
+        firstFinalAt = firstFinalAt.filter { live.contains($0.key) }
+    }
+
     public mutating func clear() {
         source = ""; finals = []; draft = nil; hint = nil; newestFinal = 0
         pendingFinals = []; pendingDraft = nil; newestReceived = 0
         nextDraftDisplayAt = 0; finalReadUntil = [:]
+        firstFinalAt = [:]; retiredThrough = 0
     }
 }

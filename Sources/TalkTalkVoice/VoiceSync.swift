@@ -6,7 +6,7 @@ import TalkTalkCore
 /// (`EnrollmentController`), and to put the saved voice back after an audition. Runs inside
 /// `VoiceSlotQueue`; every write is guarded by the profile identity it started from.
 ///
-/// 1. No profile → system voice (C8).
+/// 1. No profile → system voice (C8); an existing but unreadable profile stays pending.
 /// 2. Conditioning that is stale for the running engine (other runtime, mlx-audio, model or
 ///    revision) or missing counts as missing: SPEAK goes to "pending", the conditioning is rebuilt,
 ///    old blob files go, `conditioning_keys` is rewritten, the audition goes back to
@@ -29,8 +29,14 @@ public enum VoiceSync {
                              onAudition: (@Sendable (AuditionResult) async -> Void)? = nil) async -> Outcome {
         var out = Outcome()
         guard let saved = try? store.loadProfile() else {
-            routing?.useSystemVoice()
-            out.routed = .systemVoice
+            if store.hasProfile {
+                // A damaged/unreadable saved voice is not permission to switch speakers.
+                routing?.useMyVoicePending()
+                out.routed = .myVoicePending
+            } else {
+                routing?.useSystemVoice()
+                out.routed = .systemVoice
+            }
             return out
         }
         let ident = saved.identity
@@ -97,8 +103,10 @@ public enum VoiceSync {
     /// (no rebuild here), else unload. Routes accordingly when `routing` is given.
     public static func restore(store: VoiceStore, engine: any VoiceEngineServices, routing: SpeakVoiceRouting?) async {
         guard let p = try? store.loadProfile() else {
+            // Fence new SPEAK work before awaiting the unload: the slot may still contain an
+            // unsaved audition, and an unreadable saved profile must not fall back to system.
+            if store.hasProfile { routing?.useMyVoicePending() } else { routing?.useSystemVoice() }
             _ = await engine.unloadVoice()
-            routing?.useSystemVoice()
             return
         }
         guard let blobs = try? await engine.currentConditioning(p, store: store), !blobs.isEmpty else {

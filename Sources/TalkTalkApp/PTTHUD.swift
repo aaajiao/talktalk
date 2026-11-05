@@ -276,7 +276,8 @@ final class PTTHUD {
     private func redraw() {
         let now = clock()
         limiter.didRender(now: now)
-        model.expireTranscript(at: now, reading: panel.speechIsVisible && panel.frame.contains(NSEvent.mouseLocation))
+        model.expireTranscript(at: now, reading: panel.speechIsVisible
+            && (transcriptColumns.isReadingHistory || panel.frame.contains(NSEvent.mouseLocation)))
         if let o = oneOff, o.until <= now { oneOff = nil }
         render()
         scheduleExpiry(now: now)

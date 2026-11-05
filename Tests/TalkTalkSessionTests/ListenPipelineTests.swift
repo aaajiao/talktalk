@@ -436,6 +436,37 @@ enum Fixture {
 }
 
 @Suite struct SubtitleBoardTests {
+    @Test func meetingRetentionKeepsCompletePairsAndPendingRemainsBounded() {
+        let policy = SubtitleRetentionPolicy(windowNs: 60_000_000_000, maxSegments: 3, maxCharacters: 40)
+        var board = SubtitleBoard(maxCharactersPerSecond: 9, retention: policy)
+        for id in 1...4 {
+            board.apply(.final(sentence: UInt64(id), text: "译\(id)", source: "源\(id)",
+                               approx: false, numberWarning: false), at: UInt64(id - 1) * 2_000_000_000)
+        }
+        #expect(board.finals.map(\.sentence) == [2, 3, 4])
+        _ = board.advance(at: 63_000_000_000)
+        #expect(board.finals.map(\.source) == ["源2", "源3", "源4"]) // silence alone never expires text
+        board.apply(.final(sentence: 4, text: "修订译文", source: "修订原文", approx: true,
+                           numberWarning: true), at: 64_000_000_000)
+        board.apply(.final(sentence: 5, text: "新译文", source: "新原文", approx: false,
+                           numberWarning: false), at: 70_000_000_000)
+        #expect(board.finals.map(\.sentence) == [5]) // a revision did not renew sentence 4's receipt time
+        let longSource = String(repeating: "源", count: 45)
+        board.apply(.final(sentence: 6, text: "完整译文", source: longSource, approx: false,
+                           numberWarning: false), at: 72_000_000_000)
+        #expect(board.finals.count == 1 && board.finals[0].source == longSource)
+        #expect(board.finals[0].text == "完整译文") // even an oversized newest pair is not cut in half
+
+        var paced = SubtitleBoard(maxCharactersPerSecond: 9, retention: .meeting)
+        for id in 1...5 {
+            paced.apply(.final(sentence: UInt64(id), text: String(repeating: "长", count: 90),
+                               source: "source \(id)", approx: false, numberWarning: false),
+                        at: UInt64(id - 1) * 100_000_000)
+        }
+        #expect(paced.finals.map(\.sentence) == [1, 2])
+        #expect(paced.pendingFinalSentenceIDs == [4, 5]) // 24 history slots are not pending slots
+    }
+
     @Test func thirdFinalWaitsOnlyForTheOldestVisibleLine() {
         var board = SubtitleBoard(maxCharactersPerSecond: 9)
         board.apply(.final(sentence: 1, text: "一二三四五六七八九", approx: false, numberWarning: false), at: 0)

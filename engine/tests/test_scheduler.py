@@ -28,6 +28,52 @@ class PickTests(unittest.TestCase):
         self.s.report_playout(2000)
         self.assertIs(self.s._pick(_now_ms()), bg)
 
+    def test_parked_tts_keeps_decoder_but_allows_asr(self):
+        t = job("tts", P0)
+        t.gen = (None for _ in range(2))
+        next(t.gen)                              # decoder state exists across the next yield
+        warm = job("voice_warmup", P3, deadline=float("inf"))
+        asr = job("asr", P1, deadline=_now_ms() - 1000)
+        self.s.jobs = [t, warm, asr]
+        self.s.report_playout(2000)
+        self.assertIs(self.s._pick(_now_ms()), asr)
+        self.s._retire(asr)
+        self.assertIsNone(self.s._pick(_now_ms()))  # warmup cannot reset the parked TTS decoder
+        self.assertEqual(self.s.health()["parked"], 2)
+        self.s.report_playout(0)
+        self.assertIs(self.s._pick(_now_ms()), t)
+        self.assertEqual(self.s.health()["parked"], 1)  # active owner is never hidden as a waiter
+        self.s._retire(t)
+        self.assertIs(self.s._pick(_now_ms()), warm)
+        self.assertEqual(self.s.health()["parked"], 0)
+
+    def test_started_warmup_owns_decoder_until_cancelled_generator_closes(self):
+        trace = []
+
+        def warm_frames():
+            trace.append("started")
+            try:
+                yield None
+                yield None
+            finally:
+                trace.append("closed")
+
+        warm = Job("voice_warmup", P3, warm_frames, deadline_ms=float("inf"))
+        warm.gen = warm.factory()
+        next(warm.gen)
+        t = job("tts", P0)
+        listen = job("asr", P2, deadline=_now_ms() + 10_000)
+        self.s.jobs = [warm, t, listen]
+        self.s.report_playout(0)
+        self.assertIs(self.s._pick(_now_ms()), warm)  # low-buffer P0 cannot reset warmup's decoder
+        self.assertEqual(self.s.health()["parked"], 2)  # P0 waits; P2 still sees queued P0
+        self.assertEqual(trace, ["started"])
+        warm.cancel()
+        self.assertIs(self.s._pick(_now_ms()), warm)
+        self.s._retire(warm, err="cancelled")
+        self.assertEqual(trace, ["started", "closed"])
+        self.assertIs(self.s._pick(_now_ms()), t)
+
     def test_rule1_low_buffer_tts_wins(self):
         t = job("tts", P0)
         a = job("asr", P1, deadline=_now_ms() - 1000)

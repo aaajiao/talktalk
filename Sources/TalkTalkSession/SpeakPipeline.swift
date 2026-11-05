@@ -36,6 +36,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     // ledger, but their text must remain while later clauses of this same press finish.
     private struct DisplayClause {
         var order: UInt64
+        var end: HostTime
         var provisional = ""
         var source: String?
         var target = ""
@@ -212,8 +213,21 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     }
 
     private func publishTranscript() {
-        guard let display = displayPress else { return }
-        let rows = display.clauses.values.sorted { $0.order < $1.order }
+        guard var display = displayPress else { return }
+        let ordered = display.clauses.sorted { $0.value.order < $1.value.order }
+        let entries = ordered.enumerated().map { index, entry in
+            let row = entry.value
+            return SubtitleRetentionPolicy.Entry(at: row.end,
+                characters: (row.source ?? row.provisional).count + row.target.count
+                    + (index == ordered.count - 1 ? display.preview.count : 0))
+        }
+        let retainedStart = SubtitleRetentionPolicy.meeting.retainedStartIndex(in: entries)
+        if retainedStart > 0 {
+            // Trim only reading history. Audio, pending recognition and MT keep their own ledger.
+            for entry in ordered.prefix(retainedStart) { display.clauses[entry.key] = nil }
+            displayPress = display
+        }
+        let rows = ordered.dropFirst(retainedStart).map { $0.value }
         let final = display.captureFinished && rows.allSatisfy(\.settled)
         var source: [String] = []
         if final {
@@ -222,6 +236,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             var pendingSource = false
             for row in rows {
                 if let text = row.source { source.append(text) }
+                else if row.settled { continue }
                 else {
                     // No word timestamps exist for the preview. Keep its complete provisional
                     // phrase until final ASR replaces it, rather than slicing text at an audio cut
@@ -231,8 +246,10 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             }
             if !pendingSource { source.append(display.preview) }
         }
-        let unsubmitted = final
-            ? (rows.filter { $0.source == nil }.map(\.provisional) + [display.preview]).filter { !$0.isEmpty }.joined(separator: "\n") : ""
+        // A discarded clause has no final source, but is no longer waiting for ASR. Keep its
+        // preview explicitly unsent without blocking later accepted text or the live preview.
+        let unsubmitted = (rows.filter { $0.source == nil && $0.settled }.map(\.provisional)
+            + (final ? [display.preview] : [])).filter { !$0.isEmpty }.joined(separator: "\n")
         let snapshot = SpeakTranscript(press: display.id,
             source: source.filter { !$0.isEmpty }.joined(separator: "\n"),
             target: rows.map(\.target).filter { !$0.isEmpty }.joined(separator: " "),
@@ -390,7 +407,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                              speechS: Double(clip.speechMs) / 1000); order.append(id)
         if displayPress?.id == press {
             let provisional = displayPress?.preview ?? ""
-            displayPress?.clauses[id] = DisplayClause(order: id, provisional: provisional)
+            displayPress?.clauses[id] = DisplayClause(order: id, end: clip.pcm.end, provisional: provisional)
             displayPress?.preview = ""
             publishTranscript()
         }
@@ -467,6 +484,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             }
             clauses[id]?.source = text; lastSource = text
             displayPress?.clauses[id]?.source = text
+            displayPress?.clauses[id]?.provisional = ""
             publishTranscript()
             _ = ledger.advance(id, to: .asrDone, at: clock())
             let following = order.drop(while: { $0 != id }).dropFirst().compactMap { clauses[$0]?.mtJob }
@@ -735,7 +753,12 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 }
             case .firstSamplePlayed(let id, let job, let at):
                 guard let row = clauses[id], row.ttsJob == job else { continue }
-                for member in renderMembers[id] ?? [id] where !heard.contains(member) {
+                let members = renderMembers[id] ?? [id]
+                if members.contains(where: { !heard.contains($0) }) {
+                    log.event("speak.voice_played", ["voice": .tag(row.voice == .system ? "system" : "clone"),
+                        "lang": .tag(target.rawValue), "clause": .int(Int(id)), "job": .int(Int(job))], at: at)
+                }
+                for member in members where !heard.contains(member) {
                     heard.insert(member)
                     if let part = clauses[member], let text = part.target {
                         var fields: [String: EventLog.Value] = ["clause": .int(Int(member)), "press": .int(Int(part.press)),
@@ -862,8 +885,11 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                              committedAt: row.committedAt, releasedAt: row.releasedAt, source: source,
                              speechS: rows.reduce(0) { $0 + $1.speechS }, summary: true)
         if displayPress?.id == row.press {
+            let end = ids.compactMap { displayPress?.clauses[$0]?.end }.max()
             for old in ids { displayPress?.clauses[old] = nil }
-            displayPress?.clauses[id] = DisplayClause(order: row.sourceOrder, source: source)
+            // Audio may summarize work that has already left the reading window. Do not
+            // resurrect that history; a visible summary inherits its latest visible audio end.
+            if let end { displayPress?.clauses[id] = DisplayClause(order: row.sourceOrder, end: end, source: source) }
             publishTranscript()
         }
         ledger.commit(id, press: row.press, at: clock()); _ = ledger.advance(id, to: .asrDone, at: clock())

@@ -92,6 +92,19 @@ private struct SpeakTestLivePreview: StreamingASREngine {
     func open(_ lang: Lang, highPriority: Bool) async throws -> any ASRStream { stream }
 }
 
+private final class SpeakTestRestartingPreview: StreamingASREngine, Sendable {
+    let id = EngineID(name: "restarting-preview-test", revision: "1", placement: .cpu)
+    private let streams = Mutex<[SpeakTestPreviewStream]>([])
+    var stream: SpeakTestPreviewStream? { streams.withLock { $0.last } }
+    var openCount: Int { streams.withLock { $0.count } }
+    func open(_ lang: Lang, highPriority: Bool) async throws -> any ASRStream {
+        let analyzers = SpeakTestAnalyzers(); analyzers.opened()
+        let stream = SpeakTestPreviewStream(analyzers: analyzers)
+        streams.withLock { $0.append(stream) }
+        return stream
+    }
+}
+
 private actor SpeakTestASR: ClipASREngine {
     nonisolated let id = EngineID(name: "test", revision: "1", placement: .cpu)
     let text: String
@@ -397,15 +410,87 @@ struct SpeakPipelineTests {
         await pipeline.stop()
     }
 
+    @Test func discardedSegmentDoesNotBlockLaterSourceOrLivePreview() async throws {
+        let transcript = Mutex<SpeakTranscript?>(nil)
+        let preview = SpeakTestRestartingPreview(), primary = SpeakTestASR(texts: ["", "后续原文。"])
+        let mt = SpeakTestMT()
+        let (pipeline, mic, _, _) = try fixture(mt: mt, primary: primary, preview: preview,
+            whileHeld: true, onUI: { event in
+                if case .transcript(let value) = event { transcript.withLock { $0 = value } }
+            })
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        #expect(await until { preview.openCount == 1 })
+        mic.press.pc.yield(.init(samples: Array(repeating: 1, count: 160), at: now, level: 0.1))
+        preview.stream?.emit(.volatile("这一小段未提交", through: now + 100_000_000))
+        #expect(await until { transcript.withLock { $0?.source == "这一小段未提交" } })
+        mic.press.cc.yield(clip(at: now))
+        #expect(await until { transcript.withLock { $0?.unsubmittedSource == "这一小段未提交" } })
+        #expect(await until { preview.openCount == 2 })
+
+        mic.press.cc.yield(clip(at: now + 1_000_000_000))
+        #expect(await until { transcript.withLock { $0?.source == "后续原文。" } })
+        #expect(await until { preview.openCount == 3 })
+        mic.press.pc.yield(.init(samples: Array(repeating: 1, count: 160), at: now + 2_000_000_000, level: 0.1))
+        preview.stream?.emit(.volatile("继续输入的新预览", through: now + 2_100_000_000))
+        #expect(await until { transcript.withLock {
+            $0?.source == "后续原文。\n继续输入的新预览" && $0?.isFinal == false
+                && $0?.unsubmittedSource == "这一小段未提交"
+        } })
+        #expect(await until { await mt.calls == 1 })
+        let requests = await mt.requests
+        #expect(requests.map(\.text) == ["后续原文。"])
+        await pipeline.stop()
+    }
+
+    @Test func transcriptRetentionEvictsOldPairsWithoutDiscardingWork() async throws {
+        let transcript = Mutex<SpeakTranscript?>(nil)
+        let sources = ["开头一段。", "接着一段。", "一分钟后的内容。"]
+        let translations = ["开头一段。": "Opening segment.", "接着一段。": "Following segment.",
+                            "一分钟后的内容。": "Content after one minute."]
+        let mt = SpeakTestMT(translations: translations)
+        let (pipeline, mic, _, _) = try fixture(asr: SpeakTestASR(texts: sources), mt: mt,
+            whileHeld: true, onUI: { event in
+                if case .transcript(let value) = event { transcript.withLock { $0 = value } }
+            })
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        pipeline.setFloorPaused(true) // Keep playback/backlog policy out of this display-only check.
+        mic.press.cc.yield(clip(at: now))
+        mic.press.cc.yield(clip(at: now + 1_000_000_000))
+        #expect(await until { transcript.withLock {
+            $0?.source == "开头一段。\n接着一段。" && $0?.target == "Opening segment. Following segment."
+        } })
+        // Only a new clip advances the reading window; no wall-clock wait or recording restart.
+        mic.press.cc.yield(clip(at: now + 62_000_000_000))
+        #expect(await until { transcript.withLock {
+            $0?.source == "一分钟后的内容。" && $0?.target == "Content after one minute."
+                && $0?.isFinal == false && $0?.unsubmittedSource.isEmpty == true
+        } })
+        let requests = await mt.requests
+        #expect(requests.map(\.text).sorted() == sources.sorted())
+        await pipeline.stop()
+    }
+
     @Test func backlogSummarizesWaitingClausesInsteadOfStartingAllTTS() async throws {
+        let transcript = Mutex<SpeakTranscript?>(nil)
+        let sources = ["第一段内容。", "第二段内容。", "第三段内容。", "第四段内容。", "一分钟后的新段。"]
         let mt = SpeakTestMT(text: "We will discuss the complete project plan at the meeting.")
-        let (pipeline, mic, host, tts) = try fixture(mt: mt, whileHeld: true)
+        let (pipeline, mic, host, tts) = try fixture(asr: SpeakTestASR(texts: sources), mt: mt,
+            whileHeld: true, onUI: { event in
+                if case .transcript(let value) = event { transcript.withLock { $0 = value } }
+            })
         let now = HostClock.now()
         await pipeline.start(); await pipeline.handle(.began(at: now))
         for index in 0..<4 { mic.press.cc.yield(clip(at: now + UInt64(index) * 1_000_000_000)) }
         #expect(await until { await mt.requests.contains { $0.mode == .summarize } })
         #expect(tts.requests.withLock { $0.count < 4 })
         #expect(host.queue.clauseCount > 0)
+        pipeline.setFloorPaused(true)
+        mic.press.cc.yield(clip(at: now + 70_000_000_000))
+        #expect(await until { transcript.withLock {
+            $0?.source == "一分钟后的新段。" && $0?.target == "We will discuss the complete project plan at the meeting."
+        } })
         await pipeline.stop()
     }
 

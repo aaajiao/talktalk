@@ -19,7 +19,7 @@ final class SubtitlePanel {
     private let divider = NSBox()
     private var displayedLines = Array(repeating: "", count: 6)
     private var resetRemoteScroll = false
-    private(set) var board = SubtitleBoard(maxCharactersPerSecond: 9)
+    private(set) var board = SubtitleBoard(maxCharactersPerSecond: 9, retention: .meeting)
     private(set) var baseFontSize: CGFloat = 22
     var textScale: CGFloat { contentWidth / (presentation == .meeting ? 760 : 960) }
     var fontSize: CGFloat { max(14, baseFontSize * textScale) }
@@ -93,6 +93,7 @@ final class SubtitlePanel {
         divider.boxType = .separator
         content.addSubview(divider)
         panel.contentView = content
+        remoteColumns.onDisplayedTextChange = { [weak self] in self?.recordPresentation() }
         if let screen = NSScreen.main ?? NSScreen.screens.first { loadSize(for: screen) }
         setFontSize(22)
         updateBackground()
@@ -121,6 +122,8 @@ final class SubtitlePanel {
         let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens.first
         if panel.isVisible { savePosition() }
         presentation = value
+        clear()
+        board = SubtitleBoard(maxCharactersPerSecond: 9, retention: value == .meeting ? .meeting : nil)
         panel.title = value == .meeting ? String(localized: "TalkTalk · 会议同传") : String(localized: "TalkTalk · 视频字幕")
         remoteColumns.style = value == .meeting ? .columns : .subtitles
         if let screen { loadSize(for: screen) }
@@ -246,9 +249,9 @@ final class SubtitlePanel {
         }
         if liveSource.isEmpty { renderedSource = "" }
         if board.draft == nil { renderedDraft = nil }
-        let lines = Array(board.finals.suffix(2))
+        let lines = board.finals
         var nextLines: [String] = []
-        for index in 0..<2 {
+        for index in 0..<max(2, lines.count) {
             let line = index < lines.count ? lines[index] : nil
             nextLines += [line?.source ?? "", line?.display ?? ""]
         }
@@ -288,7 +291,7 @@ final class SubtitlePanel {
     }
 
     private func recordPresentation() {
-        guard subtitlesRequested, panel.isVisible else { return }
+        guard subtitlesRequested, panel.isVisible, !remoteColumns.hasPendingText else { return }
         let now = HostClock.now()
         // Log actual label changes after board pacing, including revisions, not timer ticks or
         // font/layout refreshes. This is AppKit submission time, not a display hardware timestamp.
@@ -418,6 +421,7 @@ final class SubtitlePanel {
         let previewPending = liveSource != renderedSource || board.draft != renderedDraft
         let previewDue = now >= lastPreviewRenderAt && now - lastPreviewRenderAt >= Self.previewInterval
         if advanced || (previewPending && previewDue) { render(at: now) }
+        else { recordPresentation() }
     }
 
     private func userResized() {

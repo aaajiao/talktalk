@@ -353,7 +353,7 @@ public struct HUDModel: Sendable, Equatable {
     public static let refusedSeconds = 1.5
     public static let noticeSeconds = 4.0
     public static let countdownFrom = 5
-    public static let transcriptRetentionSeconds = 10.0
+    public static let transcriptRetentionSeconds = 60.0
 
     // MARK: state
 

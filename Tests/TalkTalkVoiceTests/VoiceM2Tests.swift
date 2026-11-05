@@ -539,6 +539,32 @@ final class Flag: @unchecked Sendable {
 }
 
 @Suite struct VoiceLifecycleTests {
+    @Test func unreadableExistingProfileStaysPendingAndRestoreUnloadsTheTemporaryVoice() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = VoiceStore(root: root)
+        try FileManager.default.createDirectory(at: store.voiceURL, withIntermediateDirectories: true)
+        try Data("not valid profile JSON".utf8).write(to: store.voiceURL.appendingPathComponent(VoiceStore.profileName))
+        #expect(store.hasProfile)
+        let backend = FakeBackend()
+        let engine = services(backend)
+        let handle = VoiceHandle(profileID: UUID(), conditioningKey: "temporary", mode: .icl,
+                                 model: EngineID(name: "qwen", revision: "", placement: .engineGPU))
+        let routing = SpeakVoiceRouting(clone: NamedTTS("qwen"), system: NamedTTS("system"),
+                                        source: .myVoice(handle, playoutGainDb: 0))
+
+        let result = await VoiceSync.align(store: store, engine: engine, routing: routing)
+        #expect(result.routed == .myVoicePending && routing.source == .myVoicePending)
+        #expect(await backend.events.isEmpty)
+
+        try await backend.load(blob: Data([1]), model: "qwen", key: "temporary", mode: .icl, profileID: handle.profileID)
+        routing.useMyVoice(handle, playoutGainDb: 0)
+        await VoiceSync.restore(store: store, engine: engine, routing: routing)
+        #expect(routing.source == .myVoicePending)
+        #expect(await backend.events == ["load", "unload"])
+        #expect(store.hasProfile) // Preserve the failed profile for repair instead of deleting it.
+    }
+
     @MainActor private func lifecycle(_ store: VoiceStore, _ b: FakeBackend, routing: SpeakVoiceRouting? = nil,
                                       monitor: RecordingAuditionMonitor = RecordingAuditionMonitor()) -> (VoiceLifecycle, SpeakVoiceRouting) {
         let r = routing ?? SpeakVoiceRouting(clone: NamedTTS("qwen"), system: NamedTTS("system"))
