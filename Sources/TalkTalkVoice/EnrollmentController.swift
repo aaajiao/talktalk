@@ -82,7 +82,7 @@ public final class EnrollmentController {
                 routing: SpeakVoiceRouting? = nil,
                 passthroughGains: (any PassthroughGainStore)? = nil,
                 queue: VoiceSlotQueue = VoiceSlotQueue(),
-                script: EnrollmentScript = .zhV1) {
+                script: EnrollmentScript = .current) {
         self.store = store
         self.queue = queue
         if let qwen = engine?.transcriber {
@@ -184,7 +184,20 @@ public final class EnrollmentController {
                 self.candidate = c
                 self.audition = c.audition
             case let .saveWithoutAudition(c):
-                guard current, self.machine.send(.auditionSkipped) else {
+                guard current else {
+                    Self.dropLate(c.staging, store: store, engine: engine, routing: routing, queue: queue)
+                    return
+                }
+                if store.hasProfile {
+                    // A failed replacement audition is not permission to overwrite the saved voice.
+                    store.discard(c.staging)
+                    _ = await queue.runAlways { await VoiceSync.restore(store: store, engine: engine, routing: routing) }
+                    if gen == self.generation, !Task.isCancelled {
+                        self.machine.send(.failed("试听未完成，原来的声音已保留，请重录"))
+                    }
+                    return
+                }
+                guard self.machine.send(.auditionSkipped) else {
                     Self.dropLate(c.staging, store: store, engine: engine, routing: routing, queue: queue)
                     return
                 }

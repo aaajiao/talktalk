@@ -98,7 +98,7 @@ public struct EnrollmentReport: Codable, Sendable, Equatable {
 
 public enum EnrollmentChecks {
     // MARK: thresholds (§9.1, §9.2 step 4)
-    public static let durationRange = 5.0...12.0
+    public static let durationRange = 10.0...20.0
     public static let clipLevel: Float = 0.98
     public static let clipFractionLimit = 0.0001     // < 0.01 %
     public static let clipHardLevel: Float = 0.999
@@ -131,10 +131,10 @@ public enum EnrollmentChecks {
             return CheckResult(id: .duration, status: .reject, value: 0, message: "没有录到说话的声音，请再读一遍")
         }
         if seconds < durationRange.lowerBound {
-            return CheckResult(id: .duration, status: .reject, value: seconds, message: "请稍慢一点，再读一遍")
+            return CheckResult(id: .duration, status: .reject, value: seconds, message: "录音偏短，请完整读完这段文字，保持自然语速")
         }
         if seconds > durationRange.upperBound {
-            return CheckResult(id: .duration, status: .reject, value: seconds, message: "请稍快一点，再读一遍")
+            return CheckResult(id: .duration, status: .reject, value: seconds, message: "录音偏长，请自然连贯地读完，减少句间长停顿")
         }
         return CheckResult(id: .duration, status: .pass, value: seconds)
     }
@@ -205,7 +205,7 @@ public enum EnrollmentChecks {
     /// Runs every row on a take. `noise` is the 1.5 s quiet segment recorded before the take
     /// (its first 100 ms, the IO start-up, is skipped). `transcript` is nil when unavailable.
     public static func evaluate(take: [Float], noise: [Float], sampleRate: Double,
-                                script: EnrollmentScript = .zhV1,
+                                script: EnrollmentScript = .current,
                                 transcript: TranscriptComparison.Result?) -> EnrollmentReport {
         let skip = min(noise.count, Int(sampleRate * 0.1))
         let noiseDb = Levels.dbfs(Levels.rms(noise[skip...]))

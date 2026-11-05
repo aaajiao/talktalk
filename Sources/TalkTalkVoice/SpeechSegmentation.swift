@@ -127,7 +127,7 @@ public struct SpeechSegmentation: Sendable, Equatable {
 }
 
 /// Streaming end-of-speech detector for the recorder (§9.2 step 3: stop 1.2 s after speech ends,
-/// or at the 15 s cap). Feed it 20 ms frame levels as they arrive.
+/// or at the recording cap). Feed it 20 ms frame levels as they arrive.
 public struct AutoStopDetector: Sendable {
     public let thresholdDb: Double
     public let trailingSilenceSeconds: Double
@@ -145,7 +145,7 @@ public struct AutoStopDetector: Sendable {
     public private(set) var heardSpeech = false
 
     public init(sampleRate: Double, noiseFloorDb: Double, trailingSilenceSeconds: Double = 1.2,
-                maxSeconds: Double = 15, minSpeechSeconds: Double = 0.3) {
+                maxSeconds: Double = VoiceEnrollment.maxRecordingSeconds, minSpeechSeconds: Double = 0.3) {
         self.thresholdDb = SpeechSegmentation.threshold(noiseFloorDb: noiseFloorDb)
         self.trailingSilenceSeconds = trailingSilenceSeconds
         self.maxSeconds = maxSeconds

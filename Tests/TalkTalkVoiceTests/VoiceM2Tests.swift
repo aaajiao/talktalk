@@ -364,13 +364,13 @@ struct NamedTTS: TTSEngine {
 }
 
 private func savedReport() -> EnrollmentReport {
-    EnrollmentChecks.evaluate(take: Synth.take(segments: [4.0, 4.5], pauses: [0.6]), noise: Synth.noise(1.5, db: -68),
+    EnrollmentChecks.evaluate(take: Synth.take(segments: [6.0, 6.5], pauses: [0.6]), noise: Synth.noise(1.5, db: -68),
                               sampleRate: Synth.rate, transcript: nil)
 }
 
 /// Saves a profile through the real controller statics (no engine: reference + script + profile).
 private func saveProfile(_ store: VoiceStore, engine: (any VoiceEngineServices)? = nil) async throws -> VoiceProfile {
-    try await EnrollmentController.saveTake(take: Synth.take(segments: [4.0, 4.5], pauses: [0.6]), noise: Synth.noise(1.5, db: -68),
+    try await EnrollmentController.saveTake(take: Synth.take(segments: [6.0, 6.5], pauses: [0.6]), noise: Synth.noise(1.5, db: -68),
                                             sampleRate: Synth.rate, report: savedReport(), micUID: "BuiltInMicrophoneDevice",
                                             script: .zhV1, store: store, engine: engine)
 }
@@ -439,7 +439,7 @@ final class Flag: @unchecked Sendable {
         let store = VoiceStore(root: try tempRoot())
         let old = try await saveProfile(store)
         let b = FakeBackend()
-        var c = try EnrollmentController.prepareCandidate(take: Synth.take(segments: [4.0, 4.5], pauses: [0.6]), sampleRate: Synth.rate,
+        var c = try EnrollmentController.prepareCandidate(take: Synth.take(segments: [6.0, 6.5], pauses: [0.6]), sampleRate: Synth.rate,
                                                           report: savedReport(), micUID: "USB-MIC-1", script: .zhV1, store: store)
         // Staging is protected from the moment it exists.
         #expect(mode(c.staging) == 0o700 && excludedFromBackup(c.staging))
@@ -497,7 +497,7 @@ final class Flag: @unchecked Sendable {
         let store = VoiceStore(root: try tempRoot())
         let b = FakeBackend()
         await b.set(synthError: FakeEngineError())
-        var c = try EnrollmentController.prepareCandidate(take: Synth.take(segments: [4.0, 4.5], pauses: [0.6]), sampleRate: Synth.rate,
+        var c = try EnrollmentController.prepareCandidate(take: Synth.take(segments: [6.0, 6.5], pauses: [0.6]), sampleRate: Synth.rate,
                                                           report: savedReport(), micUID: "m", script: .zhV1, store: store)
         c = try await EnrollmentController.buildAndAudition(c, engine: services(b), script: .zhV1, store: store)
         #expect(c.audition == nil && !c.blobs.isEmpty)
@@ -732,7 +732,7 @@ final class Flag: @unchecked Sendable {
             let name = "qwen3-asr"
             func transcribe(_ samples: [Float], sampleRate: Double) async -> String? {
                 // The user re-records while the ASR runs.
-                _ = try? await EnrollmentController.saveTake(take: Synth.take(segments: [4.2, 4.4], pauses: [0.5]),
+                _ = try? await EnrollmentController.saveTake(take: Synth.take(segments: [6.2, 6.4], pauses: [0.5]),
                                                              noise: Synth.noise(1.5, db: -68), sampleRate: Synth.rate,
                                                              report: savedReport(), micUID: "other", script: .zhV1,
                                                              store: store, engine: nil)
@@ -821,7 +821,7 @@ final class Flag: @unchecked Sendable {
 /// only add the machine and the generation counter around them).
 @Suite struct SaveAttemptTests {
     private func candidate(_ store: VoiceStore) throws -> EnrollmentController.Candidate {
-        try EnrollmentController.prepareCandidate(take: Synth.take(segments: [4.1, 4.6], pauses: [0.6]), sampleRate: Synth.rate,
+        try EnrollmentController.prepareCandidate(take: Synth.take(segments: [6.1, 6.6], pauses: [0.6]), sampleRate: Synth.rate,
                                                   report: savedReport(), micUID: "USB-MIC-2", script: .zhV1, store: store)
     }
 
@@ -1018,7 +1018,7 @@ final class Flag: @unchecked Sendable {
 /// Second review of voice-m2 (items 1, 2, 3, 6, 7), one test each.
 @Suite struct SecondReviewTests {
     private func candidate(_ store: VoiceStore) throws -> EnrollmentController.Candidate {
-        try EnrollmentController.prepareCandidate(take: Synth.take(segments: [4.3, 4.2], pauses: [0.6]), sampleRate: Synth.rate,
+        try EnrollmentController.prepareCandidate(take: Synth.take(segments: [6.3, 6.2], pauses: [0.6]), sampleRate: Synth.rate,
                                                   report: savedReport(), micUID: "USB-MIC-3", script: .zhV1, store: store)
     }
 
@@ -1154,6 +1154,28 @@ final class Flag: @unchecked Sendable {
                                                 transport: "bltn", nominalSampleRate: Synth.rate, inputChannels: 1,
                                                 isAlive: true, isAggregate: false)
 
+    @Test @MainActor func aFailedReplacementAuditionPreservesTheSavedVoice() async throws {
+        for failure in ["build", "synth"] {
+            let store = VoiceStore(root: try tempRoot()), b = FakeBackend()
+            let saved = try await saveProfile(store, engine: services(b))
+            let savedKey = try #require(saved.conditioningEntries?.first?.key)
+            let routing = SpeakVoiceRouting(clone: NamedTTS("q"), system: NamedTTS("s"))
+            let c = EnrollmentController(store: store, transcriber: nil, engine: services(b), routing: routing, script: .zhV1)
+            c.seedReview(take: Synth.take(segments: [6.0, 6.0], pauses: [0.6]), report: savedReport(), device: Self.device)
+            if failure == "build" { await b.set(buildError: FakeEngineError()) }
+            else { await b.set(synthError: FakeEngineError()) }
+            c.save()
+            await c.lastSaveAttempt?.value
+
+            if case .failed = c.phase { } else { Issue.record("\(failure): expected a retryable failure, got \(c.phase)") }
+            #expect(try store.loadProfile() == saved)
+            #expect(await b.loads.last == savedKey)
+            #expect(routing.voice?.conditioningKey == savedKey)
+            let staging = try FileManager.default.contentsOfDirectory(atPath: store.root.path).filter { $0.hasPrefix(".voice-staging-") }
+            #expect(staging.isEmpty)
+        }
+    }
+
     // save() → auditioning, 放弃 while the candidate's load is parked: the candidate never stays in
     // the engine, no staging is left, and the saved voice is the last one loaded.
     @Test @MainActor func cancellingADrivenSaveRestoresTheSavedVoice() async throws {
@@ -1163,7 +1185,7 @@ final class Flag: @unchecked Sendable {
         let savedKey = try #require(saved.conditioningEntries?.first?.key)
         let routing = SpeakVoiceRouting(clone: NamedTTS("q"), system: NamedTTS("s"))
         let c = EnrollmentController(store: store, transcriber: nil, engine: services(b), routing: routing)
-        c.seedReview(take: Synth.take(segments: [4.0, 4.4], pauses: [0.6]), report: savedReport(), device: Self.device)
+        c.seedReview(take: Synth.take(segments: [6.0, 6.4], pauses: [0.6]), report: savedReport(), device: Self.device)
         await b.hold()
         c.save()
         #expect(c.phase == .auditioning)
@@ -1186,7 +1208,7 @@ final class Flag: @unchecked Sendable {
         let b = FakeBackend()
         let routing = SpeakVoiceRouting(clone: NamedTTS("q"), system: NamedTTS("s"))
         let c = EnrollmentController(store: store, transcriber: nil, engine: services(b), routing: routing)
-        c.seedReview(take: Synth.take(segments: [4.0, 4.4], pauses: [0.6]), report: savedReport(), device: Self.device)
+        c.seedReview(take: Synth.take(segments: [6.0, 6.4], pauses: [0.6]), report: savedReport(), device: Self.device)
         c.save()
         await until { @MainActor in if case .auditionReview = c.phase { return true } else { return false } }
         guard case .auditionReview = c.phase else { Issue.record("\(c.phase)"); return }
@@ -1312,7 +1334,7 @@ final class Flag: @unchecked Sendable {
         let first = EnrollmentController(store: store, transcriber: nil, engine: services(b))
         first.finish()                                      // window closed: idle exit scheduled
         let c = EnrollmentController(store: store, transcriber: nil, engine: services(b))
-        c.seedReview(take: Synth.take(segments: [4.0, 4.4], pauses: [0.6]), report: savedReport(), device: Self.device)
+        c.seedReview(take: Synth.take(segments: [6.0, 6.4], pauses: [0.6]), report: savedReport(), device: Self.device)
         c.save()                                            // reopened and saving: idle exit cancelled
         c.finish()                                          // closed right away: scheduled again, after
         for _ in 0..<5000 where await b.events.filter({ $0 == "started" || $0 == "finished" }).count < 3 {

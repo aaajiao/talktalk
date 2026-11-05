@@ -23,8 +23,9 @@ func excludedFromBackup(_ url: URL) -> Bool {
 }
 
 private func sampleReport() -> EnrollmentReport {
-    let take = Synth.take(segments: [4.0, 4.5], pauses: [0.6])
-    return EnrollmentChecks.evaluate(take: take, noise: Synth.noise(1.5, db: -68), sampleRate: Synth.rate, transcript: nil)
+    let take = Synth.take(segments: [6.0, 6.0], pauses: [0.6])
+    return EnrollmentChecks.evaluate(take: take, noise: Synth.noise(1.5, db: -68), sampleRate: Synth.rate,
+                                     script: .zhV1, transcript: nil)
 }
 
 private func fill(_ store: VoiceStore, _ staging: URL, profileID: String) throws {
@@ -61,7 +62,10 @@ private func fill(_ store: VoiceStore, _ staging: URL, profileID: String) throws
             #expect(mode(voice.appendingPathComponent(name)) == 0o600, "\(name)")
         }
         #expect(try String(contentsOf: voice.appendingPathComponent("script.txt"), encoding: .utf8) == EnrollmentScript.zhV1.text)
-        #expect(try store.loadProfile().id == "A")
+        let saved = try store.loadProfile()
+        #expect(saved.id == "A")
+        #expect(saved.scriptID == "zh-v1")
+        #expect(saved.scriptSHA256 == EnrollmentScript.zhV1.sha256)
     }
 
     @Test func secondSaveSwapsAtomicallyAndRemovesTheOld() throws {
@@ -156,13 +160,13 @@ func FakeEngine() -> EngineVoiceServices { services(FakeBackend()) }
 @Suite struct SaveTakeTests {
     @Test func endToEndSaveFromASyntheticTake() async throws {
         let store = VoiceStore(root: try tempRoot())
-        let take = Synth.take(segments: [4.0, 4.5], pauses: [0.6])
+        let take = Synth.take(segments: [6.0, 6.0], pauses: [0.6])
         let noise = Synth.noise(1.5, db: -68)
         let report = EnrollmentChecks.evaluate(take: take, noise: noise, sampleRate: Synth.rate, transcript: nil)
         #expect(report.canSave)
         let profile = try await EnrollmentController.saveTake(
             take: take, noise: noise, sampleRate: Synth.rate, report: report, micUID: "BuiltInMicrophoneDevice",
-            script: .zhV1, store: store, engine: nil)
+            script: .current, store: store, engine: nil)
         let wavData = try Data(contentsOf: store.voiceURL.appendingPathComponent("reference.wav"))
         let wav = try #require(WAVFile.decodePCM16(wavData))
         #expect(wav.sampleRate == 24_000)
@@ -170,18 +174,19 @@ func FakeEngine() -> EngineVoiceServices { services(FakeBackend()) }
         #expect(profile.wavSHA256 == sha256Hex(wavData))
         #expect(profile.conditioning == "pending_engine")
         #expect(profile.checks.status["transcript"] == .pending)
-        #expect(abs(profile.speakingRateCharsPerSecond - 42 / 8.9) < 0.1)
+        #expect(profile.scriptID == "zh-v2")
+        #expect(abs(profile.speakingRateCharsPerSecond - 71 / 12.4) < 0.1)
         #expect(try store.loadProfile() == profile)
     }
 
     @Test func engineBlobsLandInConditioning() async throws {
         let store = VoiceStore(root: try tempRoot())
-        let take = Synth.take(segments: [4.0, 4.5], pauses: [0.6])
+        let take = Synth.take(segments: [6.0, 6.0], pauses: [0.6])
         let noise = Synth.noise(1.5, db: -68)
         let report = EnrollmentChecks.evaluate(take: take, noise: noise, sampleRate: Synth.rate, transcript: nil)
         let profile = try await EnrollmentController.saveTake(
             take: take, noise: noise, sampleRate: Synth.rate, report: report, micUID: "x",
-            script: .zhV1, store: store, engine: FakeEngine())
+            script: .current, store: store, engine: FakeEngine())
         #expect(profile.conditioning == "built")
         let key = try #require(profile.conditioningEntries?.first?.key)
         let blob = store.voiceURL.appendingPathComponent("conditioning/\(VoiceStore.safeKey(key)).safetensors")

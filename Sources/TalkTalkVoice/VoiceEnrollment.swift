@@ -69,7 +69,8 @@ public struct VoiceEnrollment: Sendable, Equatable {
 
     public static let countdownFrom = 3
     public static let noiseSeconds = 1.5
-    public static let maxRecordingSeconds = 15.0
+    /// Allows the 20 s reading plus a little leading/trailing silence before auto-stop.
+    public static let maxRecordingSeconds = 25.0
     public static let autoStopSilenceSeconds = 1.2
 
     public private(set) var phase: Phase = .idle

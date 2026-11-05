@@ -108,7 +108,7 @@ public struct EnrollmentView: View {
                     }
                     scriptText
                     meter
-                    Text("读完稍作停顿，会自动结束录制。也可以点“完成录制”。")
+                    Text("自然读完全文，约 10–20 秒。读完稍作停顿，或点“完成录制”。")
                         .font(.callout).foregroundStyle(.secondary)
                 }.padding(8)
             } label: { Label("请自然朗读", systemImage: "text.quote") }
@@ -145,7 +145,11 @@ public struct EnrollmentView: View {
                 }.padding(8)
             } label: { Label("录制准备", systemImage: "mic") }
             GroupBox {
-                scriptText.padding(12)
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("约 10–20 秒 · 按平时说话的语速读完全文", systemImage: "clock")
+                        .font(.callout).foregroundStyle(.secondary)
+                    scriptText
+                }.padding(12)
             } label: { Label("朗读这段中文", systemImage: "text.quote") }
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "lock.shield").accessibilityHidden(true)

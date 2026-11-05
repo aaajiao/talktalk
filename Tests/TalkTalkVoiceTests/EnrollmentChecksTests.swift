@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import TalkTalkVoice
 
-private let goodTranscript = TranscriptComparison.compare(transcript: EnrollmentScript.zhV1.text,
-                                                          script: EnrollmentScript.zhV1.text)
+private let goodTranscript = TranscriptComparison.compare(transcript: EnrollmentScript.current.text,
+                                                          script: EnrollmentScript.current.text)
 
 @Suite struct ScriptTests {
     @Test func fixedScriptIs42HanCharactersInFiveClauses() {
@@ -12,6 +12,16 @@ private let goodTranscript = TranscriptComparison.compare(transcript: Enrollment
         #expect(s.hanCount == 42)
         #expect(s.clauses == ["大家好", "今天我先简单介绍一下项目的最新进展", "然后说说下一步的计划", "如果有问题", "欢迎随时打断我"])
         #expect(s.sha256.count == 64)
+    }
+
+    @Test func currentScriptUsesTheLongerNaturalPassage() {
+        let s = EnrollmentScript.current
+        #expect(s == .zhV2)
+        #expect(s.id == "zh-v2")
+        #expect(s.text == "大家好，今天我们一起看看项目的最新进展。先确认已经完成的工作，再讨论接下来的安排。如果你有不同的想法，或者需要补充的细节，请随时告诉我，我们一起把事情说清楚。")
+        #expect(s.hanCount == 71)
+        #expect(s.sha256 != EnrollmentScript.zhV1.sha256)
+        #expect(EnrollmentChecks.transcriptCheck(goodTranscript).status == .pass)
     }
 }
 
@@ -115,11 +125,12 @@ private let goodTranscript = TranscriptComparison.compare(transcript: Enrollment
     }
 
     @Test func silenceRunsToTheCap() {
-        let x = Synth.noise(16, db: -68)
+        let x = Synth.noise(26, db: -68)
         var d = AutoStopDetector(sampleRate: Synth.rate, noiseFloorDb: -68)
+        #expect(d.maxSeconds == VoiceEnrollment.maxRecordingSeconds)
         let (decision, at) = run(x, &d)
         #expect(decision == .reachedMax)
-        #expect(abs(at - 15) < 0.05)
+        #expect(abs(at - 25) < 0.05)
         #expect(!d.heardSpeech)
     }
 }
@@ -134,35 +145,36 @@ private let goodTranscript = TranscriptComparison.compare(transcript: Enrollment
 
     @Test func goodTakePassesEveryRowButAudition() {
         // −18 dBFS: the synthetic tone's crest factor is only ~11 dB, so this puts the peak in −12…−1.
-        let r = evaluate(Synth.take(segments: [4.0, 4.5], pauses: [0.6], speechDb: -18))
+        let r = evaluate(Synth.take(segments: [6.0, 6.0], pauses: [0.6], speechDb: -18))
         for row in r.results where row.id != .audition { #expect(row.status == .pass, "\(row.id) \(row)") }
         #expect(r.result(.audition)?.status == .pending)
         #expect(r.canSave)
         #expect(r.headline == nil)
-        #expect(abs(r.measurements.speechSeconds - 8.9) < 0.1)
-        #expect(abs(r.measurements.speakingRateCharsPerSecond - 42 / 8.9) < 0.1)
+        #expect(abs(r.measurements.speechSeconds - 12.4) < 0.1)
+        #expect(abs(r.measurements.speakingRateCharsPerSecond - 71 / 12.4) < 0.1)
     }
 
     @Test func durationWindow() {
-        let short = evaluate(Synth.take(segments: [4.0], pauses: []))
+        let short = evaluate(Synth.take(segments: [9.0], pauses: []))
         #expect(short.result(.duration)?.status == .reject)
-        #expect(short.headline == "请稍慢一点，再读一遍")
-        let long = evaluate(Synth.take(segments: [6.5, 6.5], pauses: [0.3]))
-        #expect(long.result(.duration)?.message == "请稍快一点，再读一遍")
-        // Long pauses are compressed before timing: 5 + 2×(1.0 → 0.4) + 5 = 10.8 s → pass.
+        #expect(short.headline == "录音偏短，请完整读完这段文字，保持自然语速")
+        let long = evaluate(Synth.take(segments: [10.5, 10.5], pauses: [0.3]))
+        #expect(long.result(.duration)?.message == "录音偏长，请自然连贯地读完，减少句间长停顿")
+        // Long pauses are compressed before timing: 3 + 3 + 4 + 2×(1.0 → 0.4) = 10.8 s → pass.
         let paused = evaluate(Synth.take(segments: [3.0, 3.0, 4.0], pauses: [1.0, 1.0]))
         #expect(paused.result(.duration)?.status == .pass)
-        #expect(EnrollmentChecks.durationCheck(5.0, hasSpeech: true).status == .pass)
-        #expect(EnrollmentChecks.durationCheck(12.0, hasSpeech: true).status == .pass)
-        #expect(EnrollmentChecks.durationCheck(4.99, hasSpeech: true).status == .reject)
-        #expect(EnrollmentChecks.durationCheck(12.01, hasSpeech: true).status == .reject)
+        #expect(abs(paused.measurements.speechSeconds - 10.8) < 0.1)
+        #expect(EnrollmentChecks.durationCheck(10.0, hasSpeech: true).status == .pass)
+        #expect(EnrollmentChecks.durationCheck(20.0, hasSpeech: true).status == .pass)
+        #expect(EnrollmentChecks.durationCheck(9.99, hasSpeech: true).status == .reject)
+        #expect(EnrollmentChecks.durationCheck(20.01, hasSpeech: true).status == .reject)
     }
 
     @Test func clippingRule() {
         #expect(EnrollmentChecks.clippingCheck(fraction: 0.00009, run3: false).status == .pass)
         #expect(EnrollmentChecks.clippingCheck(fraction: 0.0001, run3: false).status == .reject)
         #expect(EnrollmentChecks.clippingCheck(fraction: 0, run3: true).message == "声音过大，请离远一点")
-        var take = Synth.take(segments: [4.0, 4.0], pauses: [0.5])
+        var take = Synth.take(segments: [6.0, 6.0], pauses: [0.5])
         for i in 100_000..<100_003 { take[i] = 1.0 }
         let r = evaluate(take)
         #expect(r.measurements.clipRun3)
@@ -179,7 +191,7 @@ private let goodTranscript = TranscriptComparison.compare(transcript: Enrollment
         #expect(EnrollmentChecks.levelCheck(peakDbfs: -14, speechRmsDbfs: -25).status == .warn)
         #expect(EnrollmentChecks.levelCheck(peakDbfs: -10, speechRmsDbfs: -33).message == "请靠近麦克风")
         #expect(EnrollmentChecks.levelCheck(peakDbfs: -0.5, speechRmsDbfs: -14).status == .warn)
-        let quiet = evaluate(Synth.take(segments: [4.0, 4.0], pauses: [0.5], speechDb: -34, roomDb: -80),
+        let quiet = evaluate(Synth.take(segments: [6.0, 6.0], pauses: [0.5], speechDb: -34, roomDb: -80),
                              noise: Synth.noise(1.5, db: -80))
         #expect(quiet.result(.level)?.status == .reject)
     }
@@ -190,7 +202,7 @@ private let goodTranscript = TranscriptComparison.compare(transcript: Enrollment
         #expect(EnrollmentChecks.noiseFloorCheck(-50).status == .warn)
         #expect(EnrollmentChecks.noiseFloorCheck(-45).status == .warn)
         #expect(EnrollmentChecks.noiseFloorCheck(-44).message == "环境太吵")
-        let noisy = evaluate(Synth.take(segments: [4.0, 4.0], pauses: [0.5], speechDb: -15, roomDb: -40),
+        let noisy = evaluate(Synth.take(segments: [6.0, 6.0], pauses: [0.5], speechDb: -15, roomDb: -40),
                              noise: Synth.noise(1.5, db: -40))
         #expect(noisy.result(.noiseFloor)?.status == .reject)
         #expect(abs(noisy.measurements.noiseFloorDbfs - (-40)) < 0.5)
@@ -201,7 +213,7 @@ private let goodTranscript = TranscriptComparison.compare(transcript: Enrollment
         #expect(EnrollmentChecks.snrCheck(27).status == .warn)
         #expect(EnrollmentChecks.snrCheck(24.9).status == .reject)
         // −22 dBFS speech over a −50 dBFS room: SNR ≈ 28 dB → warning, still savable.
-        let r = evaluate(Synth.take(segments: [4.0, 4.0], pauses: [0.5], roomDb: -50), noise: Synth.noise(1.5, db: -50))
+        let r = evaluate(Synth.take(segments: [6.0, 6.0], pauses: [0.5], roomDb: -50), noise: Synth.noise(1.5, db: -50))
         #expect(r.result(.snr)?.status == .warn)
         #expect(r.canSave)
     }
@@ -210,7 +222,7 @@ private let goodTranscript = TranscriptComparison.compare(transcript: Enrollment
         #expect(EnrollmentChecks.pauseCheck(1.2).status == .pass)
         #expect(EnrollmentChecks.pauseCheck(1.5).status == .warn)
         #expect(EnrollmentChecks.pauseCheck(2.1).status == .reject)
-        let r = evaluate(Synth.take(segments: [4.0, 4.0], pauses: [2.5]))
+        let r = evaluate(Synth.take(segments: [6.0, 6.0], pauses: [2.5]))
         #expect(r.result(.pause)?.status == .reject)
         #expect(abs(r.measurements.longestPauseSeconds - 2.5) < 0.05)
     }
@@ -224,13 +236,13 @@ private let goodTranscript = TranscriptComparison.compare(transcript: Enrollment
     }
 
     @Test func missingRecognizerIsPendingNotFatal() {
-        let r = evaluate(Synth.take(segments: [4.0, 4.5], pauses: [0.6]), transcript: nil)
+        let r = evaluate(Synth.take(segments: [6.0, 6.0], pauses: [0.6]), transcript: nil)
         #expect(r.result(.transcript)?.status == .pending)
         #expect(r.canSave)
     }
 
     @Test func worstAndHeadlineOrder() {
-        let r = EnrollmentReport(measurements: evaluate(Synth.take(segments: [4.0, 4.5], pauses: [0.6])).measurements,
+        let r = EnrollmentReport(measurements: evaluate(Synth.take(segments: [6.0, 6.0], pauses: [0.6])).measurements,
                                  results: [.init(id: .noiseFloor, status: .warn, value: -50, message: "w"),
                                            .init(id: .duration, status: .reject, value: 3, message: "r")])
         #expect(r.worst == .reject)
