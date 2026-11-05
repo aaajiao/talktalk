@@ -1,6 +1,6 @@
 # TalkTalk
 
-![使用场景：会议同传与视频字幕](docs/images/settings-scenarios.jpg)
+![使用场景：会议同传与视频字幕](docs/images/settings-scenarios.png)
 
 **让中文使用者更轻松地参与英语、德语会议，也能给视频加上双语字幕。**
 
@@ -16,7 +16,7 @@ TalkTalk 是一个原生 macOS 菜单栏应用。语音识别和语音合成在�
 
 需要 **Apple Silicon Mac、macOS 26.4 或更新版本**。会议同传请使用耳机。
 
-**[下载 TalkTalk 1.0.4（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.4/TalkTalk-1.0.4-macOS-arm64.zip)** · [版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.4)
+**[下载 TalkTalk 1.0.14（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.14/TalkTalk-1.0.14-macOS-arm64.zip)** · [版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.14)
 
 解压后将 `TalkTalk.app` 拖入“应用程序”，从 Finder 打开。该包使用 **ad-hoc 本地签名，尚无 Developer ID 签名及 Apple 公证**；首次打开时 macOS 可能显示安全提示或阻止启动，请确认下载来源后按系统提示处理。
 
@@ -54,7 +54,7 @@ scripts/build-app.sh release
 <details>
 <summary>通用</summary>
 
-![通用：启动、通知和应用管理](docs/images/settings-general.jpg)
+![通用：启动、通知和应用管理](docs/images/settings-general.png)
 
 </details>
 
