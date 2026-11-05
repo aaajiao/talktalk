@@ -1,5 +1,7 @@
 # TalkTalk
 
+![使用场景：会议同传与视频字幕](docs/images/settings-scenarios.jpg)
+
 **让中文使用者更轻松地参与英语、德语会议，也能给视频加上双语字幕。**
 
 TalkTalk 是一个原生 macOS 菜单栏应用。语音识别和语音合成在本机运行，文字翻译可选 OpenAI 或 Apple。
@@ -47,19 +49,12 @@ scripts/build-app.sh release
 
 ## 设置页面
 
-点击分类展开正式版界面截图。
+使用场景见页首；点击下方分类展开其他设置页面。
 
 <details>
 <summary>通用</summary>
 
 ![通用：启动、通知和应用管理](docs/images/settings-general.jpg)
-
-</details>
-
-<details>
-<summary>使用场景</summary>
-
-![使用场景：会议同传与视频字幕](docs/images/settings-scenarios.jpg)
 
 </details>
 
