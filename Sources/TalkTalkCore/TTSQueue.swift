@@ -6,7 +6,7 @@ import Foundation
 ///   `mergeWindowMs` (300 ms) of it, both have fewer than `mergeMaxWords` (8) words and the same
 ///   language → one item. The merged item keeps the first clause's ID and lists the others in
 ///   `clauses`, so the caller moves all of them through ClauseLedger together.
-/// - Each request: explicit language, `seed = hash(voice, text)`, `wholeClause` when the expected
+/// - Each request: explicit language, fixed voice/language seed, `wholeClause` when the expected
 ///   duration is below `wholeClauseBelowExpectedS` (1.5 s, §3.3 short clauses).
 ///
 /// Pure value type driven by explicit times (virtual clock in tests). BacklogController (M3)
@@ -75,7 +75,7 @@ public struct TTSQueue: Sendable {
     /// The request for an item (also used to resend the same clause after an engine restart).
     public func request(for item: Item, job: JobID, voice: VoiceHandle, priority: Priority = .p0TTS) -> TTSRequest {
         TTSRequest(job: job, clause: item.clause, text: item.text, language: item.lang, voice: voice,
-                   seed: TTSSeed.make(voice: voice, text: item.text), priority: priority,
+                   seed: TTSSeed.make(voice: voice, language: item.lang), priority: priority,
                    wholeClause: item.expectedS < config.wholeClauseBelowExpectedS)
     }
 

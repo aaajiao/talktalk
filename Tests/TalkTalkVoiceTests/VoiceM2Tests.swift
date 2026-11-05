@@ -206,8 +206,15 @@ let deText = AuditionCheck.sentences[.de]!
 
     @Test func passesFirstTimeAndCalibratesThePlayoutGain() async throws {
         let b = FakeBackend()
-        let a = try await services(b).audition(conditioning: try await blobs(b), modes: [.en: .icl, .de: .icl],
-                                               profileID: UUID().uuidString, referenceWAV: referenceWAV)
+        let conditioning = try await blobs(b), id = UUID()
+        let a = try await services(b).audition(conditioning: conditioning, modes: [.en: .icl, .de: .icl],
+                                               profileID: id.uuidString, referenceWAV: referenceWAV)
+        let blob = try #require(conditioning.first)
+        let handle = VoiceHandle(profileID: id, conditioningKey: blob.key, mode: .icl,
+                                 model: .init(name: blob.model, revision: "", placement: .engineGPU))
+        for language in [Lang.en, .de] {
+            #expect(await b.seeds[language]?.first == Int(TTSSeed.make(voice: handle, language: language)))
+        }
         #expect(a.passed)
         #expect(a.clips.map(\.lang) == [.en, .de])
         #expect(a.clips.allSatisfy { $0.attempts == 1 && $0.wer == 0 && $0.similarity == 0.97 })
@@ -226,6 +233,7 @@ let deText = AuditionCheck.sentences[.de]!
         #expect(a.clip(.de)?.attempts == 1)
         let seeds = try #require(await b.seeds[.en])
         #expect(seeds.count == 2 && seeds[0] != seeds[1])
+        #expect(seeds[1] == Int(TTSSeed.next(UInt32(seeds[0]), attempt: 1)))
     }
 
     @Test func shortTwiceFailsAndSuggestsReRecording() async throws {

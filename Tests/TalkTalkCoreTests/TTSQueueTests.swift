@@ -61,14 +61,15 @@ private func ms(_ v: Int) -> HostTime { HostTime(v) * 1_000_000 }
         let (a, ra) = q.next(job: 1, voice: Self.voice)!
         let (_, rb) = q.next(job: 2, voice: Self.voice)!
         #expect(a.clause == 7 && ra.clause == 7 && ra.language == .de && ra.job == 1)
-        #expect(ra.seed == TTSSeed.make(voice: Self.voice, text: "Okay."))
+        #expect(ra.seed == TTSSeed.make(voice: Self.voice, language: .de))
         #expect(ra.wholeClause)                              // de, 1 word: well under 1.5 s
         #expect(!rb.wholeClause)                             // en 11 words ≈ 3.5 s
         // Seed is stable across queues (and processes: FNV-1a).
         var q2 = TTSQueue(config: cfg)
-        q2.enqueue(clause: 99, text: "Okay.", lang: .de, at: 0)
+        q2.enqueue(clause: 99, text: "Jetzt besprechen wir die nächsten Schritte.", lang: .de, at: 0)
         let v8 = q2.next(job: 5, voice: Self.voice)
         #expect(v8!.request.seed == ra.seed)
+        #expect(rb.seed != ra.seed) // Each output language keeps its own fixed sequence.
         let v9 = q.next(job: 3, voice: Self.voice)
         #expect(v9 == nil)
     }

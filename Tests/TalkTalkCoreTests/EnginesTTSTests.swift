@@ -45,6 +45,14 @@ import Testing
         #expect(obj["bufferedMs"] as? Int == 3)
     }
 
+    @Test func languageSeedsPreserveTheListeningComparison() {
+        #expect(TTSSeed.make(voice: Self.voice, language: .en) == 2_583_116_680)
+        #expect(TTSSeed.make(voice: Self.voice, language: .de) == 318_753_904)
+        var other = Self.voice
+        other.conditioningKey = "k8-9999"
+        #expect(TTSSeed.make(voice: other, language: .en) != TTSSeed.make(voice: Self.voice, language: .en))
+    }
+
     @Test func seedIsStableAndDependsOnVoiceAndText() {
         let a = TTSSeed.make(voice: Self.voice, text: "Hello there.")
         #expect(a == TTSSeed.make(voice: Self.voice, text: "Hello there."))

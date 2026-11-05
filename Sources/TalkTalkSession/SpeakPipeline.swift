@@ -692,6 +692,8 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             for id in renderMembers[clause] ?? [clause] { ledger.streamFinished(id, job: chunk.job) }
             if let summary = chunk.summary {
                 var fields: [String: EventLog.Value] = ["clause": .int(Int(clause)), "job": .int(Int(chunk.job))]
+                fields["attempts"] = .int(summary.attempts)
+                fields["echo_aborts"] = .int(summary.echoAborts)
                 if let rtf = summary.computeRTF, rtf.isFinite, rtf >= 0 { fields["compute_rtf"] = .double(rtf) }
                 // Engine/system TTS summary: generated duration, not elapsed or heard duration.
                 if summary.audioS.isFinite, summary.audioS >= 0, summary.audioS < Double(Int.max) / 1000 {
@@ -956,7 +958,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         let normalized = TextNormalizer.normalize(text, lang: target)
         guard !normalized.unicodeScalars.contains(where: TextScript.isCJK) else { return }
         let request = TTSRequest(job: job, clause: job, text: normalized, language: target, voice: handle,
-                                 seed: TTSSeed.make(voice: handle, text: normalized), wholeClause: true)
+                                 seed: TTSSeed.make(voice: handle, language: target), wholeClause: true)
         announcementEngine = selected; announcementJob = job
         announcementTask = Task { [weak self] in
             do {

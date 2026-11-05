@@ -286,6 +286,7 @@ struct SpeakPipelineTests {
         #expect(request["expected_audio_ms"] as? Int == 1071)
         #expect(complete["job"] as? Int == request["job"] as? Int)
         #expect(complete["audio_ms"] as? Int == 500)
+        #expect(complete["attempts"] as? Int == 1 && complete["echo_aborts"] as? Int == 0)
         for event in [source, request, complete] {
             let line = String(decoding: try JSONSerialization.data(withJSONObject: event), as: UTF8.self)
             #expect(DiagnosticsWhitelist.scrubEventLine(Substring(line)) != nil)

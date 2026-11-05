@@ -39,7 +39,7 @@ public struct TTSRequest: Codable, Sendable, Equatable {
     /// Always explicit (§5.5); never `zh` for a clone voice (TargetTextGate).
     public var language: Lang
     public var voice: VoiceHandle
-    /// `seed = hash(voice, text)` (§5.5, `TTSSeed`), so the same sentence is reproducible.
+    /// Fixed for a voice and output language, so sentence boundaries do not change the seed.
     public var seed: UInt32
     public var priority: Priority
     /// Short clause: render whole, pass runaway/short/echo checks, then return (§3.3).
@@ -137,9 +137,27 @@ public protocol TTSEngine: Sendable {                                // RemoteQw
     func cancel(_ job: JobID) async
 }
 
-/// `seed = hash(voice, text)` (§5.5, readread practice): stable across launches and processes,
-/// so it is FNV-1a over UTF-8, not Swift's per-process randomized `Hasher`.
+/// Stable across launches and processes: FNV-1a over UTF-8, not Swift's randomized `Hasher`.
 public enum TTSSeed {
+    /// Production initial seed: one per voice/language, independent of the current sentence.
+    /// These v1 salts preserve the exact seeds selected in the 2026-11-05 segmented C listening
+    /// comparison. They are hash input only, never model prompts. Freeze their bytes; translating,
+    /// normalizing or prefixing them would change the accepted voice's sampling sequence.
+    public static func make(voice: VoiceHandle, language: Lang) -> UInt32 {
+        let anchor: String
+        switch language {
+        case .en:
+            anchor = "After reviewing the latest project updates, we can confirm the budget and plan our next steps together."
+        case .de:
+            anchor = "Nachdem wir die aktuellen Ergebnisse gemeinsam geprüft haben, können wir das Budget bestätigen und die nächsten Schritte besprechen."
+        case .zh:
+            anchor = "talktalk-voice-seed-v1:zh" // Reserved; meeting SPEAK targets English/German.
+        }
+        return make(voice: voice, text: anchor)
+    }
+
+    /// Explicit text-derived seed retained for low-level comparisons and reproducibility.
+    /// Product speech, announcements and auditions use the language overload above.
     public static func make(voice: VoiceHandle, text: String) -> UInt32 {
         var h: UInt32 = 0x811C_9DC5
         func mix(_ bytes: some Sequence<UInt8>) {

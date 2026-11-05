@@ -310,7 +310,7 @@ public struct EngineVoiceServices: VoiceEngineServices {
             let text = AuditionCheck.sentences[lang]!
             let handle = VoiceHandle(profileID: id, conditioningKey: blob.key, mode: mode,
                                      model: EngineID(name: blob.model, revision: "", placement: .engineGPU))
-            var seed = TTSSeed.make(voice: handle, text: text)
+            var seed = TTSSeed.make(voice: handle, language: lang)
             var clip = AuditionClip(lang: lang, text: text, samples: [], attempts: 0)
             for attempt in 0..<AuditionCheck.maxAttempts {
                 if attempt > 0 { seed = TTSSeed.next(seed, attempt: attempt) }
