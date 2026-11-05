@@ -412,6 +412,9 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             publishTranscript()
         }
         ledger.commit(id, press: press, at: committedAt)
+        log.event("speak.clip_committed", ["clause": .int(Int(id)), "press": .int(Int(press)),
+            "clip_ms": .int(HostClock.ms(clip.pcm.start, to: clip.pcm.end)), "speech_ms": .int(clip.speechMs),
+            "cut_reason": .tag(clip.cutReason.rawValue)], at: committedAt)
         let previous = asrTail
         let recognition = Task<ASRFinal, Error> { [weak self] in
             await previous?.value
@@ -653,6 +656,12 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                        wholeClause: next.request.wholeClause, gainDb: gain,
                        predictedDurationS: calibration.expectedSeconds(text: item.text, voice: handle, language: target))
             let token = epoch, sent = clock(), request = next.request
+            // The actual TTS boundary can differ from the source clip (translation/short-clause merging).
+            // This is the uncalibrated estimate shared with the engine's output guards, not measured audio.
+            log.event("speak.tts_requested", ["clause": .int(Int(id)), "press": .int(Int(row.press)),
+                "job": .int(Int(job)), "members": .int(members.count),
+                "target_words": .int(item.words), "target_characters": .int(item.text.count),
+                "expected_audio_ms": .int(Int((item.expectedS * 1000).rounded()))], at: sent)
             renderEngines[job] = selected
             renders[job] = Task { [weak self] in
                 var first = true
@@ -682,6 +691,10 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             if let summary = chunk.summary {
                 var fields: [String: EventLog.Value] = ["clause": .int(Int(clause)), "job": .int(Int(chunk.job))]
                 if let rtf = summary.computeRTF, rtf.isFinite, rtf >= 0 { fields["compute_rtf"] = .double(rtf) }
+                // Engine/system TTS summary: generated duration, not elapsed or heard duration.
+                if summary.audioS.isFinite, summary.audioS >= 0, summary.audioS < Double(Int.max) / 1000 {
+                    fields["audio_ms"] = .int(Int((summary.audioS * 1000).rounded()))
+                }
                 log.event("speak.tts_complete", fields)
             }
             if let summary = chunk.summary, let handle = renderVoice[chunk.job], let text = renderText[chunk.job] {

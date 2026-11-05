@@ -240,9 +240,9 @@ class TTSModel:
         top_k = d["top_k"] if top_k is None else top_k
         top_p = d["top_p"] if top_p is None else top_p
         rep = d["repetition_penalty"] if repetition_penalty is None else repetition_penalty
-        # Honor the checkpoint's generation setting (1.05 for the shipped Base models).
-        # Raising it to the MLX ICL floor of 1.5 changed clone timbre in the local A/B;
-        # keep the existing recent-token window and output guards instead.
+        # Restore the previous MLX ICL floor at the user's request after normal use.
+        # Keep the recent-token window and guards; this is not a voice-identity guarantee.
+        rep = max(rep, 1.5)
         if max_frames is None:
             max_frames = int(FRAME_HZ * (3.0 * expected_seconds(text, language) + 2.0))
         chunk = max(1, int(interval * FRAME_HZ))

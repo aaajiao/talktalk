@@ -203,7 +203,7 @@ struct SpeakPipelineTests {
     private func fixture(asr: SpeakTestASR = .init(), mt: SpeakTestMT = .init(),
                          primary: SpeakTestASR? = nil, ttsFailures: Int = 0,
                          preview: (any StreamingASREngine)? = nil, whileHeld: Bool = false, target: Lang = .en,
-                         captureFromKeyDown: Bool = false,
+                         captureFromKeyDown: Bool = false, log: EventLog? = nil,
                          onCommit: @escaping @Sendable () -> Void = {},
                          onWorkChange: @escaping @Sendable (Bool) -> Void = { _ in },
                          onUI: @escaping @Sendable (SpeakUIEvent) -> Void = { _ in },
@@ -216,7 +216,7 @@ struct SpeakPipelineTests {
             voice: { .init(clone: nil, system: tts, systemHandle: handle, cloneAvailability: .noProfile,
                            playoutGainDb: 0, hudVoice: .system) },
             engine: SpeakTestControl(), echo: SpeakTestEcho(), previewASR: preview, target: target, jobs: JobIDSequence(),
-            log: EventLog(inMemory: HostClock.now), speakerMode: { false }, captureFromKeyDown: captureFromKeyDown,
+            log: log ?? EventLog(inMemory: HostClock.now), speakerMode: { false }, captureFromKeyDown: captureFromKeyDown,
             ui: onUI, onCommit: onCommit, onWorkChange: onWorkChange, onSpoken: onSpoken, commitWhileHeld: whileHeld)
         return (pipeline, mic, host, tts)
     }
@@ -239,6 +239,35 @@ struct SpeakPipelineTests {
         #expect(await fallback.calls == 1)
         #expect(tts.requests.withLock { $0[0].text == "Hello world." && $0[0].language == .en })
         #expect(await until { (try? host.queue.pump(at: HostClock.now())) != nil && host.ring.availableFrames > 0 })
+        await pipeline.stop()
+    }
+
+    @Test func lengthDiagnosticsLinkSourceClipToTTSWithoutText() async throws {
+        let log = EventLog(inMemory: HostClock.now)
+        let (pipeline, mic, _, _) = try fixture(log: log)
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        mic.press.cc.yield(clip(at: now))
+        await pipeline.handle(.released(at: now + 1_000_000_000, reason: .keyUp))
+        #expect(await until { log.recorded.contains { $0["ev"] as? String == "speak.tts_complete" } })
+        let events = log.recorded
+        let source = try #require(events.first { $0["ev"] as? String == "speak.clip_committed" })
+        let request = try #require(events.first { $0["ev"] as? String == "speak.tts_requested" })
+        let complete = try #require(events.first { $0["ev"] as? String == "speak.tts_complete" })
+        #expect(source["clip_ms"] as? Int == 1000 && source["speech_ms"] as? Int == 1000)
+        #expect(source["cut_reason"] as? String == "release")
+        #expect(request["clause"] as? Int == source["clause"] as? Int)
+        #expect(request["members"] as? Int == 1)
+        #expect(request["target_words"] as? Int == 2 && request["target_characters"] as? Int == 12)
+        #expect(request["expected_audio_ms"] as? Int == 1071)
+        #expect(complete["job"] as? Int == request["job"] as? Int)
+        #expect(complete["audio_ms"] as? Int == 500)
+        for event in [source, request, complete] {
+            let line = String(decoding: try JSONSerialization.data(withJSONObject: event), as: UTF8.self)
+            #expect(DiagnosticsWhitelist.scrubEventLine(Substring(line)) != nil)
+            #expect(!line.contains("Hello world") && !line.contains("你好世界"))
+            #expect(event["voice_key"] == nil && event["conditioningKey"] == nil)
+        }
         await pipeline.stop()
     }
 
