@@ -19,7 +19,7 @@ struct SubtitleSettingsView: View {
             } header: {
                 Text("字幕窗口")
             } footer: {
-                Text("对方字幕与我的翻译发言显示在同一个窗口。关闭文字显示后，必要的音频状态和问题提示仍会保留。")
+                Text("对方字幕与我的翻译发言显示在同一个窗口。状态集中在底部一行，点击“详情”查看说明；关闭文字后仍保留必要状态。")
             }
             Section {
                 LabeledContent("基础字号") {
@@ -64,7 +64,7 @@ struct SubtitleSettingsView: View {
                         .foregroundStyle(.white.opacity(0.65))
                     Text("我们来看看下周的计划。")
                         .font(.system(size: state.subtitleFontSize, weight: .medium)).foregroundStyle(.white)
-                    Text("草稿：先确认时间，再安排下一步。")
+                    Text("先确认时间，再安排下一步。")
                         .font(.system(size: max(14, state.subtitleFontSize * 0.88)))
                         .foregroundStyle(.white.opacity(0.68))
                 }

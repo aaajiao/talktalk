@@ -17,9 +17,14 @@ final class PTTHUD {
     private let panel: SubtitlePanel
     private let content = ConversationContentView()
     private var width: CGFloat { panel.contentWidth - 8 }
-    private var expandedDetails: Set<String> = []
     var onOpenSettings: ((HUDLine.SettingsDestination) -> Void)?
-    private let stack = NSStackView()
+    private let statusRow = NSView()
+    private let statusIcon = NSImageView()
+    private let statusLabel = ConversationLabel(labelWithString: "")
+    private let detailsButton = NSButton()
+    private let detailsPopover = NSPopover()
+    private var statusAction: HUDButtonAction?
+    private var shownStatus: HUDStatusPresentation?
     private var subtitlesVisible = true
     private var listenHint: HUDModel.Warning?
     private var subtitleIssue: HUDLine?
@@ -32,28 +37,35 @@ final class PTTHUD {
 
     init(panel: SubtitlePanel) {
         self.panel = panel
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 2
-        stack.edgeInsets = NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: content.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-        ])
+        statusRow.addSubview(statusIcon)
+        statusRow.addSubview(statusLabel)
+        statusRow.addSubview(detailsButton)
+        statusLabel.maximumNumberOfLines = 1
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.cell?.isScrollable = false
+        detailsButton.title = String(localized: "详情")
+        detailsButton.bezelStyle = .rounded
+        detailsButton.controlSize = .small
+        detailsButton.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
+        detailsButton.imagePosition = .imageLeading
+        detailsButton.setAccessibilityLabel(String(localized: "查看状态详情"))
+        statusAction = HUDButtonAction { [weak self] in self?.toggleDetails() }
+        detailsButton.target = statusAction
+        detailsButton.action = #selector(HUDButtonAction.run)
+        detailsPopover.behavior = .transient
+        detailsPopover.animates = false
         panel.onAppearanceChange = { [weak self] in
             guard let self else { return }
-            render(displayLines(now: clock()), force: true)
+            render(force: true)
         }
         panel.onHintChange = { [weak self] message in
             guard let self else { return }
-            subtitleIssue = message.map {
+            let next = message.map {
                 HUDLine(String(localized: "字幕需要检查"), .yellow, detail: $0, symbol: "captions.bubble")
             }
-            render(displayLines(now: clock()), force: true)
+            guard subtitleIssue != next else { return }
+            subtitleIssue = next
+            requestRedraw()
         }
     }
 
@@ -65,19 +77,20 @@ final class PTTHUD {
         listenHint = nil
         subtitleIssue = nil
         cloudReminder = nil
-        expandedDetails.removeAll()
+        detailsPopover.close()
         change { $0.meetingEnded() }
-        render(displayLines(now: clock()), force: true)
+        render()
     }
 
     func showCloudReminder(useApple: @escaping () -> Void, copyNotice: @escaping () -> Void) {
         cloudReminder = (useApple, copyNotice)
-        render(displayLines(now: clock()), force: true)
+        render()
     }
 
     private func closeCloudReminder() {
         cloudReminder = nil
-        render(displayLines(now: clock()), force: true)
+        detailsPopover.close()
+        render()
     }
 
     func post(_ w: HUDModel.Warning) {
@@ -120,14 +133,16 @@ final class PTTHUD {
 
     /// LISTEN hints belong to the shared status section, never in the remote original text.
     func listen(_ hint: MeetingSession.Hint?) {
-        listenHint = hint.map(Self.warning)
+        let next = hint.map(Self.warning)
+        guard listenHint != next else { return }
+        listenHint = next
         applyListenHint()
     }
 
     func setSubtitlesVisible(_ on: Bool) {
         subtitlesVisible = on
         applyListenHint()
-        render(displayLines(now: clock()), force: true)
+        render()
     }
 
     /// SystemInputSwitcher's one-shot notices (§8.6).
@@ -210,6 +225,13 @@ final class PTTHUD {
 
     private func requestRedraw() {
         let now = clock()
+        // A newly relevant failure must not wait behind ordinary transcript refreshes.
+        if let summary = displayStatus(now: now)?.summary, summary != shownStatus?.summary,
+           summary.style == .yellow || summary.style == .red || summary.style == .redBanner {
+            redrawTimer?.invalidate(); redrawTimer = nil
+            redraw()
+            return
+        }
         switch limiter.request(now: now) {
         case .now:
             redraw()
@@ -221,16 +243,20 @@ final class PTTHUD {
         }
     }
 
-    private func displayLines(now: Double) -> [HUDLine] {
+    private func displayStatus(now: Double) -> HUDStatusPresentation? {
         var presentation = model
         if presentation.meetingAudio == .original { presentation.pushToTalk = .idle }
         else if !subtitlesVisible, case let .holding(level, _, _, queued) = presentation.pushToTalk {
             presentation.pushToTalk = .holding(level: level, preview: "", committed: [], queued: queued)
         }
-        var lines = presentation.lines(now: now)
+        var lines: [HUDLine] = []
         if let subtitleIssue { lines.append(subtitleIssue) }
         if let o = oneOff, o.until > now { lines.append(o.line) }
-        return lines
+        if cloudReminder != nil {
+            lines.append(HUDLine(String(localized: "云端翻译已开启"), .yellow,
+                                 detail: String(localized: "会议文字会发送给 OpenAI。"), symbol: "network"))
+        }
+        return presentation.compactStatus(now: now, extraLines: lines)
     }
 
     private func redraw() {
@@ -238,7 +264,7 @@ final class PTTHUD {
         limiter.didRender(now: now)
         model.expireTranscript(at: now, reading: panel.speechIsVisible && panel.frame.contains(NSEvent.mouseLocation))
         if let o = oneOff, o.until <= now { oneOff = nil }
-        render(displayLines(now: now))
+        render()
         scheduleExpiry(now: now)
     }
 
@@ -259,153 +285,154 @@ final class PTTHUD {
 
     private(set) var shownLines: [HUDLine] = []
 
-    private func render(_ lines: [HUDLine], force: Bool = false) {
-        expandedDetails.formIntersection(lines.compactMap { line in
-            line.detail.map { line.text + "\n" + $0 }
-        })
-        let candidate = model.visibleTranscript(at: clock())
+    /// Keep the status strip and transcript independent. Meter ticks and queue changes must
+    /// never reconstruct a reading view or reset its scroll position.
+    private func render(force: Bool = false) {
+        let now = clock()
+        let status = displayStatus(now: now)
+        let candidate = model.visibleTranscript(at: now)
         let transcript = !subtitlesVisible || (model.meetingAudio == .original && candidate?.isFinal == false) ? nil : candidate
-        guard force || lines != shownLines || transcript != shownTranscript else { return }
-        let samePress = transcript?.press == shownTranscript?.press
-        let oldOffset = samePress ? transcriptScroll?.contentView.bounds.origin.y ?? 0 : 0
-        let followTail = samePress && (transcriptScroll.map { ($0.documentView?.bounds.height ?? 0) - $0.documentVisibleRect.maxY < 20 } ?? true)
-        shownTranscript = transcript
-        shownLines = lines
+        let oldStatus = shownStatus
+        shownStatus = status
+        shownLines = status.map { [$0.summary] } ?? []
+        let summaryChanged = status?.summary != oldStatus?.summary
+        let transcriptChanged = transcript != shownTranscript
+        guard force || summaryChanged || transcriptChanged else { return }
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        transcriptScroll = nil
-        reminderActions.removeAll()
-        guard !lines.isEmpty || cloudReminder != nil || transcript != nil else {
-            panel.setSpeechContent(content, height: 0)
-            return
+        statusRow.isHidden = status == nil
+        if let line = status?.summary, force || summaryChanged {
+            statusLabel.stringValue = line.text
+            statusLabel.toolTip = line.text
+            statusLabel.font = .systemFont(ofSize: 14, weight: line.style == .red || line.style == .redBanner ? .semibold : .regular)
+            statusLabel.textColor = Self.color(for: line.style)
+            statusIcon.image = NSImage(systemSymbolName: line.symbol ?? Self.symbol(for: line.style), accessibilityDescription: nil)
+            statusIcon.contentTintColor = Self.color(for: line.style)
         }
-        var height: CGFloat = 12
-        for line in lines {
-            let row = makeRow(line)
-            stack.addArrangedSubview(row.view); height += row.height + stack.spacing
-        }
-        if let destination = lines.compactMap(\.settingsDestination).first, let onOpenSettings {
-            let title = switch destination {
-            case .audio: String(localized: "音频设置")
-            case .translation: String(localized: "翻译设置")
-            case .permissions: String(localized: "权限设置")
+        statusRow.frame.size = NSSize(width: width - 24, height: Self.rowHeight)
+        statusIcon.frame = NSRect(x: 0, y: 3, width: 18, height: 18)
+        detailsButton.frame = NSRect(x: statusRow.bounds.width - 62, y: 0, width: 62, height: Self.rowHeight)
+        statusLabel.frame = NSRect(x: 26, y: 3, width: max(80, statusRow.bounds.width - 96), height: 19)
+
+        if force || transcriptChanged {
+            let samePress = transcript?.press == shownTranscript?.press
+            let oldOffset = samePress ? transcriptScroll?.contentView.bounds.origin.y ?? 0 : 0
+            let followTail = samePress && (transcriptScroll.map { ($0.documentView?.bounds.height ?? 0) - $0.documentVisibleRect.maxY < 20 } ?? true)
+            transcriptScroll?.removeFromSuperview()
+            transcriptScroll = nil
+            shownTranscript = transcript
+            if let transcript {
+                let view = makeTranscript(transcript, oldOffset: oldOffset, followTail: followTail)
+                transcriptScroll = view
+                content.addSubview(view)
             }
-            let target = HUDButtonAction { onOpenSettings(destination) }
-            reminderActions.append(target)
-            let button = NSButton(title: title, target: target, action: #selector(HUDButtonAction.run))
-            button.bezelStyle = .rounded; button.controlSize = .small
-            button.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
-            button.imagePosition = .imageLeading
-            stack.addArrangedSubview(button); height += Self.rowHeight + stack.spacing
         }
-        if let transcript {
-            let view = makeTranscript(transcript, oldOffset: oldOffset, followTail: followTail)
-            transcriptScroll = view
-            stack.addArrangedSubview(view); height += view.frame.height + stack.spacing
+        var height: CGFloat = 6
+        if let transcriptScroll {
+            transcriptScroll.frame.origin = NSPoint(x: 12, y: height)
+            height += transcriptScroll.frame.height
         }
-        if let reminder = cloudReminder {
-            let notice = HUDLine(String(localized: "云端翻译已开启：会议文字会发送给 OpenAI。"), .yellow)
-            let noticeRow = makeRow(notice)
-            stack.addArrangedSubview(noticeRow.view); height += noticeRow.height + stack.spacing
-            let actions: [(String, () -> Void)] = [
-                (String(localized: "本场 LISTEN 只用 Apple"), { [weak self] in reminder.apple(); self?.closeCloudReminder() }),
-                (String(localized: "复制聊天说明"), { reminder.copy() }),
-                (String(localized: "知道了"), { [weak self] in self?.closeCloudReminder() }),
-            ]
-            let row = NSStackView()
-            row.orientation = .horizontal; row.spacing = 10
-            for (title, action) in actions {
-                let target = HUDButtonAction(action)
-                reminderActions.append(target)
-                let button = NSButton(title: title, target: target, action: #selector(HUDButtonAction.run))
-                button.bezelStyle = .rounded
-                row.addArrangedSubview(button)
-            }
-            row.heightAnchor.constraint(equalToConstant: Self.rowHeight).isActive = true
-            stack.addArrangedSubview(row)
-            height += Self.rowHeight + stack.spacing
-        }
-        let size = NSSize(width: width, height: max(12, height - stack.spacing))
-        content.frame = NSRect(origin: .zero, size: size)
-        let hasPress = model.meetingActive && model.pushToTalkAvailable && model.meetingAudio != .original && model.pushToTalk != .idle
-        panel.setSpeechContent(content, height: size.height, hasLocalSpeech: transcript != nil || hasPress)
+        height = transcript == nil ? 0 : height + 6
+        content.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        panel.setSpeechContent(content, height: height, hasLocalSpeech: transcript != nil)
+        panel.setStatusContent(statusRow, height: status == nil ? 0 : Self.rowHeight)
+        if status == nil { detailsPopover.close() }
     }
 
-    private func makeRow(_ line: HUDLine) -> (view: NSView, height: CGFloat) {
-        let font = NSFont.systemFont(ofSize: 14, weight: line.style == .red || line.style == .redBanner ? .semibold : .regular)
-        let color: NSColor = switch line.style {
+    private static func color(for style: HUDLine.Style) -> NSColor {
+        switch style {
         case .normal: .labelColor
         case .secondary: .secondaryLabelColor
         case .check: .systemGreen
         case .yellow: .systemOrange
         case .red, .redBanner: .systemRed
         }
-        let fallbackSymbol: String = switch line.style {
+    }
+
+    private static func symbol(for style: HUDLine.Style) -> String {
+        switch style {
         case .normal: "waveform"
         case .secondary: "info.circle"
         case .check: "checkmark.circle"
         case .yellow: "exclamationmark.triangle"
         case .red, .redBanner: "exclamationmark.octagon"
         }
-        let icon = NSImageView(image: NSImage(systemSymbolName: line.symbol ?? fallbackSymbol, accessibilityDescription: nil) ?? NSImage())
-        icon.contentTintColor = color
-        icon.widthAnchor.constraint(equalToConstant: 18).isActive = true
-        let textWidth = max(100, width - 24 - 26 - (line.level == nil ? 0 : 128) - (line.detail == nil ? 0 : 80))
-        let label = ConversationLabel(wrappingLabelWithString: line.text)
-        label.font = font; label.textColor = color
-        label.lineBreakMode = .byWordWrapping; label.maximumNumberOfLines = 0
-        label.preferredMaxLayoutWidth = textWidth
-        let bounds = (line.text as NSString).boundingRect(
-            with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font])
-        var height = max(Self.rowHeight, ceil(bounds.height) + 4)
-        let row = NSStackView(views: [icon, label])
-        row.orientation = .horizontal; row.alignment = .centerY; row.spacing = 8
-        if let level = line.level {
-            let meter = NSLevelIndicator()
-            meter.levelIndicatorStyle = .continuousCapacity
-            meter.minValue = 0; meter.maxValue = 1
-            meter.doubleValue = Double(max(0, min(1, level)))
-            meter.widthAnchor.constraint(equalToConstant: 120).isActive = true
-            row.addArrangedSubview(meter)
+    }
+
+    /// Details are a snapshot opened deliberately, never a stream of rows inside the captions.
+    /// The live one-line summary remains outside and continues to show current problems.
+    private func toggleDetails() {
+        if detailsPopover.isShown { detailsPopover.close(); return }
+        guard let status = displayStatus(now: clock()) else { return }
+        reminderActions.removeAll()
+        let document = HUDDetailsView()
+        let detailWidth: CGFloat = min(420, max(300, width - 48))
+        var y: CGFloat = 14
+        func text(_ value: String, font: NSFont, color: NSColor = .labelColor) {
+            let label = NSTextField(wrappingLabelWithString: value)
+            label.font = font
+            label.textColor = color
+            label.maximumNumberOfLines = 0
+            label.preferredMaxLayoutWidth = detailWidth - 32
+            let bounds = (value as NSString).boundingRect(
+                with: NSSize(width: detailWidth - 32, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font])
+            let height = ceil(bounds.height) + 4
+            label.frame = NSRect(x: 16, y: y, width: detailWidth - 32, height: height)
+            document.addSubview(label)
+            y += height + 8
         }
-        let group = NSStackView(views: [row])
-        group.orientation = .vertical; group.alignment = .leading; group.spacing = 4
-        if let detail = line.detail {
-            let key = line.text + "\n" + detail
-            let expanded = expandedDetails.contains(key)
-            let action = HUDButtonAction { [weak self] in
-                guard let self else { return }
-                if expanded { expandedDetails.remove(key) } else { expandedDetails.insert(key) }
-                render(displayLines(now: clock()), force: true)
-            }
-            reminderActions.append(action)
-            let button = NSButton(title: expanded ? String(localized: "收起详情") : String(localized: "详情"),
-                                  target: action, action: #selector(HUDButtonAction.run))
-            button.bezelStyle = .rounded; button.controlSize = .small
-            button.image = NSImage(systemSymbolName: expanded ? "chevron.down" : "chevron.right", accessibilityDescription: nil)
-            button.imagePosition = .imageLeading
-            row.addArrangedSubview(button)
-            if expanded {
-                let detailLabel = ConversationLabel(wrappingLabelWithString: detail)
-                let detailFont = NSFont.systemFont(ofSize: 13)
-                detailLabel.font = detailFont; detailLabel.textColor = .secondaryLabelColor
-                detailLabel.maximumNumberOfLines = 0; detailLabel.lineBreakMode = .byWordWrapping
-                detailLabel.preferredMaxLayoutWidth = width - 24
-                let detailBounds = (detail as NSString).boundingRect(
-                    with: NSSize(width: width - 24, height: .greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: detailFont])
-                let detailHeight = ceil(detailBounds.height) + 4
-                detailLabel.heightAnchor.constraint(equalToConstant: detailHeight).isActive = true
-                group.addArrangedSubview(detailLabel)
-                height += detailHeight + group.spacing
+        func button(_ title: String, action: @escaping () -> Void) {
+            let target = HUDButtonAction(action)
+            reminderActions.append(target)
+            let button = NSButton(title: title, target: target, action: #selector(HUDButtonAction.run))
+            button.bezelStyle = .rounded
+            button.controlSize = .small
+            button.sizeToFit()
+            button.frame = NSRect(x: 16, y: y, width: min(detailWidth - 32, button.frame.width + 8), height: 26)
+            document.addSubview(button)
+            y += 32
+        }
+        text(String(localized: "状态详情"), font: .systemFont(ofSize: 14, weight: .semibold))
+        for line in status.details {
+            text(line.detail ?? line.text, font: .systemFont(ofSize: 13), color: Self.color(for: line.style))
+        }
+        var destinations: [HUDLine.SettingsDestination] = []
+        for destination in status.details.compactMap(\.settingsDestination) where !destinations.contains(destination) {
+            destinations.append(destination)
+        }
+        if let onOpenSettings {
+            for destination in destinations {
+                let title = switch destination {
+                case .audio: String(localized: "音频设置")
+                case .translation: String(localized: "翻译设置")
+                case .permissions: String(localized: "权限设置")
+                }
+                button(title) { [weak self] in self?.detailsPopover.close(); onOpenSettings(destination) }
             }
         }
-        group.heightAnchor.constraint(equalToConstant: height).isActive = true
-        group.widthAnchor.constraint(equalToConstant: width - 24).isActive = true
-        return (group, height)
+        if let reminder = cloudReminder {
+            button(String(localized: "本场只用 Apple 翻译听到的话")) { [weak self] in
+                reminder.apple(); self?.closeCloudReminder()
+            }
+            button(String(localized: "复制聊天说明")) { reminder.copy() }
+            button(String(localized: "知道了")) { [weak self] in self?.closeCloudReminder() }
+        }
+        document.frame = NSRect(x: 0, y: 0, width: detailWidth, height: y + 6)
+        let viewport = NSScrollView(frame: NSRect(x: 0, y: 0, width: detailWidth, height: min(360, y + 6)))
+        viewport.drawsBackground = false
+        viewport.hasVerticalScroller = y + 6 > 360
+        viewport.autohidesScrollers = true
+        viewport.documentView = document
+        let controller = NSViewController()
+        controller.view = viewport
+        detailsPopover.contentViewController = controller
+        detailsPopover.contentSize = viewport.frame.size
+        detailsPopover.show(relativeTo: detailsButton.bounds, of: detailsButton, preferredEdge: .minY)
+        // The explanation may contain local source text or device details, just like the pane.
+        controller.view.window?.sharingType = .none
     }
 
     private func makeTranscript(_ value: SpeakTranscript, oldOffset: CGFloat, followTail: Bool) -> NSScrollView {
@@ -426,15 +453,14 @@ final class PTTHUD {
             label.frame = NSRect(x: 0, y: y, width: width - 20, height: height)
             document.addSubview(label); y += height + (heading ? 2 : 10)
         }
-        line(value.isFinal ? String(localized: "本次发言 · 中文") : String(localized: "识别中 · 文字可能修订"),
-             size: 12, color: .secondaryLabelColor, heading: true)
-        line(value.source, size: max(11, max(14, panel.baseFontSize * 0.8) * panel.textScale), color: value.isFinal ? .labelColor : .secondaryLabelColor)
+        line(String(localized: "原文"), size: 12, color: .secondaryLabelColor, heading: true)
+        line(value.source, size: max(11, max(14, panel.baseFontSize * 0.8) * panel.textScale), color: .secondaryLabelColor)
         if !value.target.isEmpty {
             line(String(localized: "译文"), size: 12, color: .secondaryLabelColor, heading: true)
             line(value.target, size: panel.fontSize, color: .labelColor)
         }
         if !value.unsubmittedSource.isEmpty {
-            line(String(localized: "识别草稿（未提交翻译）"), size: 12, color: .systemOrange, heading: true)
+            line(String(localized: "未发送草稿"), size: 12, color: .systemOrange, heading: true)
             line(value.unsubmittedSource, size: max(11, max(14, panel.baseFontSize * 0.75) * panel.textScale), color: .secondaryLabelColor)
         }
         document.frame = NSRect(x: 0, y: 0, width: width, height: y)
@@ -452,7 +478,7 @@ final class PTTHUD {
     }
 
     // smoke / tests
-    var isVisible: Bool { panel.speechIsVisible }
+    var isVisible: Bool { panel.isWindowVisible && (shownStatus != nil || panel.speechIsVisible) }
     var sharingTypeIsNone: Bool { panel.sharingTypeIsNone }
     var clickThrough: Bool { panel.clickThrough }
     var windowNumber: Int { panel.windowNumber }
@@ -470,4 +496,8 @@ private final class HUDButtonAction: NSObject {
     private let action: () -> Void
     init(_ action: @escaping () -> Void) { self.action = action }
     @objc func run() { action() }
+}
+
+private final class HUDDetailsView: NSView {
+    override var isFlipped: Bool { true }
 }

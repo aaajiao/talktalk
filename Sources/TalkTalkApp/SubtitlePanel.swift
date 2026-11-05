@@ -14,7 +14,7 @@ final class SubtitlePanel {
     private let scroll = ConversationScrollView()
     private let speechScroll = ConversationScrollView()
     private let remoteHeading = ConversationLabel(wrappingLabelWithString: String(localized: "对方 / 视频"))
-    private let speechHeading = ConversationLabel(wrappingLabelWithString: String(localized: "我"))
+    private let speechHeading = ConversationLabel(wrappingLabelWithString: String(localized: "我的发言"))
     private let divider = NSBox()
     private let sourceLabel = ConversationLabel(wrappingLabelWithString: "")
     private let finalLabels = [ConversationLabel(wrappingLabelWithString: ""), ConversationLabel(wrappingLabelWithString: "")]
@@ -29,9 +29,16 @@ final class SubtitlePanel {
     private var isLayingOut = false
     private var subtitlesRequested = false
     private var speechHeight: CGFloat = 0
+    private var speechHasLocalContent = false
+    private var statusView: NSView?
+    private var statusHeight: CGFloat = 0
     var onAppearanceChange: (() -> Void)?
     var onHintChange: ((String?) -> Void)?
     private var liveSource = ""
+    private var renderedSource = ""
+    private var renderedDraft: SubtitleBoard.Line?
+    private var lastPreviewRenderAt: HostTime = 0
+    private static let previewInterval: HostTime = 500_000_000
     private var timer: Timer?
     private var moveObserver: NSObjectProtocol?
     private var resizeObserver: NSObjectProtocol?
@@ -139,7 +146,7 @@ final class SubtitlePanel {
     func setFontSize(_ size: Double) {
         baseFontSize = CGFloat(size.isFinite ? min(36, max(16, size)) : 22)
         updateFonts()
-        render()
+        render(forceLayout: true)
         onAppearanceChange?()
     }
 
@@ -167,10 +174,30 @@ final class SubtitlePanel {
     /// PTTHUD supplies only content; it never creates or orders another window.
     func setSpeechContent(_ view: NSView, height: CGFloat, hasLocalSpeech: Bool = false) {
         if speechScroll.documentView !== view { speechScroll.documentView = view }
-        speechHeading.stringValue = hasLocalSpeech ? String(localized: "我的发言") : String(localized: "状态")
-        speechHeight = max(0, height)
+        let nextHeight = max(0, height)
+        guard abs(speechHeight - nextHeight) > 0.5 || speechHasLocalContent != hasLocalSpeech else { return }
+        let visibilityChanged = (speechHeight > 0) != (nextHeight > 0)
+        speechHasLocalContent = hasLocalSpeech
+        speechHeight = nextHeight
         layout()
-        updateWindowVisibility()
+        if visibilityChanged { updateWindowVisibility() }
+    }
+
+    /// One persistent status row outside both scrolling reading areas. Its usable width is
+    /// contentWidth - 32; updating the row's labels at the same height never relays out text.
+    func setStatusContent(_ view: NSView, height: CGFloat) {
+        let changedView = statusView !== view
+        if changedView {
+            statusView?.removeFromSuperview()
+            statusView = view
+            content.addSubview(view)
+        }
+        let nextHeight = max(0, height)
+        guard changedView || abs(statusHeight - nextHeight) > 0.5 else { return }
+        let visibilityChanged = (statusHeight > 0) != (nextHeight > 0)
+        statusHeight = nextHeight
+        layout()
+        if visibilityChanged { updateWindowVisibility() }
     }
 
     func apply(_ update: SubtitleUpdate) {
@@ -196,14 +223,18 @@ final class SubtitlePanel {
             observe("subtitle_discarded", at: now,
                     line: .init(sentence: sentence, text: "", approx: false, numberWarning: false), kind: "pacing_overflow")
         }
-        if changed || previousSource != liveSource { render() }
+        if changed || previousSource != liveSource { render(at: now) }
     }
     func setHint(_ hint: String?) {
+        guard board.hint != hint else { return }
         board.setHint(hint)
         onHintChange?(hint)
     }
     func clear() {
-        liveSource = ""; board.clear(); onHintChange?(nil); render()
+        let hadHint = board.hint != nil
+        liveSource = ""; lastPreviewRenderAt = 0; board.clear()
+        if hadHint { onHintChange?(nil) }
+        render()
         observe("subtitle_cleared", at: HostClock.now())
     }
 
@@ -214,18 +245,33 @@ final class SubtitlePanel {
         observe("configuration_reset", at: HostClock.now())
     }
 
-    private func render() {
+    private func render(at now: HostTime = HostClock.now(), forceLayout: Bool = false) {
+        // Keep transient recognition/translation changes together. Finals use their own
+        // board cadence and never wait for this preview clock; obsolete previews clear at once.
+        if now >= lastPreviewRenderAt, now - lastPreviewRenderAt >= Self.previewInterval {
+            if renderedSource != liveSource || renderedDraft != board.draft {
+                renderedSource = liveSource
+                renderedDraft = board.draft
+                lastPreviewRenderAt = now
+            }
+        }
+        if liveSource.isEmpty { renderedSource = "" }
+        if board.draft == nil { renderedDraft = nil }
+        var textChanged = false
+        func update(_ label: NSTextField, _ text: String) {
+            guard label.stringValue != text else { return }
+            label.stringValue = text
+            textChanged = true
+        }
         let lines = Array(board.finals.suffix(finalLabels.count))
         for index in finalLabels.indices {
             let line = index < lines.count ? lines[index] : nil
-            finalSourceLabels[index].stringValue = line?.source ?? ""
-            finalLabels[index].stringValue = line?.display ?? ""
+            update(finalSourceLabels[index], line?.source ?? "")
+            update(finalLabels[index], line?.display ?? "")
         }
-        let currentSource = liveSource.isEmpty ? "" : String(localized: "识别中：\(liveSource)")
-        sourceLabel.stringValue = board.isEmpty ? String(localized: "等待应用声音…") : currentSource
-        draftLabel.stringValue = board.draft.map { String(localized: "草稿：\($0.text)") } ?? ""
-        layout()
-        body.alphaValue = 1
+        update(sourceLabel, renderedSource)
+        update(draftLabel, renderedDraft?.text ?? "")
+        if textChanged || forceLayout { layout() }
         recordPresentation()
     }
 
@@ -240,12 +286,12 @@ final class SubtitlePanel {
         for line in presentedFinals where !board.finals.contains(where: { $0.sentence == line.sentence }) {
             observe("subtitle_removed", at: now, line: line, kind: "final")
         }
-        if let draft = board.draft, draft != presentedDraft {
+        if let draft = renderedDraft, draft != presentedDraft {
             observe("subtitle_displayed", at: now, line: draft, kind: "draft")
-        } else if board.draft == nil, let draft = presentedDraft {
+        } else if renderedDraft == nil, let draft = presentedDraft {
             observe("subtitle_removed", at: now, line: draft, kind: "draft")
         }
-        presentedFinals = board.finals; presentedDraft = board.draft
+        presentedFinals = board.finals; presentedDraft = renderedDraft
     }
 
     private func observe(_ event: String, at time: HostTime, line: SubtitleBoard.Line? = nil, kind: String? = nil) {
@@ -264,7 +310,14 @@ final class SubtitlePanel {
         let width = contentWidth
         let titleHeight = panel.frame.height - panel.contentRect(forFrameRect: panel.frame).height
         let maxHeight = max(140, visible.height - titleHeight - 40)
-        panel.contentMinSize = NSSize(width: min(480, width), height: 140)
+        let hasSpeech = speechHeight > 0
+        let hasReadingArea = subtitlesRequested || hasSpeech
+        let footerSpace = statusHeight > 0 ? statusHeight + (hasReadingArea ? 12 : 0) : 0
+        let sectionChrome: CGFloat = 24 + (subtitlesRequested ? 24 : 0) + (hasSpeech ? 24 : 0) + (subtitlesRequested && hasSpeech ? 22 : 0) + footerSpace
+        let minHeight: CGFloat = hasReadingArea
+            ? min(maxHeight, max(140, sectionChrome + (subtitlesRequested && hasSpeech ? 80 : 48)))
+            : max(24, statusHeight + 24)
+        panel.contentMinSize = NSSize(width: min(480, width), height: minHeight)
         panel.contentMaxSize = NSSize(width: max(280, visible.width - 40), height: maxHeight)
         let textWidth = width - 44
         var y: CGFloat = 0
@@ -281,13 +334,23 @@ final class SubtitlePanel {
             y += height + (finalLabels.contains(where: { $0 === label }) ? 14 : 5)
         }
         let bodyHeight = max(24, y)
-        let hasSpeech = speechHeight > 0
-        let manualHeight = manualContentSize.map { min(maxHeight, max(140, $0.height)) }
-        let sectionChrome: CGFloat = 24 + (subtitlesRequested ? 24 : 0) + (hasSpeech ? 24 : 0) + (subtitlesRequested && hasSpeech ? 22 : 0)
-        let budget = manualHeight.map { max(40, $0 - sectionChrome) } ?? max(160, visible.height * 0.7 - 80)
+        // Hiding subtitle text may leave just the status row. Collapse that strip without
+        // overwriting the saved reading size, which returns when text is shown again.
+        let manualHeight = hasReadingArea ? manualContentSize.map { min(maxHeight, max(minHeight, $0.height)) } : nil
+        let budget = manualHeight.map { max(0, $0 - sectionChrome) } ?? max(160, visible.height * 0.7 - 80 - footerSpace)
         var viewportHeight = subtitlesRequested ? min(bodyHeight, hasSpeech ? budget * 0.55 : budget) : 0
-        let speechViewportHeight = hasSpeech ? min(speechHeight, budget - viewportHeight) : 0
+        var speechViewportHeight = hasSpeech ? min(speechHeight, budget - viewportHeight) : 0
         if subtitlesRequested { viewportHeight = min(bodyHeight, budget - speechViewportHeight) }
+        if manualHeight != nil {
+            // A manually sized reading area stays put when status or transcript length changes.
+            if subtitlesRequested, hasSpeech {
+                speechViewportHeight = budget * 0.45
+                viewportHeight = budget - speechViewportHeight
+            } else {
+                viewportHeight = subtitlesRequested ? budget : 0
+                speechViewportHeight = hasSpeech ? budget : 0
+            }
+        }
         var top: CGFloat = 12
         remoteHeading.isHidden = !subtitlesRequested
         scroll.isHidden = !subtitlesRequested
@@ -311,13 +374,15 @@ final class SubtitlePanel {
             speechScroll.hasVerticalScroller = speechHeight > speechViewportHeight
             top += speechViewportHeight
         }
-        let size = NSSize(width: width, height: manualHeight ?? min(maxHeight, max(140, top + 12)))
+        let size = NSSize(width: width, height: manualHeight ?? min(maxHeight, max(minHeight, top + footerSpace + 12)))
         let old = panel.frame
         let oldSize = panel.contentRect(forFrameRect: old).size
         let sizeChanged = abs(oldSize.width - size.width) > 0.5 || abs(oldSize.height - size.height) > 0.5
         if sizeChanged { panel.setContentSize(size) }
         content.frame = NSRect(origin: .zero, size: size)
         backgroundEffect.frame = content.bounds
+        statusView?.isHidden = statusHeight <= 0
+        statusView?.frame = NSRect(x: 16, y: size.height - 12 - statusHeight, width: width - 32, height: statusHeight)
         body.frame = NSRect(x: 0, y: 0, width: width - 32, height: bodyHeight)
         scroll.hasVerticalScroller = bodyHeight > viewportHeight
         // A content refresh must not fight an in-progress drag or overwrite a manual size.
@@ -349,22 +414,28 @@ final class SubtitlePanel {
         }
     }
     private func updateWindowVisibility() {
-        if subtitlesRequested || speechHeight > 0 { panel.orderFrontRegardless() }
-        else { panel.orderOut(nil) }
+        if subtitlesRequested || speechHeight > 0 || statusHeight > 0 {
+            if !panel.isVisible { panel.orderFrontRegardless() }
+        } else if panel.isVisible { panel.orderOut(nil) }
     }
     var isVisible: Bool { subtitlesRequested && panel.isVisible }
     var isWindowVisible: Bool { panel.isVisible }
     var speechIsVisible: Bool { speechHeight > 0 && panel.isVisible }
+    var statusIsVisible: Bool { statusHeight > 0 && panel.isVisible }
 
     private func poll() {
-        if board.advance() { render() }
+        let now = HostClock.now()
+        let advanced = board.advance(at: now)
+        let previewPending = liveSource != renderedSource || board.draft != renderedDraft
+        let previewDue = now >= lastPreviewRenderAt && now - lastPreviewRenderAt >= Self.previewInterval
+        if advanced || (previewPending && previewDue) { render(at: now) }
     }
 
     private func userResized() {
         guard !isLayingOut else { return }
         manualContentSize = panel.contentRect(forFrameRect: panel.frame).size
         updateFonts()
-        render()
+        render(forceLayout: true)
         onAppearanceChange?()
         if let screen = panel.screen {
             UserDefaults.standard.set(NSStringFromSize(panel.contentRect(forFrameRect: panel.frame).size), forKey: sizeKey(for: screen))

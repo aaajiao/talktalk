@@ -37,6 +37,17 @@ public struct HUDLine: Sendable, Equatable {
     }
 }
 
+/// One stable status on the meeting surface; detailed activity is shown only on request.
+public struct HUDStatusPresentation: Sendable, Equatable {
+    public var summary: HUDLine
+    public var details: [HUDLine]
+
+    public init(summary: HUDLine, details: [HUDLine]) {
+        self.summary = summary
+        self.details = details
+    }
+}
+
 /// Everything the HUD shows, as a pure function of what it was told and the time (seconds on a
 /// monotonic clock). No AppKit; the panel (`PTTHUD`) only draws `lines(now:)`.
 ///
@@ -174,6 +185,31 @@ public struct HUDModel: Sendable, Equatable {
             }
             return HUDLine(summary, style, detail: summary == text ? nil : text,
                            symbol: symbol, settingsDestination: destination)
+        }
+
+        /// Fixed ordering independent of post time, queue count and associated device/text.
+        fileprivate var compactPriority: Int {
+            switch self {
+            case .remoteHearsYourVoice: 0
+            case .meetingNotUsingMic: 10
+            case .switchBackFailed: 11
+            case .defaultInputNotSwitched: 12
+            case .segmentNotSent: 13
+            case .unsupportedTextNotSent: 14
+            case .skipped: 15
+            case .sentenceMaybeIncomplete: 16
+            case .numberMaybeWrong: 17
+            case .audioRestarting: 21
+            case .tccUnconfirmed: 22
+            case .speakerMode: 23
+            case .defaultInputChanged: 24
+            case .floorPaused: 25
+            case .openAIKeyInvalid: 26
+            case .openAIUnreachable: 27
+            case .modelRetired: 28
+            case .meetingSilent, .meetingSeemsOver, .switchedBackAfterInsert,
+                 .defaultInputRestored, .defaultInputRestoredElsewhere, .passthroughTip: 90
+            }
         }
 
         /// Conditions stay until cleared; notices fade after `noticeSeconds`.
@@ -450,6 +486,84 @@ public struct HUDModel: Sendable, Equatable {
         out += conds.filter { $0.style != .red }.map(\.line)
         out += notices.filter { $0.until > now }.map { $0.warning.line }
         return out
+    }
+
+    /// Presentation only: no delay, latching or rotation. The actual gate owns normal progress;
+    /// every warning and supplemental line remains available in the deduplicated details.
+    public func compactStatus(now: Double, extraLines: [HUDLine] = []) -> HUDStatusPresentation? {
+        var details: [HUDLine] = []
+        func addDetail(_ line: HUDLine) {
+            // Ignore meter differences and decorative symbols when merging the same explanation.
+            guard !details.contains(where: {
+                $0.text == line.text && $0.style == line.style && $0.detail == line.detail
+                    && $0.settingsDestination == line.settingsDestination
+            }) else { return }
+            details.append(line)
+        }
+        (lines(now: now) + extraLines).forEach(addDetail)
+
+        var selected: (priority: Int, line: HUDLine)?
+        func consider(_ line: HUDLine, priority: Int) {
+            if selected == nil || priority < selected!.priority { selected = (priority, line) }
+        }
+        let warnings = Array(conditions.values) + notices.filter { $0.until > now }.map(\.warning)
+        for warning in warnings.sorted(by: {
+            $0.compactPriority == $1.compactPriority ? $0.slot < $1.slot : $0.compactPriority < $1.compactPriority
+        }) {
+            var line = warning.line
+            switch warning {
+            case .floorPaused: line.text = String(localized: "对方在说话 · 译音已暂停")
+            case .skipped: line.text = String(localized: "部分内容已跳过")
+            default: break
+            }
+            consider(line, priority: warning.compactPriority)
+        }
+        for line in extraLines {
+            let priority: Int = switch line.style {
+            case .red, .redBanner: 10
+            case .yellow: 30
+            case .normal, .secondary, .check: 90
+            }
+            consider(line, priority: priority)
+        }
+
+        if let audio = meetingAudio, meetingActive {
+            let line: HUDLine
+            if case .unavailable = audio {
+                line = HUDLine(String(localized: "音频暂不可用"), .yellow, detail: audio.text,
+                               symbol: "exclamationmark.triangle")
+                consider(line, priority: 20)
+            } else {
+                let symbol = audio == .original ? "mic.fill" : audio == .translating ? "waveform" : "hourglass"
+                line = HUDLine(audio.text, symbol: symbol)
+                consider(line, priority: 80)
+            }
+            // Legacy `lines` suppresses generic unavailable beside the physical-mic warning.
+            // Keep its full reason in details even when that more urgent warning wins here.
+            addDetail(line)
+        } else {
+            if var legacy = passthroughLine(now: now) {
+                if case .open = passthrough {
+                    legacy.text = String(localized: "原声 · 对方正在听你说")
+                }
+                consider(legacy, priority: 70)
+            }
+            switch pushToTalk {
+            case .holding, .playing:
+                consider(HUDLine(String(localized: "按键翻译中"), symbol: "waveform"), priority: 80)
+                pushToTalkLines().forEach(addDetail)
+            case .idle:
+                if meetingActive {
+                    let line = HUDLine(String(localized: "正在收听"), symbol: "waveform")
+                    consider(line, priority: 80)
+                    addDetail(line)
+                }
+            }
+        }
+        guard var summary = selected?.line else { return nil }
+        summary.level = nil
+        summary.detail = nil
+        return HUDStatusPresentation(summary: summary, details: details)
     }
 
     /// The HUD has something to draw (it is shown even while the subtitle panel is hidden).

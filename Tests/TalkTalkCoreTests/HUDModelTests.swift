@@ -252,6 +252,91 @@ import Testing
         #expect(m.lines(now: 0).isEmpty)
     }
 
+    @Test func compactMeetingStatusFollowsTheGateNotRenderActivity() throws {
+        var model = HUDModel()
+        model.meetingStarted(); model.pushToTalkAvailable = true
+        model.meetingAudio = .original
+        let original = try #require(model.compactStatus(now: 0))
+        #expect(original.summary.text == HUDModel.MeetingAudio.original.text)
+        model.meetingAudio = .translating
+        model.pushToTalk = .holding(level: 0.1, preview: "开头", committed: [], queued: 0)
+        let holding = try #require(model.compactStatus(now: 0))
+        model.pushToTalk = .holding(level: 0.9, preview: "更长的开头", committed: ["已提交"], queued: 4)
+        #expect(model.compactStatus(now: 0.1)?.summary == holding.summary)
+        model.pushToTalk = .playing(lang: .de, voice: .mine, source: .apple, queued: 2)
+        let playing = try #require(model.compactStatus(now: 0.2))
+        #expect(playing.summary == holding.summary)
+        #expect(playing.summary.text.contains("原声已关闭"))
+        #expect(playing.summary.level == nil && playing.summary.detail == nil)
+        #expect(playing.details.contains { $0.text == "待播 2 段" })
+        #expect(playing.details.contains { $0.text == "我的声音" })
+        #expect(playing.details.contains { $0.text == "Apple 本地翻译" })
+        model.meetingAudio = .draining
+        #expect(model.compactStatus(now: 0.3)?.summary.text == HUDModel.MeetingAudio.draining.text)
+        model.meetingAudio = .unavailable(reason: "设备已断开")
+        let unavailable = try #require(model.compactStatus(now: 0.3))
+        #expect(unavailable.summary.style == .yellow)
+        #expect(unavailable.details.contains { $0.detail?.contains("设备已断开") == true })
+        model.meetingAudio = .original
+        #expect(model.compactStatus(now: 0.4)?.summary == original.summary)
+    }
+
+    @Test func compactWarningsKeepRiskAndUnsentContentAheadOfProgress() throws {
+        var model = HUDModel()
+        model.meetingStarted(); model.meetingAudio = .original
+        model.post(.passthroughTip, now: 0)
+        model.post(.segmentNotSent, now: 0)
+        let remoteIssue = HUDLine("对方字幕暂不可用", .yellow, detail: "请检查语音资源", symbol: "exclamationmark.triangle")
+        let extras = [remoteIssue, HUDLine("云端文字传输提醒", .yellow), HUDLine("刚刚恢复", .normal)]
+        #expect(model.compactStatus(now: 1, extraLines: extras)?.summary.text == "这段未发送")
+        model.post(.remoteHearsYourVoice, now: 0)
+        let risk = try #require(model.compactStatus(now: 1, extraLines: extras + [HUDLine("另一个错误", .red)]))
+        #expect(risk.summary.text == HUDModel.Warning.remoteHearsYourVoice.summary)
+        #expect(risk.summary.style == .red)
+        #expect(risk.details.contains(HUDModel.Warning.segmentNotSent.line))
+        #expect(risk.details.contains(remoteIssue))
+        model.clear(.remoteHearsYourVoice); model.clear(.segmentNotSent)
+        #expect(model.compactStatus(now: 1, extraLines: extras)?.summary.text == remoteIssue.text)
+    }
+
+    @Test func compactDemoAndListeningStayStableAndExtraDetailsAreDeduplicated() throws {
+        var model = HUDModel()
+        #expect(model.compactStatus(now: 0) == nil)
+        model.meetingStarted()
+        #expect(model.compactStatus(now: 0)?.details.contains { $0.text == "正在收听" } == true)
+        model.pushToTalkAvailable = true
+        model.post(.meetingSilent, now: 0)
+        #expect(model.compactStatus(now: 0)?.summary.text == "正在收听")
+        model.pushToTalk = .holding(level: 0.2, preview: "草稿", committed: [], queued: 0)
+        let holding = try #require(model.compactStatus(now: 0))
+        model.pushToTalk = .playing(lang: .en, voice: .system, source: .openAI, queued: 3)
+        #expect(model.compactStatus(now: 0.2)?.summary == holding.summary)
+        #expect(holding.summary.text == "按键翻译中")
+        let extra = HUDLine("还原需要处理", .red, detail: "完整设备原因", symbol: "mic.badge.xmark", settingsDestination: .audio)
+        let status = try #require(model.compactStatus(now: 0.3, extraLines: [extra, extra]))
+        #expect(status.details.filter { $0 == extra }.count == 1)
+        #expect(status.summary.text == extra.text && status.summary.detail == nil)
+        #expect(status.details.contains { $0.text == "系统声音" })
+    }
+
+    @Test func compactCountedWarningsChangeOnlyTheirDetails() throws {
+        var model = HUDModel()
+        model.meetingStarted(); model.meetingAudio = .draining
+        model.post(.floorPaused(segments: 1), now: 0)
+        let paused = try #require(model.compactStatus(now: 0))
+        model.post(.floorPaused(segments: 7), now: 0.1)
+        let morePaused = try #require(model.compactStatus(now: 0.1))
+        #expect(morePaused.summary == paused.summary)
+        #expect(morePaused.summary.text == "对方在说话 · 译音已暂停")
+        #expect(morePaused.details.contains(HUDModel.Warning.floorPaused(segments: 7).line))
+        model.post(.skipped(segments: 1), now: 0.2)
+        let skipped = try #require(model.compactStatus(now: 0.2))
+        model.post(.skipped(segments: 3), now: 0.3)
+        #expect(model.compactStatus(now: 0.3)?.summary == skipped.summary)
+        #expect(skipped.summary.text == "部分内容已跳过")
+        #expect(model.compactStatus(now: 0.3)?.details.contains(HUDModel.Warning.skipped(segments: 3).line) == true)
+    }
+
     @Test func speechTranscriptSurvivesReleaseAndDrainThenExpiresOrIsReplaced() {
         var model = HUDModel()
         model.meetingStarted(); model.pushToTalkAvailable = true; model.speechWorkPending = true
