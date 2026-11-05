@@ -254,6 +254,13 @@ public struct PushToTalkMachine: Sendable {
     /// A wrapper-denied press is not one half of an accepted double tap.
     public mutating func discardTapSequence() { pendingTapReleasedAt = nil }
 
+    /// A wrapper invalidated this gesture (toggle mode / device fault). No later release of
+    /// the same held key may become a new gesture; observe it up before accepting another down.
+    public mutating func discardUntilRelease() {
+        phase = .mustRelease
+        pendingTapReleasedAt = nil
+    }
+
     private mutating func release(downAt: HostTime, spoke: Bool, at t: HostTime) -> [Action] {
         let held = t >= downAt ? t - downAt : 0
         guard held < ms(config.minHoldMs) && !spoke else {

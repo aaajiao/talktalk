@@ -19,12 +19,16 @@ final class PTTHUD {
     private var width: CGFloat { panel.contentWidth - 8 }
     var onOpenSettings: ((HUDLine.SettingsDestination) -> Void)?
     private let statusRow = NSView()
+    private let modeBadge = NSView()
+    private let modeIcon = NSImageView()
+    private let modeLabel = ConversationLabel(labelWithString: "")
     private let statusIcon = NSImageView()
     private let statusLabel = ConversationLabel(labelWithString: "")
     private let detailsButton = NSButton()
     private let detailsPopover = NSPopover()
     private var statusAction: HUDButtonAction?
     private var shownStatus: HUDStatusPresentation?
+    private var shownMode: HUDLine?
     private var subtitlesVisible = true
     private var listenHint: HUDModel.Warning?
     private var subtitleIssue: HUDLine?
@@ -37,6 +41,14 @@ final class PTTHUD {
 
     init(panel: SubtitlePanel) {
         self.panel = panel
+        statusRow.addSubview(modeBadge)
+        modeBadge.addSubview(modeIcon)
+        modeBadge.addSubview(modeLabel)
+        modeBadge.wantsLayer = true
+        modeBadge.layer?.cornerRadius = 5
+        modeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        modeLabel.maximumNumberOfLines = 1
+        modeLabel.cell?.isScrollable = false
         statusRow.addSubview(statusIcon)
         statusRow.addSubview(statusLabel)
         statusRow.addSubview(detailsButton)
@@ -295,20 +307,37 @@ final class PTTHUD {
         let candidate = model.visibleTranscript(at: now)
         let transcript = !subtitlesVisible || (model.meetingAudio == .original && candidate?.isFinal == false) ? nil : candidate
         let oldStatus = shownStatus
+        let audio = model.meetingActive ? model.meetingAudio : nil
+        let mode = audio?.modeBadge
+        let modeChanged = mode != shownMode
         shownStatus = status
         shownLines = status.map { [$0.summary] } ?? []
         let summaryChanged = status?.summary != oldStatus?.summary
         let transcriptChanged = transcript != shownTranscript
         let showSpeech = subtitlesVisible && model.meetingActive && panel.presentation == .meeting
-        guard force || summaryChanged || transcriptChanged || showSpeech != shownSpeechArea else { return }
+        guard force || summaryChanged || modeChanged || transcriptChanged || showSpeech != shownSpeechArea else { return }
+        shownMode = mode
         shownSpeechArea = showSpeech
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         statusRow.isHidden = status == nil
-        if let line = status?.summary, force || summaryChanged {
-            statusLabel.stringValue = line.text
+        modeBadge.isHidden = mode == nil
+        if let mode, force || modeChanged {
+            let color = mode.style == .normal ? NSColor.controlAccentColor : Self.color(for: mode.style)
+            modeLabel.stringValue = mode.text
+            modeLabel.textColor = color
+            modeBadge.layer?.backgroundColor = color.withAlphaComponent(0.12).cgColor
+            modeIcon.image = NSImage(systemSymbolName: mode.symbol ?? "waveform", accessibilityDescription: nil)
+            modeIcon.contentTintColor = color
+        }
+        // Use typed mode hints only when the normal mode itself won. A warning keeps its full
+        // short consequence here while the separate badge continues to identify the audio mode.
+        let operationHint = status?.summary.style == .normal && status?.summary.text == audio?.text
+            ? audio?.operationHint : nil
+        if let line = status?.summary, force || summaryChanged || modeChanged {
+            statusLabel.stringValue = operationHint ?? line.text
             statusLabel.toolTip = line.text
             statusLabel.font = .systemFont(ofSize: 14, weight: line.style == .red || line.style == .redBanner ? .semibold : .regular)
             statusLabel.textColor = Self.color(for: line.style)
@@ -316,9 +345,16 @@ final class PTTHUD {
             statusIcon.contentTintColor = Self.color(for: line.style)
         }
         statusRow.frame.size = NSSize(width: width - 24, height: Self.rowHeight)
-        statusIcon.frame = NSRect(x: 0, y: 3, width: 18, height: 18)
+        let badgeWidth: CGFloat = mode == nil ? 0 : 92
+        modeBadge.frame = NSRect(x: 0, y: 1, width: badgeWidth, height: Self.rowHeight - 2)
+        modeIcon.frame = NSRect(x: 5, y: 4, width: 14, height: 14)
+        modeLabel.frame = NSRect(x: 23, y: 3, width: max(0, badgeWidth - 27), height: 16)
+        let summaryStart = badgeWidth > 0 ? badgeWidth + 8 : 0
+        statusIcon.isHidden = operationHint != nil
+        statusIcon.frame = NSRect(x: summaryStart, y: 3, width: 18, height: 18)
         detailsButton.frame = NSRect(x: statusRow.bounds.width - 62, y: 0, width: 62, height: Self.rowHeight)
-        statusLabel.frame = NSRect(x: 26, y: 3, width: max(80, statusRow.bounds.width - 96), height: 19)
+        let textStart = summaryStart + (statusIcon.isHidden ? 0 : 26)
+        statusLabel.frame = NSRect(x: textStart, y: 3, width: max(0, detailsButton.frame.minX - 8 - textStart), height: 19)
 
         if force || transcriptChanged {
             let newPress = transcript?.press != shownTranscript?.press

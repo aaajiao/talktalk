@@ -210,14 +210,14 @@ struct DiagnosticsView: View {
                 Button("刷新") { status.refresh() }.disabled(status.refreshing)
                 if status.refreshing { ProgressView().controlSize(.small) }
             }
-            note(String(localized: "只读取最近 3 场日志的末尾，每场最多 512 KiB；页面打开或手动刷新时读取。提交到首声与松键到首声不是同一个指标。"))
+            note(String(localized: "只读取最近 3 场日志的末尾，每场最多 512 KiB；页面打开或手动刷新时读取。提交到首声与结束翻译到首声不是同一个指标。"))
             LabeledContent("SPEAK 提交 → 首声 p50 / p90") {
                 Text(verbatim: "\(milliseconds(status.percentile(.speak, 0.5))) / \(milliseconds(status.percentile(.speak, 0.9)))")
             }
             LabeledContent("LISTEN 定稿触发 → 译文 p50 / p90") {
                 Text(verbatim: "\(milliseconds(status.percentile(.listen, 0.5))) / \(milliseconds(status.percentile(.listen, 0.9)))")
             }
-            LabeledContent("SPEAK 松键 → 首声 p50 / p90（可测按压）") {
+            LabeledContent("SPEAK 结束翻译 → 首声 p50 / p90（可测发言）") {
                 Text(verbatim: "\(milliseconds(status.releasePercentile(0.5))) / \(milliseconds(status.releasePercentile(0.9)))")
             }
             LabeledContent("TTS GPU RTF p50 / p90") {
@@ -226,7 +226,7 @@ struct DiagnosticsView: View {
             LabeledContent("最近首声记录的累计欠载") { Text(verbatim: status.latestUnderrunsTotal.map { String($0) } ?? "—") }
             LabeledContent("EVS") { Text(verbatim: "—") }
             note(String(localized: "EVS 尚无可靠的原声结束时间，暂不计算。"))
-            note(String(localized: "时延是原始记录，尚未扣除队列、直通或告知语时间；按住期间已出声或强制释放的按压不计入松键到首声。累计欠载来自最近首声时的本场快照，不是每段欠载率。"))
+            note(String(localized: "时延是原始记录，尚未扣除队列、直通或告知语时间；结束翻译前已出声或强制结束的发言不计入结束翻译到首声。累计欠载来自最近首声时的本场快照，不是每段欠载率。"))
             note(String(localized: "缺少记录的指标显示 —，不会由其他时延推算。"))
             if status.snapshot.rows.isEmpty {
                 Text("还没有可显示的延迟记录。").font(.callout).foregroundStyle(.secondary)

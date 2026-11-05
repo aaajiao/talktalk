@@ -9,6 +9,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
     public struct MeetingAudioSnapshot: Sendable {
         /// nil means no current physical-key observation, not a released key.
         public let held: Bool?
+        public let recordingActive: Bool
         public let busy: Bool
         public let originalOpen: Bool
         public let hardwarePollFresh: Bool
@@ -44,6 +45,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
 
     public init(profile: PolicyProfile.Speak, scope: KeyTap.Scope = .meeting,
                 useAltKey: Bool = false, diagnosticsEnabled: Bool = false, automaticOriginal: Bool = false,
+                interaction: PushToTalkKey.Interaction = .hold,
                 sink: any PassthroughStateSink, playout: (any PassthroughPlayoutYielding)? = nil,
                 log: EventLog? = nil,
                 onPushToTalk: @escaping @Sendable (PushToTalkKey.Action) -> Void,
@@ -66,7 +68,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
         let gate = PassthroughGate(config: .init(profile: profile.passthrough), sink: sink, playout: playout,
                                   onNotice: { notices.receive($0) })
         self.gate = gate
-        pushToTalk = PushToTalkKey(config: .init(speak: profile), onAction: { action in
+        pushToTalk = PushToTalkKey(config: .init(speak: profile), interaction: interaction, onAction: { action in
             if automatic.enabled, case let .machine(machine) = action {
                 lock.withLock {
                     automatic.pendingActions += 1
@@ -152,6 +154,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
             let fresh = !stopped && lastHardwarePoll.map { now >= $0 && now - $0 < lease } == true
             return MeetingAudioSnapshot(
                 held: automatic.held,
+                recordingActive: pushToTalk.recordingActive,
                 busy: automatic.translationBusy || automatic.pendingActions > 0 || pushToTalk.isActive,
                 originalOpen: state.open && state.source == .mic && now >= state.openAt
                     && now < state.leaseUntil && now < state.deadline,

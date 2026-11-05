@@ -383,6 +383,7 @@ final class SpeakController {
             actionEvents = continuation
             let keys = PassthroughRuntime(profile: profile.speak, scope: demo ? .onboarding : .meeting,
                 automaticOriginal: !demo,
+                interaction: .toggle,
                 sink: output.passthroughState, playout: pipeline, log: log,
                 onPushToTalk: { continuation.yield($0) },
                 onHUD: { [weak self] event in
@@ -633,8 +634,10 @@ final class SpeakController {
             hud.meetingAudio(.unavailable(reason: reason))
         } else if audio.originalOpen {
             hud.meetingAudio(.original)
-        } else if audio.held == true {
+        } else if audio.recordingActive {
             hud.meetingAudio(.translating)
+        } else if audio.held == true {
+            hud.meetingAudio(.switching)
         } else if audio.busy {
             hud.meetingAudio(.draining)
         } else if audio.canRestoreOriginal {
@@ -656,7 +659,7 @@ final class SpeakController {
             hud.pushToTalk(p)
             if demoActive {
                 switch p {
-                case .holding: onDemoStatus?(String(localized: "已收到右⌥，正在收音…"))
+                case .holding: onDemoStatus?(String(localized: "翻译收音中，再按右⌥结束。"))
                 case .idle: break
                 default: break
                 }

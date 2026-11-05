@@ -211,7 +211,7 @@ struct MeetingSettingsView: View {
             }
             Section {
                 Label("会议同传", systemImage: "person.2.wave.2").font(.headline)
-                Text("听对方、看双语字幕；默认传送你的原声，需要翻译时按住右⌥说中文，可夹英语。")
+                Text("听对方、看双语字幕；默认传送你的原声。点按右⌥开始翻译，说中文，可夹英语。")
                     .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 12) {
                     Text("听对方").font(.subheadline.weight(.semibold))
@@ -228,7 +228,7 @@ struct MeetingSettingsView: View {
                         1: .init("翻译设置") { navigation.openModel(.translation) },
                         2: .init("声音与试听") { navigation.selection = .voice }
                     ])
-                    Text("松开后，等剩余译音播完才自动恢复原声。")
+                    Text("说完再点按右⌥结束发言，等剩余译音播完后自动恢复原声。")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Text("在会议应用里选 TalkTalk Mic；需要静音时，使用会议应用的静音按钮。")

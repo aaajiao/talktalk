@@ -104,7 +104,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .listening:
             return state.meetingMode == .captions ? String(localized: "视频字幕运行中") : String(localized: "会议同传运行中")
         case .speaking: return String(localized: "正在识别或播放译音")
-        case .passthroughOpen: return String(localized: "原声中 · 按住右⌥翻译")
+        case .passthroughOpen: return String(localized: "原声中 · 点按右⌥开始翻译")
         case .audioNeedsCheck: return String(localized: "音频尚未就绪")
         case .degraded: return String(localized: "部分功能使用备用方案")
         case .needsAttention: return String(localized: "音频设备需要检查")

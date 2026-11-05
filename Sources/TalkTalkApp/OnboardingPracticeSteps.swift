@@ -42,7 +42,7 @@ struct MeetingMicStep: View {
                     ("waveform", "TalkTalk Mic"),
                     ("person.2.wave.2", String(localized: "会议里的对方"))
                 ])
-                SettingsNote("默认传原声；按住右⌥翻译，松开后译音播完再恢复原声。")
+                SettingsNote("默认传原声；点按右⌥开始翻译，再点按结束发言，译音播完后恢复原声。")
             }
         }
         .onAppear { model.beginMeetingMicCheck() }
@@ -129,15 +129,15 @@ struct TryItStep: View {
     }
 
     private var speak: some View {
-        OnboardingCard(title: "说 · 按住右⌥试一句", symbol: "mic") {
+        OnboardingCard(title: "说 · 点按右⌥试一句", symbol: "mic") {
             Label("先结束通话和其他 App 的麦克风测试，再戴耳机试说。", systemImage: "headphones")
                 .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             SpeechFlow(steps: [
-                ("mic", String(localized: "按住右⌥说中文")),
+                ("mic", String(localized: "点按右⌥开始翻译")),
                 ("character.bubble", String(localized: "翻译与语音合成")),
                 ("headphones", String(localized: "在耳机里听译音"))
             ])
-            SettingsNote("中文可以夹英语。译音就绪后播放，松开收尾；原文和译文在“我说的话”面板显示。")
+            SettingsNote("点按后说中文，可夹英语；说完再点按右⌥结束发言，等待译音播完。原文和译文在会议窗口的“我的发言”区显示。")
             HStack {
                 Button { model.beginSpeakDemo() } label: {
                     Label("开始说话测试", systemImage: "mic.fill")
@@ -150,7 +150,7 @@ struct TryItStep: View {
             }
             speakStatus
             DisclosureGroup(String(localized: "正式会议的发言方式")) {
-                SettingsNote("这里仅测试翻译。正式会议默认传原声，按住右⌥切换翻译，松开后先播完译音再恢复原声。")
+                SettingsNote("这里仅测试翻译。正式会议默认传原声，点按右⌥开始翻译，再点按结束发言；剩余译音播完后恢复原声。")
                     .padding(.top, 6)
             }
         }
@@ -165,7 +165,7 @@ struct TryItStep: View {
         case .preparing:
             Label("正在准备麦克风和耳机播放…", systemImage: "hourglass").foregroundStyle(.secondary)
         case .listening:
-            Label(model.speakDemoStatus ?? String(localized: "已准备好，按住右⌥说一句，松开后等待译音。"), systemImage: "mic.fill")
+            Label(model.speakDemoStatus ?? String(localized: "已准备好：点按右⌥开始，说完再点按结束，等待译音。"), systemImage: "mic.fill")
                 .fixedSize(horizontal: false, vertical: true)
         case .played:
             Label("已播放译文语音", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
@@ -189,7 +189,7 @@ struct DoneStep: View {
             }
             OnboardingCard(title: "开会与看视频", symbol: "person.2.wave.2") {
                 Label("开会：开始会议同传", systemImage: "person.2.wave.2").font(.headline)
-                SettingsNote("听对方看双语字幕；我说话默认传原声，按住右⌥翻译。会议应用的输入选 TalkTalk Mic。")
+                SettingsNote("听对方看双语字幕；我说话默认传原声，点按右⌥开始翻译，再点按结束，译音播完后恢复原声。会议应用的输入选 TalkTalk Mic。")
                 Divider()
                 Label("看视频：开始视频字幕", systemImage: "play.rectangle").font(.headline)
                 SettingsNote("只收听应用声音，英语或德语原文与中文字幕成对显示，不使用麦克风。")

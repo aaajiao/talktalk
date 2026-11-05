@@ -741,7 +741,7 @@ private struct PermissionsStep: View {
                 }
             }
             OnboardingCard(title: "我说话 · 原声与按键翻译", symbol: "mic") {
-                GrantRow(symbol: "mic", title: "麦克风", note: "会议中持续收音：默认传原声，按住右⌥时翻译。视频字幕不用麦克风。", granted: f.microphone,
+                GrantRow(symbol: "mic", title: "麦克风", note: "会议中持续收音：默认传原声，点按右⌥开始翻译，再点按结束发言。视频字幕不用麦克风。", granted: f.microphone,
                          action: model.requestMicrophone, actionTitle: "允许…")
                 Divider()
                 GrantRow(symbol: "keyboard", title: "右⌥快捷键", note: "需要输入监控权限。允许后，macOS 可能要求重开 TalkTalk。",

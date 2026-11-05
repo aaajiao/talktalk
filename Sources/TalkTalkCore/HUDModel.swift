@@ -95,7 +95,7 @@ public struct HUDModel: Sendable, Equatable {
             switch self {
             case .meetingNotUsingMic: String(localized: "会议没用 TalkTalk Mic")
             case .remoteHearsYourVoice: String(localized: "会议正在用实体麦，对方仍可能听到原声；按键翻译已停用")
-            case let .floorPaused(n): String(localized: "对方在说话 · 已暂停 \(n) 段 · 双击右⌥清空")
+            case let .floorPaused(n): String(localized: "对方在说话 · 已暂停 \(n) 段")
             case let .numberMaybeWrong(s): String(localized: "数字可能有误：\(s)")
             case let .skipped(n): String(localized: "已跳过 \(n) 段")
             case .segmentNotSent: String(localized: "这段未发送")
@@ -117,7 +117,7 @@ public struct HUDModel: Sendable, Equatable {
             case .openAIUnreachable: String(localized: "OpenAI 暂时连不上，改用 Apple 翻译")
             case .openAIKeyInvalid: String(localized: "OpenAI key 无效或额度用完，已改用 Apple 翻译")
             case .modelRetired: String(localized: "所选模型已下线，已换回 gpt-6-luna")
-            case .passthroughTip: String(localized: "会议默认传原声；按住右⌥翻译，松开后等译音播完再恢复原声")
+            case .passthroughTip: String(localized: "会议默认传原声；点按右⌥开始翻译，再按结束，译音播完后恢复原声")
             }
         }
 
@@ -153,7 +153,7 @@ public struct HUDModel: Sendable, Equatable {
             case .openAIUnreachable: String(localized: "OpenAI 暂时不可用 · 已用 Apple")
             case .openAIKeyInvalid: String(localized: "OpenAI key 或额度异常 · 已用 Apple")
             case .modelRetired: String(localized: "翻译模型已更换")
-            case .passthroughTip: String(localized: "按住右 ⌥ 翻译")
+            case .passthroughTip: String(localized: "点按右⌥开始或结束翻译")
             default: text
             }
         }
@@ -270,6 +270,8 @@ public struct HUDModel: Sendable, Equatable {
     /// caller is not using default-original meeting audio (for example the isolated demo).
     public enum MeetingAudio: Sendable, Equatable {
         case original
+        /// The physical key is down; its clean release confirms the recording-mode change.
+        case switching
         case translating
         case draining
         /// Translation is finished and healthy routing is awaiting the next confirmed gate open.
@@ -279,11 +281,36 @@ public struct HUDModel: Sendable, Equatable {
 
         public var text: String {
             switch self {
-            case .original: String(localized: "原声中 · 按住右⌥翻译")
-            case .translating: String(localized: "翻译中 · 原声已关闭")
+            case .original: String(localized: "原声发送中 · 点按右⌥开始翻译")
+            case .switching: String(localized: "正在切换发言方式")
+            case .translating: String(localized: "翻译收音中 · 再按右⌥结束（原声已关闭）")
             case .draining: String(localized: "译音处理中 · 播完后恢复原声")
             case .restoringOriginal: String(localized: "正在恢复原声")
             case let .unavailable(reason): String(localized: "TalkTalk 音频暂不可用：\(reason)")
+            }
+        }
+
+        /// Always visible beside a warning: a problem summary must not hide the audio mode.
+        public var modeBadge: HUDLine {
+            switch self {
+            case .original: HUDLine(String(localized: "原声发送中"), .check, symbol: "mic.fill")
+            case .switching: HUDLine(String(localized: "切换中"), .secondary, symbol: "arrow.left.arrow.right")
+            case .translating: HUDLine(String(localized: "翻译收音中"), symbol: "waveform")
+            case .draining: HUDLine(String(localized: "译音处理中"), .secondary, symbol: "speaker.wave.2.fill")
+            case .restoringOriginal: HUDLine(String(localized: "恢复原声"), .secondary, symbol: "arrow.clockwise")
+            case .unavailable: HUDLine(String(localized: "待检查"), .yellow, symbol: "exclamationmark.triangle")
+            }
+        }
+
+        /// The action or consequence shown alongside the mode when no warning takes priority.
+        public var operationHint: String? {
+            switch self {
+            case .original: String(localized: "点按右⌥开始翻译")
+            case .switching: String(localized: "松开右⌥确认")
+            case .translating: String(localized: "再按右⌥结束 · 原声已关闭")
+            case .draining: String(localized: "播完后恢复原声")
+            case .restoringOriginal: String(localized: "请稍候")
+            case .unavailable: nil
             }
         }
     }
@@ -472,7 +499,7 @@ public struct HUDModel: Sendable, Equatable {
         var out: [HUDLine] = []
         if let audio = meetingAudio, meetingActive {
             let style: HUDLine.Style = switch audio {
-            case .original, .translating, .draining, .restoringOriginal: .normal
+            case .original, .switching, .translating, .draining, .restoringOriginal: .normal
             case .unavailable: .yellow
             }
             if case .unavailable = audio {
@@ -537,8 +564,7 @@ public struct HUDModel: Sendable, Equatable {
                                symbol: "exclamationmark.triangle")
                 consider(line, priority: 20)
             } else {
-                let symbol = audio == .original ? "mic.fill" : audio == .translating ? "waveform" : "hourglass"
-                line = HUDLine(audio.text, symbol: symbol)
+                line = HUDLine(audio.text, symbol: audio.modeBadge.symbol)
                 consider(line, priority: 80)
             }
             // Legacy `lines` suppresses generic unavailable beside the physical-mic warning.
@@ -608,7 +634,7 @@ public struct HUDModel: Sendable, Equatable {
     func pushToTalkLines() -> [HUDLine] {
         switch pushToTalk {
         case .idle:
-            return meetingAudio == nil ? [HUDLine(String(localized: "按住右⌥说中文翻译"), .secondary)] : []
+            return meetingAudio == nil ? [HUDLine(String(localized: "点按右⌥开始翻译"), .secondary)] : []
         case let .holding(level, preview, committed, queued):
             var out = [HUDLine(String(localized: "正在识别中文"), .normal, level: level)]
             if transcript == nil {

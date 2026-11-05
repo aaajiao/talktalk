@@ -84,6 +84,47 @@ private let commandFlags: ModifierFlags = [.command, .deviceRightCommand]
 }
 
 @Suite struct PushToTalkKeyTests {
+    @Test func toggleIgnoresChordsAndKeepsRecordingThroughTypingAndMouse() throws {
+        let actions = KeyActions()
+        let key = PushToTalkKey(config: .init(speak: try keyProfile()), interaction: .toggle,
+                               onAction: { actions.add($0) })
+        key.setAvailability(.allowed, at: 0)
+        key.handle(.init(time: 0, kind: .tapEnabled))
+        key.handle(.init(time: 0, kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        key.handle(.init(time: ns(1), kind: .keyDown(keyCode: 8, isRepeat: false)))
+        key.handle(.init(time: ns(2), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        key.handle(.init(time: ns(3), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        key.handle(.init(time: ns(4), kind: .keyUp(keyCode: 8)))
+        key.handle(.init(time: ns(10), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        key.handle(.init(time: ns(15), kind: .keyDown(keyCode: 8, isRepeat: false)))
+        key.handle(.init(time: ns(16), kind: .keyUp(keyCode: 8)))
+        key.handle(.init(time: ns(20), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        #expect(actions.all.isEmpty && !key.recordingActive)
+
+        key.handle(.init(time: ns(30), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        key.handle(.init(time: ns(40), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        key.handle(.init(time: ns(50), kind: .keyDown(keyCode: 8, isRepeat: false)))
+        key.handle(.init(time: ns(60), kind: .keyUp(keyCode: 8)))
+        key.handle(.init(time: ns(70), kind: .mouseDown))
+        key.handle(.init(time: ns(80), kind: .scroll))
+        key.handle(.init(time: ns(90), kind: .mouseMoved(dx: 20, dy: 10)))
+        key.handle(.init(time: ns(100), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        #expect(key.recordingActive && key.isActive && key.needsPolling)
+        // Option-scroll and Option-Command are gestures, not the stop toggle.
+        key.handle(.init(time: ns(110), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        key.handle(.init(time: ns(120), kind: .scroll))
+        key.handle(.init(time: ns(130), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        key.handle(.init(time: ns(140), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        key.handle(.init(time: ns(150), kind: .flagsChanged(keyCode: KeyCode.rightCommand, flags: optionFlags.union(commandFlags))))
+        key.handle(.init(time: ns(160), kind: .flagsChanged(keyCode: KeyCode.rightCommand, flags: optionFlags)))
+        key.handle(.init(time: ns(170), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        #expect(key.recordingActive && actions.all == [.machine(.began(at: ns(30)))])
+        key.handle(.init(time: ns(180), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        key.handle(.init(time: ns(190), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        #expect(!key.recordingActive)
+        #expect(actions.all == [.machine(.began(at: ns(30))), .machine(.released(at: ns(190), reason: .keyUp))])
+    }
+
     @Test func lostReleaseAndMustReleaseKeepPolling() throws {
         let actions = KeyActions()
         let key = PushToTalkKey(config: .init(speak: try keyProfile()), onAction: { actions.add($0) })
@@ -136,10 +177,11 @@ private let commandFlags: ModifierFlags = [.command, .deviceRightCommand]
 
 @Suite struct PassthroughRuntimeTests {
     private func runtime(scope: KeyTap.Scope = .meeting, diagnostics: Bool = false,
-                         log: EventLog? = nil, actions: KeyActions = KeyActions(), automatic: Bool = false) throws -> (PassthroughRuntime, InMemoryPassthroughStateSink) {
+                         log: EventLog? = nil, actions: KeyActions = KeyActions(), automatic: Bool = false,
+                         interaction: PushToTalkKey.Interaction = .hold) throws -> (PassthroughRuntime, InMemoryPassthroughStateSink) {
         let sink = InMemoryPassthroughStateSink()
         let runtime = PassthroughRuntime(profile: try keyProfile(), scope: scope, diagnosticsEnabled: diagnostics,
-                                         automaticOriginal: automatic, sink: sink, log: log,
+                                         automaticOriginal: automatic, interaction: interaction, sink: sink, log: log,
                                          onPushToTalk: { actions.add($0, rawOpen: sink.current.open) })
         runtime.updateFacts(at: 0) { $0 = .allGood }
         runtime.gate.setMicWarm(true); runtime.gate.setCueAudible(false)
@@ -156,6 +198,90 @@ private let commandFlags: ModifierFlags = [.command, .deviceRightCommand]
         for ms in stride(from: 21, through: 461, by: 20) {
             runtime.handle(.init(time: ns(ms), kind: .poll(.init(keysDown: [KeyCode.rightCommand], flags: commandFlags, secureInput: false))))
         }
+    }
+
+    @Test func toggleTwoTapsStartStopAndWaitForTranslationDrain() throws {
+        let actions = KeyActions()
+        let (runtime, sink) = try runtime(actions: actions, automatic: true, interaction: .toggle)
+        runtime.handle(.init(time: ns(10), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        #expect(!sink.current.open && actions.all.isEmpty) // physical fence precedes gesture confirmation
+        runtime.handle(.init(time: ns(40), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        let recording = runtime.meetingAudioSnapshot(at: ns(40))
+        #expect(recording.held == false && recording.recordingActive && recording.busy && !recording.originalOpen)
+        runtime.actionHandled(translationBusy: false, at: ns(50)) // even an idle pipeline cannot bypass the latch
+        runtime.handle(.init(time: ns(60), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        #expect(!sink.current.open && runtime.meetingAudioSnapshot(at: ns(60)).recordingActive)
+        runtime.handle(.init(time: ns(70), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        runtime.handle(.init(time: ns(100), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        #expect(actions.all == [.machine(.began(at: ns(10))), .machine(.released(at: ns(100), reason: .keyUp))])
+        #expect(actions.rawOpenOnAction == [false, false]) // two quick taps never hard-clear the queue
+        #expect(!runtime.meetingAudioSnapshot(at: ns(100)).recordingActive)
+        runtime.setTranslationBusy(false, at: ns(110))
+        runtime.handle(.init(time: ns(120), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        #expect(!sink.current.open) // released action has not reached the pipeline yet
+        runtime.actionHandled(translationBusy: true, at: ns(130))
+        runtime.handle(.init(time: ns(140), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        #expect(!sink.current.open)
+        runtime.setTranslationBusy(false, at: ns(150))
+        #expect(runtime.meetingAudioSnapshot(at: ns(150)).canRestoreOriginal && !sink.current.open)
+        runtime.handle(.init(time: ns(160), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        #expect(sink.current.open)
+        runtime.stop(at: ns(170))
+    }
+
+    @Test func toggleFaultsCancelAndRequireAnotherCleanTap() throws {
+        for fault in 0..<3 {
+            let actions = KeyActions()
+            let (runtime, sink) = try runtime(actions: actions, automatic: true, interaction: .toggle)
+            runtime.handle(.init(time: ns(10), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+            runtime.handle(.init(time: ns(40), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+            runtime.actionHandled(translationBusy: false, at: ns(50))
+            switch fault {
+            case 0: runtime.handle(.init(time: ns(60), kind: .poll(.init(keysDown: [], flags: [], secureInput: true))))
+            case 1: runtime.systemEvent(.micFormatChanged, at: ns(60))
+            default: runtime.handle(.init(time: ns(60), kind: .tapDisabled(.disabledByTimeout)))
+            }
+            #expect(actions.all.last == .machine(.cancelled(at: ns(60))))
+            #expect(!runtime.meetingAudioSnapshot(at: ns(60)).recordingActive && !sink.current.open)
+            runtime.handle(.init(time: ns(65), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+            runtime.actionHandled(translationBusy: false, at: ns(66))
+            runtime.updateFacts(at: ns(70)) { $0.awaitingAudioConfirmation = false }
+            runtime.handle(.init(time: ns(80), kind: .tapEnabled))
+            runtime.handle(.init(time: ns(90), kind: .poll(.init(keysDown: [KeyCode.rightOption], flags: optionFlags, secureInput: false))))
+            #expect(!runtime.meetingAudioSnapshot(at: ns(90)).recordingActive && !sink.current.open)
+            runtime.handle(.init(time: ns(100), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+            runtime.handle(.init(time: ns(110), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+            #expect(sink.current.open && !runtime.meetingAudioSnapshot(at: ns(110)).recordingActive)
+            runtime.handle(.init(time: ns(120), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+            runtime.handle(.init(time: ns(150), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+            #expect(actions.all.last == .machine(.began(at: ns(120))))
+            #expect(runtime.meetingAudioSnapshot(at: ns(150)).recordingActive)
+            runtime.stop(at: ns(160))
+        }
+    }
+
+    @Test func toggleDemoRequiresRealKeyUpAndNeverUsesDoubleTapClear() throws {
+        let actions = KeyActions()
+        let (runtime, sink) = try runtime(scope: .onboarding, actions: actions, interaction: .toggle)
+        runtime.handle(.init(time: ns(1), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags), source: .other))
+        runtime.handle(.init(time: ns(20), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: []), source: .other))
+        runtime.handle(.init(time: ns(30), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        runtime.handle(.init(time: ns(40), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        runtime.handle(.init(time: ns(150), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        runtime.handle(.init(time: ns(160), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        #expect(actions.all.isEmpty && !runtime.meetingAudioSnapshot(at: ns(160)).recordingActive)
+        runtime.handle(.init(time: ns(170), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        runtime.handle(.init(time: ns(200), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        runtime.handle(.init(time: ns(210), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        runtime.handle(.init(time: ns(220), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        runtime.handle(.init(time: ns(330), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        runtime.handle(.init(time: ns(340), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        #expect(runtime.meetingAudioSnapshot(at: ns(340)).recordingActive)
+        runtime.handle(.init(time: ns(350), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        runtime.handle(.init(time: ns(380), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        #expect(actions.all == [.machine(.began(at: ns(170))), .machine(.released(at: ns(380), reason: .keyUp))])
+        #expect(!sink.current.open && !runtime.meetingAudioSnapshot(at: ns(380)).recordingActive)
+        runtime.stop(at: ns(390))
     }
 
     @Test func automaticOriginalClosesBeforePTTActionsAndWaitsForDrain() throws {

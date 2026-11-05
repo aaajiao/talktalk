@@ -7,7 +7,7 @@ import Testing
     static let warnings: [(HUDModel.Warning, String, HUDLine.Style)] = [
         (.meetingNotUsingMic, "会议没用 TalkTalk Mic", .red),
         (.remoteHearsYourVoice, "会议正在用实体麦，对方仍可能听到原声；按键翻译已停用", .red),
-        (.floorPaused(segments: 3), "对方在说话 · 已暂停 3 段 · 双击右⌥清空", .yellow),
+        (.floorPaused(segments: 3), "对方在说话 · 已暂停 3 段", .yellow),
         (.numberMaybeWrong("三十万"), "数字可能有误：三十万", .yellow),
         (.skipped(segments: 2), "已跳过 2 段", .yellow),
         (.segmentNotSent, "这段未发送", .yellow),
@@ -25,7 +25,7 @@ import Testing
         (.openAIUnreachable, "OpenAI 暂时连不上，改用 Apple 翻译", .yellow),
         (.openAIKeyInvalid, "OpenAI key 无效或额度用完，已改用 Apple 翻译", .yellow),
         (.modelRetired, "所选模型已下线，已换回 gpt-6-luna", .yellow),
-        (.passthroughTip, "会议默认传原声；按住右⌥翻译，松开后等译音播完再恢复原声", .normal),
+        (.passthroughTip, "会议默认传原声；点按右⌥开始翻译，再按结束，译音播完后恢复原声", .normal),
         (.defaultInputRestoredElsewhere(to: "MacBook Pro 麦克风", original: "Tuwa Mic", originalMissing: false),
          "默认输入已还原为 MacBook Pro 麦克风（原来的 Tuwa Mic 是虚拟设备，不还原到它）", .normal),
         (.defaultInputRestoredElsewhere(to: "MacBook Pro 麦克风", original: "ear4", originalMissing: true),
@@ -94,7 +94,7 @@ import Testing
         m.post(.speakerMode, now: 0)
         m.post(.remoteHearsYourVoice, now: 0)
         let l = m.lines(now: 0)
-        #expect(l.map(\.text) == ["会议仍会发送原声 · 翻译已停用", "按住右⌥说中文翻译", "正在外放，请戴耳机"])
+        #expect(l.map(\.text) == ["会议仍会发送原声 · 翻译已停用", "点按右⌥开始翻译", "正在外放，请戴耳机"])
     }
 
     // MARK: passthrough (§3.8)
@@ -207,7 +207,7 @@ import Testing
     @Test func meetingAudioSeparatesNormalProgressFromPhysicalMicRisk() {
         var model = HUDModel()
         model.meetingStarted()
-        for audio in [HUDModel.MeetingAudio.original, .translating, .draining] {
+        for audio in [HUDModel.MeetingAudio.original, .switching, .translating, .draining, .restoringOriginal] {
             model.meetingAudio = audio
             #expect(model.lines(now: 0) == [HUDLine(audio.text, .normal)])
         }
@@ -228,7 +228,7 @@ import Testing
         m.meetingStarted()
         #expect(m.lines(now: 0).isEmpty)          // no push to talk wired yet (M1): no hint
         m.pushToTalkAvailable = true
-        #expect(m.lines(now: 0) == [HUDLine("按住右⌥说中文翻译", .secondary)])
+        #expect(m.lines(now: 0) == [HUDLine("点按右⌥开始翻译", .secondary)])
         m.pushToTalk = .holding(level: 0.5, preview: "明年的预算", committed: ["我们先看"], queued: 2)
         #expect(m.lines(now: 0) == [HUDLine("正在识别中文", .normal, level: 0.5), HUDLine("✓ 我们先看", .check),
                                     HUDLine("明年的预算", .secondary), HUDLine("待播 2 段", .secondary)])

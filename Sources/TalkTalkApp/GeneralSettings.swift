@@ -135,13 +135,12 @@ struct GeneralSettingsView: View {
             Section {
                 SpeechFlow(steps: [
                     ("mic", String(localized: "默认原声")),
-                    ("option", String(localized: "按住右⌥翻译")),
-                    ("speaker.wave.2", String(localized: "播完译音恢复原声"))
+                    ("option", String(localized: "点按右⌥开始翻译")),
+                    ("speaker.wave.2", String(localized: "再点按结束发言"))
                 ])
-                SettingsNote("按住右⌥时关闭原声，说中文，可夹英语；松开后等剩余译音播完，再恢复原声。")
+                SettingsNote("点按一次右⌥开始翻译，原声随即关闭；说中文，可夹英语。再点按结束发言，等剩余译音播完后自动恢复原声。")
                 Label("需要静音时，请使用会议应用的静音按钮。", systemImage: "mic.slash")
                     .font(.callout).foregroundStyle(.secondary)
-                SettingsNote("双击右⌥停止播放，并清空待播内容。")
             } header: { Label("会议发言方式", systemImage: "mic.and.signal.meter") }
             Section {
                 Toggle(isOn: Binding(

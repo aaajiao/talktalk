@@ -70,7 +70,7 @@ struct ModelSettingsView: View {
                 LabeledContent("按键翻译的识别引擎", value: "Qwen3-ASR，Apple Speech 备用")
                 Text("支持中文夹英语，统一生成选定的英语或德语译音。")
                     .font(.callout).foregroundStyle(.secondary)
-            } header: { Text("我说话 · 按住右⌥ → 原文") }
+            } header: { Text("我说话 · 点按右⌥开始，再点按结束") }
 
             Section {
                 LabeledContent("Qwen3-ASR", value: installedModel(role: "asr"))
@@ -80,7 +80,7 @@ struct ModelSettingsView: View {
                 DisclosureGroup("识别与翻译的分工") {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("声音在这台 Mac 上转成原文，再交给文本翻译。Qwen3-ASR 不负责翻译或合成声音；Apple Speech 由 macOS 提供。")
-                        Text("按键说话的识别与上面的听译选择独立。英文术语和单独的英文片段都会交给翻译，无需手动切换语言；常用中英文名称可加入术语表，帮助识别。")
+                        Text("自己发言的识别与上面的听译选择独立。英文术语和单独的英文片段都会交给翻译，无需手动切换语言；常用中英文名称可加入术语表，帮助识别。")
                     }
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
