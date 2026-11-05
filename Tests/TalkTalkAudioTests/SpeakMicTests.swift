@@ -101,6 +101,44 @@ import TalkTalkCore
         press.cancel(); mic.stop(); await reader.value
     }
 
+    @Test func rapidRestartSplitsReleasedTailWithoutOverlappingOrLosingNewAudio() async throws {
+        let rig = FakeMicRig(), blocked = Mutex(false), proceed = DispatchSemaphore(value: 0)
+        let start: HostTime = 1_000_000_000, nextStart: HostTime = 1_900_000_000
+        let mic = try MicIngest(profile: profile, onBlock: { block in
+            if block.hostTime == start + 800_000_000 {
+                blocked.withLock { $0 = true }
+                _ = proceed.wait(timeout: .now() + 1)
+            }
+        }, devices: { rig.devices }, makeCapture: { rig.make($0) },
+            watchHAL: false, vad: SpeakVAD(classify: { _ in true }))
+        defer { proceed.signal(); mic.stop() }
+        let first = try #require(mic.beginPress(id: 1, keyDownAt: start, passthroughClosedAt: start))
+        #expect(mic.beginPress(id: 99, keyDownAt: start, passthroughClosedAt: start) == nil)
+        #expect(await eventuallyMic { rig.latest != nil })
+        let capture = try #require(rig.latest)
+        let firstReader = Task { var clips: [SpeakClip] = []; for await clip in first.clips { clips.append(clip) }; return clips }
+        for i in 0..<40 { capture.feed(at: start + UInt64(i) * 20_000_000, frame: UInt64(i * 320)) }
+        first.release(at: start + 800_000_000, reason: .keyUp)
+        capture.feed(at: start + 800_000_000, frame: 40 * 320)
+        #expect(await eventuallyMic { blocked.withLock { $0 } })
+        // These queued blocks cross both the new key-down and the old 250 ms tail deadline.
+        for i in 41..<80 {
+            capture.feed(at: start + UInt64(i) * 20_000_000, frame: UInt64(i * 320), value: i < 45 ? 0.1 : 0.2)
+        }
+        let second = try #require(mic.beginPress(id: 2, keyDownAt: nextStart, passthroughClosedAt: nextStart))
+        let secondReader = Task { var clips: [SpeakClip] = []; for await clip in second.clips { clips.append(clip) }; return clips }
+        proceed.signal()
+        let old = try #require(await firstReader.value.last)
+        #expect(old.pcm.end == nextStart && old.pcm.samples.count == 14_400)
+        first.cancel() // A late old owner cannot clear the new reservation.
+        #expect(mic.beginPress(id: 3, keyDownAt: nextStart, passthroughClosedAt: nextStart) == nil)
+        second.release(at: start + 1_600_000_000, reason: .keyUp)
+        for i in 80..<96 { capture.feed(at: start + UInt64(i) * 20_000_000, frame: UInt64(i * 320), value: 0.2) }
+        let new = try #require(await secondReader.value.first)
+        #expect(new.pcm.start == nextStart && new.pcm.start == old.pcm.end)
+        #expect(new.pcm.samples.count == 15_200 && new.pcm.samples.allSatisfy { $0 == 0.2 })
+    }
+
     @Test func stopAndImmediateReleaseFinishesPressStreams() async throws {
         let rig = FakeMicRig()
         var mic: MicIngest? = try MicIngest(profile: profile, devices: { rig.devices }, makeCapture: { rig.make($0) }, watchHAL: false)
@@ -156,6 +194,6 @@ private final class FakeSpeakCapture: SpeakCapture, @unchecked Sendable {
     }
     func stop() { lock.withLock { chunk = nil; interruption = nil } }
     func setDrainCadence(milliseconds: Int) {}
-    func feed(at: HostTime, frame: UInt64, count: Int = 320) { lock.withLock { chunk }?(.init(samples: Array(repeating: 0.1, count: count), startFrame: frame, hostTime: at)) }
+    func feed(at: HostTime, frame: UInt64, count: Int = 320, value: Float = 0.1) { lock.withLock { chunk }?(.init(samples: Array(repeating: value, count: count), startFrame: frame, hostTime: at)) }
     func interrupt(_ event: MicCapture.Interruption) { lock.withLock { interruption }?(event) }
 }

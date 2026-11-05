@@ -26,6 +26,10 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     private var reported = SpeakMicState(capture: .closed, physicalMicPassesRule2: false)
     private var numbers = Stats()
     private var reservation: UInt64?
+    private var releasedReservation: UInt64?
+    /// A newly accepted press can shorten only an already-released press's remaining tail.
+    /// Read by the worker before consuming queued VAD frames, so they cannot cross the new floor.
+    private var handoffEnds: [UInt64: HostTime] = [:]
     private var stopped = false
     private let profile: PolicyProfile.Speak
     private let devices: @Sendable () -> [InputDeviceInfo]
@@ -86,7 +90,7 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     }
     public func refreshDevices() { queue.async { [weak self] in self?.reconcile(checkDevice: true) } }
     public func stop() {
-        lock.withLock { stopped = true; reservation = nil }
+        lock.withLock { stopped = true; reservation = nil; releasedReservation = nil; handoffEnds.removeAll() }
         // A stopped owner may be released immediately; retain it until both streams are closed.
         queue.async { [self] in
             finishPress(cancelled: true); hot = false; passthrough = false
@@ -97,8 +101,13 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
 
     public func beginPress(id: UInt64, keyDownAt: HostTime, passthroughClosedAt: HostTime?) -> (any SpeakPressAudio)? {
         let accepted = lock.withLock { () -> Bool in
-            guard !stopped, reservation == nil else { return false }
-            reservation = id; return true
+            guard !stopped else { return false }
+            if let old = reservation {
+                guard releasedReservation == old else { return false }
+                handoffEnds[old] = keyDownAt
+            }
+            reservation = id; releasedReservation = nil
+            return true
         }
         guard accepted else { return nil }
         let press = Press(id: id, preview: { [weak self] text, through, at, final in
@@ -107,7 +116,7 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
                 emit(segmenter?.preview(stableText: text, through: through, at: at, isFinal: final) ?? [])
             }
         }, release: { [weak self] time, _ in
-            self?.queue.async { [weak self] in self?.release(id: id, at: time) }
+            self?.requestRelease(id: id, at: time)
         }, cancel: { [weak self] in
             self?.queue.async { [weak self] in
                 guard self?.current?.id == id else { return }
@@ -116,6 +125,7 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         })
         queue.async { [weak self] in
             guard let self, !lock.withLock({ stopped }) else { press.finish(); return }
+            if current != nil { finishForHandoff(at: keyDownAt) }
             current = press; index = 0
             let floor = PrerollFloor.compute(keyDown: keyDownAt, prerollMs: profile.ptt.prerollMs,
                                             previousClipEnd: previousClipEnd, passthroughClosedAt: passthroughClosedAt)
@@ -127,6 +137,21 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
             reconcile()
         }
         return press
+    }
+
+    private func requestRelease(id: UInt64, at host: HostTime) {
+        lock.withLock {
+            guard reservation == id else { return }
+            releasedReservation = id
+            // Enqueue before another begin can accept the handoff.
+            queue.async { [weak self] in self?.release(id: id, at: host) }
+        }
+    }
+
+    private func finishForHandoff(at host: HostTime) {
+        emit(segmenter?.finish(at: host) ?? [])
+        previousClipEnd = max(previousClipEnd ?? 0, host)
+        finishPress(cancelled: false)
     }
 
     private func release(id: UInt64, at host: HostTime) {
@@ -256,7 +281,15 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         }
     }
     private func consume(_ frame: SpeakVAD.Frame) {
-        guard current != nil else { return }
+        guard let current else { return }
+        if let boundary = lock.withLock({ handoffEnds[current.id] }), frame.end >= boundary {
+            if frame.start < boundary {
+                emit(segmenter?.audio(.init(start: frame.start, end: boundary, speech: frame.voiced,
+                                           energy: pow(10, frame.rmsDb / 10))) ?? [])
+            }
+            finishForHandoff(at: boundary)
+            return
+        }
         emit(segmenter?.audio(.init(start: frame.start, end: frame.end, speech: frame.voiced,
                                    energy: pow(10, frame.rmsDb / 10))) ?? [])
     }
@@ -285,7 +318,10 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         guard let current else { return }
         if cancelled { previousClipEnd = max(previousClipEnd ?? 0, ring.endHostTime ?? 0, HostClock.now()) }
         current.finish(); self.current = nil; segmenter = nil
-        lock.withLock { if reservation == current.id { reservation = nil } }
+        lock.withLock {
+            handoffEnds[current.id] = nil
+            if reservation == current.id { reservation = nil; releasedReservation = nil }
+        }
     }
     private func convert(_ samples: [Float], rate: Double) throws -> [Float] {
         if rate == 16_000 { return samples }

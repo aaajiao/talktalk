@@ -113,6 +113,7 @@ private actor SpeakTestASR: ClipASREngine {
     let delay: Duration
     let analyzers: SpeakTestAnalyzers?
     private(set) var calls = 0
+    private(set) var contexts: [String?] = []
     init(text: String = "你好世界", fails: Bool = false, delay: Duration = .zero,
          analyzers: SpeakTestAnalyzers? = nil, texts: [String] = []) {
         self.text = text; self.fails = fails; self.delay = delay; self.analyzers = analyzers
@@ -121,6 +122,7 @@ private actor SpeakTestASR: ClipASREngine {
     func transcribe(_ clip: PCMClip16k, hint: Lang, context: String?, job: JobID,
                     priority: Priority, deadline: HostTime?) async throws -> ASRFinal {
         calls += 1
+        contexts.append(context)
         let recognized = texts.isEmpty ? text : texts[min(calls - 1, texts.count - 1)]
         analyzers?.opened()
         defer { analyzers?.closed() }
@@ -204,6 +206,7 @@ struct SpeakPipelineTests {
                          primary: SpeakTestASR? = nil, ttsFailures: Int = 0,
                          preview: (any StreamingASREngine)? = nil, whileHeld: Bool = false, target: Lang = .en,
                          captureFromKeyDown: Bool = false, log: EventLog? = nil,
+                         asrContext: @escaping @Sendable () -> String? = { nil },
                          onCommit: @escaping @Sendable () -> Void = {},
                          onWorkChange: @escaping @Sendable (Bool) -> Void = { _ in },
                          onUI: @escaping @Sendable (SpeakUIEvent) -> Void = { _ in },
@@ -217,7 +220,8 @@ struct SpeakPipelineTests {
                            playoutGainDb: 0, hudVoice: .system) },
             engine: SpeakTestControl(), echo: SpeakTestEcho(), previewASR: preview, target: target, jobs: JobIDSequence(),
             log: log ?? EventLog(inMemory: HostClock.now), speakerMode: { false }, captureFromKeyDown: captureFromKeyDown,
-            ui: onUI, onCommit: onCommit, onWorkChange: onWorkChange, onSpoken: onSpoken, commitWhileHeld: whileHeld)
+            ui: onUI, onCommit: onCommit, onWorkChange: onWorkChange, onSpoken: onSpoken,
+            asrContext: asrContext, commitWhileHeld: whileHeld)
         return (pipeline, mic, host, tts)
     }
     private func clip(at: HostTime) -> SpeakClip {
@@ -239,6 +243,26 @@ struct SpeakPipelineTests {
         #expect(await fallback.calls == 1)
         #expect(tts.requests.withLock { $0[0].text == "Hello world." && $0[0].language == .en })
         #expect(await until { (try? host.queue.pump(at: HostClock.now())) != nil && host.ring.availableFrames > 0 })
+        await pipeline.stop()
+    }
+
+    @Test func recognitionContextStaysWithinTheRecordingTurn() async throws {
+        let primary = SpeakTestASR(texts: ["上一轮的第一句。", "上一轮的第二句。", "这是新一轮。"])
+        let mt = SpeakTestMT()
+        let (pipeline, mic, _, _) = try fixture(mt: mt, primary: primary, whileHeld: true,
+                                               asrContext: { "TalkTalk" })
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        mic.press.cc.yield(clip(at: now))
+        #expect(await until { await mt.calls == 1 })
+        mic.press.cc.yield(clip(at: now + 1_000_000_000))
+        #expect(await until { await mt.calls == 2 })
+        await pipeline.handle(.released(at: now + 2_000_000_000, reason: .keyUp))
+        await pipeline.handle(.began(at: now + 3_000_000_000))
+        mic.press.cc.yield(clip(at: now + 3_000_000_000))
+        #expect(await until { await mt.calls == 3 })
+        let contexts = await primary.contexts
+        #expect(contexts == ["TalkTalk", "上一轮的第一句。\nTalkTalk", "TalkTalk"])
         await pipeline.stop()
     }
 

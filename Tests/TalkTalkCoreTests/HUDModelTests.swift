@@ -371,6 +371,25 @@ import Testing
         #expect(model.transcript == nil)
     }
 
+    @Test func originalAudioAllowsNewPressResetButRejectsRecognitionDrafts() {
+        var model = HUDModel()
+        model.meetingStarted(); model.meetingAudio = .original
+        model.receiveTranscript(.init(press: 1, source: "上一轮", target: "Previous turn.", isFinal: true), now: 0)
+        #expect(model.visibleTranscript(at: 1)?.source == "上一轮")
+        model.receiveTranscript(.init(press: 2, source: "", target: "", isFinal: false), now: 1)
+        #expect(model.transcript?.press == 2)
+        #expect(model.visibleTranscript(at: 1) == nil)
+        model.receiveTranscript(.init(press: 1, source: "迟到的上一轮", target: "Old.", isFinal: true), now: 2)
+        model.receiveTranscript(.init(press: 2, source: "原声草稿", target: "", isFinal: false), now: 2)
+        model.receiveTranscript(.init(press: 2, source: "", target: "", isFinal: false,
+                                      unsubmittedSource: "未提交草稿"), now: 2)
+        #expect(model.transcript?.press == 2)
+        #expect(model.visibleTranscript(at: 2) == nil)
+        model.meetingAudio = .translating
+        model.receiveTranscript(.init(press: 2, source: "新一轮", target: "", isFinal: false), now: 3)
+        #expect(model.visibleTranscript(at: 3)?.source == "新一轮")
+    }
+
     /// The restore notice may arrive just before or after meetingEnded (listen's order): it stays
     /// its 4 s either way, and so does an entry result posted around meetingStarted.
     @Test func sysInputNoticesOutliveMeetingStartAndEnd() {

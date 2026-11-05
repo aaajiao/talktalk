@@ -115,9 +115,6 @@ final class PTTHUD {
     func pushToTalk(_ p: HUDModel.PushToTalk) { change { $0.pushToTalk = p } }
 
     func transcript(_ value: SpeakTranscript) {
-        // Raw-original capture must not surface a new recognition draft. A completed earlier
-        // press still follows its existing reading lifetime after raw audio resumes.
-        guard model.meetingAudio != .original || value.isFinal else { return }
         let now = clock()
         change { $0.receiveTranscript(value, now: now) }
     }

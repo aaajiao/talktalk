@@ -431,6 +431,10 @@ public struct HUDModel: Sendable, Equatable {
     }
 
     public mutating func receiveTranscript(_ value: SpeakTranscript, now: Double) {
+        // A new press's empty snapshot clears reading history even if the audio-mode update
+        // arrives later. Raw-original mode still rejects actual recognition drafts.
+        if meetingAudio == .original, !value.isFinal,
+           !value.source.isEmpty || !value.target.isEmpty || !value.unsubmittedSource.isEmpty { return }
         if let latestTranscriptPress {
             guard value.press >= latestTranscriptPress else { return }
             // A late snapshot cannot resurrect an expired press or replace final text with a

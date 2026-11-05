@@ -284,13 +284,19 @@ private func validUntil(_ s: tt_pt_snapshot) -> UInt64 { var c = s; return tt_pt
 
     @Test func playingRingOFadesOutForOneCycleThenRingPTakesOverAndRingOResumesAfter() {
         let rig = FeedRig(startFrame: 2000)
-        rig.writeO(0.5, 10000, TT_RING_CLAUSE_START, 1)
+        // Distinct, exactly representable values reveal a replayed prefix after the hand-over.
+        let samples = (0..<10000).map { Float(2048 + $0) / 16384 }
+        let written = samples.withUnsafeBufferPointer {
+            tt_ring_write_clause(rig.ringO, $0.baseAddress, UInt32($0.count), TT_RING_CLAUSE_START, 1)
+        }
+        #expect(written == 10000)
         rig.cycle(480)
+        for i in 240..<480 { #expect(rig.ch0[i] == samples[i]) }
         let g = rig.open(TT_PT_SOURCE_MIC, at: 1000, leaseUntil: 20000)
         rig.writeP(at: 1000, 2000, gen: g, 1)
         let availO = tt_ring_available(rig.ringO)
         rig.cycle(480)
-        for i in 0..<480 { #expect(rig.ch0[i] == 0.5 * fadeOut(i, 480)) }
+        for i in 0..<480 { #expect(rig.ch0[i] == samples[480 + i] * fadeOut(i, 480)) }
         let lc = tt_feed_last_cycle(rig.ctx)
         #expect(lc.mode == TT_FEED_MODE_O_TO_P && lc.ring_p_audio == 0)
         let availO2 = tt_ring_available(rig.ringO)
@@ -301,8 +307,12 @@ private func validUntil(_ s: tt_pt_snapshot) -> UInt64 { var c = s; return tt_pt
         #expect(tt_pt_state_close(rig.pt, g, rig.now))
         rig.cycle(480)
         for i in 0..<480 { #expect(rig.ch0[i] == fadeOut(i, 480)) }
+        #expect(tt_ring_available(rig.ringO) == availO2)
         rig.cycle(480)
-        for i in 0..<240 { #expect(rig.ch0[i] == 0.5 * fadeIn(i, 240)) }
+        // Both pre-passthrough cycles consumed 480 frames; resume at 960, never at the old START.
+        for i in 0..<240 { #expect(rig.ch0[i] == samples[960 + i] * fadeIn(i, 240)) }
+        for i in 240..<480 { #expect(rig.ch0[i] == samples[960 + i]) }
+        #expect(tt_ring_available(rig.ringO) == availO2 - 480)
         #expect(tt_feed_mixed_cycles(rig.ctx) == 0)
     }
 

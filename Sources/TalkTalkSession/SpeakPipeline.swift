@@ -92,7 +92,8 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private var degradation = DegradationLadder()
     private var latestRTF: Double?
     private var thermalSerious = false, lowPower = false
-    private var lastSource = ""
+    /// Recognition context belongs to one recording turn; glossary hints may span turns.
+    private var lastSource: (press: UInt64, text: String)?
     private var renderMembers: [UInt64: [UInt64]] = [:]
     private var renderVoice: [JobID: VoiceHandle] = [:]
     private var renderText: [JobID: String] = [:]
@@ -434,9 +435,10 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     }
 
     private func recognize(_ clip: SpeakClip, clause id: UInt64, job: JobID, token: UInt32) async throws -> ASRFinal {
-        guard active(id, token: token) else { throw CancellationError() }
+        guard active(id, token: token), let row = clauses[id] else { throw CancellationError() }
         if let primaryASR {
-            let context = [lastSource, asrContext() ?? ""].filter { !$0.isEmpty }.joined(separator: "\n")
+            let previous = lastSource.flatMap { $0.press == row.press ? $0.text : nil }
+            let context = [previous, asrContext()].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
             do {
                 // The 600 ms budget begins when this clip actually reaches the recognizer,
                 // not while it waits behind preceding clips from the same long press.
@@ -485,7 +487,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 discard(id, warning: rejection == .unsupportedText ? .unsupportedTextNotSent : .segmentNotSent)
                 return
             }
-            clauses[id]?.source = text; lastSource = text
+            clauses[id]?.source = text; lastSource = (press: row.press, text: text)
             displayPress?.clauses[id]?.source = text
             displayPress?.clauses[id]?.provisional = ""
             publishTranscript()
