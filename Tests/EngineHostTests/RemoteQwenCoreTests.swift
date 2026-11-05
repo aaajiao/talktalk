@@ -74,7 +74,7 @@ import Testing
 
     @Test func ttsChunksEndWithSummary() async throws {
         let box = try EngineHostTests.Sandbox()
-        let e = EngineProcess(config: try box.config(extra: ["--tts-chunks", "3", "--tts-chunk-ms", "5"]))
+        let e = EngineProcess(config: try box.config(extra: ["--tts-chunks", "3", "--tts-chunk-ms", "5", "--require-voice-key"]))
         let tts = RemoteQwenTTS(engine: e)
         let blob = try await tts.buildConditioning(
             VoiceReference(pcm24k: Data(repeating: 0, count: 4 * 2400), text: "参考", lang: .zh),
@@ -124,5 +124,14 @@ import Testing
         var w16k = w
         w16k.replaceSubrange(24..<28, with: [0x80, 0x3E, 0, 0])   // 16000 Hz is refused
         #expect(RemoteQwenTTS.samples(w16k) == nil)
+    }
+
+    @Test func readyForAnotherVoiceDoesNotCompleteLoad() async throws {
+        let box = try EngineHostTests.Sandbox()
+        let e = EngineProcess(config: try box.config("voice-key-mismatch"))
+        await #expect(throws: RemoteEngineError.tts(code: "voice_key_mismatch", message: "loaded voice does not match the requested voice")) {
+            try await RemoteQwenTTS(engine: e).load(Self.handle(), blob: Data([1]))
+        }
+        await e.stop()
     }
 }

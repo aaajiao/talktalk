@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import Synchronization
@@ -138,10 +139,19 @@ extension RemoteQwenTTS: TTSEngine {
     public func load(_ voice: VoiceHandle, blob: Data) async throws {
         let client = try await readyClient(engine)
         try await client.loadVoice(blob: blob, model: voice.model.name, key: voice.conditioningKey)
-        // /v1/voice/load answers 202; TTS needs voice.state == ready (otherwise voice_absent).
+        let expectedKey8 = SHA256.hash(data: Data(voice.conditioningKey.utf8)).prefix(4)
+            .map { String(format: "%02x", $0) }.joined()
+        // A different load may finish while we wait. Ready alone does not identify this voice.
         let end = ContinuousClock.now + .seconds(15)
         while ContinuousClock.now < end {
-            if let h = try? await client.health(timeout: 2), h.voice.state == "ready" { return }
+            try Task.checkCancellation()
+            if let h = try? await client.health(timeout: 2), h.voice.state == "ready" {
+                guard h.voice.key8 == expectedKey8 else {
+                    throw RemoteEngineError.tts(code: "voice_key_mismatch", message: "loaded voice does not match the requested voice")
+                }
+                try Task.checkCancellation()
+                return
+            }
             try await Task.sleep(for: .milliseconds(25))
         }
         throw RemoteEngineError.voiceNotReady
@@ -182,7 +192,7 @@ extension RemoteQwenTTS: TTSEngine {
                     let started = HostClock.now()
                     let stream = client.tts(EngineTTSRequest(text: r.text, lang: r.language.rawValue,
                                                              job: WireJob.tts(r.job), seed: Int(r.seed),
-                                                             wholeClause: r.wholeClause))
+                                                             wholeClause: r.wholeClause, voiceKey: r.voice.conditioningKey))
                     var seq = 0
                     var first: HostTime?
                     for try await ev in stream.events {

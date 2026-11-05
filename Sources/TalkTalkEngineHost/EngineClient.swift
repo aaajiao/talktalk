@@ -501,7 +501,7 @@ public struct ASRResult: Decodable, Sendable, Equatable {
 }
 
 /// `EngineTTSRequest` (§4.4). Fields the engine reads: text, lang, job, seed, interval, compiled,
-/// temperature, max_frames, prime, debug.
+/// temperature, max_frames, prime, debug, voice_key.
 public struct EngineTTSRequest: Encodable, Sendable, Equatable {
     public var text: String
     public var lang: String
@@ -516,10 +516,13 @@ public struct EngineTTSRequest: Encodable, Sendable, Equatable {
     /// §3.3 short clause: render whole, run the guards, then send (nil = the engine decides by
     /// expected duration < 1.5 s).
     public var wholeClause: Bool?
+    /// The conditioning identity the caller intends to use. Nil is for legacy bench callers.
+    public var voiceKey: String?
 
     public init(text: String, lang: String, job: String = EngineJobID.make(), seed: Int? = nil,
                 interval: Double? = nil, compiled: Bool? = nil, temperature: Double? = nil,
-                maxFrames: Int? = nil, prime: Bool? = nil, debug: Bool? = nil, wholeClause: Bool? = nil) {
+                maxFrames: Int? = nil, prime: Bool? = nil, debug: Bool? = nil, wholeClause: Bool? = nil,
+                voiceKey: String? = nil) {
         self.text = text
         self.lang = lang
         self.job = job
@@ -531,12 +534,14 @@ public struct EngineTTSRequest: Encodable, Sendable, Equatable {
         self.prime = prime
         self.debug = debug
         self.wholeClause = wholeClause
+        self.voiceKey = voiceKey
     }
 
     enum CodingKeys: String, CodingKey {
         case text, lang, job, seed, interval, compiled, temperature, prime, debug
         case maxFrames = "max_frames"
         case wholeClause = "whole_clause"
+        case voiceKey = "voice_key"
     }
 }
 

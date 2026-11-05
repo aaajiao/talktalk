@@ -198,13 +198,20 @@ class EngineState:
 
         return self.sched.call(build, long_step=True)
 
-    def load_voice(self, blob):
+    def load_voice(self, blob, expected_key=None, model=None):
         """Returns False when an unload (or a newer load) came in while this one waited for the GPU
         thread: then nothing changes."""
         from . import voice as V
+        from .server import ApiError
+
+        if model is not None and (self.tts is None or self.tts.key != model):
+            raise ApiError(409, "voice_model_mismatch", "voice model does not match the loaded TTS model")
 
         def load():
-            return V.from_blob(blob)
+            voice = V.from_blob(blob)
+            if expected_key is not None and voice.key != expected_key:
+                raise ApiError(409, "voice_key_mismatch", "voice blob does not match the requested voice")
+            return voice
 
         with self.voice_lock:
             self.voice_gen += 1
@@ -258,11 +265,19 @@ class EngineState:
     def tts_job(self, req, out):
         from .guards import Guarded, Policy, Progress
         from .tts import echo_features, expected_seconds
+        from .server import ApiError
 
         self.tts_requests += 1
         text = str(req["text"])
         lang = req["lang"]
-        voice = self.voice
+        with self.voice_lock:
+            if self.voice is None:
+                raise ApiError(409, "voice_absent", "no voice loaded")
+            if self.voice_state != "ready":
+                raise ApiError(409, "voice_not_ready", "voice is not ready")
+            voice, voice_gen = self.voice, self.voice_gen
+            if req.get("voice_key") is not None and req["voice_key"] != voice.key:
+                raise ApiError(409, "voice_key_mismatch", "loaded voice does not match the requested voice")
         t_req = time.perf_counter()
         first = {}
         exp = expected_seconds(text, lang)
@@ -282,6 +297,9 @@ class EngineState:
 
         def factory():
             # on the GPU thread: the reference codes are an MLX array
+            with self.voice_lock:
+                if self.voice is not voice or self.voice_gen != voice_gen or self.voice_state != "ready":
+                    raise ApiError(409, "voice_changed", "voice changed before synthesis started")
             first["queue_ms"] = (time.perf_counter() - t_req) * 1e3
             guard.ref_cb0 = self._ref_cb0(voice)
             return iter(guard)
@@ -296,7 +314,7 @@ class EngineState:
 
         def on_done(err):
             if err is not None and err != "cancelled":
-                out.put(("error", {"code": "tts_failed", "message": type(err).__name__}))
+                out.put(("error", {"code": getattr(err, "code", "tts_failed"), "message": type(err).__name__}))
                 return
             st = guard.stats
             g = guard.report
@@ -391,9 +409,11 @@ class EngineState:
             mem = {"active": mx.get_active_memory(), "cache": mx.get_cache_memory(), "peak": mx.get_peak_memory()}
         except Exception:  # noqa: BLE001
             pass
+        with self.voice_lock:
+            voice = {"state": self.voice_state, "key8": self.voice.key8 if self.voice else None}
         return {"status": "ok", "api": ENGINE_API, "pid": os.getpid(), "runtime": RUNTIME, "versions": self.versions,
                 "models": self.models,
-                "voice": {"state": self.voice_state, "key8": self.voice.key8 if self.voice else None},
+                "voice": voice,
                 "gpu": self.sched.health(), "mem": mem, "asr_thread": self.args.asr_thread,
                 "hygiene": {"imports_first_thread": dict(self.audit.first) if self.audit else {},
                             "sounddevice_stub": stubs.is_installed(),

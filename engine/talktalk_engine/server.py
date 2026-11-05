@@ -166,10 +166,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def r_voice_load(self, q):
         parts = frames.decode_all(self._body(MAX_BINARY))
+        head = next((json.loads(p) for k, p in parts if k == frames.JSON_HEAD), {}) or {}
         blob = next((p for k, p in parts if k == frames.BLOB), None)
         if blob is None:
             raise ApiError(400, "bad_request", "voice/load needs a blob frame")
-        self.state.load_voice(blob)
+        if not self.state.load_voice(blob, expected_key=head.get("key"), model=head.get("model")):
+            raise ApiError(409, "voice_load_superseded", "voice load was superseded")
         self._send_empty(202)
 
     def r_voice_unload(self, q):

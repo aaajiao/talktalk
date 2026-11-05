@@ -80,7 +80,7 @@ public enum VoiceSync {
             try await engine.loadVoice(blobs, mode: p.modesByLang[.en] ?? .icl, profileID: p.id)
             try Task.checkCancellation()
             try store.checkStill(ident)
-            guard let h = handle(p) else { throw VoiceEngineError.noConditioning(p.modesByLang[.en] ?? .icl) }
+            guard let h = handle(p, loaded: blobs) else { throw VoiceEngineError.noConditioning(p.modesByLang[.en] ?? .icl) }
             let src = SpeakVoiceRouting.Source.myVoice(h, playoutGainDb: p.playoutGainDb ?? 0)
             if let routing, let epoch {
                 // The engine may have gone down while the load ran (follower marked pending).
@@ -118,7 +118,7 @@ public enum VoiceSync {
             let epoch = routing?.markPending()
             try await engine.loadVoice(blobs, mode: p.modesByLang[.en] ?? .icl, profileID: p.id)
             try store.checkStill(p.identity)
-            if let h = handle(p), let epoch { routing?.useMyVoice(h, playoutGainDb: p.playoutGainDb ?? 0, ifEpoch: epoch) }
+            if let h = handle(p, loaded: blobs), let epoch { routing?.useMyVoice(h, playoutGainDb: p.playoutGainDb ?? 0, ifEpoch: epoch) }
         } catch {
             routing?.useMyVoicePending()
         }
@@ -149,5 +149,13 @@ public enum VoiceSync {
         guard let id = UUID(uuidString: p.id), let e = p.speakEntry else { return nil }
         return VoiceHandle(profileID: id, conditioningKey: e.key, mode: e.mode,
                            model: EngineID(name: e.model, revision: "", placement: .engineGPU))
+    }
+
+    /// Use the same filtered, current blob that EngineVoiceServices.loadVoice selects.
+    static func handle(_ p: VoiceProfile, loaded blobs: [ConditioningBlob]) -> VoiceHandle? {
+        guard let id = UUID(uuidString: p.id),
+              let blob = blobs.first(where: { $0.mode == (p.modesByLang[.en] ?? .icl) }) else { return nil }
+        return VoiceHandle(profileID: id, conditioningKey: blob.key, mode: blob.mode,
+                           model: EngineID(name: blob.model, revision: "", placement: .engineGPU))
     }
 }

@@ -16,6 +16,7 @@ _HS = os.dup(1)
 os.dup2(2, 1)
 
 import argparse  # noqa: E402
+import hashlib  # noqa: E402
 import hmac  # noqa: E402
 import itertools  # noqa: E402
 import json  # noqa: E402
@@ -51,6 +52,7 @@ p.add_argument("--crash-after", type=float, default=0.3)
 p.add_argument("--long-step", action="store_true")
 p.add_argument("--tts-chunks", type=int, default=5)
 p.add_argument("--tts-chunk-ms", type=float, default=50.0)
+p.add_argument("--require-voice-key", action="store_true")
 a, _ = p.parse_known_args()
 roles = [r for r in a.roles.split(",") if r]
 
@@ -101,7 +103,7 @@ if scenario == "garbage":
     time.sleep(5)
     sys.exit(0)
 
-state = {"voice": "absent", "hang": scenario == "hang-health", "step_age": scenario == "step-age",
+state = {"voice": "absent", "voice_key": None, "hang": scenario == "hang-health", "step_age": scenario == "step-age",
          "last_step": time.monotonic()}
 # The real engine renders TTS jobs one at a time; texts starting with "serial" share this lock.
 serial_lock = threading.Lock()
@@ -167,7 +169,8 @@ class H(BaseHTTPRequestHandler):
                    "expired_dropped": 0, "tts_rtf_recent": 0.27,
                    "step_p99": {"tts.first": 88.5, "tts": 41.0}}
             self._send(200, {"status": "ok", "api": a.api, "pid": os.getpid(), "runtime": "python-mlx",
-                             "models": models, "voice": {"state": state["voice"], "key8": None},
+                             "models": models, "voice": {"state": state["voice"], "key8":
+                                 hashlib.sha256(state["voice_key"].encode()).hexdigest()[:8] if state["voice_key"] else None},
                              "gpu": gpu, "mem": {"active": 1, "cache": 0, "peak": 2}})
         elif path == "/v1/stats":
             self._send(200, {"steps": {}, "tts_requests": 0})
@@ -207,10 +210,14 @@ class H(BaseHTTPRequestHandler):
             else:
                 self._send(200, {"cosine": 1.0 if pcm[0] == pcm[1] else 0.5})
         elif url.path == "/v1/voice/load":
+            n, kind = struct.unpack(">IB", body[:5])
+            head = json.loads(body[5:4 + n]) if kind == FRAMES["head"] else {}
+            state["voice_key"] = "other-voice" if scenario == "voice-key-mismatch" else head.get("key", "fake-voice")
             state["voice"] = "ready"
             self._send(202)
         elif url.path == "/v1/voice/unload":
             state["voice"] = "absent"
+            state["voice_key"] = None
             self._send(204)
         elif url.path == "/v1/asr":
             hint = (parse_qs(url.query).get("hint") or [None])[0]
@@ -219,6 +226,9 @@ class H(BaseHTTPRequestHandler):
             req = json.loads(body or b"{}")
             if state["voice"] != "ready":
                 self._send(409, {"error": {"code": "voice_absent", "message": "no voice loaded"}})
+                return
+            if (a.require_voice_key or "voice_key" in req) and req.get("voice_key") != state["voice_key"]:
+                self._send(409, {"error": {"code": "voice_key_mismatch", "message": "loaded voice does not match the requested voice"}})
                 return
             self.send_response(200)
             self.send_header("Content-Type", "application/x-talktalk-frames")

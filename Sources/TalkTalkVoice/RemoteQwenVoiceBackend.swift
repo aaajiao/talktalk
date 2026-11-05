@@ -1,12 +1,14 @@
 import Foundation
+import Synchronization
 import TalkTalkCore
 import TalkTalkEngineHost
 
 /// `VoiceEngineBackend` on the real engine (§4.4): `/v1/voice/build` and `/v1/voice/load` through
 /// `EngineClient`, the wait-for-ready of `RemoteQwenTTS.load`, the audition through `/v1/tts`, the
 /// read-back through `/v1/asr` (Qwen3-ASR). The engine gets bytes only, never a path (§9.3).
-public struct RemoteQwenVoiceBackend: VoiceEngineBackend {
+public final class RemoteQwenVoiceBackend: VoiceEngineBackend {
     public let engine: EngineProcess
+    private let loadedKey = Mutex<String?>(nil)
 
     public init(engine: EngineProcess) {
         self.engine = engine
@@ -60,16 +62,20 @@ public struct RemoteQwenVoiceBackend: VoiceEngineBackend {
     }
 
     public func load(blob: Data, model: String, key: String, mode: CloneMode, profileID: UUID) async throws {
+        loadedKey.withLock { $0 = nil }
         _ = try await engine.start()
         let handle = VoiceHandle(profileID: profileID, conditioningKey: key, mode: mode,
                                  model: EngineID(name: model, revision: "", placement: .engineGPU))
         try await RemoteQwenTTS(engine: engine).load(handle, blob: blob)
+        try Task.checkCancellation()
+        loadedKey.withLock { $0 = key }
     }
 
     /// Does not start a stopped engine: a stopped engine has no voice loaded. A `/v1/voice/load`
     /// the client gave up on can still land on the engine after the unload, so the voice state is
     /// read back and the unload repeated until it says "absent" (§9.4 deletion: unload is last).
     public func unload() async throws -> Bool {
+        loadedKey.withLock { $0 = nil }
         guard let c = await engine.client else { return false }
         try await c.unloadVoice()
         for _ in 0..<Self.unloadRechecks {
@@ -83,8 +89,10 @@ public struct RemoteQwenVoiceBackend: VoiceEngineBackend {
     static let unloadRechecks = 5
 
     public func synthesize(text: String, lang: Lang, seed: Int) async throws -> VoiceSynthesis {
+        guard let key = loadedKey.withLock({ $0 }) else { throw RemoteEngineError.voiceNotReady }
         let stream = try await client().tts(EngineTTSRequest(text: text, lang: lang.rawValue,
-                                                             job: EngineJobID.make(prefix: "audition"), seed: seed))
+                                                             job: EngineJobID.make(prefix: "audition"), seed: seed,
+                                                             voiceKey: key))
         let r = try await stream.collect()
         if let f = r.failure { throw RemoteEngineError.tts(code: f, message: "") }
         return VoiceSynthesis(samples: r.samples, runaway: r.tail?.runaway ?? false, short: r.tail?.short ?? false,

@@ -3,6 +3,7 @@ import http.client
 import json
 import threading
 import unittest
+from unittest.mock import patch
 
 from talktalk_engine import frames, server
 from talktalk_engine.scheduler import GpuScheduler, Job, P0
@@ -53,7 +54,8 @@ class ServerTests(unittest.TestCase):
         h = {"Host": host or f"127.0.0.1:{self.port}"}
         if token:
             h["Authorization"] = "Bearer " + token
-        c.request(method, path, body=json.dumps(body).encode() if body is not None else None, headers=h)
+        payload = body if isinstance(body, bytes) else json.dumps(body).encode() if body is not None else None
+        c.request(method, path, body=payload, headers=h)
         r = c.getresponse()
         data = r.read()
         c.close()
@@ -84,6 +86,15 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(st, 200)
         kinds = [k for k, _ in frames.decode_all(data)]
         self.assertEqual(kinds, [frames.JSON_HEAD, frames.PCM_F32_24K, frames.JSON_TAIL])
+
+    def test_voice_load_forwards_identity_and_rejects_superseded_load(self):
+        body = frames.encode(frames.JSON_HEAD, {"key": "voice-A", "model": "model-A"}) + frames.encode(frames.BLOB, b"blob")
+        with patch.object(self.state, "load_voice", create=True, return_value=True) as load:
+            self.assertEqual(self.req("POST", "/v1/voice/load", body)[0], 202)
+            load.assert_called_once_with(b"blob", expected_key="voice-A", model="model-A")
+            load.return_value = False
+            status, response = self.req("POST", "/v1/voice/load", body)
+            self.assertEqual((status, json.loads(response)["error"]["code"]), (409, "voice_load_superseded"))
 
     def test_asr_not_ready(self):
         st, data = self.req("POST", "/v1/asr", {})

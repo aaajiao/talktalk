@@ -635,6 +635,25 @@ final class Flag: @unchecked Sendable {
         #expect(try store.loadProfile().conditioningEntries?.map(\.model) == ["qwen3-tts-0.6b-base-8bit"])
     }
 
+    @Test @MainActor func routeUsesTheCurrentBlobLoadedInsteadOfTheFirstProfileEntry() async throws {
+        let store = VoiceStore(root: try tempRoot()), b = FakeBackend()
+        let engine = services(b)
+        var p = try await saveProfile(store, engine: engine)
+        let current = try #require(p.conditioningEntries?.first)
+        p.conditioningEntries?.insert(.init(key: "stale-key", model: "retired-model", mode: current.mode), at: 0)
+        try store.replaceProfile(p, expecting: p.identity)
+        let routing = SpeakVoiceRouting(clone: NamedTTS("q"), system: NamedTTS("s"))
+
+        _ = await VoiceSync.align(store: store, engine: engine, routing: routing)
+        #expect(await b.loads.last == current.key)
+        #expect(routing.voice?.conditioningKey == current.key)
+        #expect(routing.voice?.model.name == current.model)
+        routing.useMyVoicePending()
+        await VoiceSync.restore(store: store, engine: engine, routing: routing)
+        #expect(await b.loads.last == current.key)
+        #expect(routing.voice?.conditioningKey == current.key)
+    }
+
     @Test @MainActor func aFailedLoadLeavesSpeakPendingNotOnMyVoice() async throws {
         let store = VoiceStore(root: try tempRoot())
         let b = FakeBackend()
@@ -1199,7 +1218,7 @@ final class Flag: @unchecked Sendable {
         return URL(fileURLWithPath: path.isEmpty ? "/usr/bin/python3" : path)
     }()
 
-    static func engine() throws -> EngineProcess {
+    static func engine(extra: [String] = []) throws -> EngineProcess {
         let root = try tempRoot()
         let state = root.appendingPathComponent("state")
         try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
@@ -1218,7 +1237,7 @@ final class Flag: @unchecked Sendable {
         return EngineProcess(config: EngineConfig(python: python, source: fixture, modelsDirs: [root.appendingPathComponent("models")],
                                                   warmupDir: nil, profile: "max", roles: ["tts", "asr"], tts: "tts-x", asr: "asr-y",
                                                   record: record, paths: paths,
-                                                  extraArguments: ["--scenario", "ok", "--state-dir", state.path], timing: t))
+                                                  extraArguments: ["--scenario", "ok", "--state-dir", state.path] + extra, timing: t))
     }
 
     private func until(_ cond: @escaping @Sendable () async -> Bool) async {
@@ -1235,6 +1254,29 @@ final class Flag: @unchecked Sendable {
         #expect(sawReady)
         await e.stop()
         #expect(await it.next() == false)
+    }
+
+    @Test func auditionRequiresItsLoadedIdentityAndClearsItOnUnload() async throws {
+        let e = try Self.engine(extra: ["--require-voice-key", "--tts-chunks", "1", "--tts-chunk-ms", "1"])
+        let backend = RemoteQwenVoiceBackend(engine: e)
+        await #expect(throws: RemoteEngineError.voiceNotReady) {
+            _ = try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1)
+        }
+        #expect(await e.launches == 0)
+        try await backend.load(blob: Data([1]), model: "tts-x", key: "voice-a", mode: .icl, profileID: UUID())
+        #expect(try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1).samples.count == 1920)
+
+        // A different client replaces the slot: the audition must still request voice-a.
+        let client = try #require(await e.client)
+        try await client.loadVoice(blob: Data([2]), model: "tts-x", key: "voice-b")
+        await #expect(throws: EngineAPIError.http(status: 409, code: "voice_key_mismatch", message: "loaded voice does not match the requested voice")) {
+            _ = try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1)
+        }
+        #expect(try await backend.unload())
+        await #expect(throws: RemoteEngineError.voiceNotReady) {
+            _ = try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1)
+        }
+        await e.stop()
     }
 
     @Test @MainActor func initWithAnEngineProcessFollowsItsStatus() async throws {
