@@ -129,13 +129,15 @@ public enum VoiceSync {
     public static func alreadyRestored(store: VoiceStore, routing: SpeakVoiceRouting?) -> Bool {
         guard let routing, case let .myVoice(h, _) = routing.source, let p = try? store.loadProfile(),
               let saved = handle(p) else { return false }
-        return h.conditioningKey == saved.conditioningKey && h.profileID == saved.profileID
+        return h.conditioningKey == saved.conditioningKey && h.profileID == saved.profileID && h.samplingKey == saved.samplingKey
     }
 
     static func build(_ p: VoiceProfile, store: VoiceStore, engine: any VoiceEngineServices) async throws -> [ConditioningBlob] {
         let wav = try Data(contentsOf: store.voiceURL.appendingPathComponent(VoiceStore.referenceName))
-        let script = try String(contentsOf: store.voiceURL.appendingPathComponent(VoiceStore.scriptName), encoding: .utf8)
-        return try await engine.buildConditioning(referenceWAV: wav, scriptText: script, modes: p.cloneModes)
+        let script = try store.loadScript(p)
+        return try await engine.buildConditioning(referenceWAV: wav, scriptText: script, modes: p.cloneModes).map {
+            ConditioningBlob(key: $0.key, data: $0.data, model: $0.model, mode: $0.mode, samplingKey: p.samplingKey)
+        }
     }
 
     static func apply(_ a: AuditionResult, to p: inout VoiceProfile) {
@@ -148,7 +150,7 @@ public enum VoiceSync {
     static func handle(_ p: VoiceProfile) -> VoiceHandle? {
         guard let id = UUID(uuidString: p.id), let e = p.speakEntry else { return nil }
         return VoiceHandle(profileID: id, conditioningKey: e.key, mode: e.mode,
-                           model: EngineID(name: e.model, revision: "", placement: .engineGPU))
+                           model: EngineID(name: e.model, revision: "", placement: .engineGPU), samplingKey: p.samplingKey)
     }
 
     /// Use the same filtered, current blob that EngineVoiceServices.loadVoice selects.
@@ -156,6 +158,6 @@ public enum VoiceSync {
         guard let id = UUID(uuidString: p.id),
               let blob = blobs.first(where: { $0.mode == (p.modesByLang[.en] ?? .icl) }) else { return nil }
         return VoiceHandle(profileID: id, conditioningKey: blob.key, mode: blob.mode,
-                           model: EngineID(name: blob.model, revision: "", placement: .engineGPU))
+                           model: EngineID(name: blob.model, revision: "", placement: .engineGPU), samplingKey: p.samplingKey)
     }
 }

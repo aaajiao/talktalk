@@ -11,9 +11,16 @@ import Testing
     }
 
     @Test func computeRTFExcludesHTTPAndHorizonWaiting() throws {
-        let tail = try JSONDecoder().decode(EngineTTSTail.self, from: Data(#"{"audio_s":2,"frames":48000,"timing":{"gpu_ms_all_attempts":1000}}"#.utf8))
+        let tail = try JSONDecoder().decode(EngineTTSTail.self, from: Data(#"{"audio_s":2,"frames":48000,"context_used":true,"timing":{"gpu_ms_all_attempts":1000}}"#.utf8))
         let summary = RemoteQwenTTS.summary(tail, timing: .init(received: 0, started: 0, firstOutput: 0, finished: 10_000_000_000))
         #expect(summary.computeRTF == 0.5)
+        #expect(summary.contextUsed == true)
+        let request = EngineTTSRequest(text: "Next sentence.", lang: "en", voiceKey: "real-voice-key",
+                                       contextID: "turn-1", previousJob: "tts-4")
+        let wire = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as! [String: Any]
+        #expect(wire["context_id"] as? String == "turn-1")
+        #expect(wire["previous_job"] as? String == "tts-4")
+        #expect(wire["voice_key"] as? String == "real-voice-key")
     }
 
     @Test func ids() throws {

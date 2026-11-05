@@ -89,6 +89,10 @@ class EngineState:
         # behind the ASR background load in sched.call) cannot bring back a deleted voice.
         self.voice_gen = 0
         self.voice_lock = threading.Lock()
+        # Metadata + a single bounded NumPy code array. MLX work stays on the GPU thread.
+        self.tts_context = None
+        self.context_gen = 0
+        self.context_jobs = {}       # also covers the scheduler-retired / on_done handoff
         self.warmup_voice = None
         self.tts_requests = 0
         self.versions = {}
@@ -190,6 +194,8 @@ class EngineState:
     def build_voice(self, pcm24k, ref_text, model=None):
         from . import voice as V
 
+        with self.voice_lock:
+            self._clear_context_locked()
         key = f"{RUNTIME}-mlxaudio{self.versions.get('mlx_audio', '?')}-{self.tts.key}@{self.tts.rev[:12]}-icl-{V.audio_fingerprint(pcm24k)[:16]}"
 
         def build():
@@ -215,6 +221,7 @@ class EngineState:
 
         with self.voice_lock:
             self.voice_gen += 1
+            self._clear_context_locked()
             gen = self.voice_gen
         v = self.sched.call(load)
         with self.voice_lock:
@@ -257,29 +264,56 @@ class EngineState:
     def unload_voice(self):
         with self.voice_lock:
             self.voice_gen += 1
+            self._clear_context_locked()
             self.voice = None
             self.voice_state = "absent"
+
+    def _clear_context_locked(self):
+        self.tts_context = None
+        self.context_gen += 1
+
+    def cancel(self, job_id=None, scope=None):
+        # Cancellation can arrive after the scheduler removed a job but before on_done, or
+        # after its tail. Mark active context jobs and clear the matching cached job atomically.
+        with self.voice_lock:
+            for job in self.context_jobs.values():
+                if job.job_id == job_id or scope in ("speak", "all"):
+                    job.cancel()
+            if scope in ("speak", "all") or (self.tts_context is not None and
+                                            self.tts_context["job"] == job_id):
+                self._clear_context_locked()
+        schedulers = {self.sched, self.asr_sched}
+        return sum(s.cancel(job_id=job_id, scope=scope) for s in schedulers)
 
     # -------------------------------------------------------------- jobs
 
     def tts_job(self, req, out):
         from .guards import Guarded, Policy, Progress
-        from .tts import echo_features, expected_seconds
+        from .tts import CONTINUATION_MAX_FRAMES, CONTINUATION_MAX_TEXT, echo_features, expected_seconds
         from .server import ApiError
 
         self.tts_requests += 1
         text = str(req["text"])
         lang = req["lang"]
+        context_id = req.get("context_id")
+        previous_job = req.get("previous_job")
+        if context_id is not None and (not isinstance(context_id, str) or not 0 < len(context_id) <= 256):
+            raise ApiError(400, "bad_request", "invalid context_id")
+        if previous_job is not None and (not isinstance(previous_job, str) or not 0 < len(previous_job) <= 128):
+            raise ApiError(400, "bad_request", "invalid previous_job")
         with self.voice_lock:
             if self.voice is None:
                 raise ApiError(409, "voice_absent", "no voice loaded")
             if self.voice_state != "ready":
                 raise ApiError(409, "voice_not_ready", "voice is not ready")
             voice, voice_gen = self.voice, self.voice_gen
+            context_gen = self.context_gen
             if req.get("voice_key") is not None and req["voice_key"] != voice.key:
                 raise ApiError(409, "voice_key_mismatch", "loaded voice does not match the requested voice")
         t_req = time.perf_counter()
         first = {}
+        synthesis_voice = voice
+        context_used = False
         exp = expected_seconds(text, lang)
         # Request overrides are for the bench (raw vs guarded runs); the app sends whole_clause only.
         policy = Policy.raw() if req.get("guards") is False else Policy()
@@ -289,19 +323,41 @@ class EngineState:
             policy.max_attempts = max(1, int(req["max_attempts"]))
         guard = Guarded(
             lambda seed, max_frames, stats: self.tts.stream(
-                text, voice, lang, interval=float(req.get("interval", 0.16)),
+                text, synthesis_voice, lang, interval=float(req.get("interval", 0.16)),
                 compiled=bool(req.get("compiled", False)), seed=seed, temperature=req.get("temperature"),
-                max_frames=max_frames, prime=bool(req.get("prime", True)), stats=stats),
+                max_frames=max_frames, prime=bool(req.get("prime", True)), stats=stats,
+                capture_codes=context_id is not None and len(text) <= CONTINUATION_MAX_TEXT),
             text, exp, req.get("seed"), policy=policy, whole=req.get("whole_clause"),
             clear_cache=self._clear_cache, max_frames=req.get("max_frames"))
 
         def factory():
+            nonlocal synthesis_voice, context_used
             # on the GPU thread: the reference codes are an MLX array
             with self.voice_lock:
                 if self.voice is not voice or self.voice_gen != voice_gen or self.voice_state != "ready":
                     raise ApiError(409, "voice_changed", "voice changed before synthesis started")
+                prior = self.tts_context
+                matches = (context_id is not None and previous_job is not None and prior is not None and
+                           self.context_gen == context_gen and prior["context_id"] == context_id and
+                           prior["job"] == previous_job and prior["voice_gen"] == voice_gen and
+                           prior["key"] == voice.key and prior["lang"] == lang)
+            if matches:
+                try:
+                    synthesis_voice = self.tts.continuation_voice(voice, prior["text"], prior["codes"])
+                    context_used = True
+                except Exception:  # optional continuation must never block a fresh human-reference render
+                    synthesis_voice = voice
+                with self.voice_lock:
+                    if self.voice is not voice or self.voice_gen != voice_gen or self.voice_state != "ready":
+                        raise ApiError(409, "voice_changed", "voice changed while preparing synthesis")
+                    if self.context_gen != context_gen:
+                        synthesis_voice = voice
+                        context_used = False
             first["queue_ms"] = (time.perf_counter() - t_req) * 1e3
-            guard.ref_cb0 = self._ref_cb0(voice)
+            # The temporary voice deliberately retains the human key. Its echo reference must
+            # include the previous clause, rather than hit the human-only key memo.
+            guard.ref_cb0 = (np.array(synthesis_voice.ref_codes[0, 0]).tolist()
+                             if context_used else self._ref_cb0(voice))
             return iter(guard)
 
         def on_item(chunk):
@@ -313,6 +369,31 @@ class EngineState:
             out.put(("pcm", chunk.astype("<f4").tobytes()))
 
         def on_done(err):
+            # Promote before publishing the tail: the next request may arrive as soon as the
+            # client receives it. No MLX conversion under voice_lock (codes are already NumPy).
+            codes = guard.stats.pop("generated_codes", None)
+            with self.voice_lock:
+                if self.context_jobs.get(job.job_id) is job:
+                    del self.context_jobs[job.job_id]
+                if (context_id is not None and self.context_gen == context_gen and self.voice is voice and
+                        self.voice_gen == voice_gen and self.voice_state == "ready"):
+                    if (self.tts_context is not None and self.tts_context["context_id"] == context_id and
+                            self.tts_context["job"] in (previous_job, job.job_id)):
+                        self.tts_context = None
+                if (context_id is not None and self.context_gen == context_gen and self.voice is voice and
+                        self.voice_gen == voice_gen and self.voice_state == "ready" and
+                        err is None and not job.cancelled.is_set()):
+                    # Clear the older slot even if this successful job is too long to retain.
+                    self.tts_context = None
+                    g = guard.report
+                    if (g["attempts"] == 1 and g["eos"] and not g["runaway"] and not g["short"] and
+                            g["echo_aborts"] == 0 and 0 < g["audio_s"] <= 8 and
+                            0 < len(text) <= CONTINUATION_MAX_TEXT and
+                            isinstance(codes, np.ndarray) and codes.dtype == np.int32 and
+                            codes.ndim == 3 and codes.shape[:2] == (1, 16) and
+                            0 < codes.shape[2] <= CONTINUATION_MAX_FRAMES and codes.shape[2] == g["frames"]):
+                        self.tts_context = {"context_id": context_id, "job": job.job_id, "voice_gen": voice_gen,
+                                            "key": voice.key, "lang": lang, "text": text, "codes": codes}
             if err is not None and err != "cancelled":
                 out.put(("error", {"code": getattr(err, "code", "tts_failed"), "message": type(err).__name__}))
                 return
@@ -326,7 +407,9 @@ class EngineState:
             tail = {"audio_s": audio_s, "frames": frames_n, "eos": g["eos"],
                     "runaway": g["runaway"], "short": g["short"], "slow": g["slow"],
                     "echo_aborts": g["echo_aborts"], "attempts": g["attempts"], "lead_trim_ms": 0,
-                    "whole": g["whole"], "held_s": g["held_s"], "cancelled": err == "cancelled",
+                    "whole": g["whole"], "held_s": g["held_s"],
+                    "cancelled": err == "cancelled" or job.cancelled.is_set(),
+                    "context_used": context_used,
                     "expected_s": round(exp, 3),
                     "timing": {"queue_ms": round(first.get("queue_ms", 0.0), 3),
                                "prepare_ms": round(st.get("prepare_ms", 0.0), 3),
@@ -340,13 +423,18 @@ class EngineState:
                                "chunk_frames": st.get("chunk_frames"), "compiled": st.get("compiled")}}
             if req.get("debug"):
                 tail["cb0"] = st.get("cb0", [])
-                tail["echo"] = echo_features(st.get("cb0", []), np.array(voice.ref_codes[0, 0]).tolist())
+                tail["echo"] = echo_features(st.get("cb0", []), guard.ref_cb0 or [])
                 tail["frame_ms"] = [round(x, 3) for x in st.get("frame_ms", [])]
             if audio_s > 0:
                 self.sched.tts_rtf_recent.append(g["gpu_ms"] / 1e3 / audio_s)      # every attempt counts
             out.put(("tail", tail))
 
         job = Job("tts", P0, factory, job_id=req.get("job"), on_item=on_item, on_done=on_done)
+        if context_id is not None:
+            with self.voice_lock:
+                self.context_jobs[job.job_id] = job
+                if self.context_gen != context_gen:
+                    job.cancel()
         return self.sched.submit(job)
 
     def similarity(self, ref24k, sample24k):

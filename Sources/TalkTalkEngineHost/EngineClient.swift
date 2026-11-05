@@ -518,11 +518,13 @@ public struct EngineTTSRequest: Encodable, Sendable, Equatable {
     public var wholeClause: Bool?
     /// The conditioning identity the caller intends to use. Nil is for legacy bench callers.
     public var voiceKey: String?
+    public var contextID: String?
+    public var previousJob: String?
 
     public init(text: String, lang: String, job: String = EngineJobID.make(), seed: Int? = nil,
                 interval: Double? = nil, compiled: Bool? = nil, temperature: Double? = nil,
                 maxFrames: Int? = nil, prime: Bool? = nil, debug: Bool? = nil, wholeClause: Bool? = nil,
-                voiceKey: String? = nil) {
+                voiceKey: String? = nil, contextID: String? = nil, previousJob: String? = nil) {
         self.text = text
         self.lang = lang
         self.job = job
@@ -535,6 +537,8 @@ public struct EngineTTSRequest: Encodable, Sendable, Equatable {
         self.debug = debug
         self.wholeClause = wholeClause
         self.voiceKey = voiceKey
+        self.contextID = contextID
+        self.previousJob = previousJob
     }
 
     enum CodingKeys: String, CodingKey {
@@ -542,6 +546,7 @@ public struct EngineTTSRequest: Encodable, Sendable, Equatable {
         case maxFrames = "max_frames"
         case wholeClause = "whole_clause"
         case voiceKey = "voice_key"
+        case contextID = "context_id", previousJob = "previous_job"
     }
 }
 
@@ -563,6 +568,7 @@ public struct EngineTTSTail: Decodable, Sendable, Equatable {
     public let echoAborts: Int?
     public let attempts: Int?
     public let leadTrimMs: Int?
+    public let contextUsed: Bool?
     public let timing: [String: Double?]
 
     enum CodingKeys: String, CodingKey {
@@ -571,6 +577,7 @@ public struct EngineTTSTail: Decodable, Sendable, Equatable {
         case expectedS = "expected_s"
         case echoAborts = "echo_aborts"
         case leadTrimMs = "lead_trim_ms"
+        case contextUsed = "context_used"
     }
 
     public init(from decoder: Decoder) throws {
@@ -585,6 +592,7 @@ public struct EngineTTSTail: Decodable, Sendable, Equatable {
         echoAborts = try? c.decodeIfPresent(Int.self, forKey: .echoAborts)
         attempts = try? c.decodeIfPresent(Int.self, forKey: .attempts)
         leadTrimMs = try? c.decodeIfPresent(Int.self, forKey: .leadTrimMs)
+        contextUsed = try c.decodeIfPresent(Bool.self, forKey: .contextUsed)
         // timing values are numbers, null, or (prompt_len, compiled) other scalars: keep numbers only
         let raw = try c.decodeIfPresent([String: LenientNumber].self, forKey: .timing) ?? [:]
         timing = raw.mapValues(\.value)

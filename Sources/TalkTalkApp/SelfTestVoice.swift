@@ -65,8 +65,10 @@ func voiceSelfTest(store: VoiceStore = .product, useEngine: Bool = true) async -
         r.checks.append(SelfTestCheck("conditioning_current", ok: blobs.isEmpty ? nil : true,
                                       detail: blobs.isEmpty ? "stale or missing: rebuilt in memory" : nil))
         if blobs.isEmpty {
-            let script = try String(contentsOf: dir.appendingPathComponent(VoiceStore.scriptName), encoding: .utf8)
-            blobs = try await services.buildConditioning(referenceWAV: wav, scriptText: script, modes: profile.cloneModes)
+            let script = try store.loadScript(profile)
+            blobs = try await services.buildConditioning(referenceWAV: wav, scriptText: script, modes: profile.cloneModes).map {
+                ConditioningBlob(key: $0.key, data: $0.data, model: $0.model, mode: $0.mode, samplingKey: profile.samplingKey)
+            }
         }
         let a = try await services.audition(conditioning: blobs, modes: profile.modesByLang, profileID: profile.id, referenceWAV: wav)
         for c in a.clips {

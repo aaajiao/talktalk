@@ -19,6 +19,8 @@ import numpy as np
 SAMPLE_RATE = 24000
 FRAME_HZ = 12.5
 LANGUAGES = {"en": "english", "de": "german", "zh": "chinese"}
+CONTINUATION_MAX_FRAMES = 100
+CONTINUATION_MAX_TEXT = 512
 
 
 def _load_expected_duration():
@@ -133,6 +135,18 @@ class TTSModel:
 
     # ------------------------------------------------------------------ inputs
 
+    def continuation_voice(self, voice, previous_text, previous_codes):
+        """One completed clause after the original human reference; never a growing chain."""
+        from dataclasses import replace
+
+        mx = self.mx
+        ref_text = voice.ref_text + " " + previous_text
+        ref_chat = f"<|im_start|>assistant\n{ref_text}<|im_end|>\n"
+        ref_ids = mx.array(self.model.tokenizer.encode(ref_chat))[None, :][:, 3:-2]
+        ref_codes = mx.concatenate([voice.ref_codes, mx.array(previous_codes, dtype=mx.int32)], axis=2)
+        mx.eval(ref_ids, ref_codes)
+        return replace(voice, ref_text=ref_text, ref_text_ids=ref_ids, ref_codes=ref_codes)
+
     def prepare_inputs(self, text, voice, language):
         """Upstream `_prepare_icl_generation_inputs` steps 2-12, taking the cached reference tensors
         instead of re-encoding audio. Checked against upstream in the M0 bench (allclose)."""
@@ -229,7 +243,8 @@ class TTSModel:
     # ------------------------------------------------------------------ streaming
 
     def stream(self, text, voice, language, interval=0.16, compiled=False, temperature=None, top_k=None,
-               top_p=None, repetition_penalty=None, seed=None, max_frames=None, stats=None, prime=True):
+               top_p=None, repetition_penalty=None, seed=None, max_frames=None, stats=None, prime=True,
+               capture_codes=False):
         """Generator: one codec frame per next(). Yields None or a float32 numpy chunk."""
         mx = self.mx
         m = self.model
@@ -256,6 +271,7 @@ class TTSModel:
         t_start = time.perf_counter()
         st.update(frames=0, eos=False, runaway=False, chunks=0, frame_ms=[], chunk_at_ms=[], cb0=[],
                   max_frames=max_frames, chunk_frames=chunk, compiled=bool(compiled))
+        st.pop("generated_codes", None)
         try:
             input_embeds, trailing, pad_embed = self.prepare_inputs(text, voice, language)
             mx.eval(input_embeds)
@@ -309,6 +325,14 @@ class TTSModel:
                 yield out
             else:
                 st["runaway"] = True
+            if capture_codes and st["eos"] and 0 < len(generated) <= CONTINUATION_MAX_FRAMES:
+                # Only this clause's generated codes: no reference primer and no EOS frame.
+                try:
+                    codes = mx.transpose(mx.stack(generated, axis=1), (0, 2, 1))
+                    st["generated_codes"] = np.array(codes, dtype=np.int32)
+                except Exception:
+                    # A failed optional snapshot must not turn completed speech into a broken stream.
+                    pass
             if len(generated) > decoded:
                 out = self._decode(generated[decoded:])
                 st["chunks"] += 1

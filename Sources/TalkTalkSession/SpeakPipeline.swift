@@ -125,6 +125,8 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private var eventContinuation: AsyncStream<[ClauseQueue.Event]>.Continuation?
     private var yielded: @Sendable (HostTime) -> Void = { _ in }
     private var epoch: UInt32
+    private let voiceContextSession = UUID().uuidString
+    private var previousClone: (context: String, key: String, job: JobID)?
     private var suspended = false
     private var ended = false
     private var waitingForEngine = false
@@ -623,6 +625,9 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             if wantsAnnouncement { return }
         }
         while true {
+            // The engine needs the completed predecessor, not whichever HTTP request arrives
+            // first. GPU synthesis was already serial; keep its submission order explicit too.
+            guard !renders.keys.contains(where: { renderVoice[$0].map { $0.mode != .system } ?? false }) else { return }
             order.removeAll { ledger.state($0)?.isTerminal != false }
             let drain = queue.drainEstimate()
             guard !queue.report(at: clock()).paused,
@@ -646,6 +651,14 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             }
             for member in item.clauses.dropFirst() { _ = ledger.requestTTS(member, job: job, clone: availability, at: clock()) }
             guard var next = ttsQueue.next(job: job, voice: handle) else { return }
+            if handle.mode == .icl {
+                let context = "\(voiceContextSession):\(epoch):\(row.press):\(target.rawValue)"
+                next.request.contextID = context
+                if let previousClone, previousClone.context == context, previousClone.key == handle.conditioningKey {
+                    next.request.previousJob = previousClone.job
+                }
+                previousClone = (context, handle.conditioningKey, job)
+            }
             if degradation.tier.usesWholeClauses { next.request.wholeClause = true }
             let members = item.clauses
             order.removeAll { members.contains($0) }
@@ -694,6 +707,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 var fields: [String: EventLog.Value] = ["clause": .int(Int(clause)), "job": .int(Int(chunk.job))]
                 fields["attempts"] = .int(summary.attempts)
                 fields["echo_aborts"] = .int(summary.echoAborts)
+                if let used = summary.contextUsed { fields["context_used"] = .bool(used) }
                 if let rtf = summary.computeRTF, rtf.isFinite, rtf >= 0 { fields["compute_rtf"] = .double(rtf) }
                 // Engine/system TTS summary: generated duration, not elapsed or heard duration.
                 if summary.audioS.isFinite, summary.audioS >= 0, summary.audioS < Double(Int.max) / 1000 {
@@ -726,6 +740,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private enum PipelineError: Error { case truncated }
     private func renderFailed(_ id: UInt64, job: JobID, error: any Error) {
         defer { reportWorkState() }
+        if previousClone?.job == job { previousClone = nil }
         renders[job] = nil; renderEngines[job] = nil; renderVoice[job] = nil; renderText[job] = nil
         guard !ended, !suspended, clauses[id]?.ttsJob == job else { return }
         let now = clock(), reason = ttsFailureReason(error)
@@ -797,19 +812,24 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 await echo.recordPlayed(text: played.text, startHost: played.start, endHost: played.end)
                 if queue.clauseCount == 0, currentPress == nil { ui(.pushToTalk(.idle)) }
             case .cut(let id, let reason, let at):
+                if let job = clauses[id]?.ttsJob, previousClone?.job == job { previousClone = nil }
                 let members = renderMembers[id] ?? [id]
                 for member in members { ledger.cut(member, reason: reason, at: at) }
                 rollbackJobs(members.compactMap { clauses[$0]?.mtJob })
                 if reason == .passthroughCut { log.event("pt.clause_cut", at: at) }
             case .cancelJob(let job):
+                if previousClone?.job == job { previousClone = nil }
+                renderVoice[job] = nil; renderText[job] = nil
                 renders.removeValue(forKey: job)?.cancel()
                 if let e = renderEngines.removeValue(forKey: job) { await e.cancel(job) }
-            case .rerender(let id, _):
+            case .rerender(let id, let job):
+                if previousClone?.job == job { previousClone = nil }
                 if id == announcementClause { announcementClause = nil; requestAnnouncement(); continue }
                 let members = renderMembers.removeValue(forKey: id) ?? [id]
                 let resends = members.filter { ledger.resend($0, at: clock()) }
                 restoreOrder(resends)
             case .renderFailed(let id, let job, let reason):
+                if previousClone?.job == job { previousClone = nil }
                 let members = renderMembers.removeValue(forKey: id) ?? [id]
                 for member in members { ledger.renderFailed(member, job: job, reason: reason, at: clock()) }
                 rollbackJobs(members.compactMap { clauses[$0]?.mtJob })
@@ -1083,6 +1103,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         workBarriers += 1; reportWorkState()
         defer { workBarriers -= 1; reportWorkState() }
         epoch &+= 1
+        previousClone = nil
         for press in presses.values { press.reader?.cancel(); press.audio.cancel() }
         presses.removeAll(); currentPress = nil
         previewStart?.cancel(); previewStart = nil

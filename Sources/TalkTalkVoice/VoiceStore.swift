@@ -130,6 +130,15 @@ public struct VoiceStore: Sendable {
         try VoiceProfile.decode(Data(contentsOf: voiceURL.appendingPathComponent(Self.profileName)))
     }
 
+    /// Saved reference text is authoritative, including edited excerpts of an enrollment script.
+    public func loadScript(_ profile: VoiceProfile) throws -> String {
+        let script = try String(contentsOf: voiceURL.appendingPathComponent(Self.scriptName), encoding: .utf8)
+        guard sha256Hex(Data(script.utf8)) == profile.scriptSHA256 else {
+            throw Failure.incomplete("script.txt hash mismatch")
+        }
+        return script
+    }
+
     /// Rewrites profile.json of the saved profile (a re-check after the engine got ready, §9.2):
     /// written 0600 under a temporary name in `voice/`, then renamed over the old one.
     public func replaceProfile(_ profile: VoiceProfile) throws {
@@ -173,7 +182,7 @@ public struct VoiceStore: Sendable {
         let cond = voiceURL.appendingPathComponent(Self.conditioningName, isDirectory: true)
         return (profile.conditioningEntries ?? []).compactMap { e in
             guard let d = try? Data(contentsOf: cond.appendingPathComponent(Self.safeKey(e.key) + ".safetensors")) else { return nil }
-            return ConditioningBlob(key: e.key, data: d, model: e.model, mode: e.mode)
+            return ConditioningBlob(key: e.key, data: d, model: e.model, mode: e.mode, samplingKey: profile.samplingKey)
         }
     }
 

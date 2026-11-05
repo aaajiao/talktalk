@@ -24,10 +24,18 @@ public struct VoiceReference: Codable, Sendable, Equatable {
 public struct VoiceHandle: Codable, Sendable, Hashable {
     public var profileID: UUID
     public var conditioningKey: String
+    /// Stable sampling identity when an accepted reference is edited; never used for voice loading.
+    public var samplingKey: String?
     public var mode: CloneMode
     public var model: EngineID
-    public init(profileID: UUID, conditioningKey: String, mode: CloneMode, model: EngineID) {
+    public init(profileID: UUID, conditioningKey: String, mode: CloneMode, model: EngineID, samplingKey: String? = nil) {
         self.profileID = profileID; self.conditioningKey = conditioningKey; self.mode = mode; self.model = model
+        self.samplingKey = samplingKey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case profileID, conditioningKey, mode, model
+        case samplingKey = "sampling_key"
     }
 }
 
@@ -44,11 +52,16 @@ public struct TTSRequest: Codable, Sendable, Equatable {
     public var priority: Priority
     /// Short clause: render whole, pass runaway/short/echo checks, then return (§3.3).
     public var wholeClause: Bool
+    /// Ephemeral continuity within one recording turn. Nil for auditions and announcements.
+    public var contextID: String?
+    public var previousJob: JobID?
 
     public init(job: JobID, clause: UInt64, text: String, language: Lang, voice: VoiceHandle,
-                seed: UInt32, priority: Priority = .p0TTS, wholeClause: Bool) {
+                seed: UInt32, priority: Priority = .p0TTS, wholeClause: Bool,
+                contextID: String? = nil, previousJob: JobID? = nil) {
         self.job = job; self.clause = clause; self.text = text; self.language = language
         self.voice = voice; self.seed = seed; self.priority = priority; self.wholeClause = wholeClause
+        self.contextID = contextID; self.previousJob = previousJob
     }
 }
 
@@ -63,16 +76,20 @@ public struct TTSSummary: Codable, Sendable, Equatable {
     public var timing: StageTiming
     /// Actual compute/audio ratio from the engine, excluding legal horizon parking and HTTP.
     public var computeRTF: Double?
+    public var contextUsed: Bool?
 
     public init(audioS: Double, frames: Int, runaway: Bool = false, short: Bool = false, slow: Bool = false,
-                echoAborts: Int = 0, attempts: Int = 1, leadTrimMs: Int = 0, timing: StageTiming, computeRTF: Double? = nil) {
+                echoAborts: Int = 0, attempts: Int = 1, leadTrimMs: Int = 0, timing: StageTiming,
+                computeRTF: Double? = nil, contextUsed: Bool? = nil) {
         self.audioS = audioS; self.frames = frames; self.runaway = runaway; self.short = short; self.slow = slow
         self.echoAborts = echoAborts; self.attempts = attempts; self.leadTrimMs = leadTrimMs; self.timing = timing; self.computeRTF = computeRTF
+        self.contextUsed = contextUsed
     }
 
     private enum CodingKeys: String, CodingKey {
         case audioS = "audio_s", frames, runaway, short, slow, echoAborts = "echo_aborts", attempts
         case leadTrimMs = "lead_trim_ms", timing, computeRTF
+        case contextUsed = "context_used"
     }
 }
 
@@ -83,6 +100,7 @@ extension TTSSummary {
         a.audioS == b.audioS && a.frames == b.frames && a.runaway == b.runaway && a.short == b.short
             && a.slow == b.slow && a.echoAborts == b.echoAborts && a.attempts == b.attempts
             && a.leadTrimMs == b.leadTrimMs && a.computeRTF == b.computeRTF && a.timing.received == b.timing.received
+            && a.contextUsed == b.contextUsed
             && a.timing.started == b.timing.started && a.timing.firstOutput == b.timing.firstOutput
             && a.timing.finished == b.timing.finished
     }
@@ -165,7 +183,7 @@ public enum TTSSeed {
         }
         mix(voice.profileID.uuidString.utf8)
         mix([UInt8(0)])
-        mix(voice.conditioningKey.utf8)
+        mix((voice.samplingKey ?? voice.conditioningKey).utf8)
         mix([UInt8(0)])
         mix(voice.mode.rawValue.utf8)
         mix([UInt8(0)])

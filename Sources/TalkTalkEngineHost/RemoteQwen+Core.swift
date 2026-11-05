@@ -192,7 +192,8 @@ extension RemoteQwenTTS: TTSEngine {
                     let started = HostClock.now()
                     let stream = client.tts(EngineTTSRequest(text: r.text, lang: r.language.rawValue,
                                                              job: WireJob.tts(r.job), seed: Int(r.seed),
-                                                             wholeClause: r.wholeClause, voiceKey: r.voice.conditioningKey))
+                                                             wholeClause: r.wholeClause, voiceKey: r.voice.conditioningKey,
+                                                             contextID: r.contextID, previousJob: r.previousJob.map(WireJob.tts)))
                     var seq = 0
                     var first: HostTime?
                     for try await ev in stream.events {
@@ -314,7 +315,8 @@ extension RemoteQwenTTS: TTSEngine {
     static func summary(_ t: EngineTTSTail, timing: StageTiming) -> TTSSummary {
         TTSSummary(audioS: t.audioS, frames: t.frames, runaway: t.runaway, short: t.short, slow: t.slow ?? false,
                    echoAborts: t.echoAborts ?? 0, attempts: t.attempts ?? 1, leadTrimMs: t.leadTrimMs ?? 0, timing: timing,
-                   computeRTF: t.audioS > 0 ? (t.timing["gpu_ms_all_attempts"] ?? nil).map { $0 / 1000 / t.audioS } : nil)
+                   computeRTF: t.audioS > 0 ? (t.timing["gpu_ms_all_attempts"] ?? nil).map { $0 / 1000 / t.audioS } : nil,
+                   contextUsed: t.contextUsed)
     }
 
     /// `VoiceReference.pcm24k` is "bytes, not a path" (§4.1). Accepted: a PCM16 mono RIFF/WAVE file

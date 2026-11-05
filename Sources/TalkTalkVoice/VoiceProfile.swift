@@ -28,6 +28,9 @@ public struct VoiceProfile: Codable, Sendable, Equatable {
     /// voice-m2 additions (§9.2 steps 6–7), all optional so M0/M1 profiles still decode.
     /// The conditioning files of this profile: full cache key, model, mode (file = safeKey(key)).
     public var conditioningEntries: [ConditioningEntry]?
+    /// Optional original identity for reproducible sampling after editing the reference audio.
+    /// Loading still uses each conditioning entry's actual key.
+    public var samplingKey: String?
     /// PlayoutStage fixed gain from the audition loudness (§3.3), dB.
     public var playoutGainDb: Double?
     /// The audition's statuses and numbers (no audio, no text).
@@ -84,6 +87,7 @@ public struct VoiceProfile: Codable, Sendable, Equatable {
         case useFor = "use_for", micUIDHash = "mic_uid_hash", speakingRateCharsPerSecond = "speaking_rate_cps"
         case conditioning, audition
         case conditioningEntries = "conditioning_keys", playoutGainDb = "playout_gain_db"
+        case samplingKey = "sampling_key"
         case auditionResult = "audition_result", transcriptChecker = "transcript_checker"
     }
 

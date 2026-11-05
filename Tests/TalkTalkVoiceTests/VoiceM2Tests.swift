@@ -544,9 +544,63 @@ final class Flag: @unchecked Sendable {
         guard case .checked(.reject, _) = out else { Issue.record("\(out)"); return }
         #expect(store.hasProfile)
     }
+
+    @Test func savedExcerptUsesItsOwnHashedScript() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = VoiceStore(root: root)
+        var profile = try await saveProfile(store)
+        let excerpt = EnrollmentScript(id: "zh-v2-first-clause-v1", text: "大家好，今天我们一起看看项目的最新进展。")
+        profile.scriptID = excerpt.id
+        profile.scriptSHA256 = excerpt.sha256
+        try Data(excerpt.text.utf8).write(to: store.voiceURL.appendingPathComponent(VoiceStore.scriptName))
+        try store.replaceProfile(profile)
+        #expect(await TranscriptRecheck.run(store: store, transcriber: FixedTranscriber(text: excerpt.text)) == .checked(.pass, cer: 0))
+        profile = try store.loadProfile()
+        profile.checks.status["transcript"] = .pending
+        try store.replaceProfile(profile)
+        try Data(EnrollmentScript.zhV2.text.utf8).write(to: store.voiceURL.appendingPathComponent(VoiceStore.scriptName))
+        #expect(await TranscriptRecheck.run(store: store, transcriber: FixedTranscriber(text: EnrollmentScript.zhV2.text)) == .unavailable)
+        #expect(try store.loadProfile().checks.status["transcript"] == .pending)
+    }
 }
 
 @Suite struct VoiceLifecycleTests {
+    @Test func savedSamplingIdentitySurvivesRebuildAndAudition() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = VoiceStore(root: root), backend = FakeBackend()
+        var profile = try await saveProfile(store)
+        let oldJSON = try #require(try JSONSerialization.jsonObject(with: profile.encoded()) as? [String: Any])
+        #expect(oldJSON["sampling_key"] == nil)
+        #expect(try VoiceProfile.decode(profile.encoded()).samplingKey == nil)
+        profile.samplingKey = "original-full-reference-key"
+        try store.replaceProfile(profile)
+        let json = try #require(try JSONSerialization.jsonObject(with: store.loadProfile().encoded()) as? [String: Any])
+        #expect(json["sampling_key"] as? String == profile.samplingKey)
+        let routing = SpeakVoiceRouting(clone: NamedTTS("qwen"), system: NamedTTS("system"))
+        let outcome = await VoiceSync.align(store: store, engine: services(backend), routing: routing)
+        #expect(outcome.conditioningBuilt && outcome.auditionChecked)
+        let saved = try store.loadProfile()
+        let blob = try #require(store.loadConditioning(saved).first)
+        let handle = try #require(routing.voice)
+        #expect(blob.samplingKey == profile.samplingKey && handle.samplingKey == profile.samplingKey)
+        #expect(handle.conditioningKey == blob.key && blob.key != profile.samplingKey)
+        var original = handle
+        original.conditioningKey = try #require(profile.samplingKey)
+        original.samplingKey = nil
+        for language in [Lang.en, .de] {
+            #expect(await backend.seeds[language]?.first == Int(TTSSeed.make(voice: original, language: language)))
+        }
+        #expect(VoiceSync.alreadyRestored(store: store, routing: routing))
+        var stale = handle
+        stale.samplingKey = nil
+        routing.useMyVoice(stale, playoutGainDb: 0)
+        #expect(!VoiceSync.alreadyRestored(store: store, routing: routing))
+        await VoiceSync.restore(store: store, engine: services(backend), routing: routing)
+        #expect(VoiceSync.alreadyRestored(store: store, routing: routing))
+    }
+
     @Test func unreadableExistingProfileStaysPendingAndRestoreUnloadsTheTemporaryVoice() async throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }

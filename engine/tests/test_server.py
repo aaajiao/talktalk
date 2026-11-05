@@ -23,6 +23,9 @@ class FakeState:
     def health(self):
         return {"ok": True}
 
+    def cancel(self, job_id=None, scope=None):
+        return self.sched.cancel(job_id=job_id, scope=scope)
+
     def tts_job(self, req, out):
         def gen():
             out.put(("pcm", b"\x00" * 16))

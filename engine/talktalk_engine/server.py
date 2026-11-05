@@ -150,8 +150,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def r_cancel(self, q):
         b = self._json_body()
-        for sch in _scheds(self.state):
-            sch.cancel(job_id=b.get("job"), scope=b.get("scope"))
+        self.state.cancel(job_id=b.get("job"), scope=b.get("scope"))
         self._send_empty(204)
 
     def r_voice_build(self, q):
@@ -243,7 +242,8 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"0\r\n\r\n")
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
-            job.cancel()          # client went away: same as /v1/cancel
+            self.state.cancel(job_id=job.job_id)  # also invalidates an already-completed cached clause
+            job.cancel()
             raise
 
 

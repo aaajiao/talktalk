@@ -170,23 +170,34 @@ private final class SpeakTestTTS: TTSEngine, Sendable {
     let outputRate = 24_000.0
     let requests = Mutex<[TTSRequest]>([])
     let failures: Int
-    init(failures: Int = 0) { self.failures = failures }
+    let hold: Bool
+    private let pending = Mutex<[JobID: (TTSRequest, AsyncThrowingStream<TTSChunk, any Error>.Continuation)]>([:])
+    init(failures: Int = 0, hold: Bool = false) { self.failures = failures; self.hold = hold }
     func buildConditioning(_ ref: VoiceReference, model: EngineID, mode: CloneMode) async throws -> Data { Data() }
     func load(_ voice: VoiceHandle, blob: Data) async throws {}
     func speak(_ request: TTSRequest) -> AsyncThrowingStream<TTSChunk, any Error> {
         let shouldFail = requests.withLock { $0.append(request); return $0.count <= failures }
         return AsyncThrowingStream { c in
             if shouldFail { c.finish(throwing: CancellationTestError.failure); return }
-            let now = HostClock.now()
-            let samples = (0..<12_000).map { Float(sin(Double($0) * 0.1) * 0.1) }
-            c.yield(.init(job: request.job, seq: 0, samples24k: samples, isLast: true, producedAt: now,
-                summary: .init(audioS: 0.5, frames: 12_000,
-                               timing: .init(received: now, started: now, firstOutput: now, finished: now))))
-            c.finish()
+            if hold { pending.withLock { $0[request.job] = (request, c) } }
+            else { complete(request, c) }
         }
     }
+    func finish(_ job: JobID) {
+        if let (request, continuation) = pending.withLock({ $0.removeValue(forKey: job) }) { complete(request, continuation) }
+    }
+    private func complete(_ request: TTSRequest, _ c: AsyncThrowingStream<TTSChunk, any Error>.Continuation) {
+        let now = HostClock.now()
+        let samples = (0..<12_000).map { Float(sin(Double($0) * 0.1) * 0.1) }
+        c.yield(.init(job: request.job, seq: 0, samples24k: samples, isLast: true, producedAt: now,
+            summary: .init(audioS: 0.5, frames: 12_000,
+                           timing: .init(received: now, started: now, firstOutput: now, finished: now))))
+        c.finish()
+    }
     func report(_ p: PlayoutReport) async {}
-    func cancel(_ job: JobID) async {}
+    func cancel(_ job: JobID) async {
+        pending.withLock { $0.removeValue(forKey: job) }?.1.finish(throwing: CancellationError())
+    }
 }
 
 private struct SpeakTestControl: SpeakEngineControl {
@@ -203,7 +214,7 @@ private struct SpeakTestEcho: SpeakEchoSink {
 
 struct SpeakPipelineTests {
     private func fixture(asr: SpeakTestASR = .init(), mt: SpeakTestMT = .init(),
-                         primary: SpeakTestASR? = nil, ttsFailures: Int = 0,
+                         primary: SpeakTestASR? = nil, ttsFailures: Int = 0, clone: Bool = false, holdTTS: Bool = false,
                          preview: (any StreamingASREngine)? = nil, whileHeld: Bool = false, target: Lang = .en,
                          captureFromKeyDown: Bool = false, log: EventLog? = nil,
                          asrContext: @escaping @Sendable () -> String? = { nil },
@@ -211,13 +222,16 @@ struct SpeakPipelineTests {
                          onWorkChange: @escaping @Sendable (Bool) -> Void = { _ in },
                          onUI: @escaping @Sendable (SpeakUIEvent) -> Void = { _ in },
                          onSpoken: @escaping @Sendable (String, String, HostTime) -> Void = { _, _, _ in }) throws -> (SpeakPipeline, SpeakTestMic, SpeakTestHost, SpeakTestTTS) {
-        let profile = try PolicyProfile.load(from: Fixture.repoRoot.appendingPathComponent("Resources/PolicyProfile.default.json"))
-        let mic = SpeakTestMic(), host = try SpeakTestHost(), tts = SpeakTestTTS(failures: ttsFailures)
-        let handle = VoiceHandle(profileID: UUID(), conditioningKey: "system", mode: .system, model: tts.id)
+        var profile = try PolicyProfile.load(from: Fixture.repoRoot.appendingPathComponent("Resources/PolicyProfile.default.json"))
+        // Held-stream tests exercise request ordering without a running hardware consumer.
+        if holdTTS { profile.speak.tts.renderHorizonMs = 10_000 }
+        let mic = SpeakTestMic(), host = try SpeakTestHost(), tts = SpeakTestTTS(failures: ttsFailures, hold: holdTTS)
+        let handle = VoiceHandle(profileID: UUID(), conditioningKey: "voice", mode: clone ? .icl : .system, model: tts.id)
         let pipeline = SpeakPipeline(profile: profile, mic: mic, playout: host, queue: host.queue,
             primaryASR: primary, fallbackASR: asr, translator: mt,
-            voice: { .init(clone: nil, system: tts, systemHandle: handle, cloneAvailability: .noProfile,
-                           playoutGainDb: 0, hudVoice: .system) },
+            voice: { .init(clone: clone ? tts : nil, system: tts, systemHandle: handle,
+                           cloneAvailability: clone ? .ready(handle) : .noProfile,
+                           playoutGainDb: 0, hudVoice: clone ? .mine : .system) },
             engine: SpeakTestControl(), echo: SpeakTestEcho(), previewASR: preview, target: target, jobs: JobIDSequence(),
             log: log ?? EventLog(inMemory: HostClock.now), speakerMode: { false }, captureFromKeyDown: captureFromKeyDown,
             ui: onUI, onCommit: onCommit, onWorkChange: onWorkChange, onSpoken: onSpoken,
@@ -263,6 +277,44 @@ struct SpeakPipelineTests {
         #expect(await until { await mt.calls == 3 })
         let contexts = await primary.contexts
         #expect(contexts == ["TalkTalk", "上一轮的第一句。\nTalkTalk", "TalkTalk"])
+        await pipeline.stop()
+    }
+
+    @Test func cloneContinuityWaitsForItsPredecessorAndResetsOnNewTurn() async throws {
+        let mt = SpeakTestMT()
+        let log = EventLog(inMemory: HostClock.now)
+        let (pipeline, mic, host, tts) = try fixture(mt: mt, clone: true, holdTTS: true, whileHeld: true, log: log)
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        mic.press.cc.yield(clip(at: now))
+        #expect(await until { tts.requests.withLock { $0.count == 1 } })
+        let first = try #require(tts.requests.withLock { $0.first })
+        #expect(first.contextID != nil && first.previousJob == nil)
+        mic.press.cc.yield(clip(at: now + 1_000_000_000))
+        #expect(await until { log.recorded.filter {
+            $0["ev"] as? String == "clause.state" && $0["state"] as? String == "mtDone"
+        }.count == 2 })
+        #expect(tts.requests.withLock { $0.count == 1 })
+        tts.finish(first.job)
+        #expect(await until { tts.requests.withLock { $0.count == 2 } })
+        let second = tts.requests.withLock { $0[1] }
+        #expect(second.contextID == first.contextID && second.previousJob == first.job)
+        tts.finish(second.job)
+        await pipeline.handle(.released(at: now + 2_000_000_000, reason: .keyUp))
+        await pipeline.handle(.began(at: now + 3_000_000_000))
+        mic.press.cc.yield(clip(at: now + 3_000_000_000))
+        #expect(await until { tts.requests.withLock { $0.count == 3 } })
+        let third = tts.requests.withLock { $0[2] }
+        #expect(third.contextID != first.contextID && third.previousJob == nil)
+        // Cancelling an unfinished render must release the serial slot and its predecessor.
+        _ = host.queue.streamFailed(job: third.job, at: now + 4_000_000_000)
+        await pipeline.receive([.cancelJob(third.job),
+            .renderFailed(clause: third.clause, job: third.job, reason: .streamBroken)])
+        mic.press.cc.yield(clip(at: now + 4_000_000_000))
+        #expect(await until { tts.requests.withLock { $0.count == 4 } })
+        let fourth = try #require(tts.requests.withLock { $0.count > 3 ? $0[3] : nil })
+        #expect(fourth.contextID == third.contextID && fourth.previousJob == nil)
+        tts.finish(fourth.job)
         await pipeline.stop()
     }
 

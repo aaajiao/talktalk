@@ -113,12 +113,14 @@ public struct ConditioningBlob: Sendable, Equatable {
     public let data: Data
     public let model: String
     public let mode: CloneMode
+    public let samplingKey: String?
 
-    public init(key: String, data: Data, model: String = "", mode: CloneMode = .icl) {
+    public init(key: String, data: Data, model: String = "", mode: CloneMode = .icl, samplingKey: String? = nil) {
         self.key = key
         self.data = data
         self.model = model
         self.mode = mode
+        self.samplingKey = samplingKey
     }
 }
 
@@ -309,7 +311,8 @@ public struct EngineVoiceServices: VoiceEngineServices {
             }
             let text = AuditionCheck.sentences[lang]!
             let handle = VoiceHandle(profileID: id, conditioningKey: blob.key, mode: mode,
-                                     model: EngineID(name: blob.model, revision: "", placement: .engineGPU))
+                                     model: EngineID(name: blob.model, revision: "", placement: .engineGPU),
+                                     samplingKey: blob.samplingKey)
             var seed = TTSSeed.make(voice: handle, language: lang)
             var clip = AuditionClip(lang: lang, text: text, samples: [], attempts: 0)
             for attempt in 0..<AuditionCheck.maxAttempts {
@@ -396,7 +399,7 @@ public enum TranscriptRecheck {
         let dir = store.voiceURL
         guard let wav = try? Data(contentsOf: dir.appendingPathComponent(VoiceStore.referenceName)),
               let ref = WAVFile.decodePCM16(wav),
-              let script = try? String(contentsOf: dir.appendingPathComponent(VoiceStore.scriptName), encoding: .utf8),
+              let script = try? store.loadScript(profile),
               let text = await transcriber.transcribe(ref.samples, sampleRate: Double(ref.sampleRate)) else {
             return .unavailable
         }

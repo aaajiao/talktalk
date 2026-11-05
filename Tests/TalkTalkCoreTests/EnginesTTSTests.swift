@@ -53,6 +53,22 @@ import Testing
         #expect(TTSSeed.make(voice: other, language: .en) != TTSSeed.make(voice: Self.voice, language: .en))
     }
 
+    @Test func samplingIdentityPreservesSeedAfterReferenceChanges() throws {
+        let oldData = try JSONEncoder().encode(Self.voice)
+        let oldJSON = try #require(try JSONSerialization.jsonObject(with: oldData) as? [String: Any])
+        #expect(oldJSON["sampling_key"] == nil)
+        #expect(try JSONDecoder().decode(VoiceHandle.self, from: oldData).samplingKey == nil)
+        var edited = Self.voice
+        edited.conditioningKey = "cropped-reference-key"
+        #expect(TTSSeed.make(voice: edited, language: .en) != TTSSeed.make(voice: Self.voice, language: .en))
+        edited.samplingKey = Self.voice.conditioningKey
+        for language in [Lang.en, .de] {
+            #expect(TTSSeed.make(voice: edited, language: language) == TTSSeed.make(voice: Self.voice, language: language))
+        }
+        #expect(edited.conditioningKey == "cropped-reference-key")
+        _ = try roundTrip(edited)
+    }
+
     @Test func seedIsStableAndDependsOnVoiceAndText() {
         let a = TTSSeed.make(voice: Self.voice, text: "Hello there.")
         #expect(a == TTSSeed.make(voice: Self.voice, text: "Hello there."))
