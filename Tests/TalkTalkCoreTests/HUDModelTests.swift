@@ -273,6 +273,10 @@ import Testing
         #expect(playing.details.contains { $0.text == "Apple 本地翻译" })
         model.meetingAudio = .draining
         #expect(model.compactStatus(now: 0.3)?.summary.text == HUDModel.MeetingAudio.draining.text)
+        model.meetingAudio = .restoringOriginal
+        let restoring = try #require(model.compactStatus(now: 0.3))
+        #expect(restoring.summary.style == .normal)
+        #expect(restoring.summary.text == "正在恢复原声" && restoring.summary.text != original.summary.text)
         model.meetingAudio = .unavailable(reason: "设备已断开")
         let unavailable = try #require(model.compactStatus(now: 0.3))
         #expect(unavailable.summary.style == .yellow)

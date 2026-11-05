@@ -617,16 +617,32 @@ final class SpeakController {
         guard case .running = owner.state else {
             hud.meetingAudio(.unavailable(reason: String(localized: "音频已暂停"))); return
         }
-        let held = keys.translationHeld
-        if !held { translationRefusal = nil }
-        if keys.gate.isOpen(at: HostClock.now()) {
-            hud.meetingAudio(.original)
-        } else if let reason = translationRefusal, held {
+        // Key handling closes raw audio synchronously, while UI callbacks arrive later. Read
+        // the key, work and gate facts together instead of mixing two sides of a transition.
+        let audio = keys.meetingAudioSnapshot()
+        if audio.held == false { translationRefusal = nil }
+        guard output.isFeedAttached, feedConfirmed, mic?.state.capture == .open else {
+            hud.meetingAudio(.unavailable(reason: String(localized: "正在等待音频就绪"))); return
+        }
+        guard audio.hardwarePollFresh, audio.held != nil else {
+            hud.meetingAudio(.unavailable(reason: String(localized: "正在等待按键监听恢复"))); return
+        }
+        if case let .unavailable(reason) = audio.translationReadiness {
+            hud.meetingAudio(.unavailable(reason: reason.hudText ?? String(localized: "正在等待音频就绪")))
+        } else if let reason = translationRefusal, audio.held == true {
             hud.meetingAudio(.unavailable(reason: reason))
-        } else if held, keys.gate.facts.awaitingAudioConfirmation == false {
+        } else if audio.originalOpen {
+            hud.meetingAudio(.original)
+        } else if audio.held == true {
             hud.meetingAudio(.translating)
-        } else if keys.translationBusy {
+        } else if audio.busy {
             hud.meetingAudio(.draining)
+        } else if audio.canRestoreOriginal {
+            // Healthy and drained, but the next hardware poll still owns opening the gate.
+            // This is normal progress, never a claim that raw audio is already flowing.
+            hud.meetingAudio(.restoringOriginal)
+        } else if case let .unavailable(reason) = audio.originalReadiness {
+            hud.meetingAudio(.unavailable(reason: reason.hudText ?? String(localized: "正在等待音频就绪")))
         } else {
             hud.meetingAudio(.unavailable(reason: String(localized: "正在等待音频就绪")))
         }

@@ -6,6 +6,20 @@ import TalkTalkCore
 /// enqueue work, never wait for another queue. The gate is also safe for the audio worker's admit.
 public final class PassthroughRuntime: @unchecked Sendable {
     public enum Cue: Sendable { case open, close }
+    public struct MeetingAudioSnapshot: Sendable {
+        /// nil means no current physical-key observation, not a released key.
+        public let held: Bool?
+        public let busy: Bool
+        public let originalOpen: Bool
+        public let hardwarePollFresh: Bool
+        public let originalReadiness: PassthroughPolicy.Verdict
+        public let translationReadiness: PassthroughPolicy.Verdict
+
+        /// Display eligibility only. A fresh hardware poll still owns the actual gate open.
+        public var canRestoreOriginal: Bool {
+            held == false && !busy && hardwarePollFresh && originalReadiness.isAvailable
+        }
+    }
     public let gate: PassthroughGate
     public let pushToTalk: PushToTalkKey
     public let passthrough: PassthroughKey
@@ -23,6 +37,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
     private let automatic: AutomaticOriginal
     private var tap: KeyTap?
     private var stopped = false
+    private var lastHardwarePoll: HostTime?
     private let recordsIntervals: Bool
     private let log: EventLog?
     private var lastAvailability: PushToTalkKey.Availability?
@@ -83,6 +98,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
     public func suspend(at time: HostTime) {
         lock.withLock {
             automatic.held = nil
+            lastHardwarePoll = nil
             gate.systemEvent(.sleep, at: time)
             gate.updateFacts(at: time) { $0.awaitingAudioConfirmation = true; $0.tapHealthy = false }
             pushToTalk.stop(at: time)
@@ -95,6 +111,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
             guard !stopped else { return false }
             stopped = true
             automatic.held = nil
+            lastHardwarePoll = nil
             gate.systemEvent(.meetingModeEnded, at: time)
             gate.updateFacts(at: time) { $0.meetingModeActive = false; $0.tapHealthy = false }
             pushToTalk.stop(at: time)
@@ -121,6 +138,27 @@ public final class PassthroughRuntime: @unchecked Sendable {
     public var translationHeld: Bool { lock.withLock { automatic.held != false } }
     public var translationBusy: Bool {
         lock.withLock { automatic.translationBusy || automatic.pendingActions > 0 }
+    }
+
+    /// Keep the held/work/gate view in one runtime turn. Unlike gate.isOpen, reading this
+    /// snapshot has no side effects: it neither opens, renews nor closes the audio gate.
+    public func meetingAudioSnapshot(at time: HostTime? = nil) -> MeetingAudioSnapshot {
+        lock.withLock {
+            let now = time ?? HostClock.now()
+            let state = gate.state
+            var facts = gate.facts
+            facts.pushToTalkActive = false // intentional translation is not a device failure
+            let lease = UInt64(max(0, gate.config.leaseMs)) * 1_000_000
+            let fresh = !stopped && lastHardwarePoll.map { now >= $0 && now - $0 < lease } == true
+            return MeetingAudioSnapshot(
+                held: automatic.held,
+                busy: automatic.translationBusy || automatic.pendingActions > 0 || pushToTalk.isActive,
+                originalOpen: state.open && state.source == .mic && now >= state.openAt
+                    && now < state.leaseUntil && now < state.deadline,
+                hardwarePollFresh: fresh,
+                originalReadiness: PassthroughPolicy.evaluate(facts, allowInSpeakerMode: gate.config.allowInSpeakerMode),
+                translationReadiness: PassthroughPolicy.evaluate(facts, allowInSpeakerMode: true))
+        }
     }
 
     public func setTranslationBusy(_ busy: Bool, at time: HostTime = HostClock.now()) {
@@ -160,6 +198,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
         lock.withLock {
             log?.event("key.system_event", ["reason": .tag(event.rawValue)], at: time)
             automatic.held = nil
+            lastHardwarePoll = nil
             gate.systemEvent(event, at: time)
             // A device/lifecycle transition cancels the current PTT as well. The owner supplies
             // fresh facts before enabling it again; a held key cannot start a replacement press.
@@ -180,6 +219,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
         lock.withLock {
             guard !stopped else { return }
             let wasActive = pushToTalk.isActive
+            if case .tapDisabled = event.kind { lastHardwarePoll = nil }
             if automatic.enabled {
                 switch event.kind {
                 case let .flagsChanged(code, flags) where code == KeyCode.rightOption:
@@ -243,6 +283,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
                 passthrough.tick(now: event.time)
             }
             gate.tick(now: event.time)
+            if case .poll = event.kind, event.source == .hidSystem { lastHardwarePoll = event.time }
         }
     }
 

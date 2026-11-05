@@ -272,6 +272,8 @@ public struct HUDModel: Sendable, Equatable {
         case original
         case translating
         case draining
+        /// Translation is finished and healthy routing is awaiting the next confirmed gate open.
+        case restoringOriginal
         /// The raw gate is closed, including a translation press that was refused.
         case unavailable(reason: String)
 
@@ -280,6 +282,7 @@ public struct HUDModel: Sendable, Equatable {
             case .original: String(localized: "原声中 · 按住右⌥翻译")
             case .translating: String(localized: "翻译中 · 原声已关闭")
             case .draining: String(localized: "译音处理中 · 播完后恢复原声")
+            case .restoringOriginal: String(localized: "正在恢复原声")
             case let .unavailable(reason): String(localized: "TalkTalk 音频暂不可用：\(reason)")
             }
         }
@@ -469,7 +472,7 @@ public struct HUDModel: Sendable, Equatable {
         var out: [HUDLine] = []
         if let audio = meetingAudio, meetingActive {
             let style: HUDLine.Style = switch audio {
-            case .original, .translating, .draining: .normal
+            case .original, .translating, .draining, .restoringOriginal: .normal
             case .unavailable: .yellow
             }
             if case .unavailable = audio {

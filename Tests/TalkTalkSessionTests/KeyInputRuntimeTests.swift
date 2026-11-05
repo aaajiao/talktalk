@@ -163,6 +163,8 @@ private let commandFlags: ModifierFlags = [.command, .deviceRightCommand]
         let (runtime, sink) = try runtime(actions: actions, automatic: true)
         #expect(sink.current.open && sink.current.openAt == 0)
         #expect(sink.current.source == .mic && sink.current.deadline == .max)
+        let initial = runtime.meetingAudioSnapshot(at: 0)
+        #expect(initial.held == false && !initial.busy && initial.originalOpen && initial.hardwarePollFresh)
         let firstGeneration = sink.current.generation
         runtime.updateFacts(at: ns(1)) { $0.settingEnabled = false } // retired manual preference
         runtime.handle(.init(time: ns(2), kind: .flagsChanged(keyCode: KeyCode.rightCommand, flags: commandFlags)))
@@ -171,11 +173,16 @@ private let commandFlags: ModifierFlags = [.command, .deviceRightCommand]
         runtime.handle(.init(time: ns(30), kind: .flagsChanged(keyCode: KeyCode.rightCommand, flags: [])))
         runtime.handle(.init(time: ns(40), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
         #expect(!sink.current.open && runtime.translationHeld)
+        let held = runtime.meetingAudioSnapshot(at: ns(40))
+        #expect(held.held == true && held.busy && !held.originalOpen && !held.canRestoreOriginal)
+        #expect(held.originalReadiness == .available) // PTT intent is not a hardware failure
         #expect(actions.all == [.machine(.began(at: ns(40)))])
         #expect(actions.rawOpenOnAction == [false]) // the synchronous fence precedes delivery
 
         runtime.handle(.init(time: ns(240), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
         runtime.setTranslationBusy(false, at: ns(250)) // stale idle before queued actions ran
+        let pendingRelease = runtime.meetingAudioSnapshot(at: ns(250))
+        #expect(pendingRelease.held == false && pendingRelease.busy && !pendingRelease.canRestoreOriginal)
         runtime.handle(.init(time: ns(260), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
         #expect(!sink.current.open)
         runtime.actionHandled(translationBusy: false, at: ns(270)) // began was handled
@@ -186,12 +193,20 @@ private let commandFlags: ModifierFlags = [.command, .deviceRightCommand]
         #expect(!sink.current.open)
         runtime.setTranslationBusy(false, at: ns(310))
         #expect(!sink.current.open) // only a fresh hardware poll may open/renew
+        let beforeSnapshot = sink.current
+        let restoring = runtime.meetingAudioSnapshot(at: ns(310))
+        #expect(restoring.held == false && !restoring.busy && !restoring.originalOpen)
+        #expect(restoring.hardwarePollFresh && restoring.canRestoreOriginal)
+        #expect(sink.current == beforeSnapshot) // display reads neither open nor renew the gate
         runtime.handle(.init(time: ns(320), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
         #expect(sink.current.open && sink.current.openAt == ns(320))
+        #expect(runtime.meetingAudioSnapshot(at: ns(320)).originalOpen)
         #expect(sink.current.generation != firstGeneration)
         #expect(actions.rawOpenOnAction.allSatisfy { !$0 })
         runtime.stop(at: ns(330))
         #expect(!sink.current.open)
+        let stopped = runtime.meetingAudioSnapshot(at: ns(330))
+        #expect(stopped.held == nil && !stopped.hardwarePollFresh && !stopped.canRestoreOriginal)
     }
 
     @Test func refusedPTTHoldsOriginalClosedUntilPhysicalRelease() throws {
@@ -215,26 +230,55 @@ private let commandFlags: ModifierFlags = [.command, .deviceRightCommand]
     @Test func automaticLeaseNeedsHardwarePollAndRecoveryNeedsFreshFacts() throws {
         let (runtime, sink) = try runtime(automatic: true)
         let lease = sink.current.leaseUntil
+        let expired = runtime.meetingAudioSnapshot(at: lease)
+        #expect(!expired.originalOpen && !expired.hardwarePollFresh && !expired.canRestoreOriginal)
+        #expect(sink.current.open) // the read reports expiry without mutating the RT state
         runtime.setTranslationBusy(false, at: lease + 1)
         #expect(!sink.current.open && sink.current.leaseUntil == lease)
         runtime.handle(.init(time: ns(120), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
         #expect(sink.current.open)
         runtime.systemEvent(.micFormatChanged, at: ns(130))
+        let interrupted = runtime.meetingAudioSnapshot(at: ns(130))
+        #expect(interrupted.held == nil && !interrupted.hardwarePollFresh && !interrupted.canRestoreOriginal)
         runtime.handle(.init(time: ns(140), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
         #expect(!sink.current.open)
+        let awaitingDevice = runtime.meetingAudioSnapshot(at: ns(140))
+        #expect(awaitingDevice.hardwarePollFresh && !awaitingDevice.canRestoreOriginal)
+        #expect(awaitingDevice.originalReadiness == .unavailable(.awaitingAudioConfirmation))
         runtime.updateFacts(at: ns(150)) { $0.awaitingAudioConfirmation = false }
         #expect(!sink.current.open)
         runtime.handle(.init(time: ns(160), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
         #expect(sink.current.open)
         runtime.suspend(at: ns(170))
+        #expect(!runtime.meetingAudioSnapshot(at: ns(170)).hardwarePollFresh)
         runtime.updateFacts(at: ns(180)) { $0.awaitingAudioConfirmation = false }
         runtime.handle(.init(time: ns(190), kind: .tapEnabled))
         runtime.handle(.init(time: ns(200), kind: .poll(.init(keysDown: [KeyCode.rightOption], flags: optionFlags, secureInput: false))))
         #expect(!sink.current.open)
         runtime.handle(.init(time: ns(220), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
         #expect(sink.current.open)
-        runtime.stop(at: ns(230))
-        runtime.setTranslationBusy(false, at: ns(240))
+        runtime.handle(.init(time: ns(221), kind: .poll(.init(keysDown: [], flags: [], secureInput: true))))
+        let secure = runtime.meetingAudioSnapshot(at: ns(221))
+        #expect(secure.hardwarePollFresh && !secure.canRestoreOriginal)
+        #expect(secure.originalReadiness == .unavailable(.secureInput))
+        runtime.handle(.init(time: ns(222), kind: .poll(.init(keysDown: [], flags: [], secureInput: nil))))
+        #expect(!runtime.meetingAudioSnapshot(at: ns(222)).canRestoreOriginal)
+        runtime.handle(.init(time: ns(223), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        runtime.updateFacts(at: ns(224)) { $0.speakerMode = true }
+        let speaker = runtime.meetingAudioSnapshot(at: ns(224))
+        #expect(speaker.originalReadiness == .unavailable(.speakerMode) && speaker.translationReadiness == .available)
+        runtime.updateFacts(at: ns(225)) { $0.speakerMode = nil }
+        #expect(runtime.meetingAudioSnapshot(at: ns(225)).translationReadiness == .unavailable(.unknown(.speakerMode)))
+        runtime.updateFacts(at: ns(226)) { $0.speakerMode = false }
+        runtime.handle(.init(time: ns(227), kind: .tapDisabled(.disabledByTimeout)))
+        runtime.handle(.init(time: ns(228), kind: .tapEnabled))
+        runtime.handle(.init(time: ns(229), kind: .poll(.init(keysDown: [], flags: [], secureInput: false)), source: .other))
+        let unconfirmedPoll = runtime.meetingAudioSnapshot(at: ns(229))
+        #expect(unconfirmedPoll.held == nil && !unconfirmedPoll.hardwarePollFresh && !unconfirmedPoll.canRestoreOriginal)
+        runtime.handle(.init(time: ns(230), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        #expect(runtime.meetingAudioSnapshot(at: ns(230)).originalOpen)
+        runtime.stop(at: ns(240))
+        runtime.setTranslationBusy(false, at: ns(250))
         #expect(!sink.current.open)
     }
 
