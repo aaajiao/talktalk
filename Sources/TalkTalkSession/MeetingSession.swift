@@ -145,7 +145,12 @@ public final class MeetingSession: SpeakEchoSink {
     }
 
     public func recordPassthrough(startHost: HostTime, endHost: HostTime) async {
-        echoRecords.append(.passthrough(startHost, endHost)); pruneEchoRecords()
+        guard endHost >= startHost else { return }
+        if let last = echoRecords.last, case let .passthrough(start, end) = last,
+           startHost <= end, endHost >= start {
+            echoRecords[echoRecords.count - 1] = .passthrough(min(start, startHost), max(end, endHost))
+        } else { echoRecords.append(.passthrough(startHost, endHost)) }
+        pruneEchoRecords()
         await pipeline?.recordPassthrough(startHost: startHost, endHost: endHost)
     }
 

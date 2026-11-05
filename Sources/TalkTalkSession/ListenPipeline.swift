@@ -117,6 +117,11 @@ public actor ListenPipeline {
     private var primaryWaits: [JobID: Task<Race.Outcome<MTResult>, Never>] = [:]
     private var lookbackRevisions = 0
     private var acousticEcho: (score: Double, at: HostTime)?
+    /// 100 ms observations, aligned with capture time rather than ASR callback arrival.
+    private var echoObservations: [(at: HostTime, score: Double?)] = []
+    private var sourceAudioThrough: HostTime?
+    /// Evidence belongs to one sentence, including its late final after the raw gate closes.
+    private var rejectedEcho: (sentence: UInt64, decision: EchoFilter.Decision)?
     private var previousFinal: (id: UInt64, source: String, at: HostTime, revised: Bool)?
     private var startHost: HostTime = 0
     private let jobs: JobIDSequence
@@ -176,6 +181,7 @@ public actor ListenPipeline {
         let epoch = streamEpoch
         startHost = clock()
         lastFinalThrough = nil
+        sourceAudioThrough = nil; rejectedEcho = nil; echoObservations.removeAll()
         let s = try await engines.asr.open(lang, highPriority: false)
         guard epoch == streamEpoch, !Task.isCancelled else {
             await s.close(); throw CancellationError()
@@ -201,6 +207,7 @@ public actor ListenPipeline {
         streamEpoch &+= 1
         for t in streamTasks { t.cancel() }; streamTasks.removeAll()
         acousticEcho = nil
+        sourceAudioThrough = nil; rejectedEcho = nil; echoObservations.removeAll()
         ingest.detach()
         for t in finalTasks.values { t.cancel() }
         finalTasks.removeAll()
@@ -251,6 +258,7 @@ public actor ListenPipeline {
         for t in streamTasks { t.cancel() }; streamTasks.removeAll()
         let old = stream; stream = nil
         await perform(segmenter.audioGap(nowMs: nowMs))
+        sourceAudioThrough = nil; rejectedEcho = nil; echoObservations.removeAll(); acousticEcho = nil
         await old?.close()
         guard running, streamEpoch == epoch else { return }
         let next = try await engines.asr.open(lang, highPriority: false)
@@ -279,7 +287,13 @@ public actor ListenPipeline {
     }
 
     public func setEchoScore(_ score: Double?, at: HostTime) {
-        acousticEcho = score.flatMap { $0.isFinite ? (max(0, min(1, $0)), at) : nil }
+        let normalized = score.flatMap { $0.isFinite ? max(0, min(1, $0)) : nil }
+        acousticEcho = normalized.map { ($0, at) }
+        echoObservations.append((at, normalized))
+        let window = UInt64(profile.echoFilter.windowS + profile.echoFilter.afterPlayS) * 1_000_000_000
+        echoObservations.removeAll { at >= $0.at && at - $0.at > window }
+        if echoObservations.count > 256 { echoObservations.removeFirst(echoObservations.count - 256) }
+        rejectPassthroughEcho(text: segmenter.sourceLine, through: sourceAudioThrough, at: at)
     }
     public func echoScore(at now: HostTime) -> Double? {
         guard let e = acousticEcho, now >= e.at, now - e.at <= 500_000_000 else { return nil }
@@ -294,6 +308,37 @@ public actor ListenPipeline {
 
     public func recordPassthrough(startHost: HostTime, endHost: HostTime) {
         echo.recordPassthrough(startMs: ms(startHost), endMs: ms(endHost))
+        rejectPassthroughEcho(text: segmenter.sourceLine, through: sourceAudioThrough, at: clock())
+    }
+
+    /// Only confirmed acoustic return of our original audio suppresses a live sentence.
+    /// Raw-open alone must never mute remote LISTEN. Keep segmenting so this sentence can
+    /// finish, but stop its draft work now and retain the evidence for its eventual final.
+    private func rejectPassthroughEcho(text: String, through: HostTime?, at now: HostTime) {
+        guard running, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              rejectedEcho?.sentence != segmenter.sentence,
+              let through,
+              case let .drop(reason, overlap) = echo.decide(text: text, startMs: ms(through), echoScore: echoScore(forAudioThrough: through, at: now)),
+              reason == .passthroughEcho else { return }
+        rejectedEcho = (segmenter.sentence, .drop(reason: reason, overlap: overlap))
+        if let draft = draftJob {
+            draft.task.cancel(); draftJob = nil
+            if let apple = engines.apple { Task { await apple.cancel(draft.job) } }
+        }
+        drafts[segmenter.sentence] = nil
+        onUpdate(.dropped(sentence: segmenter.sentence))
+        if !lastSource.isEmpty { lastSource = ""; onUpdate(.source("")) }
+    }
+
+    private func echoScore(forAudioThrough through: HostTime?, at now: HostTime) -> Double? {
+        // Qwen's through is clip.end, not result delivery time. Preserve unknown points too:
+        // missing evidence must not reuse an earlier positive score or silence observation.
+        let window = UInt64(profile.echoFilter.windowS + profile.echoFilter.afterPlayS) * 1_000_000_000
+        guard let through, now >= through, now - through <= window else { return nil }
+        func distance(_ at: HostTime) -> HostTime { at >= through ? at - through : through - at }
+        guard let nearest = echoObservations.min(by: { distance($0.at) < distance($1.at) }),
+              distance(nearest.at) <= 200_000_000 else { return nil }
+        return nearest.score
     }
 
     /// Source text from the last five seconds, kept in memory for SPEAK's echo language gate.
@@ -315,14 +360,19 @@ public actor ListenPipeline {
         // may arrive after its final, but must not repopulate the next sentence.
         if let through, let lastFinalThrough, through <= lastFinalThrough { return }
         let now = clock()
+        sourceAudioThrough = through
+        rejectPassthroughEcho(text: text, through: through, at: now)
         onAnalysis?(.init(stage: .asrUpdate, sentence: segmenter.sentence, at: now,
                           source: text, engine: engines.asr.id.name, audioThrough: through))
         await perform(segmenter.volatile(text, nowMs: ms(now)))
     }
 
     func onFinal(_ text: String, range: ClosedRange<HostTime>) async {
+        if let lastFinalThrough, range.upperBound <= lastFinalThrough { return }
         lastFinalThrough = max(lastFinalThrough ?? 0, range.upperBound)
         let now = clock()
+        sourceAudioThrough = range.upperBound
+        rejectPassthroughEcho(text: text, through: range.upperBound, at: now)
         onAnalysis?(.init(stage: .asrUpdate, sentence: segmenter.sentence, at: now,
                           source: text, engine: engines.asr.id.name,
                           audioThrough: range.upperBound, audioFrom: range.lowerBound))
@@ -348,7 +398,7 @@ public actor ListenPipeline {
             case let .sentenceFinal(f): sentenceFinal(f)
             }
         }
-        let line = segmenter.sourceLine
+        let line = rejectedEcho?.sentence == segmenter.sentence ? "" : segmenter.sourceLine
         if line != lastSource {
             lastSource = line
             onUpdate(.source(line))
@@ -358,7 +408,7 @@ public actor ListenPipeline {
     // MARK: - drafts
 
     private func startDraft(_ sentence: UInt64, _ text: String) {
-        guard !draftsPaused, let apple = engines.apple else { return }
+        guard !draftsPaused, rejectedEcho?.sentence != sentence, let apple = engines.apple else { return }
         if let d = draftJob {
             d.task.cancel()
             let old = d.job
@@ -383,7 +433,7 @@ public actor ListenPipeline {
     private func draftDone(_ sentence: UInt64, source: String, target: String, t0: HostTime) {
         log.event("mt.draft", ["sentence": .int(Int(sentence)), "ms": .int(HostClock.ms(t0, to: clock()))])
         // Only an open sentence shows drafts; a frozen final is never overwritten.
-        guard running, !draftsPaused, sentence == segmenter.sentence else { return }
+        guard running, !draftsPaused, sentence == segmenter.sentence, rejectedEcho?.sentence != sentence else { return }
         drafts[sentence] = (source, target)
         onUpdate(.draft(sentence: sentence, text: target))
     }
@@ -401,7 +451,12 @@ public actor ListenPipeline {
                                       "final_timeout": .bool(f.finalTimeout),
                                       "trigger_to_final_ms": .int(f.finalAtMs - f.triggerAtMs),
                                       "first_word_to_trigger_ms": .int(f.firstWordAtMs.map { f.triggerAtMs - $0 } ?? -1)])
-        if case let .drop(reason, overlap) = echo.decide(text: f.text, startMs: f.firstWordAtMs ?? f.triggerAtMs, echoScore: echoScore(at: clock())) {
+        let decision = rejectedEcho?.sentence == f.sentence ? rejectedEcho!.decision
+            : echo.decide(text: f.text, startMs: sourceAudioThrough.map(ms) ?? f.firstWordAtMs ?? f.triggerAtMs,
+                          echoScore: echoScore(forAudioThrough: sourceAudioThrough, at: clock()))
+        if rejectedEcho?.sentence == f.sentence { rejectedEcho = nil }
+        sourceAudioThrough = nil
+        if case let .drop(reason, overlap) = decision {
             log.event("listen.echo_drop", ["sentence": .int(Int(f.sentence)), "reason": .tag(reason.rawValue), "overlap": .double(overlap)])
             drafts[f.sentence] = nil
             onUpdate(.dropped(sentence: f.sentence))

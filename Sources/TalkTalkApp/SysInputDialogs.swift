@@ -3,64 +3,37 @@ import AppKit
 import TalkTalkAudio
 import TalkTalkCore
 
-/// "结束会议模式" / "退出" while the call is still on (ARCHITECTURE.md §8.6, §16 决定 4):
-/// the default button is "通话结束后再还原". The decision model is SystemInputSwitcher's; the
-/// when-to-ask rule and the texts are SysInputDialogPlan's (Core, unit-tested).
+/// Automatic input restoration for meeting end and app quit; no normal choice dialog.
 @MainActor
 enum SysInputDialogs {
-    /// Set by NSWorkspace.willPowerOffNotification (logout, restart, shutdown): quitting then
-    /// restores at once without a dialog.
-    private(set) static var poweringOff = false
-    private static var observer: NSObjectProtocol?
-
-    static func installPowerOffObserver() {
-        guard observer == nil else { return }
-        observer = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.willPowerOffNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { poweringOff = true }
-        }
-    }
-
-    /// The decision to hand to `endMeetingMode` / `prepareForQuit`; nil when you cancelled.
-    static func decision(_ context: SysInputDialogPlan.Context, switcher: SystemInputSwitcher) -> SystemInputPlan.EndDecision? {
-        let ctx: SysInputDialogPlan.Context = (context == .quit && poweringOff) ? .logoutOrShutdown : context
-        switch SysInputDialogPlan.step(ctx, needsConfirmation: switcher.needsEndConfirmation) {
-        case let .proceed(d): return d
-        case let .ask(dialog): return SysInputDialogPlan.decision(ask(dialog))
-        }
-    }
-
-    static func ask(_ d: SysInputDialogPlan.Dialog) -> SysInputDialogPlan.Answer {
-        let a = NSAlert()
-        a.messageText = d.title
-        a.informativeText = d.message
-        a.addButton(withTitle: d.waitButton)      // default (Return)
-        a.addButton(withTitle: d.restoreButton)
-        let cancel = a.addButton(withTitle: d.cancelButton)
-        cancel.keyEquivalent = "\u{1b}"
-        NSApp.activate()
-        switch a.runModal() {
-        case .alertFirstButtonReturn: return .whenCallEnds
-        case .alertSecondButtonReturn: return .restoreNow
-        default: return .cancel
-        }
-    }
-
-    /// "结束会议模式": asks if needed, ends the switcher's part, tells the HUD. false: cancelled
-    /// (meeting mode goes on).
+    /// Keep the existing before-end callback contract: restoration failure is reported and its
+    /// record remains recoverable, but does not prevent the user's request to stop the session.
     @discardableResult
     static func endMeeting(switcher: SystemInputSwitcher, context: SysInputDialogPlan.Context = .endMeeting,
                            hud: PTTHUD?) -> Bool {
-        guard let d = decision(context, switcher: switcher) else { return false }
-        report(switcher.endMeetingMode(decision: d), status: switcher.status, hud: hud)
+        report(switcher.endMeetingMode(decision: SysInputDialogPlan.decision(context)), status: switcher.status, hud: hud)
         return true
     }
 
-    /// `applicationShouldTerminate`: `.terminateCancel` when you cancelled; otherwise the switcher
-    /// has restored or handed the record to the guard.
-    static func quit(switcher: SystemInputSwitcher) -> NSApplication.TerminateReply {
-        guard let d = decision(.quit, switcher: switcher) else { return .terminateCancel }
-        _ = switcher.prepareForQuit(decision: d)
+    /// The switcher restores immediately, or leaves the owned record with the recovery guard.
+    static func quit(switcher: SystemInputSwitcher, hud: PTTHUD? = nil) -> NSApplication.TerminateReply {
+        let result = switcher.prepareForQuit(decision: SysInputDialogPlan.decision(.quit))
+        report(result, status: switcher.status, hud: hud)
+        if let reason = SysInputDialogPlan.quitFailureMessage(outcome(result, status: switcher.status)) {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "麦克风尚未还原")
+            alert.informativeText = String(localized: "\(reason)\n\n已保留恢复记录。请在“系统设置 › 声音 › 输入”中检查并选择实体麦克风，也可下次启动 TalkTalk 后重试。")
+            alert.addButton(withTitle: String(localized: "打开声音设置并退出"))
+            alert.addButton(withTitle: String(localized: "退出 TalkTalk"))
+            NSApp.activate()
+            if alert.runModal() == .alertFirstButtonReturn {
+                let sound = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension")!
+                if !NSWorkspace.shared.open(sound) {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+                }
+            }
+        }
         return .terminateNow
     }
 

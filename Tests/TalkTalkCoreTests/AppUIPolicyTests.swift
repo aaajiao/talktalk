@@ -42,38 +42,23 @@ import Testing
 @Suite struct SysInputDialogPlanTests {
     typealias P = SysInputDialogPlan
 
-    @Test func asksOnlyWhenTheCallIsStillOn() {
-        #expect(P.step(.endMeeting, needsConfirmation: false) == .proceed(.whenCallEnds))
-        #expect(P.step(.quit, needsConfirmation: false) == .proceed(.whenCallEnds))
-        guard case let .ask(d) = P.step(.endMeeting, needsConfirmation: true) else { Issue.record("no dialog"); return }
-        #expect(d.waitButton == "通话结束后再还原" && d.restoreButton == "现在还原")
-        guard case let .ask(q) = P.step(.quit, needsConfirmation: true) else { Issue.record("no dialog"); return }
-        #expect(q.title != d.title)
-    }
-
-    @Test func neverAsksOnLogoutOrAutomaticEnd() {
-        #expect(P.step(.logoutOrShutdown, needsConfirmation: true) == .proceed(.restoreNow))
-        #expect(P.step(.automatic, needsConfirmation: true) == .proceed(.whenCallEnds))
-    }
-
-    @Test func answers() {
-        #expect(P.decision(.whenCallEnds) == .whenCallEnds)
-        #expect(P.decision(.restoreNow) == .restoreNow)
-        #expect(P.decision(.cancel) == nil)
-        // The dialog's default matches the switcher's: wait for the call, then restore.
-        #expect(SystemInputPlan.endStep(P.decision(.whenCallEnds)!, callEnded: false) == .deferUntilCallEnds)
-        #expect(SystemInputPlan.endStep(P.decision(.restoreNow)!, callEnded: false) == .restore)
+    @Test func everySessionEndRestoresWithoutAChoiceDialog() {
+        let contexts: [P.Context] = [.endMeeting, .quit, .logoutOrShutdown, .automatic]
+        for context in contexts {
+            #expect(SystemInputPlan.endStep(P.decision(context), callEnded: false) == .restore)
+            #expect(SystemInputPlan.endStep(P.decision(context), callEnded: true) == .restore)
+        }
     }
 
     @Test func outcomeMessages() {
         #expect(P.message(.restored(device: "MacBook Pro 麦克风"))?.text == "默认输入已还原为 MacBook Pro 麦克风")
-        #expect(P.message(.deferred)?.text == "默认输入仍是 TalkTalk Mic，通话结束后还原")
+        #expect(P.message(.deferred)?.text == "系统麦克风尚未还原，等待设备就绪或重试")
         #expect(P.message(.deferred)?.style == .yellow)
         // sysinput, review of 9d9b3a4 #1: deferred with macOS's physical pick says so.
         #expect(P.message(.deferredOnPhysical(device: "MacBook Pro 麦克风", micAbsent: true))?.text
-                == "系统默认输入是 MacBook Pro 麦克风（TalkTalk Mic 不在），通话结束后还原")
+                == "系统默认输入是 MacBook Pro 麦克风（TalkTalk Mic 不在），等待还原")
         #expect(P.message(.deferredOnPhysical(device: "MacBook Pro 麦克风", micAbsent: false))?.text
-                == "系统默认输入是 MacBook Pro 麦克风（没能切回 TalkTalk Mic），通话结束后还原")
+                == "系统默认输入是 MacBook Pro 麦克风（没能切回 TalkTalk Mic），等待还原")
         #expect(P.reportMessage(.deferredOnPhysical(device: "X", micAbsent: true))?.style == .yellow)
         #expect(P.message(.noRestoreTarget)?.style == .red)
         #expect(P.message(.writeFailed)?.style == .red)
@@ -86,6 +71,7 @@ import Testing
         #expect(all.filter { P.message($0) != nil } == [.restored(device: "X"), .deferred, .noRestoreTarget, .writeFailed])
         // SysInputDialogs.report leaves the restore to the switcher's notice: said once, not twice.
         #expect(all.filter { P.reportMessage($0) != nil } == [.deferred, .noRestoreTarget, .writeFailed])
+        #expect(all.filter { P.quitFailureMessage($0) != nil } == [.deferred, .noRestoreTarget, .writeFailed])
         for o in all where P.reportMessage(o) != nil { #expect(P.reportMessage(o)! == P.message(o)!) }
     }
 }

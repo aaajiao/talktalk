@@ -45,7 +45,12 @@ done
 /bin/cp "$root/scripts/lib/common.sh" "$root/scripts/lib/versions.sh" "$root/scripts/lib/models.sh" "$app/Contents/Resources/installer/scripts/lib/"
 # m0-swift: PolicyProfile and prompts (ResourceLocator looks in Contents/Resources first); the T4
 # bench corpus only in the dev build.
-/bin/cp "$root/Resources/PolicyProfile.default.json" "$root/Resources/uninstall.sh" "$root/README.md" "$app/Contents/Resources/"
+/bin/cp "$root/Resources/PolicyProfile.default.json" "$root/Resources/uninstall.sh" "$app/Contents/Resources/"
+# Keep the standalone recovery guide and license texts with downloaded app bundles.
+/bin/cp "$root/docs/maintenance.md" "$app/Contents/Resources/README.md"
+/bin/cp "$root/LICENSE" "$app/Contents/Resources/LICENSE.txt"
+/bin/mkdir -p "$app/Contents/Resources/Licenses"
+/bin/cp "$root/Driver/third_party/libASPL/LICENSE.apple2012" "$root/Driver/third_party/libASPL/LICENSE.apple2020" "$app/Contents/Resources/Licenses/"
 # Finder metadata/resource forks on an imported icon cannot be sealed by codesign.
 /bin/cp -X "$root/Resources/TalkTalk.icns" "$app/Contents/Resources/"
 /bin/chmod +x "$app/Contents/Resources/uninstall.sh"

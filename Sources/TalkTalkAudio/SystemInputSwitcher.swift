@@ -15,13 +15,12 @@ import TalkTalkCore
 ///   - app launch: `start()`; once the Feed is attached (or right away without a driver):
 ///     `beginLaunchTakeover()`.
 ///   - meeting mode on: `enterMeetingMode(meetingApps:switchDefaultInput:)`.
-///   - "结束会议模式": if `needsEndConfirmation`, ask (default "通话结束后再还原"), then
-///     `endMeetingMode(decision:)` (`.whenCallEnds` / `.restoreNow`). Auto end, end after sleep or
-///     lock: `.whenCallEnds`.
+///   - every completed meeting session: `endMeetingMode(decision: .restoreNow)` with no choice
+///     dialog. Restore still respects record ownership and a manually changed input.
 ///   - sleep / lock / fast user switch away: `meetingSuspended()`; wake back into meeting mode:
 ///     `meetingResumed()`.
-///   - quit from the menu: same question, then `prepareForQuit(decision:)`; logout/shutdown:
-///     `prepareForQuit(decision: .restoreNow)`. SIGTERM / SIGINT / SIGHUP: call nothing, just exit
+///   - normal quit and logout/shutdown: `prepareForQuit(decision: .restoreNow)`.
+///     SIGTERM / SIGINT / SIGHUP: call nothing, just exit
 ///     (the guard restores after the call, as after a crash). This class installs no signal handlers.
 ///   - menu: "切回 TalkTalk Mic" → `switchBackToMic()`; "现在还原默认输入" → `restoreNow()`.
 @MainActor
@@ -128,7 +127,7 @@ public final class SystemInputSwitcher {
     /// install read this, not a flag of their own (m2-driver wiring (a)).
     public var isMeetingModeOn: Bool { meetingModeOn }
 
-    /// Listen shows the "通话还在" dialog before `endMeetingMode` / `prepareForQuit` when true.
+    /// Whether an owned record still has an active call; normal app end/quit no longer asks.
     public var needsEndConfirmation: Bool {
         guard ownsRecord else { return false }
         switch mode {
@@ -478,8 +477,8 @@ public final class SystemInputSwitcher {
         }
     }
 
-    /// `applicationWillTerminate` after you confirmed quitting (decision from the dialog), or
-    /// logout/shutdown (`.restoreNow`). `.whenCallEnds` with the call on hands the record to the guard.
+    /// Normal app quit uses `.restoreNow`; failed restoration is handed to the recovery guard.
+    /// `.whenCallEnds` remains available for older pending records and explicit internal callers.
     @discardableResult
     public func prepareForQuit(decision: EndDecision) -> EndResult {
         quitting = true
@@ -836,6 +835,9 @@ public final class SystemInputSwitcher {
             status = .idle
             return .nothingToRestore
         case .noTarget:
+            // An explicit/automatic restore request remains immediate when a physical device
+            // returns; neither this process nor the recovery guard should wait for the call.
+            if userAskedNow { restoreWithoutWaiting = true }
             keepWaiting(r, replacement: replacement)
             status = .noRestoreTarget
             onNotice?(.noRestoreTarget)
@@ -846,9 +848,9 @@ public final class SystemInputSwitcher {
             case .deferred, .pending: alreadyWaiting = true
             default: alreadyWaiting = false
             }
-            // "现在还原" that only waits for the original to be listed again: still now, not at
-            // the call's end, once it is back.
-            if userAskedNow, case .wait(.devicesSettling) = d { restoreWithoutWaiting = true }
+            // A temporarily missing default/device is still an immediate restore request once
+            // the route is known again, not a request to wait for the ongoing call to end.
+            if userAskedNow { restoreWithoutWaiting = true }
             keepWaiting(r, replacement: replacement)
             // From meeting mode, enterDeferred's own monitor has set the status (it knows more
             // than the plain decision above: a vanished Mic, a pending switch back).

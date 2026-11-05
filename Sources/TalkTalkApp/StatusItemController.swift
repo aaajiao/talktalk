@@ -105,9 +105,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             return state.meetingMode == .captions ? String(localized: "视频字幕运行中") : String(localized: "会议同传运行中")
         case .speaking: return String(localized: "正在识别或播放译音")
         case .passthroughOpen: return String(localized: "原声中 · 按住右⌥翻译")
-        case .audioNeedsCheck: return String(localized: "音频尚未就绪 · 请查看下方设备状态")
-        case .degraded: return String(localized: "部分功能使用备用方案 · 详情见下方状态")
-        case .needsAttention: return String(localized: "音频设备需要检查 · 详情见下方状态")
+        case .audioNeedsCheck: return String(localized: "音频尚未就绪")
+        case .degraded: return String(localized: "部分功能使用备用方案")
+        case .needsAttention: return String(localized: "音频设备需要检查")
         }
     }
 
@@ -147,10 +147,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 attention.append(item(String(localized: "继续收听，不自动停止"), #selector(stillInMeeting)))
             }
         }
-        if let apple = state.appleCheck { attention.append(statusLine(apple)) }
-        if let input = state.systemInput { attention.append(statusLine(input)) }
+        if let apple = state.appleCheck {
+            attention.append(detailItem(HUDLine(String(localized: "Apple 资源待配置"), .yellow,
+                                                detail: apple, symbol: "shippingbox"),
+                                        actionTitle: String(localized: "打开使用引导…"), action: #selector(openOnboarding)))
+        }
+        if let input = state.systemInputNotice {
+            attention.append(detailItem(input, actionTitle: String(localized: "查看音频设置…"), action: #selector(openAudio)))
+        }
         if state.meetingActive, state.meetingMode == .meeting {
-            attention.append(statusLine(AppUIModels.shared.audio.meetingMic.text))
+            attention.append(detailItem(meetingMicNotice, actionTitle: String(localized: "检查会议麦克风…"), action: #selector(openAudio)))
         }
         let si = actions.systemInputItems()
         if si.switchBack { attention.append(item(String(localized: "切回 TalkTalk Mic"), #selector(switchBackToMic))) }
@@ -235,9 +241,21 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         var running: [NSMenuItem] = []
-        if let asr = state.listenASRStatus { running.append(statusLine(String(localized: "语音识别：\(asr)"))) }
+        if let asr = state.listenASRStatus {
+            running.append(detailItem(HUDLine(String(localized: "语音识别"), detail: asr, symbol: "waveform"),
+                                      actionTitle: String(localized: "识别与模型设置…"), action: #selector(openModels)))
+        }
         if state.meetingActive, let translation = state.listenTranslation {
-            running.append(statusLine(translation.menuText(offline: state.listenOffline)))
+            let title: String
+            let style: HUDLine.Style
+            switch translation {
+            case .appleOnly: title = String(localized: "字幕翻译：Apple"); style = .normal
+            case .openAI where !state.listenOffline: title = String(localized: "字幕翻译：OpenAI"); style = .normal
+            default: title = String(localized: "字幕翻译：Apple 备用"); style = .yellow
+            }
+            running.append(detailItem(HUDLine(title, style, detail: translation.menuText(offline: state.listenOffline),
+                                              symbol: "character.bubble"),
+                                      actionTitle: String(localized: "翻译与模型设置…"), action: #selector(openModels)))
         }
         if !running.isEmpty {
             menu.addItem(.separator())
@@ -288,6 +306,68 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return mi
     }
 
+    private var meetingMicNotice: HUDLine {
+        let check = AppUIModels.shared.audio.meetingMic
+        switch check {
+        case .physicalMic:
+            var line = HUDModel.Warning.remoteHearsYourVoice.line
+            line.detail = check.text
+            return line
+        case .green:
+            return HUDLine(String(localized: "会议麦克风：TalkTalk Mic"), .check, detail: check.text, symbol: "checkmark.circle")
+        case .notChecked:
+            return HUDLine(String(localized: "会议麦克风待确认"), .secondary, detail: check.text, symbol: "mic")
+        case .nobodyReads:
+            return HUDLine(String(localized: "会议尚未使用 TalkTalk Mic"), .secondary, detail: check.text, symbol: "mic")
+        }
+    }
+
+    /// Only the short consequence sizes the parent menu. Full explanations wrap in its submenu.
+    private func detailItem(_ line: HUDLine, actionTitle: String, action: Selector) -> NSMenuItem {
+        let parent = item(line.text, nil, symbol: line.symbol)
+        let color: NSColor? = switch line.style {
+        case .red, .redBanner: .systemRed
+        case .yellow: .systemOrange
+        case .check: .systemGreen
+        case .normal, .secondary: nil
+        }
+        if let color {
+            parent.attributedTitle = NSAttributedString(string: line.text, attributes: [.foregroundColor: color])
+            parent.image?.isTemplate = false
+            parent.image = parent.image?.withSymbolConfiguration(.init(paletteColors: [color]))
+        }
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        submenu.addItem(wrappedDetail(line.detail ?? line.text))
+        submenu.addItem(.separator())
+        submenu.addItem(item(actionTitle, action, symbol: "arrow.up.forward.app"))
+        parent.submenu = submenu
+        return parent
+    }
+
+    private func wrappedDetail(_ text: String) -> NSMenuItem {
+        let width: CGFloat = 340
+        let inset: CGFloat = 12
+        let font = NSFont.menuFont(ofSize: 13)
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = font
+        label.textColor = .labelColor
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.preferredMaxLayoutWidth = width - 2 * inset
+        let bounds = (text as NSString).boundingRect(
+            with: NSSize(width: width - 2 * inset, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font])
+        let height = ceil(bounds.height) + 4
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height + 2 * inset))
+        label.frame = NSRect(x: inset, y: inset, width: width - 2 * inset, height: height)
+        view.addSubview(label)
+        let detail = NSMenuItem(title: text, action: nil, keyEquivalent: "")
+        detail.isEnabled = false
+        detail.view = view
+        return detail
+    }
+
     // MARK: - actions
 
     @objc private func toggleMeeting() { actions.toggleMeeting() }
@@ -318,6 +398,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func restoreDefaultInput() { actions.restoreDefaultInput() }
     @objc private func openSettings() { actions.openSettings(nil) }
     @objc private func openGeneral() { actions.openSettings(.general) }
+    @objc private func openAudio() { actions.openSettings(.audio) }
+    @objc private func openModels() { actions.openSettings(.translation) }
     @objc private func openAbout() { NSApp.orderFrontStandardAboutPanel(nil) }
     @objc private func openVoice() { actions.openSettings(.voice) }
     @objc private func openDiagnostics() { actions.openSettings(.privacy) }

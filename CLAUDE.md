@@ -13,7 +13,7 @@ Current scope and open acceptance work: `docs/remaining-work.md`.
 
 ## Environment and privacy
 
-- Use Swift 6.2+ and the macOS SDK. `scripts/build-app.sh release` creates the normal app; only explicit dev builds enable development hooks.
+- Use Swift 6.2+ and the macOS SDK. Build, install and launch only the release app with `scripts/build-app.sh release`. Do not package or launch a separate DEV app for routine development or UI verification.
 - Launch permission-requiring flows through LaunchServices (`open -a …`), not a bare executable.
 - Engine Python runs as `venv/bin/python3 -I -B`, using the app-managed runtime.
 - Shell scripts target macOS Bash 3.2. Use absolute paths for system tools.

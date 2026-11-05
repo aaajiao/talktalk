@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import TalkTalkCore
 @testable import TalkTalkSession
@@ -143,7 +144,9 @@ enum Fixture {
         await p.stop()
         #expect(await until { await p.pendingFinals == 0 })
         #expect(sink.finals.isEmpty)
-        #expect(await primary.cancels.count == 1)
+        // Stop and the cancelled final task may both notify the idempotent backend.
+        let cancelled = await primary.cancels, requested = await primary.requests.map(\.job)
+        #expect(!cancelled.isEmpty && Set(cancelled) == Set(requested))
     }
 
     func make(primary: FakeMT?, apple: FakeMT?, deadlineMs: Int = 300) throws -> (ListenPipeline, FakeStream, Sink, EventLog) {
@@ -258,6 +261,84 @@ enum Fixture {
         #expect(await until { sink.items.contains { if case .dropped = $0 { true } else { false } } })
         #expect(sink.finals.isEmpty)
         #expect(events(log, "listen.echo_drop").count == 1)
+        await p.stop()
+    }
+
+    @Test func liveOriginalEchoRejectsDelayedDraftsAndFinalsWithoutMutingRemoteSpeech() async throws {
+        let origin = HostClock.now()
+        let time = Mutex(origin)
+        func at(_ milliseconds: UInt64) -> HostTime {
+            let next = origin + milliseconds * 1_000_000
+            time.withLock { $0 = next }
+            return next
+        }
+        let apple = FakeMT("apple", placement: .systemService, prefix: "译", delayMs: 40)
+        let stream = FakeStream(), sink = Sink(), log = EventLog(inMemory: { time.withLock { $0 } })
+        let p = ListenPipeline(lang: .en, profile: try Fixture.listen(),
+            engines: .init(asr: FakeASR(stream: stream), apple: apple, primary: nil),
+            log: log, tickMs: 100_000, clock: { time.withLock { $0 } }, onUpdate: { sink.add($0) })
+        try await p.start()
+        let own = "this is my original microphone speech"
+        let ownEnd = at(1000)
+        await p.recordPassthrough(startHost: origin, endHost: ownEnd) // still open
+        await p.setEchoScore(0.95, at: ownEnd)
+        _ = at(1800) // Qwen returns after its audio boundary; current-score freshness is insufficient.
+        await p.onVolatile(own, through: ownEnd)
+        await p.onVolatile(own, through: ownEnd)
+        #expect(await apple.requests.isEmpty)
+        #expect(!sink.items.contains(.source(own)))
+        #expect(sink.drafts.isEmpty)
+
+        let close = origin + 1100_000_000
+        await p.recordPassthrough(startHost: origin, endHost: close)
+        await p.setEchoScore(0, at: at(3500))
+        await p.onFinal(own + ".", range: origin...close)
+        await p.onFinal(own + ".", range: origin...close) // duplicate old final cannot enter sentence 2
+        #expect(await p.openSentence == 2)
+        #expect(sink.finals.isEmpty)
+        #expect(events(log, "listen.echo_drop").count == 1)
+
+        let remote = "the remote participant can still speak"
+        let nextOpen = at(4000)
+        await p.recordPassthrough(startHost: nextOpen, endHost: nextOpen)
+        await p.setEchoScore(0.1, at: nextOpen)
+        await p.onVolatile(remote, through: nextOpen)
+        await p.onVolatile(remote, through: nextOpen)
+        let remoteDraft = await until { !sink.drafts.isEmpty }
+        #expect(remoteDraft && sink.items.contains(.source(remote)))
+        let remoteEnd = at(4100)
+        await p.onFinal(remote + ".", range: nextOpen...remoteEnd)
+        let remoteFinal = await until { sink.finals.count == 1 }
+        #expect(remoteFinal)
+
+        // Evidence arriving after a provisional result cancels the already queued Apple job.
+        let pending = "more original microphone words still returning"
+        let pendingStart = at(5000)
+        await p.recordPassthrough(startHost: nextOpen, endHost: pendingStart)
+        await p.setEchoScore(nil, at: pendingStart)
+        await p.onVolatile(pending, through: pendingStart)
+        await p.onVolatile(pending, through: pendingStart)
+        let draftStarted = await until { await apple.requests.contains { $0.text == pending && !$0.isFinalChunk } }
+        #expect(draftStarted)
+        let draft = try #require(await apple.requests.last { $0.text == pending && !$0.isFinalChunk })
+        let pendingEnd = at(5100)
+        await p.onVolatile(pending, through: pendingEnd)
+        await p.setEchoScore(0.95, at: pendingEnd)
+        let draftCancelled = await until { await apple.cancels.contains(draft.job) }
+        #expect(draftCancelled && sink.items.contains(.dropped(sentence: 3)))
+        await p.recordPassthrough(startHost: nextOpen, endHost: pendingEnd)
+        await p.setEchoScore(nil, at: at(8200))
+        await p.onFinal(pending + ".", range: pendingStart...pendingEnd)
+        #expect(events(log, "listen.echo_drop").count == 2)
+        #expect(await p.openSentence == 4)
+
+        // An unrelated remote sentence after raw-close is not dropped by later high correlation.
+        let afterClose = at(9000)
+        await p.setEchoScore(0.95, at: afterClose)
+        await p.onFinal("A fresh remote sentence after the original path closed.", range: afterClose...afterClose)
+        let afterCloseFinal = await until { sink.finals.count == 2 }
+        #expect(afterCloseFinal)
+        #expect(await apple.requests.filter { $0.isFinalChunk && ($0.text == own + "." || $0.text == pending + ".") }.isEmpty)
         await p.stop()
     }
 

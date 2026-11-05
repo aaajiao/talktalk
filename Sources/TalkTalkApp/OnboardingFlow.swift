@@ -368,8 +368,8 @@ enum AppActivation {
 
 /// "播放示例音频看字幕": `say` renders an English sample into a UUID-named temporary directory,
 /// which is read into memory and deleted at once; the sample plays on the default output and
-/// goes through ListenPipeline (Apple ASR, the same MT engines as meeting mode) into a subtitle
-/// panel of its own. Every run has a token: 停止, closing the window or a new run makes the
+/// goes through ListenPipeline (Apple ASR, the same MT engines as meeting mode) into the shared
+/// conversation panel. Every run has a token: 停止, closing the window or a new run makes the
 /// older run stop at its next await (pipeline stopped, panel hidden).
 @MainActor
 @Observable
@@ -377,7 +377,9 @@ final class ListenDemo {
     enum Phase: Equatable { case idle, preparing, playing, done, failed(String) }
     private(set) var phase: Phase = .idle
     private(set) var lines: [String] = []
-    @ObservationIgnored private var panel: SubtitlePanel?
+    @ObservationIgnored var panel: SubtitlePanel?
+    @ObservationIgnored var canStart: () -> Bool = { true }
+    @ObservationIgnored private var showingPanel = false
     @ObservationIgnored private var player: AVAudioPlayer?
     @ObservationIgnored private var run: UUID?
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -388,6 +390,10 @@ final class ListenDemo {
 
     func start() {
         guard phase != .preparing, phase != .playing else { return }
+        guard canStart() else {
+            phase = .failed(String(localized: "请先结束当前收听，再播放示例。"))
+            return
+        }
         let id = UUID()
         run = id
         phase = .preparing
@@ -401,8 +407,11 @@ final class ListenDemo {
         task = nil
         player?.stop()
         player = nil
-        panel?.setVisible(false)
-        panel?.clear()
+        if showingPanel {
+            panel?.setVisible(false)
+            panel?.clear()
+            showingPanel = false
+        }
         if phase == .playing || phase == .preparing { phase = .idle }
     }
 
@@ -435,10 +444,14 @@ final class ListenDemo {
             pipeline = p
             try await p.start()
             guard current(id) else { return await abandon() }
-            let panel = self.panel ?? SubtitlePanel()
-            self.panel = panel
+            guard let panel else {
+                throw NSError(domain: "TalkTalk.Onboarding", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: String(localized: "字幕窗口尚未就绪")])
+            }
             let player = try AVAudioPlayer(data: wavData)
             self.player = player
+            panel.clear()
+            showingPanel = true
             panel.setVisible(true)
             phase = .playing
             player.play()

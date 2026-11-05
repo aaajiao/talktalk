@@ -42,7 +42,10 @@ import Testing
         for (w, text, style) in Self.warnings {
             var m = HUDModel()
             m.post(w, now: 0)
-            #expect(m.lines(now: 0) == [HUDLine(text, style)], "\(w)")
+            let lines = m.lines(now: 0)
+            #expect(lines.count == 1)
+            #expect(lines.first?.style == style, "\(w)")
+            #expect((lines.first?.detail ?? lines.first?.text) == text, "\(w)")
         }
     }
 
@@ -51,8 +54,8 @@ import Testing
         m.post(.meetingNotUsingMic, now: 0)
         m.post(.segmentNotSent, now: 0)
         #expect(m.lines(now: 3.9).count == 2)
-        #expect(m.lines(now: 4.0) == [HUDLine("会议没用 TalkTalk Mic", .red)])
-        #expect(m.lines(now: 1000) == [HUDLine("会议没用 TalkTalk Mic", .red)])
+        #expect(m.lines(now: 4.0) == [HUDModel.Warning.meetingNotUsingMic.line])
+        #expect(m.lines(now: 1000) == [HUDModel.Warning.meetingNotUsingMic.line])
         m.clear(.meetingNotUsingMic)
         #expect(m.lines(now: 1000).isEmpty)
         #expect(m.nextExpiry(after: 0) == 4)
@@ -63,7 +66,7 @@ import Testing
         var m = HUDModel()
         m.post(.floorPaused(segments: 1), now: 0)
         m.post(.floorPaused(segments: 2), now: 0)
-        #expect(m.lines(now: 0) == [HUDLine("对方在说话 · 已暂停 2 段 · 双击右⌥清空", .yellow)])
+        #expect(m.lines(now: 0) == [HUDModel.Warning.floorPaused(segments: 2).line])
         m.clear(.floorPaused(segments: 0))
         #expect(m.lines(now: 0).isEmpty)
     }
@@ -91,7 +94,7 @@ import Testing
         m.post(.speakerMode, now: 0)
         m.post(.remoteHearsYourVoice, now: 0)
         let l = m.lines(now: 0)
-        #expect(l.map(\.text) == ["会议正在用实体麦，对方仍可能听到原声；按键翻译已停用", "按住右⌥说中文翻译", "正在外放，请戴耳机"])
+        #expect(l.map(\.text) == ["会议仍会发送原声 · 翻译已停用", "按住右⌥说中文翻译", "正在外放，请戴耳机"])
     }
 
     // MARK: passthrough (§3.8)
@@ -209,10 +212,14 @@ import Testing
             #expect(model.lines(now: 0) == [HUDLine(audio.text, .normal)])
         }
         model.meetingAudio = .unavailable(reason: "设备待确认")
-        #expect(model.lines(now: 0) == [HUDLine("TalkTalk 音频暂不可用：设备待确认", .yellow)])
+        #expect(model.lines(now: 0) == [HUDLine("音频暂不可用", .yellow, detail: "TalkTalk 音频暂不可用：设备待确认", symbol: "exclamationmark.triangle")])
         model.post(.remoteHearsYourVoice, now: 0)
-        #expect(model.lines(now: 0).contains(HUDLine("会议正在用实体麦，对方仍可能听到原声；按键翻译已停用", .red)))
+        #expect(model.lines(now: 0).contains(HUDModel.Warning.remoteHearsYourVoice.line))
         #expect(!model.lines(now: 0).contains { $0.text.contains("原声已关闭") })
+        #expect(!model.lines(now: 0).contains { $0.text == "音频暂不可用" })
+        let warning = model.lines(now: 0).first
+        #expect(warning?.style == .red)
+        #expect(warning?.detail?.contains("对方仍可能听到原声") == true)
     }
 
     @Test func pushToTalkLines() {
@@ -277,7 +284,7 @@ import Testing
     /// The restore notice may arrive just before or after meetingEnded (listen's order): it stays
     /// its 4 s either way, and so does an entry result posted around meetingStarted.
     @Test func sysInputNoticesOutliveMeetingStartAndEnd() {
-        let restored = HUDLine("默认输入已还原为 MacBook Pro 麦克风")
+        let restored = HUDModel.Warning.defaultInputRestored(to: "MacBook Pro 麦克风").line
         var before = HUDModel()
         before.meetingStarted()
         before.post(.defaultInputRestored(to: "MacBook Pro 麦克风"), now: 1)
@@ -294,7 +301,7 @@ import Testing
         var entry = HUDModel()
         entry.post(.defaultInputNotSwitched(.micNotSelectable), now: 0)
         entry.meetingStarted()
-        #expect(entry.lines(now: 1).contains(HUDLine(SysInputDialogPlan.EntryIssue.micNotSelectable.text, .yellow)))
+        #expect(entry.lines(now: 1).contains(HUDModel.Warning.defaultInputNotSwitched(.micNotSelectable).line))
 
         let sys: [HUDModel.Warning] = [.defaultInputChanged(to: "X"), .switchedBackAfterInsert(device: "X"),
                                        .defaultInputRestored(to: "X"),

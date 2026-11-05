@@ -5,7 +5,7 @@ import TalkTalkCore
 // TalkTalk entry point (ARCHITECTURE.md §13).
 //
 //   TalkTalk                                           the menu bar app (single instance per flavor)
-//   TalkTalk --smoke-ui [--out <file>]                 opens settings › 我的声音, reports, quits (no mic)
+//   TalkTalk --smoke-ui [--out <file>] [--preview]     dev UI check; preview stays open (no audio)
 //   TalkTalk --list-audio-processes [--out <file>]     read-only Core Audio process objects (JSON)
 //   TalkTalk --bench store-key --out <file>            dev build only (§7.7); run it through
 //                                                      `open -W -n -a TalkTalk-Dev.app --args ...`
@@ -52,7 +52,11 @@ case let first? where first.hasPrefix("-psn_"):   // old LaunchServices process 
     AppDelegate.run()
 
 case "--smoke-ui":
+    #if TALKTALK_DEV
     AppDelegate.run(smoke: true, smokeOut: argumentValue("--out"))
+    #else
+    fail("--smoke-ui exists only in the dev build (TalkTalk-Dev.app)")
+    #endif
 
 case "--version":
     #if TALKTALK_DEV

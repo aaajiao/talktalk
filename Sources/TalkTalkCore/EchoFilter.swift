@@ -51,7 +51,12 @@ public struct EchoFilter: Sendable {
     }
 
     public mutating func recordPassthrough(startMs: Int, endMs: Int) {
-        passthrough.append((startMs, endMs))
+        guard endMs >= startMs else { return }
+        // Automatic original audio can remain open for the whole conversation. Its live
+        // observations extend one interval instead of accumulating a record on every tick.
+        if let last = passthrough.last, startMs <= last.endMs, endMs >= last.startMs {
+            passthrough[passthrough.count - 1] = (min(startMs, last.startMs), max(endMs, last.endMs))
+        } else { passthrough.append((startMs, endMs)) }
         prune(nowMs: endMs)
     }
 

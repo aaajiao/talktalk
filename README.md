@@ -4,21 +4,28 @@
 
 TalkTalk 是一个原生 macOS 菜单栏应用。语音识别和语音合成在本机运行，文字翻译可选 OpenAI 或 Apple。
 
-<p align="center">
-  <img src="docs/images/subtitles.jpg" alt="TalkTalk 字幕设置：原文与中文译文成对显示，支持调整字号" width="800">
-</p>
-
-*真实设置界面，字幕内容为内置预览。[查看会议同传流程](docs/images/meeting.jpg)。*
-
 ## 能做什么
 
-- **听会议、看视频**：识别英语或德语，同时显示原文和中文译文；字幕可移动、可调字号，语言可随时切换。
+- **听会议、看视频**：识别英语或德语，同时显示原文和中文译文；字幕窗口可移动、缩放和调节背景透明度，语言可随时切换。
 - **用中文发言**：会议中默认发送原声；按住 **右 ⌥** 说中文（可夹英语），转换成英语或德语译音。松开后播完剩余译音，再恢复原声。
 - **用自己的声音**：本地录制声音档案，由 Qwen 合成译音；会议软件选择 **TalkTalk Mic** 虚拟麦克风接收声音。
 
 ## 开始使用
 
-需要 **Apple Silicon Mac、macOS 26.4 或更新版本**。会议同传请使用耳机。当前版本 **1.0.1**，此仓库提供源码，暂未发布经过 Developer ID 签名及公证的安装包。
+需要 **Apple Silicon Mac、macOS 26.4 或更新版本**。会议同传请使用耳机。
+
+**[下载 TalkTalk 1.0.2（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.2/TalkTalk-1.0.2-macOS-arm64.zip)** · [版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.2)
+
+解压后将 `TalkTalk.app` 拖入“应用程序”，从 Finder 打开。该包使用 **ad-hoc 本地签名，尚无 Developer ID 签名及 Apple 公证**；首次打开时 macOS 可能显示安全提示或阻止启动，请确认下载来源后按系统提示处理。
+
+1. 按首次引导授权，安装语音引擎及会议所需的虚拟麦克风。
+2. 新机器会按需下载私有 Python 环境和 Qwen 模型；默认模型约 **4.1 GB**，另需运行环境空间。**无需自行安装系统 Python 或 Homebrew**。资产保存在 `~/Library/Application Support/TalkTalk/engine`，后续升级会复用兼容的运行时和模型。
+3. 在菜单里选要听的应用及原文语言。看视频选“开始视频字幕”；开会选“开始会议同传”，并在会议软件里把输入设为 **TalkTalk Mic**。
+4. 如需云端翻译，在设置里填写自己的 OpenAI API key；Apple 本地翻译需要先安装相应语言资源。
+
+视频字幕默认只收听所选应用，不启用你的麦克风；显式开启全局备用时会收听所有应用声音。会议中的静音仍由会议软件控制；停止同传或退出 TalkTalk 时会自动还原它管理的系统输入。
+
+**从源码构建**需要 Xcode Command Line Tools（Swift 6.2+）：
 
 ```bash
 git clone https://github.com/aaajiao/talktalk.git
@@ -26,14 +33,7 @@ cd talktalk
 scripts/build-app.sh release
 ```
 
-构建需要 Xcode Command Line Tools（Swift 6.2+）。将生成的 `build/TalkTalk.app` 拖入“应用程序”，然后打开：
-
-1. 按首次引导授权，安装语音引擎及会议所需的虚拟麦克风。
-2. 新机器会下载专用 Python 环境和 Qwen 模型；默认模型约 **4.1 GB**，另需运行环境空间。不依赖本机 Python，后续升级会复用兼容的模型。
-3. 在菜单里选要听的应用及原文语言。看视频选“开始视频字幕”；开会选“开始会议同传”，并在会议软件里把输入设为 **TalkTalk Mic**。
-4. 如需云端翻译，在设置里填写自己的 OpenAI API key；Apple 本地翻译需要先安装相应语言资源。
-
-视频字幕只收听所选应用，不启用你的麦克风。会议中的静音仍由会议软件控制。
+生成的正式应用位于 `build/TalkTalk.app`，安装和启动方式同上。
 
 ## 模型与隐私
 
@@ -44,6 +44,83 @@ scripts/build-app.sh release
 | 译文 → 声音 | 本地 Qwen3-TTS「我的声音」；可选 macOS 系统声音 |
 
 音频和声音档案在本机处理。启用 OpenAI 时，会发送原文、翻译上下文及术语表；key 保存在 macOS 钥匙串。默认不保存会议录音或转写，文字分析和诊断录音需主动开启。系统声音与第三方组件受各自许可约束，详见[许可说明](docs/decisions/licensing.md)。
+
+## 设置页面
+
+点击分类展开正式版界面截图。
+
+<details>
+<summary>通用</summary>
+
+![通用：启动、通知和应用管理](docs/images/settings-general.jpg)
+
+</details>
+
+<details>
+<summary>使用场景</summary>
+
+![使用场景：会议同传与视频字幕](docs/images/settings-scenarios.jpg)
+
+</details>
+
+<details>
+<summary>字幕</summary>
+
+![字幕：原文和译文显示、字号及背景](docs/images/settings-subtitles.jpg)
+
+</details>
+
+<details>
+<summary>音频</summary>
+
+![音频：实体麦克风、TalkTalk Mic 与耳机](docs/images/settings-audio.jpg)
+
+</details>
+
+<details>
+<summary>我的声音</summary>
+
+![我的声音：声音档案、录制与试听](docs/images/settings-voice.jpg)
+
+</details>
+
+<details>
+<summary>模型：识别、翻译与合成</summary>
+
+![语音识别：Qwen 与 Apple](docs/images/settings-models-asr.jpg)
+
+![文字翻译：OpenAI 与 Apple](docs/images/settings-models-translation.jpg)
+
+![语音合成：我的声音与系统声音](docs/images/settings-models-tts.jpg)
+
+</details>
+
+<details>
+<summary>组件：语音引擎与虚拟麦克风</summary>
+
+![语音引擎：运行时与模型安装](docs/images/settings-components-engine.jpg)
+
+![虚拟麦克风：TalkTalk Mic 安装与检查](docs/images/settings-components-microphone.jpg)
+
+</details>
+
+<details>
+<summary>术语表</summary>
+
+![术语表：名称与专业用语](docs/images/settings-glossary.jpg)
+
+</details>
+
+<details>
+<summary>隐私与诊断：数据、字幕分析与故障检查</summary>
+
+![数据与隐私：本机处理、云端文字和保存选项](docs/images/settings-privacy-data.jpg)
+
+![字幕分析：本次分析与本地记录](docs/images/settings-privacy-subtitles.jpg)
+
+![故障检查：自检、诊断与导出](docs/images/settings-privacy-diagnostics.jpg)
+
+</details>
 
 ## 开发与状态
 

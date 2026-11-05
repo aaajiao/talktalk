@@ -14,7 +14,7 @@ final class MeetingController {
     private enum Key { static let lastSource = "meeting.lastSource" }
 
     private let state: AppState
-    let panel = SubtitlePanel()
+    let panel: SubtitlePanel
     private(set) var session: MeetingSession?
     private var subtitleSessionID: UUID?
     private var listenConfigurationTask: Task<Void, Never>?
@@ -44,26 +44,29 @@ final class MeetingController {
     private var ui: MeetingSubscription?
     private(set) lazy var cloud = ListenCloud(events: events)
 
-    init(state: AppState, hud: PTTHUD? = nil, defaults: UserDefaults = .standard, privacy: PrivacySettings? = nil,
+    init(state: AppState, panel: SubtitlePanel, hud: PTTHUD? = nil, defaults: UserDefaults = .standard, privacy: PrivacySettings? = nil,
          engineProcess: @escaping @Sendable () -> EngineProcess? = { nil }) {
         self.state = state
+        self.panel = panel
         self.hud = hud
         self.defaults = defaults
         self.privacy = privacy
         self.engineProcess = engineProcess
         state.onListenConfigurationChange = { [weak self] in self?.listenConfigurationChanged() }
         state.onSubtitleAppearanceChange = { [weak self] in
-            guard let self else { return }; self.panel.setFontSize(self.state.subtitleFontSize)
+            guard let self else { return }
+            self.panel.setFontSize(self.state.subtitleFontSize)
+            self.panel.setBackgroundOpacity(self.state.subtitleBackgroundOpacity)
         }
         state.onSubtitleVisibilityChange = { [weak self] on in self?.setSubtitlesVisible(on) }
         panel.setFontSize(state.subtitleFontSize)
+        panel.setBackgroundOpacity(state.subtitleBackgroundOpacity)
         panel.analysisRecorder = privacy?.subtitleAnalysis
         ui = events.subscribe { [weak self] e in
             switch e {
             case let .state(st): self?.sessionState(st)
             case let .hint(h):
                 self?.state.meetingHint = h?.rawValue
-                self?.panel.setHint(h?.rawValue)
                 self?.hud?.listen(h)
             case .started(_, _, let lang, _):
                 self?.hud?.meetingStarted()
@@ -151,7 +154,6 @@ final class MeetingController {
                 let text = String(localized: "字幕识别切换未完成：\(error.localizedDescription)")
                 state.listenASRStatus = text
                 panel.setHint(text)
-                hud?.show(text, .yellow)
             }
             if listenRequestID == requestID { listenConfigurationTask = nil }
         }
@@ -353,7 +355,6 @@ final class MeetingController {
         let text = String(localized: "字幕识别未能恢复：\(message)")
         state.listenASRStatus = text
         panel.setHint(text)
-        hud?.show(text, .yellow)
     }
 
     /// LISTEN-only playback keeps the same app engine alive; leaving schedules its normal idle

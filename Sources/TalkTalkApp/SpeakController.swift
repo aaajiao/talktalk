@@ -601,6 +601,8 @@ final class SpeakController {
         else { floor = FloorManager(config: profile.speak.floor) }
         if open {
             passthroughStart = at
+            // LISTEN needs the live interval, not only the completed interval at key-down.
+            if let owner { Task { await owner.recordPassthrough(startHost: at, endHost: at) } }
         }
         else if let start = passthroughStart, let owner {
             passthroughStart = nil
@@ -751,6 +753,9 @@ final class SpeakController {
                                   lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         guard let owner, case .running = owner.state, let queue = clauseQueue else { return }
         let now = HostClock.now()
+        if let start = passthroughStart, keys?.gate.isOpen(at: now) == true {
+            await owner.recordPassthrough(startHost: start, endHost: now)
+        }
         let remote = await owner.remoteSpeechSnapshot(at: now)
         guard generation == token, let vad = remote.vadSpeech, let energy = remote.energyDb else { return }
         let observation = remoteSpeech.observe(vadSpeech: vad, energyDb: energy, echoScore: remote.echoScore,

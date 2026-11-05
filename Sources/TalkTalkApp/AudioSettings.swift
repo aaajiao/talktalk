@@ -308,7 +308,7 @@ struct AudioSettingsView: View {
                 LaunchAtLoginRow(launch: model.launch, stronglyRecommended: true)
             }
             DisclosureGroup("默认输入如何恢复") {
-                SettingsNote("结束会议同传后会还原之前的输入；通话仍在进行时，等通话结束后再还原。")
+                SettingsNote("开始会议同传时自动接入；停止同传或退出 TalkTalk 时自动还原，无需再选择。你手动更改过的输入会保留。")
             }
         } header: {
             Text("TalkTalk Mic · 送给会议应用")

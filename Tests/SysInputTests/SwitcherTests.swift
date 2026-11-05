@@ -256,7 +256,7 @@ final class SwitcherRig {
         #expect(rig.notices.contains(.manualChange(device: Devs.builtIn.name)))
         #expect(!rig.store.exists)
         let writes = rig.hal.writeCount
-        #expect(rig.switcher.endMeetingMode(decision: .whenCallEnds) == .nothingToRestore)
+        #expect(rig.switcher.endMeetingMode(decision: SysInputDialogPlan.decision(.endMeeting)) == .nothingToRestore)
         #expect(rig.hal.writeCount == writes)
         #expect(rig.hal.defaultInputUID() == Devs.builtIn.uid)
     }
@@ -1424,5 +1424,43 @@ final class SwitcherRig {
         rig.tick(0.4)
         #expect(rig.hal.defaultInputUID() == Devs.mic.uid)
         #expect(rig.store.exists)
+    }
+}
+
+
+@MainActor @Suite(.serialized) struct AutomaticSystemInputEndTests {
+    @Test(arguments: [SysInputDialogPlan.Context.endMeeting, .quit, .automatic, .logoutOrShutdown])
+    func restoresDuringAnOngoingCall(_ context: SysInputDialogPlan.Context) {
+        let rig = SwitcherRig()
+        rig.switcher.start()
+        #expect(rig.switcher.enterMeetingMode(meetingApps: ["us.zoom.xos"]) == .switched)
+        #expect(!rig.switcher.callEnded)
+        let decision = SysInputDialogPlan.decision(context)
+        let result = context == .quit || context == .logoutOrShutdown
+            ? rig.switcher.prepareForQuit(decision: decision)
+            : rig.switcher.endMeetingMode(decision: decision)
+        #expect(result == .restored(device: Devs.usb.name))
+        #expect(rig.hal.defaultInputUID() == Devs.usb.uid)
+        #expect(!rig.store.exists)
+        #expect(rig.lockFree)
+        #expect(rig.launcher.last?.quitCalled == true)
+    }
+
+    @Test(arguments: [true, false])
+    func unavailableDeviceKeepsImmediateRestoreIntent(hasDefault: Bool) {
+        let rig = SwitcherRig()
+        rig.switcher.start()
+        _ = rig.switcher.enterMeetingMode(meetingApps: ["us.zoom.xos"])
+        rig.hal.set(devices: [Devs.mic], defaultUID: hasDefault ? Devs.mic.uid : nil)
+        let result = rig.switcher.endMeetingMode(decision: SysInputDialogPlan.decision(.endMeeting))
+        #expect(result == (hasDefault ? .noRestoreTarget : .deferred))
+        #expect(rig.store.read()?.restoreNow == true)
+        #expect(!rig.lockFree)
+        #expect(rig.hal.writeCount == 1) // Only the initial switch to TalkTalk Mic.
+        rig.hal.set(devices: [Devs.mic, Devs.usb], defaultUID: Devs.mic.uid)
+        rig.tick(2)
+        #expect(!rig.switcher.callEnded)
+        #expect(rig.hal.defaultInputUID() == Devs.usb.uid)
+        #expect(!rig.store.exists)
     }
 }

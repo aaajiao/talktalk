@@ -31,6 +31,10 @@ for f in install-engine.sh lib/common.sh lib/versions.sh lib/models.sh; do
 done
 [ -x "$app/Contents/Resources/uninstall.sh" ] || tt_die "smoke: uninstall.sh missing"
 [ -f "$app/Contents/Resources/README.md" ] || tt_die "smoke: manual uninstall guide missing"
+[ -f "$app/Contents/Resources/LICENSE.txt" ] || tt_die "smoke: project MIT license missing"
+for notice in LICENSE.apple2012 LICENSE.apple2020; do
+  [ -f "$app/Contents/Resources/Licenses/$notice" ] || tt_die "smoke: $notice missing"
+done
 # m2 driver: what DriverInstaller and the self-test need (§8.4), and the bundled driver must match
 # its own manifest's version and pass codesign --strict as copied.
 drv="$app/Contents/Resources/driver"

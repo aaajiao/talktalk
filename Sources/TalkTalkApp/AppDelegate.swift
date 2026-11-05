@@ -21,7 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboarding: OnboardingWindowController?
     private var systemInput: SystemInputController?
     private var speak: SpeakController?
-    private let hud = PTTHUD()
+    private let conversationPanel = SubtitlePanel()
+    private lazy var hud = PTTHUD(panel: conversationPanel)
     /// §1 / §7.6: the app's engine instance and the voice lifecycle built with it.
     let engineHost = EngineHost()
     private let smokeOut: String?
@@ -57,6 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let onboardingModel = OnboardingFlowModel(appState: state, engine: AppUIModels.shared.engine,
                                                   translation: settings.translation)
         onboardingModel.voice.engineHost = engineHost
+        onboardingModel.demo.panel = conversationPanel
+        onboardingModel.demo.canStart = { [weak state] in
+            state?.meetingActive == false && state?.meetingStarting == false
+        }
         let onboarding = OnboardingWindowController(model: onboardingModel)
         AppUIModels.shared.general.onRestartOnboarding = { [weak onboarding] in
             onboarding?.model.restart()
@@ -64,12 +69,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.onboarding = onboarding
         let privacy = isSmoke ? nil : PrivacySettings.shared
-        let meeting = MeetingController(state: state, hud: hud, privacy: privacy,
+        let meeting = MeetingController(state: state, panel: conversationPanel, hud: hud, privacy: privacy,
             engineProcess: { [bridge = engineHost.speakBridge] in bridge.process })
         self.meeting = meeting
         state.onToggleListening = { [weak meeting] mode in meeting?.toggle(mode: mode) }
-        hud.anchor = { [weak meeting] in meeting?.panel.frame }
-        meeting.prepareCloud = { [weak settings] in
+        hud.onOpenSettings = { [weak settings, weak onboarding] destination in
+            switch destination {
+            case .audio: settings?.show(.audio)
+            case .translation:
+                settings?.navigation.openModel(.translation)
+                settings?.show(.translation)
+            case .permissions: onboarding?.show()
+            }
+        }
+        meeting.prepareCloud = { [weak settings, weak onboardingModel] in
+            onboardingModel?.demo.stop()
             let prefs = TranslationPreferences.load(.standard)
             guard prefs.cloudConsentGiven, prefs.listenCloudEnabled || prefs.speakCloudEnabled else { return false }
             settings?.translation.load()
@@ -239,10 +253,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// A second launch or a Dock click: the unfinished onboarding, else settings.
     private func showFront() {
+        #if TALKTALK_DEV
+        if isSmoke, CommandLine.arguments.contains("--preview") {
+            conversationPanel.markPreviewForSmoke()
+            return
+        }
+        #endif
         if let o = onboarding, o.model.needsOnboarding { o.show() } else { settings?.show() }
     }
 
-    /// A confirmed quit (menu, ⌘Q, logout / shutdown): the system-input question first (§8.6).
+    /// Quit restores the input managed by this instance, then tears down speech and the engine.
+    /// Only a restore failure needs an actionable notice; normal exit has no choice dialog.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitting { return .terminateLater }
         let reply = systemInput?.quit() ?? .terminateNow
@@ -302,6 +323,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     "click_through": panel.clickThrough,
                     "lines": panel.shownLines,
                 ] as [String: Any]
+                #if TALKTALK_DEV
+                hud.setSubtitlesVisible(true)
+                hud.meetingStarted()
+                hud.setPushToTalkAvailable(true)
+                hud.meetingAudio(.translating)
+                hud.transcript(.init(press: 1, source: "明天讨论 API 的预算。", target: "We will discuss the API budget tomorrow.", isFinal: false))
+                hud.pushToTalk(.holding(level: 0.4, preview: "", committed: [], queued: 0))
+                hud.renderForSmoke()
+                var combined: [String: Any] = [
+                    "same_window": hud.windowNumber == panel.windowNumber,
+                    "visible_window_count": NSApp.windows.filter { $0.isVisible && $0.identifier?.rawValue == "TalkTalkConversation" }.count,
+                    "remote_visible": panel.isVisible,
+                    "local_visible": hud.isVisible && hud.transcriptSourceForSmoke != nil,
+                    "movable": panel.isMovable,
+                    "resizable": panel.isResizable,
+                    "manual_size": panel.hasManualSize,
+                    "base_font_size": panel.baseFontSize,
+                    "effective_font_size": panel.fontSize,
+                    "can_become_key": panel.canBecomeKey,
+                    "sharing_none": panel.sharingTypeIsNone && hud.sharingTypeIsNone,
+                ]
+                hud.meetingAudio(.original)
+                hud.renderForSmoke()
+                combined["original_hides_draft"] = hud.transcriptSourceForSmoke == nil
+                hud.meetingAudio(.translating)
+                hud.transcript(.init(press: 1, source: "明天讨论 API 的预算。", target: "We will discuss the API budget tomorrow.", isFinal: true))
+                hud.renderForSmoke()
+                panel.setVisible(false)
+                hud.setSubtitlesVisible(false)
+                combined["subtitle_toggle_hides_both_texts"] = !panel.isVisible && hud.transcriptSourceForSmoke == nil
+                combined["audio_status_remains"] = hud.isVisible && !hud.shownLines.isEmpty
+                r["conversation_panel"] = combined
+                if CommandLine.arguments.contains("--preview") {
+                    // UI-only fixture: keep its reading clock fixed for manual drag/details
+                    // checks. No audio owners exist in the smoke launch path.
+                    let previewTime = hud.clock()
+                    hud.clock = { previewTime }
+                    hud.pushToTalk(.idle)
+                    hud.meetingAudio(.unavailable(reason: "会议仍在使用实体麦"))
+                    hud.post(.remoteHearsYourVoice)
+                    hud.setSubtitlesVisible(true)
+                    hud.renderForSmoke()
+                    panel.setVisible(true)
+                    panel.markPreviewForSmoke()
+                    window?.orderOut(nil)
+                    NSApp.setActivationPolicy(.accessory)
+                    r["preview"] = true
+                    r["preview_window_visible"] = panel.isWindowVisible
+                    r["settings_visible"] = false
+                    writeResult(r, to: smokeOut)
+                    return
+                }
+                hud.meetingEnded()
+                hud.setSubtitlesVisible(state.subtitlesVisible)
+                #endif
                 panel.setVisible(false)
                 panel.clear()
             }

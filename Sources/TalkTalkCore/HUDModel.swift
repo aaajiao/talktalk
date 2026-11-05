@@ -3,6 +3,7 @@ import Foundation
 
 /// One line of the push-to-talk HUD (ARCHITECTURE.md §11 按键说话 HUD).
 public struct HUDLine: Sendable, Equatable {
+    public enum SettingsDestination: Sendable, Equatable { case audio, translation, permissions }
     public enum Style: String, Sendable, Equatable {
         case normal
         /// Gray: hints, live preview, refusal reasons.
@@ -20,11 +21,19 @@ public struct HUDLine: Sendable, Equatable {
     public var style: Style
     /// 0…1 input level drawn next to the text (holding, passthrough open); nil: no meter.
     public var level: Float?
+    /// Full explanation shown on demand; the short text still states the immediate consequence.
+    public var detail: String?
+    public var symbol: String?
+    public var settingsDestination: SettingsDestination?
 
-    public init(_ text: String, _ style: Style = .normal, level: Float? = nil) {
+    public init(_ text: String, _ style: Style = .normal, level: Float? = nil,
+                detail: String? = nil, symbol: String? = nil, settingsDestination: SettingsDestination? = nil) {
         self.text = text
         self.style = style
         self.level = level
+        self.detail = detail
+        self.symbol = symbol
+        self.settingsDestination = settingsDestination
     }
 }
 
@@ -108,6 +117,63 @@ public struct HUDModel: Sendable, Equatable {
                  .meetingSilent, .meetingSeemsOver: .normal
             default: .yellow
             }
+        }
+
+        /// Compact status for the meeting surface. Device names and technical explanations
+        /// stay in `text`; safety consequences are never hidden behind the details control.
+        public var summary: String {
+            switch self {
+            case .remoteHearsYourVoice: String(localized: "会议仍会发送原声 · 翻译已停用")
+            case let .floorPaused(n): String(localized: "对方在说话 · 已暂停 \(n) 段")
+            case .numberMaybeWrong: String(localized: "译文数字待核对")
+            case .defaultInputChanged: String(localized: "系统麦克风已变化")
+            case .switchedBackAfterInsert: String(localized: "已恢复 TalkTalk Mic")
+            case .switchBackFailed: String(localized: "切换麦克风失败")
+            case .defaultInputRestored: String(localized: "系统麦克风已还原")
+            case .defaultInputRestoredElsewhere: String(localized: "已还原到其他实体麦克风")
+            case .defaultInputNotSwitched(let issue):
+                switch issue {
+                case .micMissing: String(localized: "未找到 TalkTalk Mic")
+                case .noPhysicalInput: String(localized: "未找到实体麦克风")
+                case .writeFailed: String(localized: "系统麦克风切换失败")
+                case .recordWriteFailed, .guardLaunchFailed: String(localized: "麦克风还原准备失败")
+                case .micNotSelectable: String(localized: "TalkTalk Mic 暂不可选")
+                }
+            case .openAIUnreachable: String(localized: "OpenAI 暂时不可用 · 已用 Apple")
+            case .openAIKeyInvalid: String(localized: "OpenAI key 或额度异常 · 已用 Apple")
+            case .modelRetired: String(localized: "翻译模型已更换")
+            case .passthroughTip: String(localized: "按住右 ⌥ 翻译")
+            default: text
+            }
+        }
+
+        public var symbol: String {
+            switch self {
+            case .meetingNotUsingMic, .remoteHearsYourVoice: "mic.slash"
+            case .speakerMode: "headphones"
+            case .audioRestarting: "arrow.clockwise"
+            case .meetingSilent, .meetingSeemsOver: "waveform"
+            case .tccUnconfirmed: "lock.shield"
+            case .defaultInputChanged, .switchBackFailed, .defaultInputNotSwitched: "mic.badge.xmark"
+            case .switchedBackAfterInsert, .defaultInputRestored, .defaultInputRestoredElsewhere: "checkmark.circle"
+            case .openAIUnreachable, .openAIKeyInvalid, .modelRetired: "network"
+            case .floorPaused: "pause.circle"
+            case .numberMaybeWrong, .sentenceMaybeIncomplete: "exclamationmark.triangle"
+            case .skipped, .segmentNotSent, .unsupportedTextNotSent: "nosign"
+            case .passthroughTip: "keyboard"
+            }
+        }
+
+        public var line: HUDLine {
+            let destination: HUDLine.SettingsDestination? = switch self {
+            case .meetingNotUsingMic, .remoteHearsYourVoice, .speakerMode, .defaultInputChanged,
+                 .switchBackFailed, .defaultInputNotSwitched: .audio
+            case .openAIUnreachable, .openAIKeyInvalid, .modelRetired: .translation
+            case .tccUnconfirmed: .permissions
+            default: nil
+            }
+            return HUDLine(summary, style, detail: summary == text ? nil : text,
+                           symbol: symbol, settingsDestination: destination)
         }
 
         /// Conditions stay until cleared; notices fade after `noticeSeconds`.
@@ -370,13 +436,19 @@ public struct HUDModel: Sendable, Equatable {
             case .original, .translating, .draining: .normal
             case .unavailable: .yellow
             }
-            out.append(HUDLine(audio.text, style))
+            if case .unavailable = audio {
+                out.append(HUDLine(String(localized: "音频暂不可用"), style,
+                                   detail: audio.text, symbol: "exclamationmark.triangle"))
+            } else { out.append(HUDLine(audio.text, style)) }
         } else if let p = passthroughLine(now: now) { out.append(p) }
         let conds = conditionOrder.compactMap { conditions[$0] }
-        out += conds.filter { $0.style == .red }.map { HUDLine($0.text, $0.style) }
+        // A physical-mic warning is more precise than the generic unavailable status and
+        // must remain first: the meeting app may still send raw audio outside our gate.
+        if conds.contains(.remoteHearsYourVoice), case .unavailable = meetingAudio { out.removeAll() }
+        out += conds.filter { $0.style == .red }.map(\.line)
         if meetingActive, pushToTalkAvailable { out += pushToTalkLines() }
-        out += conds.filter { $0.style != .red }.map { HUDLine($0.text, $0.style) }
-        out += notices.filter { $0.until > now }.map { HUDLine($0.warning.text, $0.warning.style) }
+        out += conds.filter { $0.style != .red }.map(\.line)
+        out += notices.filter { $0.until > now }.map { $0.warning.line }
         return out
     }
 

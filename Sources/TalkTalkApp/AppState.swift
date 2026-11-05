@@ -45,6 +45,7 @@ final class AppState {
         static let listenASREngine = "listen.asrEngine"
         static let subtitlesVisible = "ui.subtitlesVisible"
         static let subtitleFontSize = "ui.subtitleFontSize"
+        static let subtitleBackgroundOpacity = "ui.subtitleBackgroundOpacity"
         static let speakLanguage = "speak.targetLanguage"
     }
 
@@ -86,6 +87,17 @@ final class AppState {
             onSubtitleAppearanceChange?()
         }
     }
+    private var storedSubtitleBackgroundOpacity: Double
+    var subtitleBackgroundOpacity: Double {
+        get { storedSubtitleBackgroundOpacity }
+        set {
+            let opacity = newValue.isFinite ? min(1, max(0.35, newValue)) : 0.85
+            guard opacity != storedSubtitleBackgroundOpacity else { return }
+            storedSubtitleBackgroundOpacity = opacity
+            defaults.set(opacity, forKey: Key.subtitleBackgroundOpacity)
+            onSubtitleAppearanceChange?()
+        }
+    }
     @ObservationIgnored var onSubtitleAppearanceChange: (() -> Void)?
 
     var speakLanguage: RemoteLanguage {
@@ -117,6 +129,8 @@ final class AppState {
     }
     /// SystemInputSwitcher status for the menu (nil = nothing of ours in play), and its last notice.
     var systemInput: String?
+    /// Compact menu presentation, derived from the same typed switcher status.
+    var systemInputNotice: HUDLine?
 
     /// Whether `voice/profile.json` exists; refreshed when the settings page saves or deletes.
     private(set) var voiceProfilePresent: Bool
@@ -130,6 +144,8 @@ final class AppState {
         subtitlesVisible = defaults.object(forKey: Key.subtitlesVisible) as? Bool ?? true
         let savedSize = defaults.object(forKey: Key.subtitleFontSize) as? Double ?? 22
         storedSubtitleFontSize = savedSize.isFinite ? min(36, max(16, savedSize)) : 22
+        let savedOpacity = defaults.object(forKey: Key.subtitleBackgroundOpacity) as? Double ?? 0.85
+        storedSubtitleBackgroundOpacity = savedOpacity.isFinite ? min(1, max(0.35, savedOpacity)) : 0.85
         voiceProfilePresent = voiceStore.hasProfile
     }
 
