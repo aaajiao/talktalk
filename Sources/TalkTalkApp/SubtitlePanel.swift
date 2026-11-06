@@ -40,9 +40,30 @@ final class SubtitlePanel {
     /// Whole seconds the video captions trail the audio once over 5 s; nil while on time.
     /// The titlebar/hover dot turns yellow from this (§6 视觉反馈).
     private(set) var videoLag: Int?
+    /// PTTHUD turns this into the "字幕落后约 N 秒" warning chip (`VideoStatusDot.lagChip`).
     var onVideoLagChange: ((Int?) -> Void)?
-    /// "字幕落后约 N 秒" for the video hover bar.
-    var videoLagNotice: String? { videoLag.map { String(localized: "字幕落后约 \($0) 秒") } }
+    // Video window chrome (§6 窗口 / 鼠标穿透): hover-only bar, status dot, lock and hints.
+    private var hoverBar = VideoHoverBar()
+    private var hoverTimer: Timer?
+    private var chromeShown: Bool?
+    private var chromeGeneration = 0
+    private let hoverStrip = PassiveEffectView()
+    private let statusDot = VideoStatusDotView()
+    private let lockIndicator = NSImageView()
+    private let hintBubble = WindowHintView()
+    private var hintTimer: Timer?
+    private var hintCheck: DispatchWorkItem?
+    private var heldPopovers = Set<ObjectIdentifier>()
+    private var popoverObservers: [NSObjectProtocol] = []
+    private var spaceObserver: NSObjectProtocol?
+    private static let fullScreenHintKey = "ui.videoFullScreenHintShown"
+    /// "锁定字幕位置（鼠标穿透）", saved for the video scene by AppState.
+    private(set) var clickThroughLocked = false
+    /// The hover bar's ⋯ menu asks the owner to lock; only the menu bar unlocks.
+    var onLockRequest: (() -> Void)?
+    /// The persistent dot opens the details popover.
+    var onStatusDotClick: ((NSView) -> Void)?
+    private var quietDim = VideoQuietDim()
     /// Shared titlebar controls (redesign §3); PTTHUD supplies voice, issue and key state.
     let titlebar = SubtitleTitlebarView()
     private let titleView = SubtitleTitleView()
@@ -159,6 +180,29 @@ final class SubtitlePanel {
         conversation.onPlaceholderClick = { [weak self] anchor in self?.onPlaceholderClick?(anchor) }
         content.addSubview(videoCaptions)
         videoCaptions.isHidden = true
+        hoverStrip.material = .hudWindow
+        hoverStrip.blendingMode = .behindWindow
+        hoverStrip.state = .active
+        hoverStrip.isHidden = true
+        content.addSubview(hoverStrip)
+        statusDot.isHidden = true
+        content.addSubview(statusDot)
+        titlebar.onStatusDot = { [weak self] anchor in self?.onStatusDotClick?(anchor) }
+        titlebar.onFrameChange = { [weak self] in
+            guard let self, self.presentation == .video else { return }
+            self.layoutVideoChrome()
+        }
+        lockIndicator.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.locked,
+                                                   size: CGFloat(SubtitleClickThrough.indicatorSize), weight: .semibold)
+        lockIndicator.contentTintColor = SubtitleStyle.white(CGFloat(SubtitleClickThrough.indicatorAlpha))
+        lockIndicator.imageScaling = .scaleNone
+        lockIndicator.setAccessibilityLabel(String(localized: "字幕位置已锁定"))
+        lockIndicator.isHidden = true
+        content.addSubview(lockIndicator)
+        hintBubble.isHidden = true
+        content.addSubview(hintBubble)
+        content.onHover = { [weak self] inside in self?.pointerMoved(inside: inside) }
+        titlebar.onMore = { [weak self] anchor in self?.showMoreMenu(from: anchor) }
         titlebar.onPhone = { [weak self] in self?.openPhone?() }
         titlebar.onLayoutChange = { [weak self] in self?.updateTitlebarActions() }
         titlebarAccessory.layoutAttribute = .trailing
@@ -174,6 +218,7 @@ final class SubtitlePanel {
         if let screen = NSScreen.main ?? NSScreen.screens.first { loadSize(for: screen) }
         setFontSize(22)
         updateBackground()
+        applyWindowChrome()
         placeInitially()
         moveObserver = NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.savePosition() }
@@ -188,16 +233,29 @@ final class SubtitlePanel {
                     self.panel.didRestoreFromDock()
                     if self.presentation == .video {
                         self.renderVideo(at: HostClock.now(), forceLayout: true)
-                        self.videoCaptions.resetReadingTime(at: Double(HostClock.now()) / 1_000_000_000)
+                        self.resetVideoReading()
                     }
                     self.recordPresentation()
                 }
+            }
+        for name in [NSPopover.didShowNotification, NSPopover.didCloseNotification] {
+            let shown = name == NSPopover.didShowNotification
+            popoverObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                // Delivered on the main queue, so the popover is used on the main actor only.
+                let popover = note.object as? NSPopover
+                MainActor.assumeIsolated { if let popover { self?.popoverChanged(popover, shown: shown) } }
+            })
+        }
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.scheduleFullScreenHintCheck() }
             }
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.updateBackground()
                     self?.updateTitlebarActions()
+                    self?.updateVideoChrome(animated: false)
                     self?.onAppearanceChange?()
                 }
             }
@@ -206,6 +264,11 @@ final class SubtitlePanel {
     isolated deinit {
         timer?.invalidate()
         dockTimer?.invalidate()
+        hoverTimer?.invalidate()
+        hintTimer?.invalidate()
+        hintCheck?.cancel()
+        popoverObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
         if let moveObserver { NotificationCenter.default.removeObserver(moveObserver) }
         if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
         if let accessibilityObserver { NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver) }
@@ -225,6 +288,7 @@ final class SubtitlePanel {
         board = SubtitleBoard(maxCharactersPerSecond: 9, retention: value == .video ? nil : .meeting)
         updateWindowTitle()
         updateRemoteHeadings()
+        applyWindowChrome()
         updateBackground()
         if let screen { loadSize(for: screen) }
         else { manualContentSize = nil }
@@ -291,6 +355,7 @@ final class SubtitlePanel {
         let wasVisible = statusVisible
         titlebarVoice = voice; titlebarIssue = issue; titlebarKey = key
         updateTitlebarActions()
+        layoutVideoChrome()
         if wasVisible != statusVisible { updateWindowVisibility() }
     }
 
@@ -299,7 +364,8 @@ final class SubtitlePanel {
         SubtitleTitlebarContent(scene: scene, source: sourceName, voice: titlebarVoice, issue: titlebarIssue,
                                 key: titlebarKey, showsPhone: showsPhoneActions,
                                 phoneEnabled: phoneActionsEnabled && sessionActionsEnabled,
-                                showsEnd: sessionActionsActive, endEnabled: sessionActionsEnabled)
+                                showsEnd: sessionActionsActive, endEnabled: sessionActionsEnabled,
+                                showsMore: presentation == .video && sessionActionsActive)
     }
 
     func setSessionActions(active: Bool, enabled: Bool = true) {
@@ -619,6 +685,8 @@ final class SubtitlePanel {
         videoCaptions.setCaption(source: NSAttributedString(string: ""), translation: NSAttributedString(string: ""),
                                  sentence: nil, isFinal: false, at: Double(HostClock.now()) / 1_000_000_000)
         if includingMyTurns { timeline.clear() } else { timeline.clearRemote() }
+        restoreFromQuietDim()
+        if videoLag != nil { videoLag = nil; onVideoLagChange?(nil) }
         announcedThrough = 0
         conversation.followLatest()
         if hadHint { onHintChange?(nil) }
@@ -666,9 +734,16 @@ final class SubtitlePanel {
 
     private func applyVideo(_ update: SubtitleUpdate, at now: HostTime) {
         let previousPending = videoBoard.pendingSentenceIDs
+        let previousSource = liveSource
         var droppedSentence: UInt64?
         if case .source(let text) = update { liveSource = text }
         let changed = videoBoard.apply(update, at: now)
+        // New cues, draft revisions and changed source text end long-silence dimming at once.
+        switch update {
+        case .final, .draft: if changed { restoreFromQuietDim() }
+        case .source(let text): if text != previousSource, !text.isEmpty { restoreFromQuietDim() }
+        case .dropped: break
+        }
         if videoBoard.skippedCount > seenSkippedCount {
             videoCaptions.showSkipped(count: videoBoard.skippedCount - seenSkippedCount, at: Double(now) / 1_000_000_000)
         }
@@ -862,6 +937,7 @@ final class SubtitlePanel {
         content.frame = NSRect(origin: .zero, size: size)
         backgroundEffect.frame = content.bounds
         updateTitlebarActions()
+        layoutVideoChrome()
         // A content refresh must not fight an in-progress drag or overwrite a manual size.
         if sizeChanged {
             let x = min(max(visible.minX + 12, old.midX - width / 2), visible.maxX - width - 12)
@@ -878,7 +954,8 @@ final class SubtitlePanel {
         if on {
             if presentation == .video {
                 renderVideo(at: HostClock.now(), forceLayout: true)
-                videoCaptions.resetReadingTime(at: Double(HostClock.now()) / 1_000_000_000)
+                resetVideoReading()
+                scheduleFullScreenHintCheck()
             }
             observe("panel_shown", at: HostClock.now())
             recordPresentation()
@@ -898,7 +975,10 @@ final class SubtitlePanel {
             // Minimized is a user-owned presentation state, independent of subtitles being
             // enabled and of audio work. A status transition must never bring it back.
             guard !isMiniaturized, !panel.userHidden else { return }
-            if !panel.isVisible { panel.orderFrontRegardless() }
+            if !panel.isVisible {
+                panel.orderFrontRegardless()
+                scheduleFullScreenHintCheck()
+            }
         } else {
             // Ending the last visible work removes its Dock thumbnail without flashing the
             // window on screen. Reusing this retained panel later starts a fresh presentation.
@@ -926,7 +1006,8 @@ final class SubtitlePanel {
         panel.orderFrontRegardless()
         if presentation == .video {
             renderVideo(at: HostClock.now(), forceLayout: true)
-            videoCaptions.resetReadingTime(at: Double(HostClock.now()) / 1_000_000_000)
+            resetVideoReading()
+            scheduleFullScreenHintCheck()
         }
         recordPresentation()
     }
@@ -949,6 +1030,9 @@ final class SubtitlePanel {
             if videoCaptions.canAdvance(at: seconds), videoBoard.advance() {
                 renderVideo(at: now)
             } else if pageChanged { recordPresentation() }
+            quietDim.update(lastPageRead: videoCaptions.hasReadLastPage(at: seconds),
+                            pending: !videoBoard.pendingSentenceIDs.isEmpty, at: seconds)
+            videoCaptions.setQuietDimmed(quietDim.isDimmed(at: seconds))
             return
         }
         let advanced = board.advance(at: now)
@@ -1023,6 +1107,282 @@ final class SubtitlePanel {
     private func savePosition() {
         guard !isLayingOut, !isMiniaturized, let screen = panel.screen else { return }
         UserDefaults.standard.set(NSStringFromPoint(panel.frame.origin), forKey: key(for: screen))
+    }
+
+    // MARK: video window chrome (§6 窗口 / 鼠标穿透, §1 长静默变暗)
+
+    /// Video: transparent full-size titlebar that only appears on hover. Meeting and phone keep
+    /// the normal titlebar. Red close and yellow minimise keep their meaning in both.
+    private func applyWindowChrome() {
+        let video = presentation == .video
+        if video { panel.styleMask.insert(.fullSizeContentView) } else { panel.styleMask.remove(.fullSizeContentView) }
+        panel.titlebarAppearsTransparent = video
+        panel.titlebarSeparatorStyle = video ? .none : .automatic
+        // The hover bar holds the red and yellow buttons only.
+        panel.standardWindowButton(.zoomButton)?.isHidden = video
+        content.dragsWindow = !video
+        titlebar.trailingInset = video ? CGFloat(VideoStatusDot.reservedTrailingWidth) : 0
+        hoverTimer?.invalidate(); hoverTimer = nil
+        hoverBar = VideoHoverBar()
+        applyClickThrough()
+        if video {
+            hoverBar.pointer(inside: pointerIsInsideWindow, at: uptime)
+        } else {
+            hideHint()
+        }
+        chromeShown = nil
+        updateVideoChrome(animated: false)
+        updateTitlebarActions()
+    }
+
+    private var uptime: Double { ProcessInfo.processInfo.systemUptime }
+    private var pointerIsInsideWindow: Bool { panel.isVisible && NSMouseInRect(NSEvent.mouseLocation, panel.frame, false) }
+
+    /// The native titlebar view that holds the traffic lights and the accessories.
+    private var titlebarContainer: NSView? {
+        guard let titlebarView = panel.standardWindowButton(.closeButton)?.superview else { return nil }
+        if let container = titlebarView.superview, NSStringFromClass(type(of: container)).contains("TitlebarContainer") {
+            return container
+        }
+        return titlebarView
+    }
+
+    /// Height of the hover bar: 28 pt, or the native titlebar if AppKit makes it taller.
+    private var hoverStripHeight: CGFloat {
+        let native = panel.frame.height - panel.contentLayoutRect.height
+        return max(CGFloat(SubtitleTokens.Size.videoHoverBarHeight), native.isFinite ? native : 0)
+    }
+
+    private func pointerMoved(inside: Bool) {
+        guard presentation == .video else { return }
+        hoverBar.pointer(inside: inside, at: uptime)
+        updateVideoChrome(animated: true)
+    }
+
+    /// A popover opened from this window (details, end confirmation) keeps a shown bar.
+    private func popoverChanged(_ popover: NSPopover, shown: Bool) {
+        let id = ObjectIdentifier(popover)
+        if shown {
+            guard popover.contentViewController?.view.window?.parent === panel else { return }
+            heldPopovers.insert(id)
+        } else {
+            guard heldPopovers.remove(id) != nil else { return }
+        }
+        guard presentation == .video else { return }
+        hoverBar.setHeld(!heldPopovers.isEmpty, at: uptime)
+        updateVideoChrome(animated: true)
+    }
+
+    private func updateVideoChrome(animated: Bool) {
+        hoverTimer?.invalidate(); hoverTimer = nil
+        guard presentation == .video else {
+            setChrome(shown: true, animated: false)
+            layoutVideoChrome()
+            return
+        }
+        let now = uptime
+        if let deadline = hoverBar.hideDeadline(at: now) {
+            let timer = Timer(timeInterval: max(0.01, deadline - now), repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateVideoChrome(animated: true) }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            hoverTimer = timer
+        }
+        setChrome(shown: hoverBar.isShown(at: now), animated: animated)
+        layoutVideoChrome()
+    }
+
+    /// Fades the native titlebar (lights, title, controls) and the hudWindow strip together:
+    /// 200 ms, instant with Reduce Motion. A hidden bar takes no clicks.
+    private func setChrome(shown: Bool, animated: Bool) {
+        guard chromeShown != shown else { return }
+        chromeShown = shown
+        chromeGeneration += 1
+        let generation = chromeGeneration
+        let video = presentation == .video
+        let views = [titlebarContainer, video ? hoverStrip : nil].compactMap { $0 }
+        if !video { hoverStrip.isHidden = true }
+        let target: CGFloat = shown ? 1 : 0
+        if shown { views.forEach { $0.isHidden = false } }
+        let duration = animated ? VideoHoverBar.fadeDuration(reduceMotion: SubtitleStyle.Display.current.reduceMotion) : 0
+        guard duration > 0, panel.isVisible else {
+            views.forEach { $0.alphaValue = target }
+            chromeFadeFinished(generation: generation)
+            return
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = duration
+            views.forEach { $0.animator().alphaValue = target }
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated { self?.chromeFadeFinished(generation: generation) }
+        })
+    }
+
+    private func chromeFadeFinished(generation: Int) {
+        guard generation == chromeGeneration else { return }
+        if chromeShown == false {
+            titlebarContainer?.isHidden = true
+            hoverStrip.isHidden = true
+        }
+        panel.invalidateShadow()
+    }
+
+    /// Strip, persistent dot and lock indicator in the top-right corner, and the hint.
+    private func layoutVideoChrome() {
+        let video = presentation == .video
+        let width = content.bounds.width
+        let strip = hoverStripHeight
+        hoverStrip.frame = NSRect(x: 0, y: 0, width: width, height: strip)
+        let dot = video ? VideoStatusDot.make(issue: titlebarIssue) : nil
+        statusDot.isHidden = dot == nil
+        titlebar.showsStatusDotTarget = dot != nil
+        let inset = CGFloat(VideoStatusDot.edgeInset)
+        let box = VideoStatusDotView.boxSize
+        var dotFrame = NSRect(x: width - inset - CGFloat(VideoStatusDot.diameter) / 2 - box / 2,
+                              y: strip / 2 - box / 2, width: box, height: box)
+        // Draw the dot exactly under its click target in the titlebar when that is placed.
+        let target = titlebar.statusDotTarget
+        if dot != nil, titlebarAccessoryInstalled, titlebar.window === panel, target.frame.width > 0 {
+            let converted = content.convert(target.convert(target.bounds, to: nil), from: nil)
+            if converted.minX.isFinite, content.bounds.insetBy(dx: -1, dy: -1).contains(converted) { dotFrame = converted }
+        }
+        if let dot {
+            statusDot.frame = dotFrame
+            statusDot.color = SubtitleStyle.color(dot.color)
+            let chip = titlebarIssue?.chip
+            target.setAccessibilityLabel(chip?.label)
+            target.setAccessibilityHelp(chip?.detail)
+            target.toolTip = chip?.detail
+        }
+        lockIndicator.isHidden = !(video && panel.ignoresMouseEvents)
+        let lockSize: CGFloat = 12
+        let lockRight = dot == nil ? width - inset : dotFrame.minX
+        lockIndicator.frame = NSRect(x: lockRight - lockSize, y: strip / 2 - lockSize / 2, width: lockSize, height: lockSize)
+        if !hintBubble.isHidden {
+            let size = hintBubble.fittingSize
+            hintBubble.frame = NSRect(x: (width - size.width) / 2, y: strip + 6, width: size.width, height: size.height)
+        }
+    }
+
+    /// Locked: the whole window ignores the mouse and cannot be dragged; only the menu-bar
+    /// menu unlocks it (§6 鼠标穿透).
+    func setClickThroughLocked(_ locked: Bool) {
+        guard clickThroughLocked != locked else { return }
+        clickThroughLocked = locked
+        applyClickThrough()
+        if locked { hideHint() }
+        updateVideoChrome(animated: false)
+    }
+
+    private func applyClickThrough() {
+        let ignores = SubtitleClickThrough.ignoresMouse(locked: clickThroughLocked, scene: scene)
+        panel.ignoresMouseEvents = ignores
+        panel.isMovable = !ignores
+        hoverBar.setLocked(ignores)
+        if !ignores, presentation == .video { hoverBar.pointer(inside: pointerIsInsideWindow, at: uptime) }
+    }
+
+    private func showMoreMenu(from anchor: NSView) {
+        guard presentation == .video else { return }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let lock = NSMenuItem(title: String(localized: "锁定字幕位置（鼠标穿透）"), action: #selector(PanelMenuAction.run),
+                              keyEquivalent: "")
+        let action = PanelMenuAction { [weak self] in self?.onLockRequest?() }
+        lock.target = action
+        lock.representedObject = action
+        lock.image = NSImage(systemSymbolName: SubtitleTokens.VoiceIcon.locked, accessibilityDescription: nil)
+        lock.toolTip = String(localized: "锁定后鼠标会穿过字幕窗口；从菜单栏的 TalkTalk 菜单解锁。")
+        menu.addItem(lock)
+        hoverBar.setHeld(true, at: uptime)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.isFlipped ? anchor.bounds.maxY + 4 : -4), in: anchor)
+        hoverBar.setHeld(false, at: uptime)
+        hoverBar.pointer(inside: pointerIsInsideWindow, at: uptime)
+        updateVideoChrome(animated: true)
+    }
+
+    // Long-silence dimming.
+
+    /// "长静默时变暗" (default on). Off restores at once.
+    func setVideoQuietDimEnabled(_ on: Bool) {
+        guard quietDim.enabled != on else { return }
+        quietDim.enabled = on
+        if !on { videoCaptions.setQuietDimmed(false) }
+    }
+
+    private func restoreFromQuietDim() {
+        quietDim.contentArrived()
+        videoCaptions.setQuietDimmed(false)
+    }
+
+    /// Hidden time is not reading time; a restored page starts undimmed with a fresh budget.
+    private func resetVideoReading() {
+        restoreFromQuietDim()
+        videoCaptions.resetReadingTime(at: Double(HostClock.now()) / 1_000_000_000)
+    }
+
+    // One-time full-screen Space hint.
+
+    /// Space changes settle after the switch animation; check shortly after.
+    private func scheduleFullScreenHintCheck() {
+        guard presentation == .video, !UserDefaults.standard.bool(forKey: Self.fullScreenHintKey) else { return }
+        hintCheck?.cancel()
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.checkFullScreenHint() } }
+        hintCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
+    private func checkFullScreenHint() {
+        let shown = UserDefaults.standard.bool(forKey: Self.fullScreenHintKey)
+        let visible = isVisible && panel.isOnActiveSpace
+        guard presentation == .video, visible, !shown,
+              FullScreenSpaceHint.shouldShow(alreadyShown: shown, scene: scene, windowVisible: visible,
+                                             locked: clickThroughLocked, onFullScreenSpace: activeSpaceIsFullScreen)
+        else { return }
+        UserDefaults.standard.set(true, forKey: Self.fullScreenHintKey)
+        hintBubble.text = FullScreenSpaceHint.text
+        hintBubble.alphaValue = 1
+        hintBubble.isHidden = false
+        layoutVideoChrome()
+        hintTimer?.invalidate()
+        let timer = Timer(timeInterval: FullScreenSpaceHint.seconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.hideHint(animated: true) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        hintTimer = timer
+    }
+
+    private func hideHint(animated: Bool = false) {
+        hintTimer?.invalidate(); hintTimer = nil
+        guard !hintBubble.isHidden else { return }
+        let duration = animated ? SubtitleStyle.duration(.noticeFadeOut) : 0
+        guard duration > 0 else { hintBubble.isHidden = true; return }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = duration
+            hintBubble.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated { self?.hintBubble.isHidden = true }
+        })
+    }
+
+    /// Another app's normal window covers this display, menu-bar area included. Only window
+    /// bounds, levels and owner process numbers are read; nothing is stored or logged.
+    private var activeSpaceIsFullScreen: Bool {
+        guard let screen = panel.screen ?? NSScreen.main,
+              let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] else { return false }
+        let display = CGDisplayBounds(CGDirectDisplayID(number.uint32Value))
+        let windows = list.compactMap { entry -> FullScreenSpaceHint.Window? in
+            guard let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue,
+                  let pid = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                  let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return nil }
+            return .init(layer: layer, ownerPID: pid, x: rect.minX, y: rect.minY, width: rect.width, height: rect.height)
+        }
+        return FullScreenSpaceHint.isFullScreenSpace(
+            windows: windows, display: (display.minX, display.minY, display.width, display.height),
+            ownPID: ProcessInfo.processInfo.processIdentifier)
     }
 
     var sharingTypeIsNone: Bool { panel.sharingType == .none }
@@ -1116,9 +1476,102 @@ private final class SubtitleWindow: NSPanel {
     }
 }
 final class ConversationContentView: NSView {
+    /// Video sets this off: only its text blocks and the hover bar drag the window (§6).
+    var dragsWindow = true
+    /// Pointer over the window, from an `.activeAlways` tracking area (the panel is never key).
+    var onHover: ((Bool) -> Void)?
+    private var hoverArea: NSTrackingArea?
     override var isFlipped: Bool { true }
-    override var mouseDownCanMoveWindow: Bool { true }
-    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    override var mouseDownCanMoveWindow: Bool { dragsWindow }
+    override func mouseDown(with event: NSEvent) { if dragsWindow { window?.performDrag(with: event) } }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    // Subviews forward their own tracking events up the responder chain; only ours count.
+    override func mouseEntered(with event: NSEvent) {
+        if event.trackingArea === hoverArea { onHover?(true) } else { super.mouseEntered(with: event) }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if event.trackingArea === hoverArea { onHover?(false) } else { super.mouseExited(with: event) }
+    }
+}
+
+/// The video hover bar's hudWindow strip; clicks go to the titlebar above it or nowhere.
+final class PassiveEffectView: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// The 8 pt status dot (§6), drawn in the content; its click target lives in the titlebar.
+@MainActor
+final class VideoStatusDotView: NSView {
+    static let boxSize: CGFloat = 16
+    var color: NSColor = .systemOrange { didSet { if color != oldValue { needsDisplay = true } } }
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override init(frame frameRect: NSRect = .zero) {
+        super.init(frame: frameRect)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let diameter = CGFloat(VideoStatusDot.diameter)
+        color.setFill()
+        NSBezierPath(ovalIn: NSRect(x: (bounds.width - diameter) / 2, y: (bounds.height - diameter) / 2,
+                                    width: diameter, height: diameter)).fill()
+    }
+}
+
+/// A short hint capsule inside the window (the full-screen Space hint).
+@MainActor
+final class WindowHintView: NSView {
+    private let label = NSTextField(labelWithString: "")
+    var text: String {
+        get { label.stringValue }
+        set { label.stringValue = newValue; needsLayout = true }
+    }
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect = .zero) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(white: 0, alpha: 0.6).cgColor
+        layer?.cornerRadius = CGFloat(SubtitleTokens.Radius.chip)
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.textColor = SubtitleStyle.white(0.9)
+        addSubview(label)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override var fittingSize: NSSize {
+        let size = label.intrinsicContentSize
+        return NSSize(width: ceil(size.width) + 20, height: ceil(size.height) + 8)
+    }
+
+    override func layout() {
+        super.layout()
+        let size = label.intrinsicContentSize
+        label.frame = NSRect(x: 10, y: (bounds.height - size.height) / 2, width: bounds.width - 20, height: size.height)
+    }
+}
+
+private final class PanelMenuAction: NSObject {
+    private let action: () -> Void
+    init(_ action: @escaping () -> Void) { self.action = action }
+    @objc func run() { action() }
 }
 final class ConversationLabel: NSTextField {
     override var mouseDownCanMoveWindow: Bool { true }

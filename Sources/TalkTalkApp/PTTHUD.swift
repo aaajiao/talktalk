@@ -70,6 +70,13 @@ final class PTTHUD {
             render(force: true)
         }
         panel.onDockAction = { [weak self] anchor in self?.toggleDetails(from: anchor) }
+        panel.onStatusDotClick = { [weak self] anchor in self?.toggleDetails(from: anchor) }
+        // Video captions more than 5 s behind: a warning chip in the hover bar, yellow dot (§6).
+        panel.onVideoLagChange = { [weak self] lag in
+            guard let self else { return }
+            model.setExternalIssue(.videoLag, lag.map(VideoStatusDot.lagChip(seconds:)))
+            requestRedraw()
+        }
         panel.onPlaceholderClick = { [weak self] anchor in self?.toggleDetails(from: anchor) }
         panel.onHintChange = { [weak self] message in
             guard let self else { return }

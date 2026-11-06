@@ -3,7 +3,7 @@ import AppKit
 import TalkTalkCore
 
 /// Shared titlebar (redesign §3). Right side, fixed order, hidden items take no space:
-/// [voice capsule ⌄] [issue / notice chip] [右⌥ keycap + action] [Phone ↗] │ [end].
+/// [voice capsule ⌄] [issue / notice chip] [右⌥ keycap + action] [Phone ↗] [⋯] │ [end].
 /// Everything is driven by `SubtitleTitlebarContent`, so the settings preview can render the
 /// same component from static data.
 @MainActor
@@ -13,18 +13,29 @@ final class SubtitleTitlebarView: NSView {
     var onKey: ((NSView) -> Void)?
     var onPhone: (() -> Void)?
     var onEnd: ((NSView) -> Void)?
+    /// The video hover bar's "⋯" menu (§6).
+    var onMore: ((NSView) -> Void)?
+    /// The video window's status dot (drawn by the panel below the titlebar) is clicked here.
+    var onStatusDot: ((NSView) -> Void)?
 
     let capsule = VoiceCapsuleView(large: false)
     let chip = IssueChipView()
     let cloud = CloudPrivacyView()
     let keycap = KeycapActionView()
     let phone = NSButton()
+    let more = MoreMenuButton()
+    /// Invisible click target over the status dot, inside `trailingInset`; the titlebar sits
+    /// above the content, so the dot itself could not receive clicks while the bar is shown.
+    let statusDotTarget = TitlebarControl()
+    var showsStatusDotTarget = false { didSet { statusDotTarget.isHidden = !showsStatusDotTarget } }
     private let divider = NSView()
     let end = EndTextButton()
     private(set) var content = SubtitleTitlebarContent(scene: .meeting)
     private(set) var compaction = TitlebarCompaction(level: 0)
     private var fadingChip = false
     private var display = SubtitleStyle.Display.current
+    /// Empty room after the end button; the video window keeps its status dot there.
+    var trailingInset: CGFloat = 0 { didSet { if trailingInset != oldValue { relayout() } } }
 
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
@@ -40,6 +51,10 @@ final class SubtitleTitlebarView: NSView {
         cloud.onClick = { [weak self] in guard let self else { return }; onIssue?(cloud) }
         keycap.onClick = { [weak self] in guard let self else { return }; onKey?(keycap) }
         end.onClick = { [weak self] in guard let self else { return }; onEnd?(end) }
+        more.onClick = { [weak self] in guard let self else { return }; onMore?(more) }
+        statusDotTarget.onClick = { [weak self] in guard let self else { return }; onStatusDot?(statusDotTarget) }
+        statusDotTarget.isHidden = true
+        addSubview(statusDotTarget)
         phone.bezelStyle = .accessoryBarAction
         phone.controlSize = .small
         phone.font = SubtitleStyle.controlFont(ControlTypography.capsule, weight: .medium)
@@ -53,7 +68,7 @@ final class SubtitleTitlebarView: NSView {
         divider.wantsLayer = true
         divider.layer?.backgroundColor = SubtitleStyle.white(0.2).cgColor
         divider.setAccessibilityElement(false)
-        for view in [capsule, chip, cloud, keycap, phone, divider, end] as [NSView] {
+        for view in [capsule, chip, cloud, keycap, phone, more, divider, end] as [NSView] {
             view.isHidden = true
             addSubview(view)
         }
@@ -78,13 +93,14 @@ final class SubtitleTitlebarView: NSView {
             widths.append(KeycapActionView.width(for: key, showsAction: compaction.showsKeyAction))
         }
         if content.showsPhone { widths.append(compaction.showsPhoneText ? SubtitleTokens.Size.phoneButtonWidth : 28) }
+        if content.showsMore { widths.append(MoreMenuButton.width) }
         let spacing = SubtitleTokens.Size.controlSpacing
         var total = widths.reduce(0, +) + CGFloat(max(0, widths.count - 1)) * spacing
         if content.showsEnd {
             let endWidth = EndTextButton.width(title: content.scene.endTitle, showsText: compaction.showsEndText)
             total += (widths.isEmpty ? 0 : SubtitleTokens.Size.endDividerGap * 2 + 1) + endWidth
         }
-        return ceil(total)
+        return ceil(total + (content.hasTrailingItems ? trailingInset : 0))
     }
 
     func apply(_ next: SubtitleTitlebarContent, compaction nextCompaction: TitlebarCompaction,
@@ -113,6 +129,7 @@ final class SubtitleTitlebarView: NSView {
         phone.isHidden = !next.showsPhone
         phone.isEnabled = next.phoneEnabled
         phone.imagePosition = nextCompaction.showsPhoneText ? .imageLeading : .imageOnly
+        more.isHidden = !next.showsMore
         end.isHidden = !next.showsEnd
         end.isEnabled = next.endEnabled
         end.apply(title: next.scene.endTitle, showsText: nextCompaction.showsEndText)
@@ -150,6 +167,20 @@ final class SubtitleTitlebarView: NSView {
 
     /// Called when a fade finished and the group's width changed by itself.
     var onLayoutChange: (() -> Void)?
+    /// AppKit moved or resized the accessory (the video status dot follows its target).
+    var onFrameChange: (() -> Void)?
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let changed = newOrigin != frame.origin
+        super.setFrameOrigin(newOrigin)
+        if changed { onFrameChange?() }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { onFrameChange?() }
+    }
 
     /// AppKit may give the accessory the native titlebar height; controls stay centred.
     private var rowHeight: CGFloat { bounds.height > 0 ? bounds.height : SubtitleTokens.Size.titlebarHeight }
@@ -161,7 +192,7 @@ final class SubtitleTitlebarView: NSView {
 
     private func relayout() {
         var shown: [NSView] = []
-        for view in [capsule, chip, cloud, keycap, phone] as [NSView] where !view.isHidden { shown.append(view) }
+        for view in [capsule, chip, cloud, keycap, phone, more] as [NSView] where !view.isHidden { shown.append(view) }
         let height = rowHeight
         let control = SubtitleTokens.Size.controlHeight
         let y = (height - control) / 2
@@ -173,6 +204,7 @@ final class SubtitleTitlebarView: NSView {
                 ?? chip.frame.width
             case cloud: CloudPrivacyView.width
             case keycap: content.key.map { KeycapActionView.width(for: $0, showsAction: compaction.showsKeyAction) } ?? 0
+            case more: MoreMenuButton.width
             default: compaction.showsPhoneText ? SubtitleTokens.Size.phoneButtonWidth : 28
             }
             view.frame = NSRect(x: x, y: y, width: width, height: control)
@@ -190,7 +222,11 @@ final class SubtitleTitlebarView: NSView {
             end.frame = NSRect(x: x, y: y, width: width, height: control)
             x += width
         }
+        if x > 0 { x += trailingInset }
         let width = ceil(max(0, x))
+        let box = VideoStatusDotView.boxSize
+        let dotCenter = width - CGFloat(VideoStatusDot.edgeInset + VideoStatusDot.diameter / 2)
+        statusDotTarget.frame = NSRect(x: dotCenter - box / 2, y: (height - box) / 2, width: box, height: box)
         if abs(frame.width - width) > 0.5 { setFrameSize(NSSize(width: width, height: rowHeight)) }
     }
 }
@@ -668,5 +704,34 @@ final class EndTextButton: TitlebarControl {
         let labelHeight = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: 2, y: (bounds.height - labelHeight) / 2, width: max(0, bounds.width - 4), height: labelHeight)
         icon.frame = NSRect(x: (bounds.width - 16) / 2, y: (bounds.height - 16) / 2, width: 16, height: 16)
+    }
+}
+
+/// "⋯" in the video hover bar: opens the window's options menu. White 70%, 92% on hover.
+@MainActor
+final class MoreMenuButton: TitlebarControl {
+    static let width: CGFloat = 22
+    private let icon = NSImageView()
+
+    override init(frame frameRect: NSRect = .zero) {
+        super.init(frame: frameRect)
+        icon.imageScaling = .scaleNone
+        icon.image = SubtitleStyle.symbol("ellipsis", size: 13, weight: .semibold)
+        icon.setAccessibilityElement(false)
+        addSubview(icon)
+        setAccessibilityLabel(String(localized: "更多"))
+        toolTip = String(localized: "更多")
+        hoverChanged()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func hoverChanged() {
+        icon.contentTintColor = SubtitleStyle.white(isHovered && isEnabled ? 0.92 : 0.7)
+    }
+
+    override func layout() {
+        super.layout()
+        icon.frame = NSRect(x: (bounds.width - 18) / 2, y: (bounds.height - 16) / 2, width: 18, height: 16)
     }
 }

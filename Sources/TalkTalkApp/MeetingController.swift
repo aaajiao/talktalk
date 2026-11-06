@@ -61,6 +61,7 @@ final class MeetingController {
         state.onRefreshSources = { [weak self] in self?.refreshSourceOptions() }
         panel.openPhone = { [weak self] in self?.openPhone() }
         panel.endPhoneTranslation = { [weak self] in self?.toggle(mode: .phone) }
+        panel.onLockRequest = { [weak self] in self?.state.videoSubtitleLocked = true }
         applySubtitleAppearance()
         panel.analysisRecorder = privacy?.subtitleAnalysis
         ui = events.subscribe { [weak self] e in
@@ -128,6 +129,9 @@ final class MeetingController {
         panel.setRemoteLanguageTitle(state.remoteLanguage.title)
         panel.setSourceName(state.meetingMode == .phone ? "Phone" : state.meetingApp)
         panel.announcesNewTranslations = state.announceNewTranslations
+        // Only the video window uses these; the panel ignores them in other scenes.
+        panel.setClickThroughLocked(state.videoSubtitleLocked)
+        panel.setVideoQuietDimEnabled(state.videoLongSilenceDim)
         switch panel.presentation {
         case .meeting:
             panel.setFontSize(state.subtitleFontSize)

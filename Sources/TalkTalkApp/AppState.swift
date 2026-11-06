@@ -53,6 +53,8 @@ final class AppState {
         static let phoneSubtitleFontSize = "ui.phoneSubtitleFontSize"
         static let phoneSubtitleBackgroundOpacity = "ui.phoneSubtitleBackgroundOpacity"
         static let announceNewTranslations = "ui.announceNewTranslations"
+        static let videoSubtitleLocked = "ui.videoSubtitleLocked"
+        static let videoLongSilenceDim = "ui.videoLongSilenceDim"
         static let speakLanguage = "speak.targetLanguage"
     }
 
@@ -141,6 +143,23 @@ final class AppState {
         didSet {
             guard videoCaptionArrangement != oldValue else { return }
             defaults.set(videoCaptionArrangement.rawValue, forKey: Key.videoCaptionArrangement)
+            onSubtitleAppearanceChange?()
+        }
+    }
+    /// "锁定字幕位置（鼠标穿透）" (redesign §6), saved for the video scene. Set from the hover
+    /// bar's ⋯ menu or the menu-bar menu; only the menu-bar menu can clear it.
+    var videoSubtitleLocked: Bool {
+        didSet {
+            guard videoSubtitleLocked != oldValue else { return }
+            defaults.set(videoSubtitleLocked, forKey: Key.videoSubtitleLocked)
+            onSubtitleAppearanceChange?()
+        }
+    }
+    /// "长静默时变暗" (redesign §1), on by default.
+    var videoLongSilenceDim: Bool {
+        didSet {
+            guard videoLongSilenceDim != oldValue else { return }
+            defaults.set(videoLongSilenceDim, forKey: Key.videoLongSilenceDim)
             onSubtitleAppearanceChange?()
         }
     }
@@ -269,6 +288,8 @@ final class AppState {
         videoCaptionArrangement = VideoCaptionArrangement(
             rawValue: defaults.string(forKey: Key.videoCaptionArrangement) ?? "") ?? .default
         announceNewTranslations = defaults.object(forKey: Key.announceNewTranslations) as? Bool ?? false
+        videoSubtitleLocked = defaults.object(forKey: Key.videoSubtitleLocked) as? Bool ?? false
+        videoLongSilenceDim = defaults.object(forKey: Key.videoLongSilenceDim) as? Bool ?? true
         let phoneSize = defaults.object(forKey: Key.phoneSubtitleFontSize) as? Double ?? 22
         phoneSubtitleFontSize = phoneSize.isFinite ? min(36, max(16, phoneSize)) : 22
         let phoneOpacity = defaults.object(forKey: Key.phoneSubtitleBackgroundOpacity) as? Double ?? 0.85

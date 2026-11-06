@@ -310,18 +310,21 @@ public struct SubtitleTitlebarContent: Sendable, Equatable {
     public var phoneEnabled: Bool
     public var showsEnd: Bool
     public var endEnabled: Bool
+    /// The video hover bar's "⋯" menu (§6), just before the end button.
+    public var showsMore: Bool
 
     public init(scene: SubtitleScene, source: String? = nil, voice: VoiceState? = nil, issue: IssueSlot? = nil,
                 key: TitlebarKey? = nil, showsPhone: Bool = false, phoneEnabled: Bool = true,
-                showsEnd: Bool = false, endEnabled: Bool = true) {
+                showsEnd: Bool = false, endEnabled: Bool = true, showsMore: Bool = false) {
         self.scene = scene; self.source = source; self.voice = voice; self.issue = issue; self.key = key
         self.showsPhone = showsPhone; self.phoneEnabled = phoneEnabled
         self.showsEnd = showsEnd; self.endEnabled = endEnabled
+        self.showsMore = showsMore
     }
 
     /// Phone's source is always Phone itself.
     public var sourceTitle: String? { scene == .phone ? "Phone" : source }
-    public var hasTrailingItems: Bool { voice != nil || issue != nil || key != nil || showsPhone || showsEnd }
+    public var hasTrailingItems: Bool { voice != nil || issue != nil || key != nil || showsPhone || showsEnd || showsMore }
 }
 
 /// Narrow-window yield order (§3): source name truncates first (the leading title takes the

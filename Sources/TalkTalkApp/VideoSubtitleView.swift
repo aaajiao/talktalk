@@ -38,11 +38,15 @@ final class VideoSubtitleView: NSView {
     private var source = NSAttributedString(string: "")
     private var translation = NSAttributedString(string: "")
     private var fallback = false
+    /// Glass, or the text blocks plus the glass padding: the only area that drags the window.
+    private(set) var textBlockRect = NSRect.null
+    /// Long-silence dimming (§1): text 35%, glass or plates at most 40%.
+    private(set) var quietDimmed = false
     private var sourcePages: [Page] = []
     private var translationPages: [Page] = []
     private var sourcePageIndex = 0
     private var translationPageIndex = 0
-    private var hasCaption = false
+    private(set) var hasCaption = false
     private var layoutReady = false
     private var resetPage = true
     private var lastTime = 0.0
@@ -91,8 +95,17 @@ final class VideoSubtitleView: NSView {
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
-    override var mouseDownCanMoveWindow: Bool { true }
-    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    // Only the text blocks drag the window (§6 鼠标穿透). Transparent areas are set explicitly:
+    // they take the click but neither drag nor act.
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func mouseDown(with event: NSEvent) {}
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, alphaValue > 0 else { return nil }
+        let local = convert(point, from: superview)
+        guard !textBlockRect.isNull, textBlockRect.contains(local) else { return nil }
+        return captionLayer
+    }
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
@@ -106,7 +119,11 @@ final class VideoSubtitleView: NSView {
         glass.layer?.masksToBounds = true
         glass.isHidden = true
         captionLayer.addSubview(glass)
-        for view in [sourceView, translationView, noticeView] { captionLayer.addSubview(view) }
+        for view in [sourceView, translationView, noticeView] {
+            // Plates draw in a sibling below the text, so dimming can fade them separately.
+            captionLayer.addSubview(view.backdrop)
+            captionLayer.addSubview(view)
+        }
         captionLayer.addSubview(dots)
         noticeView.isHidden = true
         noticeView.setAccessibilityElement(false)
@@ -195,6 +212,50 @@ final class VideoSubtitleView: NSView {
         currentPageIndex = max(sourcePageIndex, translationPageIndex)
         showPage(at: now, newPage: true)
         return true
+    }
+
+    /// The caption's last page has used up its reading time (long-silence dimming).
+    func hasReadLastPage(at now: Double) -> Bool { hasCaption && canAdvance(at: now) }
+
+    /// Dims over 300 ms (instant with Reduce Motion); restoring is always instant.
+    func setQuietDimmed(_ on: Bool) {
+        guard on != quietDimmed else { return }
+        quietDimmed = on
+        applyDim(duration: VideoQuietDim.transition(dimming: on, reduceMotion: appearanceSettings.reduceMotion))
+    }
+
+    private var plateBaseAlpha: CGFloat {
+        CGFloat(VideoCaptionStyle.plateAlpha(reduceTransparency: appearanceSettings.reduceTransparency))
+    }
+
+    private var glassAlpha: CGFloat {
+        CGFloat(VideoQuietDim.backgroundAlpha(normal: Double(appearanceSettings.opacity), dimmed: quietDimmed))
+    }
+
+    /// The plate views draw at the plate alpha; this factor brings them to at most 40%.
+    private var plateDimFactor: CGFloat {
+        let base = plateBaseAlpha
+        guard base > 0 else { return 1 }
+        return CGFloat(VideoQuietDim.backgroundAlpha(normal: Double(base), dimmed: quietDimmed)) / base
+    }
+
+    private func applyDim(duration: TimeInterval) {
+        let text = CGFloat(VideoQuietDim.textAlpha(dimmed: quietDimmed))
+        let plate = plateDimFactor, glassValue = glassAlpha
+        let textViews: [NSView] = [sourceView, translationView, noticeView, dots]
+        let plates: [NSView] = [sourceView.backdrop, translationView.backdrop, noticeView.backdrop]
+        guard duration > 0, window != nil else {
+            textViews.forEach { $0.alphaValue = text }
+            plates.forEach { $0.alphaValue = plate }
+            glass.alphaValue = glassValue
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            textViews.forEach { $0.animator().alphaValue = text }
+            plates.forEach { $0.animator().alphaValue = plate }
+            glass.animator().alphaValue = glassValue
+        }
     }
 
     func canAdvance(at now: Double) -> Bool {
@@ -432,9 +493,10 @@ final class VideoSubtitleView: NSView {
             }
         }
 
-        let plateAlpha = CGFloat(VideoCaptionStyle.plateAlpha(reduceTransparency: appearanceSettings.reduceTransparency))
+        let plateAlpha = plateBaseAlpha
         for view in [sourceView, translationView, noticeView] {
             view.plateAlpha = style == .plate ? plateAlpha : 0
+            view.backdrop.alphaValue = plateDimFactor
         }
         if finalizing, !appearanceSettings.reduceMotion {
             translationView.fade(duration: SubtitleTokens.Motion.draftToFinal.seconds)
@@ -494,11 +556,14 @@ final class VideoSubtitleView: NSView {
         if showsDots { union = union.union(dots.frame) }
         let showsGlass = style == .fittedGlass && !union.isNull
         glass.isHidden = !showsGlass
+        let padded = union.isNull ? NSRect.null
+            : union.insetBy(dx: -CGFloat(VideoCaptionLayout.glassHorizontalPadding),
+                            dy: -CGFloat(VideoCaptionLayout.glassVerticalPadding)).integral
         if showsGlass {
-            glass.frame = union.insetBy(dx: -CGFloat(VideoCaptionLayout.glassHorizontalPadding),
-                                        dy: -CGFloat(VideoCaptionLayout.glassVerticalPadding)).integral
-            glass.alphaValue = appearanceSettings.opacity
+            glass.frame = padded
+            glass.alphaValue = glassAlpha
         }
+        textBlockRect = padded
     }
 
     private func place(_ view: VideoCaptionTextView, top: CGFloat, lines: Int, font: NSFont) {
@@ -648,8 +713,18 @@ private final class PageDotsView: NSView {
 @MainActor
 private final class VideoCaptionTextView: NSTextView {
     private let captionStorage: NSTextStorage
-    /// Plate style: a rounded dark block behind each line; 0 draws none.
-    var plateAlpha: CGFloat = 0 { didSet { if plateAlpha != oldValue { needsDisplay = true } } }
+    /// Plate style: a rounded dark block behind each line; 0 draws none. The blocks are drawn
+    /// by `backdrop`, a sibling right below this view that follows its frame and visibility.
+    var plateAlpha: CGFloat = 0 { didSet { if plateAlpha != oldValue { backdrop.needsDisplay = true } } }
+    let backdrop = CaptionPlateView()
+    override var isHidden: Bool { didSet { backdrop.isHidden = isHidden } }
+    override var frame: NSRect { didSet { syncBackdrop() } }
+    override func setFrameOrigin(_ newOrigin: NSPoint) { super.setFrameOrigin(newOrigin); syncBackdrop() }
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); syncBackdrop() }
+    private func syncBackdrop() {
+        if backdrop.frame != frame { backdrop.frame = frame }
+        backdrop.needsDisplay = true
+    }
     override var acceptsFirstResponder: Bool { false }
     override var mouseDownCanMoveWindow: Bool { true }
     override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
@@ -675,6 +750,7 @@ private final class VideoCaptionTextView: NSTextView {
         textContainer?.widthTracksTextView = true
         textContainer?.heightTracksTextView = true
         wantsLayer = true
+        backdrop.text = self
     }
 
     required init?(coder: NSCoder) { return nil }
@@ -683,6 +759,7 @@ private final class VideoCaptionTextView: NSTextView {
         guard textStorage?.isEqual(to: value) != true else { return }
         textStorage?.setAttributedString(value)
         needsDisplay = true
+        backdrop.needsDisplay = true
     }
 
     /// The colour change of a final replacing its draft in place.
@@ -721,20 +798,38 @@ private final class VideoCaptionTextView: NSTextView {
         return union
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        if plateAlpha > 0, let manager = layoutManager, let container = textContainer, (textStorage?.length ?? 0) > 0 {
-            manager.ensureLayout(for: container)
-            NSColor(white: 0, alpha: plateAlpha).setFill()
-            manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { [weak self] rect, used, _, glyphs, _ in
-                guard let self, used.width > 0 else { return }
-                let characterIndex = manager.characterIndexForGlyph(at: glyphs.location)
-                let font = self.textStorage?.attribute(.font, at: characterIndex, effectiveRange: nil) as? NSFont
-                let padding = CGFloat(VideoCaptionLayout.plateHorizontalPaddingEm) * (font?.pointSize ?? 20)
-                let block = NSRect(x: used.minX - padding, y: rect.minY, width: used.width + 2 * padding, height: rect.height)
-                let radius = CGFloat(SubtitleTokens.Radius.solidRowBlock)
-                NSBezierPath(roundedRect: block, xRadius: radius, yRadius: radius).fill()
-            }
+    /// Plate blocks in this view's coordinates (§6 实底).
+    func drawPlates() {
+        guard plateAlpha > 0, let manager = layoutManager, let container = textContainer, (textStorage?.length ?? 0) > 0 else { return }
+        manager.ensureLayout(for: container)
+        NSColor(white: 0, alpha: plateAlpha).setFill()
+        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { [weak self] rect, used, _, glyphs, _ in
+            guard let self, used.width > 0 else { return }
+            let characterIndex = manager.characterIndexForGlyph(at: glyphs.location)
+            let font = self.textStorage?.attribute(.font, at: characterIndex, effectiveRange: nil) as? NSFont
+            let padding = CGFloat(VideoCaptionLayout.plateHorizontalPaddingEm) * (font?.pointSize ?? 20)
+            let block = NSRect(x: used.minX - padding, y: rect.minY, width: used.width + 2 * padding, height: rect.height)
+            let radius = CGFloat(SubtitleTokens.Radius.solidRowBlock)
+            NSBezierPath(roundedRect: block, xRadius: radius, yRadius: radius).fill()
         }
-        super.draw(dirtyRect)
     }
+}
+
+/// Draws a caption text view's plates right below it.
+@MainActor
+private final class CaptionPlateView: NSView {
+    weak var text: VideoCaptionTextView?
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override init(frame frameRect: NSRect = .zero) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func draw(_ dirtyRect: NSRect) { text?.drawPlates() }
 }

@@ -224,6 +224,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             let subtitles = item(String(localized: "显示字幕"), #selector(toggleSubtitles))
             subtitles.state = state.subtitlesVisible ? .on : .off
             menu.addItem(subtitles)
+            // Video only (§6 鼠标穿透); the only place that unlocks a locked window.
+            if SubtitleClickThrough.offersLock(scene: state.meetingMode == .captions ? .video : .meeting,
+                                               sessionActive: videoOnly) {
+                let lock = item(String(localized: "锁定字幕位置（鼠标穿透）"), #selector(toggleSubtitleLock),
+                                symbol: SubtitleTokens.VoiceIcon.locked)
+                lock.state = state.videoSubtitleLocked ? .on : .off
+                menu.addItem(lock)
+            }
             if !videoOnly {
                 let monitor = item(String(localized: "在耳机中听到译音"), #selector(toggleMonitor))
                 monitor.state = AppUIModels.shared.audio.monitor ? .on : .off
@@ -392,6 +400,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func toggleSubtitles() {
         state.subtitlesVisible.toggle()
     }
+    @objc private func toggleSubtitleLock() { state.videoSubtitleLocked.toggle() }
     @objc private func chooseSpeakLanguage(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let lang = AppState.RemoteLanguage(rawValue: raw) {
             state.speakLanguage = lang

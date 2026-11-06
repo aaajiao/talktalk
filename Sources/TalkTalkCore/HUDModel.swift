@@ -500,8 +500,9 @@ public struct HUDModel: Sendable, Equatable {
     /// Cloud translation is on and its privacy note has not been dismissed this session.
     public var cloudPrivacyPending = false
 
-    /// Problems reported outside the §11 table (subtitle engine, Phone operation).
-    public enum ExternalIssue: String, Sendable, Hashable, CaseIterable { case subtitles, scene }
+    /// Problems reported outside the §11 table (subtitle engine, Phone operation, video captions
+    /// more than 5 s behind).
+    public enum ExternalIssue: String, Sendable, Hashable, CaseIterable { case subtitles, scene, videoLag }
     private var externalIssues: [ExternalIssue: HUDChip] = [:]
     /// A one-off message (SysInputDialogPlan, a failed speech start) shown for `noticeSeconds`.
     private var message: (chip: HUDChip, until: Double)?
