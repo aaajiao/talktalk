@@ -3,6 +3,7 @@ import AppKit
 import QuartzCore
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// Two fixed caption blocks for one sentence (redesign §6). Drafts and finals share the same
 /// translation slot; long text advances by complete pages of at most two lines, never by

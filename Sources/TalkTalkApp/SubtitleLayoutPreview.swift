@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// Settings › 字幕 preview (redesign §7 字幕页). It renders the live window's own titlebar,
 /// conversation timeline, microphone dock and video caption view with fixed examples, at the

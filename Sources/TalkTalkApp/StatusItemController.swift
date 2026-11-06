@@ -2,6 +2,7 @@
 import AppKit
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// The menu bar icon and its menu (ARCHITECTURE.md §11 "菜单栏图标状态" and "菜单"). The menu
 /// is rebuilt each time it opens, from `AppState`, so it never shows stale state.

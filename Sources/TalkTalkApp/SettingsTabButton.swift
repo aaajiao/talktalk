@@ -1,6 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import SwiftUI
 import TalkTalkCore
+import TalkTalkSettingsUI
 
 /// Shared by the pinned scene header (使用场景, 字幕) and onboarding's scenario choice, so
 /// selection, focus and hit areas stay consistent. `running` (§7) is independent of `selected`:

@@ -3,6 +3,7 @@ import AppKit
 import QuartzCore
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// Reading style shared by the timeline rows and the dock's live turn (redesign §2, §4).
 struct ConversationStyle: Equatable {

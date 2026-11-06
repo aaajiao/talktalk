@@ -4,6 +4,7 @@ import SwiftUI
 import TalkTalkAudio
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// Settings › 使用场景 (redesign §7). The scene cards stay pinned above the form; switching
 /// cards scrolls back to the top. The bottom bar stays locked to the running scenario (§33)
@@ -192,8 +193,7 @@ struct MeetingSettingsView: View {
             Label("会话结束后可更换来源", systemImage: "lock")
                 .font(.caption).foregroundStyle(.secondary)
         } else if missing {
-            SettingsStatusLabel(String(localized: "请先打开 \(selectedName)，或重新选择应用；不会自动改用其他声音来源。"), .warn)
-                .font(.callout)
+            StatusLabel(String(localized: "请先打开 \(selectedName)，或重新选择应用；不会自动改用其他声音来源。"), .warn)
         }
         if ScenarioSourceNote.showsBrowserNote(selectedID: selectedID) {
             Label("选择浏览器会包含它的其他标签页。", systemImage: "rectangle.on.rectangle")

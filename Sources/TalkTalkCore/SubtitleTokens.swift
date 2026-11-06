@@ -238,34 +238,133 @@ public enum SubtitleTokens {
         public static let fix = "wrench.and.screwdriver"
     }
 
-    /// Settings window glyphs: one shape per meaning across the sidebar, flow diagrams and
-    /// status rows. `remote` (the other party) is never the user's own synthesized voice.
+    /// Settings window glyphs (docs/decisions/2026-11-06-settings-visual-system.md §4): one shape
+    /// per meaning across the sidebar, cards, flow diagrams, rows and status. Pages and flows
+    /// name these tokens, not literals. `remote` (the other party) is never the user's own
+    /// synthesized voice.
     public enum SettingsIcon {
+        /// The sidebar (§4 侧栏令牌). 使用场景 no longer shares the meeting card's glyph, and
+        /// 模型 (recognition, translation and speech) no longer shares 翻译's.
+        public enum Page {
+            public static let general = "gearshape"
+            public static let scenarios = "rectangle.3.group"
+            public static let subtitles = SettingsIcon.subtitles
+            public static let audio = SettingsIcon.audio
+            public static let voice = SettingsIcon.myVoice
+            public static let models = "square.stack.3d.up"
+            public static let components = "shippingbox"
+            public static let glossary = SettingsIcon.glossary
+            public static let privacy = "hand.raised"
+        }
+
+        /// The icon ladder (§4), in points: one size per layer, 22 / 18 / 15 / 13 / 11 (+ 9).
+        /// Symbols take these as `.font(.system(size:))` or `SymbolConfiguration(pointSize:)`,
+        /// never a text style or a relative image scale.
+        public enum Size {
+            /// L1: scene and subpage cards, the PageHero tile, onboarding step titles.
+            public static let card: Double = 22
+            /// L2: flow nodes, app icons in nodes, StepTrack circles, DataBoundary panels.
+            public static let node: Double = 18
+            /// L3: Form row leading icons, section headers, lane gutter icons.
+            public static let row: Double = 15
+            /// L4: inline status glyphs, icon buttons, ⓘ, the ReturnPill and the menu bar menu.
+            public static let inline: Double = 13
+            /// L5: card and node badges, fact chip icons, satellites, flow arrows, the loop row.
+            public static let badge: Double = 11
+            /// Link chevrons, and the lock or warning inside a chip.
+            public static let micro: Double = 9
+            /// The ladder's one exception: an app icon in a NodeChip needs a little more than 11.
+            public static let chipAppIcon: Double = 12
+            /// The running dot on a scene card.
+            public static let runningDot: Double = 8
+            /// L3 icons sit in this fixed leading column; row text starts at `rowTextInset`
+            /// (column + 8 pt spacing). Status rows and fact rows indent to the same inset.
+            public static let rowColumn: Double = 22
+            public static let rowTextInset: Double = 30
+            /// Click area of icon-only buttons and ⓘ.
+            public static let hitArea: Double = 22
+            /// The window-coloured disc behind an 11 pt badge.
+            public static let badgeDisc: Double = 15
+            /// Fact chip height.
+            public static let chipHeight: Double = 20
+        }
+
         /// The other party in flow diagrams (the timeline's remote marker is its .fill form).
         public static let remote = "person.wave.2"
         /// The user's own (synthesized) voice: the 我的声音 page, its flow nodes and sidebar row.
         public static let myVoice = "waveform.and.person.filled"
-        /// The TalkTalk Mic virtual device; `mic` stays the physical microphone.
+        /// The TalkTalk Mic virtual device; `mic` stays the physical microphone and `mic.fill`
+        /// the 原声 capsule only.
         public static let talkTalkMic = "mic.circle"
         public static let physicalMic = "mic"
         /// Sidebar 音频.
         public static let audio = "mic.and.signal.meter"
         /// Speech recognition (as Apple's Speech Recognition privacy glyph).
         public static let recognition = "waveform"
+        /// Translation, and recognition-with-translation nodes.
+        public static let translation = "character.bubble"
+        /// Source text (原文).
+        public static let sourceText = "text.bubble"
+        public static let subtitles = "captions.bubble"
+        /// Synthesized translation and playback.
+        public static let speech = "speaker.wave.2"
+        /// The user (我); the phone's other party is `ConversationIcon.phoneRemote`.
+        public static let me = ConversationIcon.me
+        public static let listen = VoiceIcon.listening
+        /// This Mac (本机); replaces desktopcomputer.
+        public static let thisMac = VoiceIcon.thisMac
+        /// The cloud and OpenAI; replaces cloud.
+        public static let cloud = VoiceIcon.cloud
+        /// Opens another app or System Settings.
+        public static let openApp = "arrow.up.forward.app"
+        /// Opens an explanation (ⓘ). Nothing else, the 关于 row and menu item included, uses it.
+        public static let info = "info.circle"
+        /// The privacy promise: nothing is uploaded.
+        public static let privacyPromise = "lock.shield"
+        /// Locked during a session.
+        public static let locked = VoiceIcon.locked
+        /// Automatic choice; replaces sparkles.
+        public static let auto = "wand.and.stars"
+        public static let engine = "cpu"
+        /// Self-test, and the icon button that verifies.
+        public static let verify = "checkmark.shield"
+        public static let export = "square.and.arrow.up"
+        /// A recording that is planned or a subtitle analysis that saves text (orange), and a
+        /// diagnostic recording in progress (red).
+        public static let recording = "record.circle"
+        public static let recordingActive = "record.circle.fill"
+        public static let slow = "tortoise"
+        /// Performance and real-time capability; replaces gauge.
+        public static let performance = "gauge.with.needle"
+        public static let cost = "dollarsign.circle"
         public static let glossary = "character.book.closed"
+        public static let headphones = "headphones"
+        public static let speaker = "hifispeaker"
+
+        // Icon buttons (§3.10): one fixed glyph per action.
         public static let refresh = "arrow.clockwise"
         public static let reset = "arrow.counterclockwise"
         public static let add = "plus"
         public static let remove = "minus.circle"
-        public static let headphones = "headphones"
-        public static let speaker = "hifispeaker"
-        /// Status rows: needs action / blocks speech / failed / passed / note / not yet checked / waiting.
+        /// Close, or "got it".
+        public static let close = "xmark"
+        public static let copy = ActionIcon.copy
+        /// Show in Finder.
+        public static let finder = "folder"
+        public static let delete = "trash"
+        /// Cancel work in progress.
+        public static let cancel = "xmark.circle"
+        /// IconMenuButton's maintenance menu.
+        public static let more = VoiceIcon.more
+
+        /// Status (§3.7): passed / needs action / failed / not yet checked / waiting / recording.
+        /// The risk state draws `VoiceIcon.originalRisk`. No status draws `info.circle`: that is ⓘ.
         public static let statusWarn = "exclamationmark.triangle.fill"
         public static let statusFailed = "xmark.circle.fill"
         public static let statusOK = "checkmark.circle.fill"
-        public static let statusInfo = "info.circle"
         public static let statusPending = "circle.dashed"
         public static let statusWaiting = "clock"
+        public static let statusRecording = recordingActive
     }
 
     /// The menu bar status item and its menu. The status item keeps the captions bubble as its

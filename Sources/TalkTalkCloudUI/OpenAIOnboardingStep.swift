@@ -1,5 +1,6 @@
 import SwiftUI
 import TalkTalkCore
+import TalkTalkSettingsUI
 
 /// First-run onboarding step 5 (ARCHITECTURE.md §11): what goes to OpenAI, a separate “同意”,
 /// then paste the key and verify; recommends a separate project with a budget cap. Optional:
@@ -136,9 +137,9 @@ public struct OpenAIOnboardingStep: View {
     @ViewBuilder private var status: some View {
         switch model.verification {
         case .idle: EmptyView()
-        case .running(let s): HStack { ProgressView().controlSize(.small); Text(s).font(.callout) }
-        case .ok(let s): Label(s, systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.callout)
-        case .failed(let s): Label(s, systemImage: "xmark.octagon.fill").foregroundStyle(.red).font(.callout)
+        case .running(let s): StatusLabel(s, .busy)
+        case .ok(let s): StatusLabel(s, .ok)
+        case .failed(let s): StatusLabel(s, .failed)
         }
     }
 }

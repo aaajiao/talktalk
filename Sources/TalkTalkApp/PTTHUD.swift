@@ -3,6 +3,7 @@ import AppKit
 import TalkTalkAudio
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// My side of the shared conversation panel. Its state and refresh cadence remain independent
 /// of remote subtitles, but it never creates another floating window. The titlebar shows two

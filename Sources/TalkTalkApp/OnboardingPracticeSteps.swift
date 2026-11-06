@@ -2,6 +2,7 @@
 import SwiftUI
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 struct MeetingMicStep: View {
     let model: OnboardingFlowModel
@@ -51,7 +52,7 @@ struct MeetingMicStep: View {
     }
 
     /// Settings › 音频's status glyph: the physical-mic risk is the titlebar's risk glyph.
-    private var checkIcon: some View { model.meetingMic.status.icon }
+    private var checkIcon: some View { StatusGlyph(model.meetingMic.status) }
 }
 
 struct TryItStep: View {

@@ -1,0 +1,56 @@
+import AppKit
+import Testing
+import TalkTalkCore
+
+/// A missing SF Symbol draws nothing. Every glyph the settings window, the menu bar menu, the
+/// titlebar and the scene cards name through tokens (settings visual system §4) must exist on
+/// this system. `VoiceIcon.originalRisk` is the one exemption: where the SDK lacks it the app
+/// composes it from two symbols, which must exist instead.
+@Suite struct SettingsSymbolTests {
+    private func exists(_ name: String) -> Bool {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
+    }
+
+    @Test func settingsPageAndMeaningGlyphsExist() {
+        typealias S = SubtitleTokens.SettingsIcon
+        typealias P = SubtitleTokens.SettingsIcon.Page
+        let pages = [P.general, P.scenarios, P.subtitles, P.audio, P.voice, P.models, P.components, P.glossary, P.privacy]
+        let meanings = [S.remote, S.myVoice, S.talkTalkMic, S.physicalMic, S.audio, S.recognition, S.translation,
+                        S.sourceText, S.subtitles, S.speech, S.me, S.listen, S.thisMac, S.cloud, S.openApp, S.info,
+                        S.privacyPromise, S.locked, S.auto, S.engine, S.verify, S.export, S.recording,
+                        S.recordingActive, S.slow, S.performance, S.cost, S.glossary, S.headphones, S.speaker]
+        let actions = [S.refresh, S.reset, S.add, S.remove, S.close, S.copy, S.finder, S.delete, S.cancel, S.more]
+        let status = [S.statusWarn, S.statusFailed, S.statusOK, S.statusPending, S.statusWaiting,
+                      S.statusRecording]
+        for name in pages + meanings + actions + status {
+            #expect(exists(name), "\(name)")
+        }
+        // The sidebar no longer shares glyphs with the meeting card or with translation.
+        #expect(P.scenarios != SubtitleTokens.SceneIcon.meeting && P.models != S.translation)
+        #expect(Set(pages).count == pages.count)
+    }
+
+    @Test func menuGlyphsExist() {
+        typealias M = SubtitleTokens.MenuIcon
+        let names = [M.standby, M.listening, M.warming, M.audioUnconfirmed, M.degraded, M.needsAttention,
+                     M.micUnused, M.subtitles, M.restoreWindow, M.restoreInput, M.announcement,
+                     M.notifications, M.about, M.onboarding]
+        for name in names {
+            #expect(exists(name), "\(name)")
+        }
+    }
+
+    @Test func voiceAndSceneGlyphsExistAndTheRiskGlyphCanBeComposed() {
+        typealias V = SubtitleTokens.VoiceIcon
+        typealias C = SubtitleTokens.SceneIcon
+        let voice = [V.original, V.originalOff, V.translating, V.playingTranslation, V.sentToPhone, V.openPhone,
+                     V.localOnly, V.thisMac, V.reconnecting, V.aborted, V.listening, V.captionLag, V.locked,
+                     V.chevron, V.startTranslation, V.stopTranslation, V.end, V.cloud, V.statusWarn,
+                     V.statusRisk, V.more]
+        for name in voice + [C.meeting, C.phone, C.video] {
+            #expect(exists(name), "\(name)")
+        }
+        // Exempt: drawn as mic.fill with an exclamationmark.circle.fill badge when missing.
+        #expect(exists(V.original) && exists(V.originalRiskFallbackBadge))
+    }
+}

@@ -2,6 +2,7 @@
 import SwiftUI
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// Settings › 字幕 (redesign §7 字幕页). The pinned scene cards are the same as 使用场景's and
 /// share its selection: they only choose which scene's settings are edited and never start or

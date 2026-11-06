@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import TalkTalkAudio
 import TalkTalkCore
+import TalkTalkSettingsUI
 import TalkTalkVoice
 
 /// MeetingMicGuard's verdict for the meeting-app check (§8.6). SystemInputController feeds this
@@ -267,7 +268,7 @@ struct AudioSettingsView: View {
                 LabeledContent("校准增益") { Text("\(String(format: "%+.1f", g)) dB").monospacedDigit() }
             } else {
                 LabeledContent("校准状态") {
-                    SettingsStatusLabel(String(localized: "尚未校准 · 0 dB"), .info)
+                    StatusLabel(String(localized: "尚未校准 · 0 dB"), .pending)
                 }
             }
             HStack(spacing: 12) {
@@ -351,7 +352,7 @@ struct AudioSettingsView: View {
 
     private var meetingCheck: some View {
         Section {
-            SettingsStatusLabel(model.meetingMic.text, model.meetingMic.status).font(.callout)
+            StatusLabel(model.meetingMic.text, model.meetingMic.status)
                 .fixedSize(horizontal: false, vertical: true)
         } header: {
             Text("会议与电话应用检查")

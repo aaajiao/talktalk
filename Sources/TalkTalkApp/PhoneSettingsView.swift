@@ -3,6 +3,7 @@ import Foundation
 import SwiftUI
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// Phone has its own preparation and dialing workflow; the system Phone app owns the call.
 /// Opening this scene only changes the settings view, never the current audio session.
@@ -63,8 +64,7 @@ struct PhoneSettingsView: View {
 
         Section {
             if let problem = state.phoneProblem {
-                SettingsStatusLabel(problem, .warn)
-                    .font(.callout)
+                StatusLabel(problem, .warn)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Picker("对方语言", selection: $state.remoteLanguage) {
@@ -187,16 +187,22 @@ struct PhoneSettingsView: View {
         }
     }
 
-    /// The details button shows severity by shape and colour: a red or orange triangle while the
-    /// other party hears the original voice or the Phone does not receive; otherwise ⓘ.
+    /// The details button shows severity by shape and colour (§7.2): the risk glyph while the
+    /// other party hears the original voice, the triangle while the Phone does not receive;
+    /// otherwise ⓘ, which is what the button opens. 13 pt in a 22 × 22 click area.
     @ViewBuilder private func statusGlyph(_ tone: VoiceTone) -> some View {
-        switch tone {
-        case .risk, .warn:
-            Image(systemName: SubtitleTokens.SettingsIcon.statusWarn)
-                .foregroundStyle(Color(nsColor: SubtitleStyle.toneColor(tone)))
-        case .original, .translate, .neutral:
-            Image(systemName: SubtitleTokens.SettingsIcon.statusInfo).foregroundStyle(.secondary)
+        Group {
+            switch tone {
+            case .risk: StatusGlyph(.risk)
+            case .warn: StatusGlyph(.warn)
+            case .original, .translate, .neutral:
+                Image(systemName: SubtitleTokens.SettingsIcon.info)
+                    .font(.system(size: SubtitleTokens.SettingsIcon.Size.inline, weight: .regular))
+                    .foregroundStyle(.secondary)
+            }
         }
+        .frame(width: SubtitleTokens.SettingsIcon.Size.hitArea, height: SubtitleTokens.SettingsIcon.Size.hitArea)
+        .contentShape(Rectangle())
     }
 
     /// The live voice capsule, the same component and vocabulary as the subtitle window (§5).

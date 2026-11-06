@@ -2,6 +2,7 @@
 import AppKit
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 extension NSAttributedString.Key {
     /// Marks the open draft translation; its column draws the 2 pt draft bar beside it.

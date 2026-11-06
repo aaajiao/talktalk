@@ -1,54 +1,12 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
-import AppKit
 import SwiftUI
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 // Shared pieces of the scenario pages and onboarding (redesign §7): flow node cards, the two
-// speaking lanes with the subtitle window's own capsule and keycap, ⓘ popovers and the
-// "‹ 返回" pill.
-
-/// The subtitle window's voice capsule, read-only (no chevron, no details popover). In light
-/// mode the token colours use their light-surface values.
-struct VoiceCapsule: NSViewRepresentable {
-    let state: VoiceState
-    @Environment(\.colorScheme) private var colorScheme
-
-    func makeNSView(context: NSViewRepresentableContext<Self>) -> VoiceCapsuleView {
-        let view = VoiceCapsuleView(large: false)
-        view.showsChevron = false
-        return view
-    }
-
-    func updateNSView(_ view: VoiceCapsuleView, context: NSViewRepresentableContext<Self>) {
-        view.lightSurface = colorScheme == .light
-        view.effectiveAppearance.performAsCurrentDrawingAppearance { view.apply(state, full: true) }
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: VoiceCapsuleView,
-                      context: NSViewRepresentableContext<Self>) -> CGSize? {
-        CGSize(width: VoiceCapsuleView.width(for: state, full: true, large: false, chevron: false),
-               height: SubtitleTokens.Size.controlHeight)
-    }
-}
-
-/// The subtitle window's 右⌥ keycap with its action text.
-struct Keycap: NSViewRepresentable {
-    let key: TitlebarKey
-    @Environment(\.colorScheme) private var colorScheme
-
-    func makeNSView(context: NSViewRepresentableContext<Self>) -> KeycapActionView { KeycapActionView() }
-
-    func updateNSView(_ view: KeycapActionView, context: NSViewRepresentableContext<Self>) {
-        view.lightSurface = colorScheme == .light
-        view.effectiveAppearance.performAsCurrentDrawingAppearance { view.apply(key, showsAction: true) }
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: KeycapActionView,
-                      context: NSViewRepresentableContext<Self>) -> CGSize? {
-        CGSize(width: KeycapActionView.width(for: key, showsAction: true), height: SubtitleTokens.Size.controlHeight)
-    }
-}
+// speaking lanes with the subtitle window's own capsule and keycap, and the "‹ 返回" pill. The
+// capsule, keycap, ⓘ and the status vocabulary live in TalkTalkSettingsUI.
 
 /// A link under a flow node ("模型设置 ›").
 struct FlowLink {
@@ -194,63 +152,6 @@ struct SpeakingLanes: View {
     }
 }
 
-/// ⓘ: operating hints live in a popover instead of the page (§7 文案). AppKit-backed: the CLT
-/// toolchain has no SwiftUIMacros plugin, so the popover state lives in the coordinator, not in
-/// `@State`.
-struct InfoButton: NSViewRepresentable {
-    /// What the popover explains ("会议同传"): several ⓘ on one page stay distinguishable.
-    let topic: String
-    let lines: [String]
-
-    @MainActor final class Coordinator: NSObject {
-        var lines: [String] = []
-        let popover = NSPopover()
-
-        override init() {
-            super.init()
-            popover.behavior = .transient
-            popover.animates = false
-        }
-
-        @objc func toggle(_ sender: NSButton) {
-            if popover.isShown { popover.performClose(sender); return }
-            let content = VStack(alignment: .leading, spacing: 8) {
-                ForEach(lines, id: \.self) { line in
-                    Text(line).font(.callout).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(14)
-            .frame(width: 300, alignment: .leading)
-            popover.contentViewController = NSHostingController(rootView: content)
-            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
-        }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: NSViewRepresentableContext<Self>) -> NSButton {
-        let button = NSButton(image: NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil) ?? NSImage(),
-                              target: context.coordinator, action: #selector(Coordinator.toggle(_:)))
-        button.isBordered = false
-        button.contentTintColor = .secondaryLabelColor
-        button.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .body, scale: .medium)
-        return button
-    }
-
-    func updateNSView(_ button: NSButton, context: NSViewRepresentableContext<Self>) {
-        context.coordinator.lines = lines
-        let name = String(localized: "\(topic)说明")
-        button.toolTip = name
-        button.setAccessibilityLabel(name)
-        button.setAccessibilityHelp(lines.joined(separator: "\n"))
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSButton,
-                      context: NSViewRepresentableContext<Self>) -> CGSize? {
-        nsView.intrinsicContentSize
-    }
-}
-
 /// "‹ 返回 会议同传" at the top of a page reached from a scenario's flow link (§7).
 struct ReturnToScenePill: View {
     let mode: MeetingMode
@@ -299,63 +200,5 @@ struct ChecklistStatusCircle: View {
         }
         .frame(width: 24, height: 24)
         .accessibilityHidden(true)
-    }
-}
-
-/// One status vocabulary across Settings (shape first, then colour, then words): passed, needs
-/// action, blocks speech (the other party hears the original voice), failed, a neutral note,
-/// not yet checked, and waiting. `risk` draws the titlebar's risk glyph (mic with a warning
-/// badge, the menu bar and onboarding use it too); `symbol` is its plain fallback.
-enum SettingsStatus {
-    case ok, warn, risk, failed, info, pending, waiting
-
-    /// The state's glyph in its colour, at the surrounding font size.
-    @MainActor @ViewBuilder var icon: some View {
-        if self == .risk, let risk = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.originalRisk,
-                                                          size: NSFont.systemFontSize, weight: .regular) {
-            Image(nsImage: SubtitleStyle.tinted(risk, .systemRed))
-        } else {
-            Image(systemName: symbol)
-        }
-    }
-
-    var symbol: String {
-        typealias I = SubtitleTokens.SettingsIcon
-        return switch self {
-        case .ok: I.statusOK
-        case .warn, .risk: I.statusWarn
-        case .failed: I.statusFailed
-        case .info: I.statusInfo
-        case .pending: I.statusPending
-        case .waiting: I.statusWaiting
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .ok: .green
-        case .warn: .orange
-        case .risk, .failed: .red
-        case .info, .pending, .waiting: .secondary
-        }
-    }
-}
-
-/// A status row: the state's glyph and colour with its (unchanged) text.
-struct SettingsStatusLabel: View {
-    let text: String
-    let status: SettingsStatus
-    init(_ text: String, _ status: SettingsStatus) {
-        self.text = text
-        self.status = status
-    }
-
-    var body: some View {
-        Label {
-            Text(verbatim: text)
-        } icon: {
-            status.icon.accessibilityHidden(true)
-        }
-        .foregroundStyle(status.color)
     }
 }

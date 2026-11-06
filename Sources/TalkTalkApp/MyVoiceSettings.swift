@@ -3,6 +3,7 @@ import Foundation
 import Observation
 import SwiftUI
 import TalkTalkCore
+import TalkTalkSettingsUI
 import TalkTalkVoice
 
 /// Settings › 我的声音 (ARCHITECTURE.md §11, §9.2–§9.4). An overview of the saved profile with
@@ -218,7 +219,7 @@ struct MyVoiceSettingsView: View {
         if let controller = model.enrollment {
             VStack(alignment: .leading, spacing: 8) {
                 if let note = model.recordingNote {
-                    SettingsStatusLabel(note, .warn)
+                    StatusLabel(note, .warn)
                 }
                 if model.saveBlocked {
                     HStack {
@@ -255,13 +256,13 @@ struct MyVoiceSettingsView: View {
             }
             Section {
                 if let note = model.recordingNote {
-                    SettingsStatusLabel(note, .warn)
+                    StatusLabel(note, .warn)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let p = model.profile {
                     profileSummary(p)
                 } else if model.profileUnreadable {
-                    SettingsStatusLabel(String(localized: "声音档案无法读取，请重新录制。"), .warn)
+                    StatusLabel(String(localized: "声音档案无法读取，请重新录制。"), .warn)
                 } else {
                     Label("尚未创建声音档案", systemImage: "person.crop.circle.badge.plus")
                     SettingsNote("读一遍固定的中文稿子即可创建。没有声音档案时，译音使用系统声音。")
@@ -279,8 +280,8 @@ struct MyVoiceSettingsView: View {
                     Text(model.auditionBlockedNote ?? String(localized: "试听在耳机或当前播放设备中响起，不发送到会议。"))
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     if let problem = model.auditionProblem {
-                        SettingsStatusLabel(problem, .warn)
-                            .font(.callout).fixedSize(horizontal: false, vertical: true)
+                        StatusLabel(problem, .warn)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 } header: { Text("听听效果") }
             }
@@ -319,18 +320,18 @@ struct MyVoiceSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("声音档案已保存", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.headline)
             LabeledContent("录制时间", value: Self.dateText(p.createdAt))
-            LabeledContent("试听检查") { SettingsStatusLabel(Self.auditionText(p), Self.auditionStatus(p)) }
+            LabeledContent("试听检查") { StatusLabel(Self.auditionText(p), Self.auditionStatus(p)) }
             DisclosureGroup("档案详情") {
                 VStack(spacing: 8) {
                     LabeledContent("参考音", value: String(localized: "\(Self.decimal(p.durationSeconds, 1)) 秒"))
                     LabeledContent("语速", value: String(localized: "\(Self.decimal(p.speakingRateCharsPerSecond, 1)) 字/秒"))
                     LabeledContent("自动检查") {
-                        SettingsStatusLabel(Self.checksText(p), Self.warningCount(p) == 0 ? .ok : .warn)
+                        StatusLabel(Self.checksText(p), Self.warningCount(p) == 0 ? .ok : .warn)
                     }
                     LabeledContent("声音缓存") {
                         p.conditioning == "built"
-                            ? SettingsStatusLabel(String(localized: "已建立"), .ok)
-                            : SettingsStatusLabel(String(localized: "引擎预热时建立"), .waiting)
+                            ? StatusLabel(String(localized: "已建立"), .ok)
+                            : StatusLabel(String(localized: "引擎预热时建立"), .waiting)
                     }
                 }
                 .font(.callout).padding(.top, 6)

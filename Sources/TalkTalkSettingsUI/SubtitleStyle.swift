@@ -1,21 +1,30 @@
 import AppKit
 import TalkTalkCore
-import TalkTalkSession
 
 /// AppKit factories for `SubtitleTokens` (redesign §2). Meeting rows, my rows, the settings
-/// preview and video all take colours and fonts from here instead of fixed grays.
+/// preview and video all take colours and fonts from here instead of fixed grays. Shared with
+/// the settings components (settings visual system §3.0); the app adds `toneColor`, which needs
+/// session state.
 @MainActor
-enum SubtitleStyle {
+public enum SubtitleStyle {
     /// Accessibility display options, read together whenever
     /// `accessibilityDisplayOptionsDidChange` arrives.
-    struct Display: Equatable {
-        var increaseContrast: Bool
-        var reduceTransparency: Bool
-        var reduceMotion: Bool
+    public struct Display: Equatable {
+        public var increaseContrast: Bool
+        public var reduceTransparency: Bool
+        public var reduceMotion: Bool
         /// "Differentiate without colour": status that differs only by hue gets a shape too.
-        var differentiateWithoutColor = false
+        public var differentiateWithoutColor = false
 
-        static var current: Display {
+        public init(increaseContrast: Bool, reduceTransparency: Bool, reduceMotion: Bool,
+                    differentiateWithoutColor: Bool = false) {
+            self.increaseContrast = increaseContrast
+            self.reduceTransparency = reduceTransparency
+            self.reduceMotion = reduceMotion
+            self.differentiateWithoutColor = differentiateWithoutColor
+        }
+
+        public static var current: Display {
             let workspace = NSWorkspace.shared
             return Display(increaseContrast: workspace.accessibilityDisplayShouldIncreaseContrast,
                            reduceTransparency: workspace.accessibilityDisplayShouldReduceTransparency,
@@ -24,40 +33,22 @@ enum SubtitleStyle {
         }
     }
 
-    static func color(_ role: SubtitleTokens.Color, display: Display = .current, lightSurface: Bool = false) -> NSColor {
+    public static func color(_ role: SubtitleTokens.Color, display: Display = .current, lightSurface: Bool = false) -> NSColor {
         nsColor(role.rgba(increaseContrast: display.increaseContrast, lightSurface: lightSurface))
     }
 
-    /// A voice-state dot outside the subtitle panel (menu, settings): the token colour for the
-    /// surface it is drawn on, resolved per appearance.
-    static func toneColor(_ tone: VoiceTone) -> NSColor {
-        func token(_ role: SubtitleTokens.Color) -> NSColor {
-            NSColor(name: nil) { appearance in
-                let light = appearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
-                return nsColor(role.rgba(lightSurface: light))
-            }
-        }
-        return switch tone {
-        case .original: token(.voiceOriginal)
-        case .translate: token(.voiceTranslate)
-        case .warn: token(.warn)
-        case .risk: token(.riskFill)
-        case .neutral: .tertiaryLabelColor
-        }
-    }
-
-    static func nsColor(_ value: SubtitleTokens.RGBA) -> NSColor {
+    public static func nsColor(_ value: SubtitleTokens.RGBA) -> NSColor {
         NSColor(srgbRed: value.red, green: value.green, blue: value.blue, alpha: value.alpha)
     }
 
-    static func white(_ alpha: CGFloat) -> NSColor { NSColor(white: 1, alpha: alpha) }
+    public static func white(_ alpha: CGFloat) -> NSColor { NSColor(white: 1, alpha: alpha) }
 
     /// A tail-truncating `NSTextField` sized to exactly its text width still shows "…"
     /// (seen in an offscreen render of the settings preview: "原声" became "…"). Labels get
     /// this much trailing room beyond their measured width; the glyphs do not move.
-    static let labelSlack: CGFloat = 4
+    public static let labelSlack: CGFloat = 4
 
-    static func weight(_ value: ConversationTypography.Weight) -> NSFont.Weight {
+    public static func weight(_ value: ConversationTypography.Weight) -> NSFont.Weight {
         switch value {
         case .regular: .regular
         case .medium: .medium
@@ -65,12 +56,12 @@ enum SubtitleStyle {
         }
     }
 
-    static func font(_ role: ConversationTypography.Role) -> NSFont {
+    public static func font(_ role: ConversationTypography.Role) -> NSFont {
         .systemFont(ofSize: role.size, weight: weight(role.weight))
     }
 
     /// Paragraph style that realises the role's line-height multiple.
-    static func paragraph(_ role: ConversationTypography.Role, alignment: NSTextAlignment = .left) -> NSMutableParagraphStyle {
+    public static func paragraph(_ role: ConversationTypography.Role, alignment: NSTextAlignment = .left) -> NSMutableParagraphStyle {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
         paragraph.alignment = alignment
@@ -81,14 +72,14 @@ enum SubtitleStyle {
         return paragraph
     }
 
-    static func controlFont(_ size: Double = ControlTypography.capsule, weight: NSFont.Weight = .semibold) -> NSFont {
+    public static func controlFont(_ size: Double = ControlTypography.capsule, weight: NSFont.Weight = .semibold) -> NSFont {
         .systemFont(ofSize: size, weight: weight)
     }
 
-    static var keycapFont: NSFont { .monospacedSystemFont(ofSize: ControlTypography.keycap, weight: .medium) }
+    public static var keycapFont: NSFont { .monospacedSystemFont(ofSize: ControlTypography.keycap, weight: .medium) }
 
     /// Reading-text shadow below 0.75 opacity; nil otherwise.
-    static func readingShadow(opacity: Double) -> NSShadow? {
+    public static func readingShadow(opacity: Double) -> NSShadow? {
         guard SubtitleTokens.needsTextShadow(opacity: opacity) else { return nil }
         let token = SubtitleTokens.readingShadow
         let shadow = NSShadow()
@@ -98,13 +89,13 @@ enum SubtitleStyle {
         return shadow
     }
 
-    static func duration(_ motion: SubtitleTokens.Motion, display: Display = .current) -> TimeInterval {
+    public static func duration(_ motion: SubtitleTokens.Motion, display: Display = .current) -> TimeInterval {
         motion.duration(reduceMotion: display.reduceMotion)
     }
 
     /// A template image filled with `color` (monochrome, so a symbol's cut-outs stay clear),
     /// for drawing outside an NSImageView's contentTintColor.
-    static func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {
+    public static func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {
         let tinted = NSImage(size: image.size, flipped: false) { rect in
             image.draw(in: rect)
             color.set()
@@ -122,7 +113,7 @@ enum SubtitleStyle {
     /// contentTintColor and Increase Contrast still apply.
     /// `palette` (layer colours, e.g. [white, warn] for a white mark on a yellow triangle) or
     /// `hierarchical` (one base colour) give a coloured, non-template image instead.
-    static func symbol(_ name: String, size: CGFloat, weight: NSFont.Weight = .semibold,
+    public static func symbol(_ name: String, size: CGFloat, weight: NSFont.Weight = .semibold,
                        accessibilityDescription: String? = nil, palette: [NSColor]? = nil,
                        hierarchical: NSColor? = nil) -> NSImage? {
         var configuration = NSImage.SymbolConfiguration(pointSize: size, weight: weight)

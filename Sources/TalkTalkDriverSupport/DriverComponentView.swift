@@ -1,4 +1,5 @@
 import SwiftUI
+import TalkTalkSettingsUI
 
 /// Settings › 组件 › 虚拟麦克风 (ARCHITECTURE.md §11): status, install / update, self-test,
 /// uninstall, restart the audio service, and who is using TalkTalk Mic. Holds no state of its own.
@@ -25,8 +26,7 @@ public struct DriverComponentSection: View {
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Label(model.statusText, systemImage: statusSymbol)
-                .font(.callout).foregroundStyle(color(model.statusTone)).fixedSize(horizontal: false, vertical: true)
+            StatusLabel(model.statusText, status(model.statusTone)).fixedSize(horizontal: false, vertical: true)
             if !model.users.isEmpty {
                 Label("正在使用：\(model.users.joined(separator: "、"))", systemImage: "app").font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
@@ -110,8 +110,8 @@ public struct DriverComponentSection: View {
                                 }
                             }
                             Spacer()
-                            Text(c.passed == nil ? "跳过" : (c.passed! ? "通过" : "没通过")).font(.callout)
-                                .foregroundStyle(c.passed == nil ? Color.secondary : (c.passed! ? Color.green : Color.red))
+                            StatusLabel(c.passed.map { $0 ? String(localized: "通过") : String(localized: "没通过") } ?? String(localized: "跳过"),
+                                        c.passed.map { $0 ? .ok : .failed } ?? .pending)
                         }
                     }
                 }
@@ -119,8 +119,8 @@ public struct DriverComponentSection: View {
                 .padding(.top, 6)
             }
         } else if let t = model.record?.selfTest {
-            Text("上次自检：\(t.passed ? "通过" : "没通过") · \(t.at.formatted(date: .abbreviated, time: .shortened))")
-                .font(.callout).foregroundStyle(.secondary)
+            StatusLabel(String(localized: "上次自检：\(t.passed ? "通过" : "没通过") · \(t.at.formatted(date: .abbreviated, time: .shortened))"),
+                        t.passed ? .ok : .failed)
         }
     }
 
@@ -152,20 +152,14 @@ public struct DriverComponentSection: View {
         }
     }
 
-    private func color(_ t: DriverComponentModel.Tone) -> Color {
+    /// The driver state in the settings status vocabulary (§3.7): not installed is "not yet",
+    /// damaged or a failed self-test is a failure, not a warning.
+    private func status(_ t: DriverComponentModel.Tone) -> SettingsStatus {
         switch t {
-        case .ok: .green
-        case .warning: .orange
-        case .error: .red
-        case .neutral: .secondary
-        }
-    }
-
-    private var statusSymbol: String {
-        switch model.statusTone {
-        case .ok: "checkmark.circle.fill"
-        case .warning, .error: "exclamationmark.triangle.fill"
-        case .neutral: "info.circle"
+        case .ok: .ok
+        case .warning: .warn
+        case .error: .failed
+        case .neutral: .pending
         }
     }
 }

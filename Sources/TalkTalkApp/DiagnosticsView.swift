@@ -1,6 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import SwiftUI
 import TalkTalkCore
+import TalkTalkSettingsUI
 
 enum DiagnosticsSettingsTab: String, CaseIterable, Identifiable {
     case privacy, subtitles, troubleshooting
@@ -159,15 +160,12 @@ struct DiagnosticsView: View {
         let status = model.diagnosticsStatus
         return VStack(alignment: .leading, spacing: 10) {
             if let report = status.report {
-                Label(report.ok ? String(localized: "自检通过") : String(localized: "自检未通过或未完成"),
-                      systemImage: report.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .font(.callout.bold())
-                    .foregroundStyle(report.ok ? Color.green : report.checks.contains(where: { $0.ok == false }) ? Color.red : Color.orange)
+                StatusLabel(report.ok ? String(localized: "自检通过") : String(localized: "自检未通过或未完成"),
+                            report.ok ? .ok : report.checks.contains(where: { $0.ok == false }) ? .failed : .warn)
                 ForEach(Array(report.checks.enumerated()), id: \.offset) { _, check in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
-                            Image(systemName: check.ok == true ? "checkmark.circle" : check.ok == false ? "xmark.circle" : "minus.circle")
-                                .foregroundStyle(check.ok == true ? Color.green : check.ok == false ? Color.red : Color.secondary)
+                            StatusGlyph(check.ok == true ? .ok : check.ok == false ? .failed : .pending)
                             Text(verbatim: check.name).font(.callout.monospaced())
                         }
                         if let detail = check.detail { Text(verbatim: detail).font(.caption).foregroundStyle(.secondary) }

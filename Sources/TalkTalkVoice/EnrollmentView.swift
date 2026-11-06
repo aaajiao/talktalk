@@ -1,6 +1,7 @@
 import SwiftUI
 import TalkTalkAudio
 import TalkTalkCore
+import TalkTalkSettingsUI
 
 /// The "我的声音" recording UI (ARCHITECTURE.md §9.2). Embeds anywhere: the dev window of
 /// `--bench enroll`, the M1 onboarding and the M2 settings page. `onClose` is called by the
@@ -131,8 +132,7 @@ public struct EnrollmentView: View {
             savedView
         case let .failed(message):
             VStack(alignment: .leading, spacing: 10) {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
+                StatusLabel(message, .failed)
             }
         }
     }
@@ -320,10 +320,10 @@ public struct EnrollmentView: View {
 
     @ViewBuilder private func statusIcon(_ s: CheckStatus) -> some View {
         switch s {
-        case .pass: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .warn: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-        case .reject: Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-        case .pending: Image(systemName: "clock").foregroundStyle(.secondary)
+        case .pass: StatusGlyph(.ok)
+        case .warn: StatusGlyph(.warn)
+        case .reject: StatusGlyph(.failed)
+        case .pending: StatusGlyph(.waiting)
         }
     }
 

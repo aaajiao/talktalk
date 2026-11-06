@@ -1,6 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import SwiftUI
 import TalkTalkCore
+import TalkTalkSettingsUI
 
 /// One place to distinguish speech recognition, translation and speech synthesis.
 enum ModelSettingsStage: String, CaseIterable, Identifiable {

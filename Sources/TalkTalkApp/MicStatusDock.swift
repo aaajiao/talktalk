@@ -2,6 +2,7 @@
 import AppKit
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// The microphone status dock under the meeting/phone timeline (redesign §4, §5): a 0.5 pt top
 /// separator, then icon 16 + state 13 pt semibold + consequence 12 pt white 60%, the flexible

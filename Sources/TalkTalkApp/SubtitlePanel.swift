@@ -2,6 +2,7 @@
 import AppKit
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// One non-activating window. Meeting and phone modes show one conversation timeline of pair
 /// rows above the microphone status dock (redesign §4, §5); video mode has a compact subtitle
@@ -1661,12 +1662,6 @@ private final class SubtitleWindow: NSPanel {
         AppActivation.minimizedPanelRestored(self)
     }
 }
-/// Views whose hover look must be dropped when the window leaves the screen.
-@MainActor
-protocol HoverClearing: AnyObject {
-    func clearHover()
-}
-
 final class ConversationContentView: NSView {
     /// Video sets this off: only its text blocks and the hover bar drag the window (§6).
     var dragsWindow = true

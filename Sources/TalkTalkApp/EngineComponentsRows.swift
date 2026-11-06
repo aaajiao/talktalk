@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import TalkTalkCore
 import TalkTalkEngineHost
+import TalkTalkSettingsUI
 
 /// Settings › 组件 › 引擎与模型 (ARCHITECTURE.md §7.3–§7.5, §11), on top of M0's @Observable
 /// `EngineInstaller`. The engine itself belongs to EngineHost (AppDelegate), which hands in
@@ -247,9 +248,8 @@ struct EngineComponentsRows: View {
                 Text(purpose).font(.callout).foregroundStyle(.secondary)
             }
             Spacer()
-            Label(installed ? String(localized: "已安装") : (model.needsRepair ? String(localized: "待修复") : String(localized: "未安装")),
-                  systemImage: installed ? "checkmark.circle.fill" : (model.needsRepair ? "exclamationmark.triangle" : "circle.dashed"))
-                .font(.callout).foregroundStyle(installed ? Color.green : (model.needsRepair ? Color.orange : Color.secondary))
+            StatusLabel(installed ? String(localized: "已安装") : (model.needsRepair ? String(localized: "待修复") : String(localized: "未安装")),
+                        installed ? .ok : (model.needsRepair ? .warn : .pending))
         }
         .padding(.vertical, 6)
     }

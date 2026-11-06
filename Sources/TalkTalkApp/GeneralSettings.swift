@@ -4,6 +4,7 @@ import SwiftUI
 import TalkTalkCore
 import TalkTalkDriverSupport
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// UserDefaults keys of the settings pages. The old passthrough key/switch/cue preferences
 /// remain readable for compatibility, but are no longer user-facing meeting controls.
@@ -227,13 +228,9 @@ struct GeneralSettingsView: View {
     /// (or still being checked). On/off itself is the switch.
     @ViewBuilder private var notificationStatus: some View {
         if model.notificationRequesting {
-            HStack {
-                ProgressView().controlSize(.small)
-                Text("正在检查系统通知授权…").font(.callout).foregroundStyle(.secondary)
-            }
+            StatusLabel(String(localized: "正在检查系统通知授权…"), .busy)
         } else if model.autoEndNotificationsEnabled, !model.autoEndNotificationSetting.isEffective {
-            SettingsStatusLabel(model.notificationPermissionText, notificationMismatch)
-                .font(.callout)
+            StatusLabel(model.notificationPermissionText, notificationMismatch)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -241,8 +238,9 @@ struct GeneralSettingsView: View {
     private var notificationMismatch: SettingsStatus {
         switch model.notificationAuthorization {
         case .checking: .waiting
-        case .notDetermined, .denied: .warn
-        case .allowed, .unavailable: .info
+        case .notDetermined, .denied, .unavailable: .warn
+        // Not shown: allowed and switched on is effective, so there is no mismatch row.
+        case .allowed: .ok
         }
     }
 }

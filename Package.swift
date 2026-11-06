@@ -17,11 +17,16 @@ let package = Package(
         .executableTarget(
             name: "TalkTalkApp",
             dependencies: ["TalkTalkCore", "TalkTalkCloud", "TalkTalkAudio", "TalkTalkVoice", "TalkTalkApple", "TalkTalkCloudUI", "TalkTalkSession",
-                           "TalkTalkEngineHost", "TalkTalkDriverSupport"]
+                           "TalkTalkEngineHost", "TalkTalkDriverSupport", "TalkTalkSettingsUI"]
             // The dev-only entry points (--bench store-key) compile only with -DTALKTALK_DEV,
             // which scripts/build-app.sh passes for TalkTalk-Dev.app and never for TalkTalk.app.
         ),
         .testTarget(name: "TalkTalkCoreTests", dependencies: ["TalkTalkCore"]),
+        // Settings visual system (docs/decisions/2026-11-06-settings-visual-system.md §3.0): the
+        // status vocabulary, icon buttons, fact chips, section headers and row style, and the
+        // subtitle window's own capsule, keycap and style factories, shared by the app, the cloud
+        // settings, the driver page and enrollment. Core only: no session state.
+        .target(name: "TalkTalkSettingsUI", dependencies: ["TalkTalkCore"]),
         .testTarget(name: "TalkTalkCloudTests", dependencies: ["TalkTalkCloud"]),
         // m0-voice: real-time C core (§2.2: [[clang::nonblocking]] checked by -Wfunction-effects) and
         // the "my voice" enrollment (§9, §13).
@@ -31,14 +36,14 @@ let package = Package(
             linkerSettings: [.linkedFramework("CoreAudio")]
         ),
         // voice-m2: the engine half of enrollment (build/load/audition/read-back) talks to the engine host.
-        .target(name: "TalkTalkVoice", dependencies: ["TalkTalkCore", "TalkTalkAudio", "TalkTalkEngineHost"]),
+        .target(name: "TalkTalkVoice", dependencies: ["TalkTalkCore", "TalkTalkAudio", "TalkTalkEngineHost", "TalkTalkSettingsUI"]),
         .testTarget(name: "TalkTalkAudioTests", dependencies: ["TalkTalkAudio", "CAudioCore"]),
         .testTarget(name: "TalkTalkVoiceTests", dependencies: ["TalkTalkVoice", "TalkTalkAudio", "TalkTalkCore", "TalkTalkEngineHost"]),
         // m0-swift: Apple SpeechAnalyzer / Translation wrappers and the T10/T11 benches (§13).
         .target(name: "TalkTalkApple", dependencies: ["TalkTalkCore"]),
         .testTarget(name: "TalkTalkAppleTests", dependencies: ["TalkTalkApple", "TalkTalkCore"]),
         // m0-swift: Settings › 翻译 (§11), a reusable SwiftUI view the M1 settings window embeds.
-        .target(name: "TalkTalkCloudUI", dependencies: ["TalkTalkCore", "TalkTalkCloud"]),
+        .target(name: "TalkTalkCloudUI", dependencies: ["TalkTalkCore", "TalkTalkCloud", "TalkTalkSettingsUI"]),
         .testTarget(name: "TalkTalkCloudUITests", dependencies: ["TalkTalkCloudUI", "TalkTalkCloud", "TalkTalkCore"]),
         // m1-listen: MeetingSession (auto-end, sleep suspend) and ListenPipeline (§13).
         .target(name: "TalkTalkSession", dependencies: ["TalkTalkCore", "TalkTalkAudio", "TalkTalkApple"]),
@@ -62,7 +67,8 @@ let package = Package(
             linkerSettings: [.linkedFramework("CoreAudio")]
         ),
         .target(name: "TalkTalkDriverSupport",
-                dependencies: ["TalkTalkCore", "TalkTalkAudio", "TalkTalkEngineHost", "TalkTalkCloud", "CDriverSelfTest"]),
+                dependencies: ["TalkTalkCore", "TalkTalkAudio", "TalkTalkEngineHost", "TalkTalkCloud", "CDriverSelfTest",
+                               "TalkTalkSettingsUI"]),
         .testTarget(name: "DriverTests", dependencies: ["TalkTalkDriverSupport", "TalkTalkAudio", "TalkTalkCore", "TalkTalkEngineHost", "CDriverSelfTest"]),
     ],
     swiftLanguageModes: [.v6]

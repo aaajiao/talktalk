@@ -18,8 +18,9 @@ TalkTalk 是面向 Apple Silicon 的菜单栏应用，部署目标为 macOS 26�
 | `TalkTalkEngineHost` / `engine/` | 私有 Python 进程、安装器、MLX ASR/TTS、流式协议 |
 | `TalkTalkVoice` | 声音录入、校准、校验、存储与试听 |
 | `TalkTalkDriverSupport` / `Driver/` | 虚拟麦驱动、安装卸载、状态检查与隔离自检 |
+| `TalkTalkSettingsUI` | 设置共用组件：状态词汇（13pt 行内、11pt 角标）、图标按钮、事实标签、分组标题与行样式、ⓘ；字幕窗口的发声胶囊、键帽与样式工厂 |
 
-`TalkTalkSession` 通过 Core 协议接收云端和本地引擎，不直接依赖 Cloud、EngineHost 或 Voice。App 层负责把具体实现装配起来。
+`TalkTalkSession` 通过 Core 协议接收云端和本地引擎，不直接依赖 Cloud、EngineHost 或 Voice。App 层负责把具体实现装配起来。`TalkTalkSettingsUI` 只依赖 Core，App、CloudUI、DriverSupport 与 Voice 用它绘制设置，图标尺寸按 22/18/15/13/11 五级取 `SubtitleTokens.SettingsIcon.Size`，侧栏与各页图标取 `SettingsIcon.Page` 等令牌（[设置视觉系统](decisions/2026-11-06-settings-visual-system.md) §3–§4）。
 
 ## 三种使用场景
 

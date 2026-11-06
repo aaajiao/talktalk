@@ -1,5 +1,6 @@
 import SwiftUI
 import TalkTalkCore
+import TalkTalkSettingsUI
 
 /// Settings › 翻译 (ARCHITECTURE.md §11, §7.7). Reusable: the M1 settings window embeds it,
 ///
@@ -91,8 +92,7 @@ public struct TranslationSettingsView: View {
         Section {
             if let n = model.notice {
                 HStack {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text(n).font(.callout)
+                    StatusLabel(n, .warn)
                     Spacer()
                     Button("知道了") { model.dismissNotice() }
                 }
@@ -198,9 +198,9 @@ public struct TranslationSettingsView: View {
     @ViewBuilder private func checkRow(_ c: TranslationSettingsModel.Check) -> some View {
         switch c {
         case .idle: EmptyView()
-        case .running(let s): HStack { ProgressView().controlSize(.small); Text(s).font(.callout) }
-        case .ok(let s): Label(s, systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.callout)
-        case .failed(let s): Label(s, systemImage: "xmark.octagon.fill").foregroundStyle(.red).font(.callout)
+        case .running(let s): StatusLabel(s, .busy)
+        case .ok(let s): StatusLabel(s, .ok)
+        case .failed(let s): StatusLabel(s, .failed)
         }
     }
 }

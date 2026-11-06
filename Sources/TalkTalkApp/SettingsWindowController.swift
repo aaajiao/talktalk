@@ -26,17 +26,19 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The sidebar glyph (settings visual system §4), also the menu's glyph for opening the page.
     var symbol: String {
-        switch self {
-        case .general: "gearshape"
-        case .meeting: "person.2.wave.2"
-        case .subtitles: "captions.bubble"
-        case .audio: SubtitleTokens.SettingsIcon.audio
-        case .voice: SubtitleTokens.SettingsIcon.myVoice
-        case .translation: "character.bubble"
-        case .components: "shippingbox"
-        case .glossary: SubtitleTokens.SettingsIcon.glossary
-        case .privacy: "hand.raised"
+        typealias Page = SubtitleTokens.SettingsIcon.Page
+        return switch self {
+        case .general: Page.general
+        case .meeting: Page.scenarios
+        case .subtitles: Page.subtitles
+        case .audio: Page.audio
+        case .voice: Page.voice
+        case .translation: Page.models
+        case .components: Page.components
+        case .glossary: Page.glossary
+        case .privacy: Page.privacy
         }
     }
 }

@@ -4,6 +4,7 @@ import Observation
 import SwiftUI
 import TalkTalkCore
 import TalkTalkEngineHost
+import TalkTalkSettingsUI
 
 /// Shared with meeting translators; only the editor writes, workers read a lock-protected snapshot.
 enum AppGlossary {
@@ -98,7 +99,7 @@ struct GlossarySettingsView: View {
                 Button("保存") { model.save() }.buttonStyle(.borderedProminent)
             }
             if let message = model.message {
-                SettingsStatusLabel(message, model.messageIsError ? .warn : .ok).font(.callout)
+                StatusLabel(message, model.messageIsError ? .warn : .ok)
             }
             Text("启用云端翻译时，术语随文字发送给 OpenAI；关闭时不发送。")
                 .font(.caption).foregroundStyle(.secondary)
