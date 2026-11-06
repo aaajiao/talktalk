@@ -182,14 +182,17 @@ struct DoneStep: View {
             Label("引导完成", systemImage: "flag.checkered").font(.title2.bold())
             OnboardingCard(title: "从菜单开始使用", symbol: "menubar.rectangle") {
                 SpeechFlow(steps: [
-                    ("app", String(localized: "选要听的应用")),
-                    ("character.bubble", String(localized: "选原文语言")),
+                    ("square.grid.3x1", String(localized: "先选使用场景")),
+                    ("app", String(localized: "在场景里选应用与语言")),
                     ("play.circle", String(localized: "开始同传或字幕"))
                 ])
             }
-            OnboardingCard(title: "开会与看视频", symbol: "person.2.wave.2") {
+            OnboardingCard(title: "开会、打电话与看视频", symbol: "person.2.wave.2") {
                 Label("开会：开始会议同传", systemImage: "person.2.wave.2").font(.headline)
                 SettingsNote("听对方看双语字幕；我说话默认传原声，点按右⌥开始翻译，再点按结束，译音播完后恢复原声。会议应用的输入选 TalkTalk Mic。")
+                Divider()
+                Label("打电话：准备电话同传", systemImage: "phone").font(.headline)
+                SettingsNote("固定使用 Mac 的 Phone 和你的 iPhone 号码。先准备同传，再拨号或接听；结束同传后恢复麦克风。")
                 Divider()
                 Label("看视频：开始视频字幕", systemImage: "play.rectangle").font(.headline)
                 SettingsNote("只收听应用声音，英语或德语原文与中文字幕成对显示，不使用麦克风。")

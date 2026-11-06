@@ -65,6 +65,9 @@ step "audio path rules (§3.8) + their fixture tests"
 scripts/check-audio-paths.sh
 scripts/tests/test-audio-paths.sh
 
+step "driver input-device notifications (no audio IO)"
+scripts/tests/test-driver-mic-visibility.sh
+
 step "zh-Hans string catalog (§11)"
 scripts/tests/test-check-strings.sh
 scripts/check-strings.sh

@@ -139,9 +139,9 @@ struct GeneralSettingsView: View {
                     ("speaker.wave.2", String(localized: "再点按结束发言"))
                 ])
                 SettingsNote("点按一次右⌥开始翻译，原声随即关闭；说中文，可夹英语。再点按结束发言，等剩余译音播完后自动恢复原声。")
-                Label("需要静音时，请使用会议应用的静音按钮。", systemImage: "mic.slash")
+                Label("需要静音时，请使用会议应用或 Phone 的静音按钮。", systemImage: "mic.slash")
                     .font(.callout).foregroundStyle(.secondary)
-            } header: { Label("会议发言方式", systemImage: "mic.and.signal.meter") }
+            } header: { Label("会议与电话发言方式", systemImage: "mic.and.signal.meter") }
             Section {
                 Toggle(isOn: Binding(
                     get: { model.autoEndNotificationsEnabled },

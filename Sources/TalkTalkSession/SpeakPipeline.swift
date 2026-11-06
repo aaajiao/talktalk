@@ -1103,6 +1103,23 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         suspended = true
         await cancelPending()
     }
+
+    /// A Phone input-reader boundary may be hangup, mute, hold or a route change. Keep the
+    /// prepared session, but discard all old speech before any subsequent reader can hear it.
+    /// The owner serializes this with resume() and revokes the physical-key gate immediately.
+    public func phoneInputLost() async {
+        guard !ended else { return }
+        suspended = true
+        displayPress = nil
+        let empty = SpeakTranscript(press: jobs.next(), source: "", target: "", isFinal: true)
+        lastTranscript = empty
+        ui(.transcript(empty))
+        await cancelPending()
+        history.reset(); heard.removeAll(); heardPresses.removeAll()
+        lastSource = nil; lastClipEnd = nil; previousClone = nil
+        announced = false; announcementRequestedAt = nil; announcementEngine = nil
+    }
+
     public func resume() { if !ended { suspended = false; waitingForEngine = false } }
     public func stop() async {
         guard !ended else { return }

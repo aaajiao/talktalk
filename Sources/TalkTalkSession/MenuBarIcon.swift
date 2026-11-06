@@ -10,6 +10,7 @@ public enum MenuBarIcon: Sendable, Equatable {
     public static func compute(meetingActive: Bool, systemInput: SystemInputSwitcher.Status,
                                translationDegraded: Bool, micGuard: MeetingMicGuardPlan.State = .init(),
                                mode: MeetingMode = .meeting,
+                               phonePrepared: Bool = false,
                                talkTalkMicReadWhileInactive: Bool = false, componentsMissing: Bool = false,
                                listenReady: Bool = false,
                                warming: Bool = false, speaking: Bool = false, passthroughOpen: Bool = false,
@@ -18,7 +19,10 @@ public enum MenuBarIcon: Sendable, Equatable {
         // The open microphone is the most immediate privacy fact, including while closing down.
         if passthroughOpen { return .passthroughOpen }
         if !meetingActive && talkTalkMicReadWhileInactive { return .needsAttention }
-        if meetingActive, mode == .meeting, case .physicalMic = micGuard.verdict { return .needsAttention }
+        if meetingActive, mode.supportsSpeaking, case .physicalMic = micGuard.verdict { return .needsAttention }
+        // A prepared Phone session deliberately waits without a microphone reader until
+        // dialing or answering. Only that exact fact is expected; unknown/physical input is not.
+        let waitingForPhone = mode == .phone && phonePrepared && micGuard.verdict == .noReader
         var inputDegraded = false
         switch systemInput {
         case .pendingFromLastRun, .noRestoreTarget: return .needsAttention
@@ -29,7 +33,7 @@ public enum MenuBarIcon: Sendable, Equatable {
         case .overridden: inputDegraded = meetingActive
         case .idle, .otherInstanceManages, .holding, .suspended: break
         }
-        if meetingActive, mode == .meeting,
+        if meetingActive, mode.supportsSpeaking, !waitingForPhone,
            micGuard.awaitingConfirmation || micGuard.verdict == nil || micGuard.micGuard == .noReaderOfTalkTalkMic {
             return .audioNeedsCheck
         }
@@ -40,7 +44,8 @@ public enum MenuBarIcon: Sendable, Equatable {
         if warming { return .warming }
         if inputDegraded { return .degraded }
         guard meetingActive else { return .standby }
-        let voiceDegraded = mode == .meeting && (speakTranslationDegraded || systemVoice || speakerMode != false)
+        let speakerNeedsCheck = speakerMode == true || (speakerMode == nil && !waitingForPhone)
+        let voiceDegraded = mode.supportsSpeaking && (speakTranslationDegraded || systemVoice || speakerNeedsCheck)
         return translationDegraded || voiceDegraded ? .degraded : .listening
     }
 }

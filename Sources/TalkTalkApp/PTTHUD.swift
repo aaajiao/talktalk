@@ -18,10 +18,13 @@ final class PTTHUD {
     private let transcriptColumns = ConversationColumnsView()
     private var width: CGFloat { panel.contentWidth - 8 }
     var onOpenSettings: ((HUDLine.SettingsDestination) -> Void)?
+    var phoneInputIsConfirmed: (() -> Bool)?
+    var onPhoneSpeechModeChange: ((HUDModel.MeetingAudio?, Bool) -> Void)?
     private let statusRow = NSView()
     private let modeBadge = NSView()
     private let modeIcon = NSImageView()
     private let modeLabel = ConversationLabel(labelWithString: "")
+    private let phoneActionLabel = ConversationLabel(labelWithString: "")
     private let statusIcon = NSImageView()
     private let statusLabel = ConversationLabel(labelWithString: "")
     private let detailsButton = NSButton()
@@ -29,6 +32,9 @@ final class PTTHUD {
     private var statusAction: HUDButtonAction?
     private var shownStatus: HUDStatusPresentation?
     private var shownMode: HUDLine?
+    private var shownPhonePresentation: PhoneSpeechPresentation?
+    private var publishedPhoneMode: HUDModel.MeetingAudio?
+    private var publishedPhoneInput = false
     private var subtitlesVisible = true
     private var listenHint: HUDModel.Warning?
     private var subtitleIssue: HUDLine?
@@ -49,6 +55,11 @@ final class PTTHUD {
         modeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         modeLabel.maximumNumberOfLines = 1
         modeLabel.cell?.isScrollable = false
+        statusRow.addSubview(phoneActionLabel)
+        phoneActionLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        phoneActionLabel.maximumNumberOfLines = 1
+        phoneActionLabel.lineBreakMode = .byTruncatingTail
+        phoneActionLabel.isHidden = true
         statusRow.addSubview(statusIcon)
         statusRow.addSubview(statusLabel)
         statusRow.addSubview(detailsButton)
@@ -128,8 +139,16 @@ final class PTTHUD {
     /// The controller calls this from actual raw-gate / translation-tail state changes. A
     /// failed translation press keeps raw closed; it must report unavailable, not original.
     func meetingAudio(_ state: HUDModel.MeetingAudio?) {
-        guard model.meetingAudio != state else { return }
-        change { $0.meetingAudio = state }
+        let inputChanged = panel.presentation == .phone
+            && (phoneInputIsConfirmed?() == true) != publishedPhoneInput
+        guard model.meetingAudio != state || inputChanged else { return }
+        if panel.presentation == .phone {
+            // A stopped raw gate or lost Phone reader must not leave a green sending badge
+            // behind the transcript's refresh limiter. Only mode/confirmation changes get this.
+            model.meetingAudio = state
+            redrawTimer?.invalidate(); redrawTimer = nil
+            redraw()
+        } else { change { $0.meetingAudio = state } }
     }
 
     /// SPEAK wires this on once push to talk works; until then no idle shortcut instruction.
@@ -306,15 +325,23 @@ final class PTTHUD {
         let transcript = !subtitlesVisible || (model.meetingAudio == .original && candidate?.isFinal == false) ? nil : candidate
         let oldStatus = shownStatus
         let audio = model.meetingActive ? model.meetingAudio : nil
+        let phoneAudio = panel.presentation == .phone ? audio : nil
+        let phoneInput = phoneAudio != nil && phoneInputIsConfirmed?() == true
+        if phoneAudio != publishedPhoneMode || phoneInput != publishedPhoneInput {
+            publishedPhoneMode = phoneAudio; publishedPhoneInput = phoneInput
+            onPhoneSpeechModeChange?(phoneAudio, phoneInput)
+        }
+        let phonePresentation = phoneAudio?.phonePresentation(inputConfirmed: phoneInput)
         let mode = audio?.modeBadge
-        let modeChanged = mode != shownMode
+        let modeChanged = mode != shownMode || phonePresentation != shownPhonePresentation
         shownStatus = status
         shownLines = status.map { [$0.summary] } ?? []
         let summaryChanged = status?.summary != oldStatus?.summary
         let transcriptChanged = transcript != shownTranscript
-        let showSpeech = subtitlesVisible && model.meetingActive && panel.presentation == .meeting
+        let showSpeech = subtitlesVisible && model.meetingActive && panel.presentation != .video
         guard force || summaryChanged || modeChanged || transcriptChanged || showSpeech != shownSpeechArea else { return }
         shownMode = mode
+        shownPhonePresentation = phonePresentation
         shownSpeechArea = showSpeech
 
         CATransaction.begin()
@@ -322,6 +349,16 @@ final class PTTHUD {
         defer { CATransaction.commit() }
         statusRow.isHidden = status == nil
         modeBadge.isHidden = mode == nil
+        phoneActionLabel.isHidden = phonePresentation == nil
+        let rowHeight: CGFloat = phonePresentation == nil ? Self.rowHeight : 72
+        statusRow.frame.size = NSSize(width: width - 24, height: rowHeight)
+        if let phonePresentation {
+            renderPhoneStatus(phonePresentation, summary: status?.summary, audio: audio)
+        } else {
+        modeBadge.layer?.borderWidth = 0
+        modeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        statusLabel.maximumNumberOfLines = 1
+        statusLabel.lineBreakMode = .byTruncatingTail
         if let mode, force || modeChanged {
             let color = mode.style == .normal ? NSColor.controlAccentColor : Self.color(for: mode.style)
             modeLabel.stringValue = mode.text
@@ -353,6 +390,7 @@ final class PTTHUD {
         detailsButton.frame = NSRect(x: statusRow.bounds.width - 62, y: 0, width: 62, height: Self.rowHeight)
         let textStart = summaryStart + (statusIcon.isHidden ? 0 : 26)
         statusLabel.frame = NSRect(x: textStart, y: 3, width: max(0, detailsButton.frame.minX - 8 - textStart), height: 19)
+        }
 
         if force || transcriptChanged {
             let newPress = transcript?.press != shownTranscript?.press
@@ -363,8 +401,49 @@ final class PTTHUD {
         // The parent owns the row viewport. Each language scrolls directly in its own column;
         // there is no outer speech scroll view that can swallow wheel events or clip a column.
         panel.setSpeechContent(transcriptColumns, height: showSpeech ? 180 : 0, hasLocalSpeech: showSpeech)
-        panel.setStatusContent(statusRow, height: status == nil ? 0 : Self.rowHeight)
+        panel.setStatusContent(statusRow, height: status == nil ? 0 : rowHeight)
         if status == nil { detailsPopover.close() }
+    }
+
+    private func renderPhoneStatus(_ presentation: PhoneSpeechPresentation,
+                                   summary: HUDLine?, audio: HUDModel.MeetingAudio?) {
+        let color: NSColor = switch presentation.tone {
+        case .original: .systemGreen
+        case .translation: .systemBlue
+        case .ready, .progress: .secondaryLabelColor
+        case .unavailable: .systemOrange
+        }
+        modeLabel.stringValue = presentation.title
+        modeLabel.font = .systemFont(ofSize: 14, weight: .bold)
+        modeLabel.textColor = color
+        modeBadge.layer?.backgroundColor = color.withAlphaComponent(0.18).cgColor
+        modeBadge.layer?.borderWidth = 1
+        modeBadge.layer?.borderColor = color.withAlphaComponent(0.45).cgColor
+        modeIcon.image = NSImage(systemSymbolName: presentation.symbol, accessibilityDescription: nil)
+        modeIcon.contentTintColor = color
+        phoneActionLabel.stringValue = presentation.action
+        phoneActionLabel.toolTip = presentation.action
+        phoneActionLabel.textColor = .labelColor
+        let warning = summary.flatMap { line in
+            line.style == .normal && line.text == audio?.text ? nil : line
+        }
+        statusLabel.stringValue = warning?.text ?? presentation.detail
+        statusLabel.toolTip = warning?.detail ?? warning?.text ?? presentation.detail
+        statusLabel.font = .systemFont(ofSize: 12, weight: warning == nil ? .regular : .semibold)
+        statusLabel.textColor = warning.map { Self.color(for: $0.style) } ?? .secondaryLabelColor
+        statusLabel.maximumNumberOfLines = 2
+        statusLabel.lineBreakMode = .byWordWrapping
+        statusIcon.isHidden = warning == nil
+        statusIcon.image = warning.flatMap { NSImage(systemSymbolName: $0.symbol ?? Self.symbol(for: $0.style), accessibilityDescription: nil) }
+        statusIcon.contentTintColor = warning.map { Self.color(for: $0.style) }
+        modeBadge.frame = NSRect(x: 0, y: 38, width: 176, height: 30)
+        modeIcon.frame = NSRect(x: 8, y: 6, width: 18, height: 18)
+        modeLabel.frame = NSRect(x: 32, y: 5, width: 138, height: 20)
+        phoneActionLabel.frame = NSRect(x: 188, y: 44, width: max(0, statusRow.bounds.width - 188), height: 20)
+        detailsButton.frame = NSRect(x: statusRow.bounds.width - 62, y: 6, width: 62, height: 24)
+        statusIcon.frame = NSRect(x: 0, y: 12, width: 18, height: 18)
+        let textStart: CGFloat = warning == nil ? 0 : 26
+        statusLabel.frame = NSRect(x: textStart, y: 4, width: max(0, detailsButton.frame.minX - 8 - textStart), height: 30)
     }
 
     private static func color(for style: HUDLine.Style) -> NSColor {

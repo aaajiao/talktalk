@@ -3,9 +3,10 @@ import CoreAudio
 import Darwin
 import Foundation
 
-/// Meeting apps we know (ARCHITECTURE.md §3.1 `MeetingApps.swift`). Confirmed on this Mac: Zoom,
-/// Teams, Tencent Meeting. Feishu/Lark is not installed here: its bundle id and sounding
-/// process get added only after `--list-audio-processes` shows them (M0-T9 → M1), not guessed.
+/// Known meeting/audio apps. Phone's bundle ID was verified from the installed app and its
+/// Core Audio process; call audio still needs end-to-end acceptance. Feishu/Lark is not installed
+/// here: its bundle ID and sounding process get added only after `--list-audio-processes`
+/// shows them, not guessed.
 public struct MeetingApp: Sendable, Equatable, Hashable, Codable {
     public let id: String          // owner bundle id
     public let name: String
@@ -20,6 +21,7 @@ public struct MeetingApp: Sendable, Equatable, Hashable, Codable {
         MeetingApp(id: "com.microsoft.edgemac", name: "Microsoft Edge", isBrowser: true),
         MeetingApp(id: "company.thebrowser.Browser", name: "Arc", isBrowser: true),
         MeetingApp(id: "com.apple.Safari", name: "Safari", isBrowser: true),
+        MeetingApp(id: "com.apple.mobilephone", name: "Phone", isBrowser: false),
         MeetingApp(id: "com.apple.FaceTime", name: "FaceTime", isBrowser: false),
     ]
 
@@ -36,9 +38,10 @@ public struct MeetingCandidate: Sendable, Equatable {
 }
 
 /// Attributes Core Audio process objects to the app that owns them (§3.1), rules in order:
-///   1. bundle-id prefix (`<app>` or `<app>.helper*`);
-///   2. parent PID chain (`proc_pidinfo(PROC_PIDTBSDINFO)`), owner = first ancestor with an app bundle id;
-///   3. XPC services (parent is launchd, e.g. `com.apple.WebKit.GPU`): the responsible process
+///   1. the known running application for the same PID, before a possibly inherited audio bundle ID;
+///   2. Core Audio bundle-id prefix (`<app>` or `<app>.helper*`);
+///   3. parent PID chain (`proc_pidinfo(PROC_PIDTBSDINFO)`), owner = first ancestor with an app bundle id;
+///   4. XPC services (parent is launchd, e.g. `com.apple.WebKit.GPU`): the responsible process
 ///      (`responsibility_get_pid_responsible_for_pid`, SPI: fine for personal use, re-check before
 ///      distribution); only if that is unavailable, WebKit.GPU → Safari.
 /// `CATapDescription.bundleIDs` is not used: it matches exactly and misses helpers and XPC.
@@ -75,6 +78,7 @@ public struct MeetingSourceResolver: Sendable {
 
     /// The owner bundle id of a process object (nil if none found).
     public func ownerBundleID(_ p: AudioProcessInfo) -> String? {
+        if let b = lookup.bundleID(p.pid), let app = app(forBundlePrefix: b) { return app.id }
         if let b = p.bundleID, let app = app(forBundlePrefix: b) { return app.id }
         // Parent chain, at most 16 levels (launchd is pid 1).
         var pid = p.pid
@@ -134,7 +138,7 @@ public struct MeetingSourceResolver: Sendable {
         }.map(\.objectID)
     }
 
-    /// Whether the responsibility SPI resolved at run time (rule 3 works beyond the WebKit fallback).
+    /// Whether the responsibility SPI resolved at run time (rule 4 works beyond the WebKit fallback).
     public static var responsibilityAvailable: Bool { Responsibility.available }
 
     /// Current candidates from Core Audio.

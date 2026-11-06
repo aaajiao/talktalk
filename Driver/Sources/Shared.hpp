@@ -136,9 +136,8 @@ public:
     void MicClientAdded();
     void MicClientRemoved();
 
-    // 'ttmm' (§8.3, M2): sets the Mic's CanBeDefaultDevice and notifies the HAL, synchronously
-    // (called from SetPropertyData, like the SDK's NullAudio sample does for its controls).
-    // Show() resets it to 0 before the Mic enters the list again.
+    // 'ttmm' records session state only; the Mic's input capability is permanently true.
+    // Show() resets this diagnostic flag before the Mic enters the list again.
     void SetMeetingMode(bool on);
     bool MeetingMode() const
     {

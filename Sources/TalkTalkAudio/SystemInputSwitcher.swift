@@ -8,8 +8,9 @@ import TalkTalkCore
 /// output is never written.
 ///
 /// Layers (§8.6): 1 normal restore (here); 2 the guard (`SysInputGuard`); 3 the driver removing
-/// TalkTalk Mic — counts from driver 0.2.0 on (`Config.driverLayerCounts`); 4 the next launch
-/// (`beginLaunchTakeover`). Plus the no-record invariant (insurance from 0.2.0 on), run here.
+/// TalkTalk Mic — helpful, but not independently sufficient with stable selectability
+/// (`Config.driverLayerCounts`); 4 the next launch (`beginLaunchTakeover`). Plus the no-record
+/// invariant, run here.
 ///
 /// How MeetingSession (listen) drives it:
 ///   - app launch: `start()`; once the Feed is attached (or right away without a driver):
@@ -578,13 +579,20 @@ public final class SystemInputSwitcher {
         }
         guard snap.defaultIsMic, !meetingModeOn else { return }
         // Someone is between taking the lock and writing the record: leave it to them.
-        let available = SysInputLock.isAvailable(path: deps.paths.lock.path)
-        guard available else { return }
-        switch SystemInputPlan.noRecordInvariant(snapshot: snap, meetingModeOn: meetingModeOn, recordExists: false,
-                                                 lockAvailable: available, lastPhysical: tracker.lastPhysicalDefault) {
+        guard !lock.isHeld, lock.tryAcquire(timeout: 0) else { return }
+        defer { lock.release() }
+        guard case .none = mode, !meetingModeOn, record == nil, !store.exists else { return }
+        let fresh = deps.hal.snapshot()
+        tracker.update(fresh, now: now)
+        switch SystemInputPlan.noRecordInvariant(snapshot: fresh, meetingModeOn: meetingModeOn, recordExists: store.exists,
+                                                 lockAvailable: true, lastPhysical: tracker.lastPhysicalDefault) {
         case .none:
             break
         case let .restore(t):
+            // The original snapshot may predate another input selection or ownership change.
+            // Recheck immediately before writing; HAL has no atomic compare-and-set operation.
+            guard case .none = mode, !meetingModeOn, record == nil, !store.exists,
+                  deps.hal.defaultInputUID() == MicPolicy.talkTalkMicUID else { return }
             if deps.hal.writeAndConfirm(uid: t.device.uid) { onNotice?(.invariantRestored(device: t.device.name)) }
         case .noTarget:
             onNotice?(.noRestoreTarget)

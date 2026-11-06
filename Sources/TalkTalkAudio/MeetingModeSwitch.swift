@@ -2,9 +2,9 @@ import CoreAudio
 import Foundation
 import TalkTalkCore
 
-/// The driver's meeting-mode switch `'ttmm'` (ARCHITECTURE.md §8.3, driver ≥ 0.2.0): TalkTalk Mic
-/// enters the device list with `CanBeDefaultDevice` = 0 and can be made the default input only
-/// after an accepted Feed client wrote `'ttmm'` = 1. A protocol so tests use a fake (TalkTalkAudio
+/// The driver's meeting-mode switch `'ttmm'` (ARCHITECTURE.md §8.3, driver ≥ 0.2.0). Drivers
+/// 0.2.0–0.2.2 tie selectability to it; 0.2.3 keeps the Mic selectable while listed and records
+/// session state separately. A protocol so tests use a fake (TalkTalkAudio
 /// cannot import TalkTalkDriverSupport: that target depends on this one). `meetingMode()` and
 /// `setMeetingMode(_:)` match `DriverHAL`; `DriverHAL` has no `micCanBeDefault()`, so injecting
 /// `CoreAudioDriverHAL` takes an extension that reads `device(uid:)?.canBeDefault`.
@@ -75,7 +75,7 @@ public struct CoreAudioMeetingModeSwitch: MeetingModeSwitch {
 /// How sysinput uses the switch (§8.6 "会议模式开关").
 public enum MeetingModeGate {
     public enum Readiness: Sendable, Equatable {
-        /// The Mic can be the default input now (`'ttmm'` already 1, or driver 0.1.0).
+        /// The session state was written and the Mic is selectable, or the driver has no 'ttmm'.
         case ready
         /// Writing `'ttmm'` = 1 failed (not an accepted Feed client, Feed gone): status kept for the HUD.
         case switchRefused(OSStatus)
@@ -86,9 +86,10 @@ public enum MeetingModeGate {
     /// Before every write of TalkTalk Mic as the default input (entry, switch-backs, resume).
     /// Polls (10 ms) up to `timeout` seconds of real time; returns at once on the fast paths.
     public static func makeMicSelectable(_ sw: MeetingModeSwitch, timeout: Double) -> Readiness {
-        if sw.micCanBeDefault() == true { return .ready }
         // Driver 0.1.0 has no 'ttmm' (and its Mic can always be the default): just try the write.
         guard sw.meetingMode() != nil else { return .ready }
+        // Selectability is a capability, not evidence of an active session. Stable-selectable
+        // drivers still need the explicit mode write, including its accepted-client check.
         let st = sw.setMeetingMode(true)
         guard st == noErr else { return .switchRefused(st) }
         let deadline = Date().addingTimeInterval(timeout)

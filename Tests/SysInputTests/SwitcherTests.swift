@@ -662,7 +662,33 @@ final class SwitcherRig {
         #expect(rig.meetingSwitch.writes.isEmpty)
     }
 
-    /// (c) Your manual change voids the record: 'ttmm' back to 0 (macOS must not pick the Mic by itself).
+    @Test func selectableMicStillRecordsSessionModeAndReleasesItOnEnd() {
+        let rig = SwitcherRig(driver: .v023)
+        rig.switcher.start()
+        #expect(rig.meetingSwitch.micCanBeDefault() == true)
+        #expect(!rig.meetingSwitch.value)
+        #expect(rig.switcher.enterMeetingMode(meetingApps: ["com.apple.mobilephone"]) == .switched)
+        #expect(rig.meetingSwitch.value)
+        #expect(rig.meetingSwitch.writes == [true])
+        #expect(rig.switcher.endMeetingMode(decision: .restoreNow) == .restored(device: Devs.usb.name))
+        #expect(rig.meetingSwitch.writes == [true, false])
+        #expect(rig.meetingSwitch.micCanBeDefault() == true)
+        #expect(rig.hal.defaultInputUID() == Devs.usb.uid)
+    }
+
+    @Test func selectableCapabilityDoesNotBypassRefusedSessionMode() {
+        let rig = SwitcherRig(driver: .v023)
+        rig.switcher.start()
+        rig.meetingSwitch.refuse = true
+        #expect(rig.meetingSwitch.micCanBeDefault() == true)
+        #expect(rig.switcher.enterMeetingMode(meetingApps: []) == .micNotSelectable)
+        #expect(rig.hal.writeCount == 0)
+        #expect(!rig.store.exists)
+        #expect(rig.lockFree)
+        #expect(rig.launcher.last?.quitCalled == true)
+    }
+
+    /// (c) Your manual change voids the record and ends the driver's session mode.
     @Test func voidedRecordReleasesTheSwitch() {
         let rig = SwitcherRig()
         rig.switcher.start()
@@ -743,6 +769,86 @@ final class SwitcherRig {
         rig.switcher.start()                     // remembers USB as the last physical default
         rig.hal.setDefault(Devs.mic.uid)         // macOS re-selected TalkTalk Mic (M0-T8 d3)
         rig.tick(0.1)
+        #expect(rig.hal.defaultInputUID() == Devs.usb.uid)
+        #expect(rig.notices == [.invariantRestored(device: Devs.usb.name)])
+    }
+
+    @Test func idleRestoreHoldsOwnershipLockWhileWriting() {
+        let rig = SwitcherRig(driver: .v023)
+        rig.switcher.start()
+        rig.hal.setDefault(Devs.mic.uid)
+        let lockPath = rig.paths.lock.path
+        let lockObservations = EventTrail()
+        rig.hal.onWrite = { _ in
+            lockObservations.add(SysInputLock.isAvailable(path: lockPath) ? "free" : "held")
+        }
+        rig.tick()
+        #expect(lockObservations.all == ["held"])
+        #expect(rig.hal.defaultInputUID() == Devs.usb.uid)
+        #expect(rig.lockFree)
+    }
+
+    @Test func idleRestoreLeavesASelectionChangedAfterItsFreshSnapshot() {
+        let rig = SwitcherRig(driver: .v023)
+        rig.switcher.start()
+        rig.hal.setDefault(Devs.mic.uid)
+        let hal = rig.hal
+        var snapshots = 0
+        hal.afterSnapshot = { _ in
+            snapshots += 1
+            if snapshots == 2 { hal.setDefault(Devs.builtIn.uid) }
+        }
+        rig.tick()
+        #expect(snapshots == 2)
+        #expect(rig.hal.writeCount == 0)
+        #expect(rig.hal.defaultInputUID() == Devs.builtIn.uid)
+        #expect(rig.lockFree)
+    }
+
+    @Test func idleRestoreRechecksARecordCreatedAfterItsFreshSnapshot() throws {
+        let rig = SwitcherRig(driver: .v023)
+        rig.switcher.start()
+        rig.hal.setDefault(Devs.mic.uid)
+        let record = SysInputRecord(original: .init(Devs.usb), writerBundleID: "other",
+                                   executablePath: "/other")
+        let store = rig.store
+        var snapshots = 0
+        rig.hal.afterSnapshot = { _ in
+            snapshots += 1
+            if snapshots == 2 { try? store.write(record) }
+        }
+        rig.tick()
+        let saved = try #require(store.read())
+        #expect(saved.writerBundleID == "other")
+        #expect(rig.hal.writeCount == 0)
+        #expect(rig.hal.defaultInputUID() == Devs.mic.uid)
+        #expect(rig.lockFree)
+    }
+
+    @Test func idleRestoreStopsWhenMeetingIntentBeginsDuringItsFreshSnapshot() {
+        let rig = SwitcherRig(driver: .v023)
+        rig.switcher.start()
+        rig.hal.setDefault(Devs.mic.uid)
+        var snapshots = 0
+        rig.hal.afterSnapshot = { _ in
+            snapshots += 1
+            if snapshots == 2 {
+                _ = rig.switcher.enterMeetingMode(meetingApps: [], switchDefaultInput: false)
+            }
+        }
+        rig.tick()
+        #expect(rig.hal.writeCount == 0)
+        #expect(rig.hal.defaultInputUID() == Devs.mic.uid)
+        #expect(rig.switcher.isMeetingModeOn)
+        #expect(rig.lockFree)
+    }
+
+    @Test func earlyStartKeepsBaselineWhenTheControllerStartsAgain() {
+        let rig = SwitcherRig(driver: .v023)
+        rig.switcher.start()
+        rig.hal.setDefault(Devs.mic.uid)
+        rig.switcher.start()
+        rig.tick()
         #expect(rig.hal.defaultInputUID() == Devs.usb.uid)
         #expect(rig.notices == [.invariantRestored(device: Devs.usb.name)])
     }

@@ -16,11 +16,11 @@ enum MeetingMicCheck: Equatable {
 
     var text: String {
         switch self {
-        case .notChecked: String(localized: "尚未检查。开启会议同传后，在会议应用中打开麦克风测试，即可确认是否使用 TalkTalk Mic。")
+        case .notChecked: String(localized: "尚未检查。准备会议或电话同传后，可在会议应用中测试麦克风，或在 Phone 接通电话后确认输入。")
         case let .green(app): String(localized: "\(app) 正在用 TalkTalk Mic")
         case let .physicalMic(_, detail?): String(localized: "会议绕过 TalkTalk 使用实体麦克风，按键翻译已停用。\(detail)。")
         case let .physicalMic(app, nil): String(localized: "\(app) 正在使用实体麦克风，TalkTalk 无法在翻译时关闭原声。请在 \(app) 的音频设置里选 TalkTalk Mic。")
-        case .nobodyReads: String(localized: "没有会议 App 在读 TalkTalk Mic")
+        case .nobodyReads: String(localized: "尚无会议应用或 Phone 使用 TalkTalk Mic")
         }
     }
 
@@ -251,13 +251,13 @@ struct AudioSettingsView: View {
 
     private var capture: some View {
         Section {
-            LabeledContent("会议模式的收音方式", value: String(localized: "持续采集麦克风"))
-            Label("需要静音时，使用会议应用的静音按钮。", systemImage: "mic.slash")
+            LabeledContent("收音方式", value: String(localized: "按场景启用麦克风"))
+            Label("需要静音时，使用会议应用或 Phone 的静音按钮。", systemImage: "mic.slash")
                 .font(.callout)
         } header: {
-            Text("会议收音")
+            Text("会议与电话收音")
         } footer: {
-            Text("默认传原声；点按右⌥开始翻译，再点按结束发言，译音播完后恢复原声。会议中持续采集麦克风，默认不保存录音。")
+            Text("会议和电话同传准备好后即可收音；电话不必等接通，点按右⌥就能开始翻译，再点按结束发言。电话接收状态另行检查，不影响拨号前试说。默认不保存录音；视频字幕不使用麦克风。")
         }
     }
 
@@ -301,17 +301,17 @@ struct AudioSettingsView: View {
 
     private var defaultInput: some View {
         Section {
-            Toggle("会议同传时将系统默认输入设为 TalkTalk Mic", isOn: $model.switchDefaultInput)
-            LabeledContent("在会议应用中选择", value: model.switchDefaultInput
+            Toggle("会议或电话同传时将系统默认输入设为 TalkTalk Mic", isOn: $model.switchDefaultInput)
+            LabeledContent("在会议应用或 Phone 中选择", value: model.switchDefaultInput
                 ? String(localized: "TalkTalk Mic，或跟随系统默认") : "TalkTalk Mic")
             if model.loginStronglyRecommended {
                 LaunchAtLoginRow(launch: model.launch, stronglyRecommended: true)
             }
             DisclosureGroup("默认输入如何恢复") {
-                SettingsNote("开始会议同传时自动接入；停止同传或退出 TalkTalk 时自动还原，无需再选择。你手动更改过的输入会保留。")
+                SettingsNote("准备会议或电话同传时自动接入；停止同传或退出 TalkTalk 时自动还原。Phone 需选择“使用系统设置”；你手动更改过的输入会保留。")
             }
         } header: {
-            Text("TalkTalk Mic · 送给会议应用")
+            Text("TalkTalk Mic · 通话输入")
         } footer: {
             Text("跟随系统默认输入的应用（听写、Siri、录音等）也会接收原声或译音。视频字幕不更改默认输入。")
         }
@@ -352,9 +352,9 @@ struct AudioSettingsView: View {
             Label(model.meetingMic.text, systemImage: meetingCheckSymbol).font(.callout).foregroundStyle(model.meetingMic.color)
                 .fixedSize(horizontal: false, vertical: true)
         } header: {
-            Text("会议应用检查")
+            Text("会议与电话应用检查")
         } footer: {
-            Text("在会议应用里选 TalkTalk Mic，TalkTalk 才能在按键翻译时关闭原声。")
+            Text("会议应用请选择 TalkTalk Mic；Phone 可在“音频 › 麦克风”选择“使用系统设置”，跟随 TalkTalk 的默认输入切换。")
         }
     }
 

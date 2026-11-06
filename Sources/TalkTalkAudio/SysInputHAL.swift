@@ -60,10 +60,12 @@ public final class CoreAudioSysInputHAL: SysInputHAL, @unchecked Sendable {
     }
 
     public func snapshot() -> SystemInputPlan.Snapshot {
-        let devices = InputDeviceCatalog.inputDevices()
+        // Read the current input before enumerating devices: HAL may register our Feed client
+        // during enumeration, making the Mic appear and allowing macOS to select it.
         let def: AudioObjectID? = InputDeviceCatalog.scalar(AudioObjectID(kAudioObjectSystemObject),
                                                             kAudioHardwarePropertyDefaultInputDevice)
         let defInfo = def.flatMap { id in id == kAudioObjectUnknown ? nil : InputDeviceCatalog.info(for: id) }
+        let devices = InputDeviceCatalog.inputDevices()
         return SystemInputPlan.Snapshot(devices: devices.map(MicPolicy.Device.init), defaultInput: defInfo.map(MicPolicy.Device.init),
                                         serviceRestarts: restartLock.withLock { restarts })
     }

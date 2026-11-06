@@ -452,8 +452,8 @@ int main(int argc, char** argv)
     Check(micIn.size() == 1 && GetIDs(mic, kAudioDevicePropertyStreams, kAudioObjectPropertyScopeOutput).empty(),
         "Mic: 1 input stream, 0 output");
     Check(U32(mic, kAudioDevicePropertyIsHidden) == 0, "Mic IsHidden = 0 while in use");
-    Check(U32(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeInput) == 0,
-        "Mic enters the list with CanBeDefaultDevice = 0 (M2 'ttmm')");
+    Check(U32(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeInput) == 1,
+        "Mic enters the list with stable CanBeDefaultDevice = 1");
 
     // --- 'ttmm' meeting-mode switch (M2): only a process with an accepted Feed client may write.
     {
@@ -468,18 +468,18 @@ int main(int argc, char** argv)
         CFStringRef str = CFSTR("1");
         Check(SetTTMM(feed, getpid(), str) == kAudioHardwareIllegalOperationError, "ttmm: CFString value refused");
         Check(SetTTMM(feed, getpid(), nullptr, 4) == kAudioHardwareIllegalOperationError, "ttmm: wrong size refused");
-        Check(GetTTMM(feed) == 0 && U32(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeInput) == 0,
+        Check(GetTTMM(feed) == 0 && U32(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeInput) == 1,
             "refused writes change nothing");
         const int before = Notifications(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice);
         Check(SetTTMM(feed, getpid(), 1) == 0, "ttmm: talktalk (accepted Feed client) writes 1");
         Check(GetTTMM(feed) == 1 && U32(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeInput) == 1,
-            "ttmm 1 -> Mic CanBeDefaultDevice = 1");
-        Check(Notifications(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice) == before + 1,
-            "ttmm 1 notifies kAudioDevicePropertyDeviceCanBeDefaultDevice on the Mic");
-        Check(SetTTMM(feed, getpid(), 0) == 0 &&
-                U32(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeInput) == 0 &&
-                Notifications(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice) == before + 2,
-            "ttmm 0 -> Mic CanBeDefaultDevice = 0, notified");
+            "ttmm 1 records the session without changing Mic capability");
+        Check(Notifications(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice) == before,
+            "ttmm 1 does not notify unchanged Mic capability");
+        Check(SetTTMM(feed, getpid(), 0) == 0 && GetTTMM(feed) == 0 &&
+                U32(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeInput) == 1 &&
+                Notifications(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice) == before,
+            "ttmm 0 records session end; Mic remains selectable without capability notification");
         Check(U32(feed, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeOutput) == 0 &&
                 U32(testMic, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeInput) == 0,
             "ttmm never touches Feed / Test Mic");
@@ -623,8 +623,8 @@ int main(int argc, char** argv)
     AddClient(feed, app);
     PumpFor(200);
     Check(InDeviceList(mic), "Mic re-added when talktalk re-attaches (same object)");
-    Check(GetTTMM(feed) == 0 && U32(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeInput) == 0,
-        "re-added Mic: ttmm and CanBeDefaultDevice reset to 0");
+    Check(GetTTMM(feed) == 0 && U32(mic, kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioObjectPropertyScopeInput) == 1,
+        "re-added Mic: ttmm resets to 0 while input capability stays 1");
     RemoveClient(feed, app);
     PumpFor(2000);
     AddClient(feed, app);
@@ -640,7 +640,8 @@ int main(int argc, char** argv)
         Check(DiagNum(d, "ttmmWrites") == 3 && DiagNum(d, "ttmmDenied") == 3,
             "diagnostics counts accepted ttmm writes (3) and refusals by caller (3)",
             std::to_string(DiagNum(d, "ttmmWrites")) + " / " + std::to_string(DiagNum(d, "ttmmDenied")));
-        Check(DiagNum(d, "meetingMode") == 0 && DiagNum(d, "micCanBeDefault") == 0, "diagnostics has meetingMode / micCanBeDefault");
+        Check(DiagNum(d, "meetingMode") == 0 && DiagNum(d, "micCanBeDefault") == 1,
+            "diagnostics separates idle meetingMode from stable Mic capability");
         CFRelease(d);
     } else {
         Check(false, "diagnostics property 'ttdg' readable");

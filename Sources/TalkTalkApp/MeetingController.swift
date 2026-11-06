@@ -11,8 +11,6 @@ import TalkTalkSession
 /// it is missing, the speech-asset download when the locale is not installed.
 @MainActor
 final class MeetingController {
-    private enum Key { static let lastSource = "meeting.lastSource" }
-
     private let state: AppState
     let panel: SubtitlePanel
     private(set) var session: MeetingSession?
@@ -25,6 +23,8 @@ final class MeetingController {
     private var captionsEngineCleanup: Task<Void, Never>?
     /// The concrete process used by this session's Qwen factory, including a failed start.
     private var listenEngine: EngineProcess?
+    private var phoneReadinessDetail: String?
+    private var phoneDialRequestID = UUID()
     private let engineProcess: @Sendable () -> EngineProcess?
     private let defaults: UserDefaults
     var onActiveChange: ((Bool) -> Void)?
@@ -56,14 +56,30 @@ final class MeetingController {
         state.onSubtitleAppearanceChange = { [weak self] in self?.applySubtitleAppearance() }
         panel.onPresentationChange = { [weak self] in self?.applySubtitleAppearance() }
         state.onSubtitleVisibilityChange = { [weak self] on in self?.setSubtitlesVisible(on) }
+        state.onOpenPhone = { [weak self] in self?.openPhone() }
+        state.onDialPhone = { [weak self] number in self?.dialPhone(number) }
+        state.onRefreshSources = { [weak self] in self?.refreshSourceOptions() }
+        panel.openPhone = { [weak self] in self?.openPhone() }
+        panel.endPhoneTranslation = { [weak self] in self?.toggle(mode: .phone) }
         applySubtitleAppearance()
         panel.analysisRecorder = privacy?.subtitleAnalysis
         ui = events.subscribe { [weak self] e in
             switch e {
             case let .state(st): self?.sessionState(st)
             case let .hint(h):
-                self?.state.meetingHint = h?.rawValue
-                self?.hud?.listen(h)
+                if self?.state.meetingMode == .phone {
+                    let text: String?
+                    switch h {
+                    case .meetingSilent?: text = nil
+                    case .meetingSeemsOver?: text = String(localized: "Phone 已长时间没有通话音频，即将结束电话同传。")
+                    default: text = h?.rawValue
+                    }
+                    self?.state.meetingHint = text
+                    self?.refreshPhoneContext()
+                } else {
+                    self?.state.meetingHint = h?.rawValue
+                    self?.hud?.listen(h)
+                }
             case .started(_, _, let lang, _):
                 self?.hud?.meetingStarted()
                 self?.privacy?.recorder.meetingStarted(lang: lang)
@@ -88,14 +104,15 @@ final class MeetingController {
         }
     }
 
-    var lastSource: String? {
-        get { defaults.string(forKey: Key.lastSource) }
-        set { defaults.set(newValue, forKey: Key.lastSource) }
-    }
-
-    /// Meeting apps that currently have Core Audio process objects (menu › 会议来源).
+    /// Apps that currently have Core Audio process objects. Phone is reserved for its scene.
     func sources() -> [MeetingApp] {
         ((try? MeetingSourceResolver().currentCandidates()) ?? []).map(\.app)
+    }
+
+    func refreshSourceOptions() {
+        let options = sources().filter { $0.id != MeetingMode.phoneAppID }
+            .map { AppState.SourceOption(id: $0.id, name: $0.name) }
+        if state.availableSources != options { state.availableSources = options }
     }
 
     func setSubtitlesVisible(_ on: Bool) {
@@ -111,27 +128,121 @@ final class MeetingController {
         case .video:
             panel.setFontSize(state.videoSubtitleFontSize)
             panel.setBackgroundOpacity(state.videoSubtitleBackgroundOpacity)
+        case .phone:
+            panel.setFontSize(state.phoneSubtitleFontSize)
+            panel.setBackgroundOpacity(state.phoneSubtitleBackgroundOpacity)
         }
     }
 
     func toggle(mode: MeetingMode = .meeting) {
         guard !state.meetingStopping else { return }   // one end question, one stop
         if state.meetingActive {
-            guard session?.mode != .meeting || (beforeUserEnd?() ?? true) else { return }   // cancelled in the dialog
+            guard session?.mode.supportsSpeaking != true || (beforeUserEnd?() ?? true) else { return }
             state.meetingStopping = true
+            refreshPhoneContext()
             Task {
                 await session?.stop(.user)
                 state.meetingStopping = false
             }
         } else if !state.meetingStarting {
+            state.requestedScenario = mode
             Task { await start(mode: mode) }
         }
     }
 
     func stillInMeeting() { session?.stillInMeeting() }
 
+    func openPhone() {
+        Task {
+            do { try await NativePhone.open() }
+            catch {
+                state.phoneProblem = String(localized: "无法打开 Phone，请从“应用程序”中打开后重试。")
+                refreshPhoneContext()
+            }
+        }
+    }
+
+    private func dialPhone(_ number: String) {
+        guard state.meetingMode == .phone, state.meetingActive, state.phoneReadyToDial,
+              !state.phoneAudioActive, !state.meetingStopping, !state.phoneDialing,
+              let session, case .running = session.state else { return }
+        guard let url = PhoneDialRequest.url(for: number) else {
+            state.phoneProblem = String(localized: "请输入一个有效电话号码，可包含开头的 +、空格、括号或连字符。")
+            refreshPhoneContext()
+            return
+        }
+        state.phoneProblem = nil
+        refreshPhoneContext()
+        state.phoneDialing = true
+        let requestID = UUID(); phoneDialRequestID = requestID
+        Task {
+            defer { if phoneDialRequestID == requestID { state.phoneDialing = false } }
+            guard self.session === session, case .running = session.state,
+                  state.phoneReadyToDial, !state.meetingStopping, !state.phoneAudioActive else { return }
+            do { try await NativePhone.open(dialURL: url) }
+            catch {
+                guard self.session === session else { return }
+                state.phoneProblem = String(localized: "未能把号码交给 Phone，请在 Phone 中手动拨号。")
+                refreshPhoneContext()
+            }
+        }
+    }
+
+    /// Readiness is reported by the actual SPEAK/Feed and input path, never by a timer.
+    func updatePhoneReadiness(_ ready: Bool, detail: String? = nil) {
+        guard state.meetingMode == .phone else { return }
+        let available = ready && state.meetingActive && !state.meetingStopping
+        guard state.phoneReadyToDial != available || phoneReadinessDetail != detail else { return }
+        state.phoneReadyToDial = available
+        phoneReadinessDetail = detail
+        refreshPhoneContext()
+    }
+
+    func phoneSpeechFailed(_ failedSession: MeetingSession?) {
+        guard let failedSession, session === failedSession, state.meetingMode == .phone else { return }
+        state.phoneReadyToDial = false
+        state.phoneProblem = String(localized: "电话发言链路未能启动。请结束同传，检查组件、麦克风和输入监控权限后重新准备。")
+        refreshPhoneContext()
+        Task {
+            guard self.session === failedSession else { return }
+            await failedSession.stop(.failed)
+        }
+    }
+
+    private func refreshPhoneContext() {
+        guard state.meetingMode == .phone else { return }
+        guard state.meetingActive || state.meetingStarting else {
+            panel.setPhoneContext(nil)
+            return
+        }
+        panel.setPhoneActionsEnabled(state.meetingActive && !state.meetingStarting && !state.meetingStopping)
+        let text: String
+        if state.meetingStopping {
+            text = String(localized: "正在结束电话同传并还原麦克风…")
+        } else if let problem = state.phoneProblem {
+            text = problem
+        } else if state.meetingStarting {
+            text = String(localized: "正在准备电话字幕、声音与麦克风…")
+        } else if case .suspended = session?.state {
+            text = String(localized: "电话同传已暂停，等待系统恢复。")
+        } else if let hint = state.meetingHint {
+            text = hint
+        } else if let detail = phoneReadinessDetail {
+            text = detail
+        } else if !state.phoneReadyToDial {
+            text = String(localized: "正在准备电话发言，请稍候…")
+        } else if state.phoneAudioActive {
+            text = String(localized: "电话音频已接入 · 点按右⌥切换原声与翻译")
+        } else {
+            text = String(localized: "收音已就绪 · 点按右⌥开始翻译，也可在 Phone 拨号或接听")
+        }
+        if state.phoneStatus != text { state.phoneStatus = text; onTranslationChange?() }
+        panel.setPhoneContext(text)
+    }
+
     func setGlobalListenFallback(_ enabled: Bool) {
         guard let session else { return }
+        guard session.mode.allowsGlobalFallback else { return }
         if enabled, !confirm("采集所有应用的声音？", MeetingSession.globalFallbackWarning, ok: "开启全局采集") { return }
         do { try session.setGlobalFallback(enabled) }
         catch { alert("无法切换声音来源", error.localizedDescription) }
@@ -237,21 +348,56 @@ final class MeetingController {
     }
 
     func start(mode: MeetingMode = .meeting, choice: String? = nil) async {
+        guard !state.meetingActive, !state.meetingStarting else { return }
         guard canStartMeeting() else {
             alert("暂时不能开始收听", "请先结束正在运行的自检或说话测试。")
             return
         }
-        await captionsEngineCleanup?.value
         state.meetingMode = mode
-        panel.setPresentation(mode == .captions ? .video : .meeting)
+        state.requestedScenario = mode
+        state.meetingStarting = true
+        defer {
+            state.meetingStarting = false
+            if mode == .phone {
+                if !state.meetingActive { state.phoneStatus = String(localized: "电话同传尚未开始，请准备后再拨号或接听。") }
+                refreshPhoneContext()
+            }
+        }
+        panel.setPresentation(mode == .phone ? .phone : mode == .captions ? .video : .meeting)
+        if mode == .phone {
+            state.phoneProblem = nil; phoneReadinessDetail = nil
+            state.phoneReadyToDial = false; state.phoneAudioActive = false
+            phoneDialRequestID = UUID(); state.phoneDialing = false
+            refreshPhoneContext()
+            do {
+                try await NativePhone.open(activates: false)
+                // The app creates its Core Audio object shortly after launch. No recording or
+                // dial occurs during this bounded discovery wait.
+                for _ in 0..<30 {
+                    if sources().contains(where: { $0.id == MeetingMode.phoneAppID }) { break }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+            } catch {
+                state.phoneProblem = String(localized: "无法打开系统 Phone 应用，请确认它已安装并可正常启动。")
+                return
+            }
+        }
+        await captionsEngineCleanup?.value
+        let selectedSource = choice ?? state.selectedSource(for: mode)
+        if mode != .phone {
+            refreshSourceOptions()
+            if let selectedSource, !state.availableSources.contains(where: { $0.id == selectedSource }) {
+                let name = MeetingApp.named(selectedSource)?.name ?? selectedSource
+                alert("所选应用尚未就绪", "请先打开 \(name)，或在当前场景中选择其他应用。不会自动改为收听其他应用。")
+                return
+            }
+        }
         try? AppGlossary.store.reload()
         let profile: PolicyProfile
         do { profile = try PolicyProfile.loadDefault() } catch {
             alert("无法开始收听", "找不到策略文件（PolicyProfile.default.json）：\(error)")
             return
         }
-        state.meetingStarting = true
-        defer { state.meetingStarting = false }
         let retiredModel = await prepareCloud?() ?? false
         let sessionID = UUID()
         subtitleSessionID = sessionID
@@ -297,13 +443,18 @@ final class MeetingController {
                 self.privacy?.recorder.subtitle(u)
             })
         session = s
+        s.onPhoneAudioActivity = { [weak self, weak s] active in
+            guard let self, let s, self.session === s else { return }
+            self.state.phoneAudioActive = active
+            self.refreshPhoneContext()
+        }
         if mode == .captions, let engine = engineProcess() {
             captionsEngine = engine
             await engine.setMeetingMode(true)
             captionsWarmup = Task { _ = try? await engine.start() }
         }
         let lang = state.remoteLanguage.lang
-        let result = await s.start(lang: lang, choice: choice, preferred: lastSource)
+        let result = await s.start(lang: lang, choice: selectedSource, preferred: nil)
         guard session === s else { return }
         if case .started = result { } else {
             if mode == .captions { releaseCaptionsEngine() }
@@ -313,21 +464,29 @@ final class MeetingController {
         }
         switch result {
         case .started:
-            if let id = s.app?.id { lastSource = id }
             if s.listenLanguage != state.remoteLanguage.lang { listenConfigurationChanged() }
             else if state.listenASREngine == .apple { state.listenASRStatus = "Apple Speech" }
             cloudReminder()
             if retiredModel { hud?.post(.modelRetired) }
         case .noMeetingApp:
             session = nil
-            if mode == .captions {
+            if mode == .phone {
+                state.phoneProblem = String(localized: "Phone 的音频尚未就绪。请打开 Phone 后重新准备电话同传。")
+            } else if let selectedSource {
+                let name = MeetingApp.named(selectedSource)?.name ?? selectedSource
+                alert("所选应用尚未就绪", "\(name) 的声音来源已不可用，请打开应用后重试，或在当前场景中重新选择。")
+            } else if mode == .captions {
                 alert("没有找到播放应用", "请先在浏览器中播放视频，再开始视频字幕。")
             } else {
                 alert("没有找到声音来源", "请先打开 Zoom、Teams 等会议应用，或在 Chrome、Safari 中播放视频，再开始收听。")
             }
         case let .needsChoice(ids):
             session = nil
-            if let pick = choose(ids) { await start(mode: mode, choice: pick) }
+            if let pick = choose(ids) {
+                state.selectSource(pick, for: mode)
+                state.meetingStarting = false
+                await start(mode: mode, choice: pick)
+            }
         case .tccDenied:
             session = nil
             if confirm("需要“系统录音”权限",
@@ -343,6 +502,7 @@ final class MeetingController {
                        ok: "下载") {
                 do {
                     try await AppleSpeechASR.installAssets(l)
+                    state.meetingStarting = false
                     await start(mode: mode, choice: choice)
                 } catch {
                     alert("下载没有完成", "\(error)")
@@ -355,6 +515,7 @@ final class MeetingController {
             }
         case let .failed(why):
             session = nil
+            if mode == .phone { state.phoneProblem = why }
             alert("无法开始收听", why)
         }
     }
@@ -394,6 +555,7 @@ final class MeetingController {
             state.meetingApp = name
             if state.meetingStartedAt == nil { state.meetingStartedAt = session?.startedAt ?? Date() }
             panel.setVisible(state.subtitlesVisible)
+            if state.meetingMode == .phone { refreshPhoneContext() }
             onActiveChange?(true)
         case .starting:
             break
@@ -408,6 +570,12 @@ final class MeetingController {
             state.meetingStartedAt = nil
             state.meetingHint = nil
             state.listenTranslation = nil
+            state.phoneReadyToDial = false; state.phoneAudioActive = false
+            phoneDialRequestID = UUID(); state.phoneDialing = false
+            if state.meetingMode == .phone {
+                state.phoneStatus = String(localized: "电话同传已结束；如仍在通话，请在 Phone 中挂断。")
+            }
+            panel.setPhoneContext(nil)
             panel.setVisible(false)
             panel.clear()
             onActiveChange?(false)
@@ -417,15 +585,20 @@ final class MeetingController {
     // MARK: - dialogs
 
     private func choose(_ ids: [String]) -> String? {
-        let apps = ids.compactMap(MeetingApp.named).prefix(3)
+        let apps = ids.compactMap(MeetingApp.named)
+        guard !apps.isEmpty else { return nil }
         let a = NSAlert()
-        a.messageText = state.meetingMode == .captions ? "选择视频声音来源" : "选择要听的应用"
-        a.informativeText = "选择要转成字幕的应用声音（下次会记住它）。"
-        for app in apps { a.addButton(withTitle: app.name) }
+        a.messageText = state.meetingMode == .captions ? "选择视频声音来源" : "选择会议应用"
+        a.informativeText = "有多个可用应用，请为当前场景选择一个来源。这个场景会记住你的选择。"
+        let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 280, height: 28), pullsDown: false)
+        picker.addItems(withTitles: apps.map(\.name))
+        picker.setAccessibilityLabel(a.messageText)
+        a.accessoryView = picker
+        a.addButton(withTitle: "使用所选应用")
         a.addButton(withTitle: "取消")
         NSApp.activate()
-        let r = a.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-        return r >= 0 && r < apps.count ? Array(apps)[r].id : nil
+        guard a.runModal() == .alertFirstButtonReturn, apps.indices.contains(picker.indexOfSelectedItem) else { return nil }
+        return apps[picker.indexOfSelectedItem].id
     }
 
     private func alert(_ title: String, _ text: String) {

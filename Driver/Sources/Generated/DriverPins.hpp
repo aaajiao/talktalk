@@ -6,7 +6,7 @@
 
 namespace tt::pins {
 
-constexpr const char* kDriverVersion = "0.2.0";
+constexpr const char* kDriverVersion = "0.2.3";
 constexpr const char* kDriverBundleID = "com.aaajiao.talktalk.audio-driver";
 constexpr const char* kModelUID = "com.aaajiao.talktalk.audio-driver.model";
 constexpr const char* kFeedUID = "com.aaajiao.talktalk.feed";

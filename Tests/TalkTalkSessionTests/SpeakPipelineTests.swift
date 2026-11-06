@@ -114,6 +114,7 @@ private actor SpeakTestASR: ClipASREngine {
     let analyzers: SpeakTestAnalyzers?
     let repeatsFirstFromContextOnShortClip: Bool
     private(set) var calls = 0
+    private(set) var cancellations = 0
     private(set) var contexts: [String?] = []
     init(text: String = "你好世界", fails: Bool = false, delay: Duration = .zero,
          analyzers: SpeakTestAnalyzers? = nil, texts: [String] = [], repeatsFirstFromContextOnShortClip: Bool = false) {
@@ -135,7 +136,7 @@ private actor SpeakTestASR: ClipASREngine {
         return ASRFinal(text: recognized, language: .zh,
                         timing: .init(received: 0, started: 0, firstOutput: nil, finished: 0))
     }
-    func cancel(_ job: JobID) async {}
+    func cancel(_ job: JobID) async { cancellations += 1 }
 }
 private enum CancellationTestError: Error { case failure }
 
@@ -173,6 +174,7 @@ private final class SpeakTestTTS: TTSEngine, Sendable {
     let id = EngineID(name: "system-test", revision: "1", placement: .cpu)
     let outputRate = 24_000.0
     let requests = Mutex<[TTSRequest]>([])
+    let cancellations = Mutex<[JobID]>([])
     let failures: Int
     let hold: Bool
     private let pending = Mutex<[JobID: (TTSRequest, AsyncThrowingStream<TTSChunk, any Error>.Continuation)]>([:])
@@ -200,6 +202,7 @@ private final class SpeakTestTTS: TTSEngine, Sendable {
     }
     func report(_ p: PlayoutReport) async {}
     func cancel(_ job: JobID) async {
+        cancellations.withLock { $0.append(job) }
         pending.withLock { $0.removeValue(forKey: job) }?.1.finish(throwing: CancellationError())
     }
 }
@@ -409,6 +412,69 @@ struct SpeakPipelineTests {
         await pipeline.stop()
         #expect(tts.requests.withLock { $0.isEmpty })
         #expect(host.queue.clauseCount == 0)
+    }
+
+    @Test func phoneInputLossCancelsRecognitionAndWaitsForExplicitResume() async throws {
+        let asr = SpeakTestASR(delay: .milliseconds(150), texts: ["上一通的内容。", "新的电话内容。"])
+        let mt = SpeakTestMT()
+        let (pipeline, mic, host, tts) = try fixture(asr: asr, mt: mt, whileHeld: true)
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        mic.press.cc.yield(clip(at: now))
+        #expect(await until { await asr.calls == 1 })
+        await pipeline.phoneInputLost()
+        #expect(await asr.cancellations > 0)
+        #expect(await mt.calls == 0)
+        #expect(tts.requests.withLock { $0.isEmpty })
+        #expect(host.queue.clauseCount == 0)
+        let oldPress = mic.press
+        await pipeline.handle(.began(at: now + 2_000_000_000))
+        #expect(mic.press === oldPress) // No new capture while Phone has no input reader.
+        await pipeline.resume()
+        await pipeline.handle(.began(at: now + 3_000_000_000))
+        mic.press.cc.yield(clip(at: now + 3_000_000_000))
+        #expect(await until { tts.requests.withLock { $0.count == 1 } })
+        #expect(await mt.requests.map(\.text) == ["新的电话内容。"])
+        #expect(await mt.requests.first?.history.isEmpty == true)
+        await pipeline.stop()
+    }
+
+    @Test func phoneInputLossClearsQueuedSpeechContextAndTranscriptBeforeNextReader() async throws {
+        let mt = SpeakTestMT()
+        let transcripts = Mutex<[SpeakTranscript]>([])
+        let (pipeline, mic, host, tts) = try fixture(mt: mt, clone: true, holdTTS: true, whileHeld: true,
+            onUI: { event in
+                if case let .transcript(value) = event { transcripts.withLock { $0.append(value) } }
+            })
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        mic.press.cc.yield(clip(at: now))
+        #expect(await until { tts.requests.withLock { $0.count == 1 } })
+        let first = try #require(tts.requests.withLock { $0.first })
+        tts.finish(first.job)
+        #expect(await until { host.queue.drainEstimate().renderedMs > 0 })
+        await pipeline.receive([.firstSamplePlayed(clause: first.clause, job: first.job, at: now + 500_000_000)])
+        mic.press.cc.yield(clip(at: now + 1_000_000_000))
+        #expect(await until { tts.requests.withLock { $0.count == 2 } })
+        let second = tts.requests.withLock { $0[1] }
+        #expect(await mt.requests[1].history.count == 1)
+        #expect(second.previousJob == first.job)
+        await pipeline.phoneInputLost()
+        #expect(tts.cancellations.withLock { $0.contains(second.job) })
+        #expect(host.queue.clauseCount == 0)
+        let cleared = try #require(transcripts.withLock { $0.last })
+        #expect(cleared.source.isEmpty && cleared.target.isEmpty && cleared.unsubmittedSource.isEmpty)
+        tts.finish(second.job) // Completion of a cancelled render cannot re-enter the queue.
+        await pipeline.resume()
+        await pipeline.receive([.firstSamplePlayed(clause: first.clause, job: first.job, at: now + 2_000_000_000)])
+        await pipeline.handle(.began(at: now + 3_000_000_000))
+        mic.press.cc.yield(clip(at: now + 3_000_000_000))
+        #expect(await until { tts.requests.withLock { $0.count == 3 } })
+        let next = tts.requests.withLock { $0[2] }
+        #expect(next.contextID != first.contextID && next.previousJob == nil)
+        #expect(await mt.requests[2].history.isEmpty)
+        #expect(host.queue.clauseCount == 1)
+        await pipeline.stop()
     }
 
     @Test func meetingCaptureStartsAtKeyDownAndBusyWaitsForCancellation() async throws {

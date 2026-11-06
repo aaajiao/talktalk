@@ -21,8 +21,7 @@ import Testing
     }
 
     @Test func strongRecommendationWhenTheDriverLayerDoesNotCount() {
-        var config = SystemInputPlan.Config()
-        config.driverLayerCounts = false   // driver 0.1.0 (0.2.0, the default, counts: §8.6 layer 3)
+        let config = SystemInputPlan.Config()
         #expect(config.loginStartStronglyRecommended)
         let p = P.present(.notRegistered, bundleSigned: true, stronglyRecommended: config.loginStartStronglyRecommended)
         #expect(p.stronglyRecommended && p.note == P.recommendation)

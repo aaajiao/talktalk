@@ -14,9 +14,18 @@ import TalkTalkCore
 /// lid included): the cloud MT rebuilds its connections then (§6.4).
 /// `audioServiceRestarted` comes after coreaudiod restarted and the tap was rebuilt. `state` and
 /// `hint` repeat every MeetingSession state / hint change for UI subscribers.
-public enum MeetingMode: String, Sendable, Equatable {
+public enum MeetingMode: String, Sendable, Equatable, Hashable {
     case meeting
+    case phone
     case captions
+
+    public static let phoneAppID = "com.apple.mobilephone"
+
+    /// Meetings and telephone calls share the microphone, translation and output lifecycle.
+    public var supportsSpeaking: Bool { self != .captions }
+
+    /// A phone session must stay bound to Phone, including while waiting for a call.
+    public var allowsGlobalFallback: Bool { self != .phone }
 }
 
 public enum MeetingEvent: Sendable, Equatable {

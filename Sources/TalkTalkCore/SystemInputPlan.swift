@@ -41,12 +41,10 @@ public enum SystemInputPlan {
         /// Entering meeting mode on driver ≥ 0.2.0: how long to wait for TalkTalk Mic's
         /// CanBeDefaultDevice to become 1 after writing 'ttmm' = 1.
         public var micSelectableTimeout: Double = 1
-        /// Layer 3 of §8.6 (the driver removing TalkTalk Mic when nobody uses it). Driver 0.1.0
-        /// (M0-T8 d3): macOS re-selected the Mic every time it reappeared, so it did not count.
-        /// Driver 0.2.0 (the pinned one, `DriverPins.version`): the Mic re-enters the list with
-        /// CanBeDefaultDevice = 0 and macOS never re-selected it (d2t 5/5, d4t: built-in took over
-        /// at 986 ms, the Mic was back at 1006 ms with CanBeDefault = 0), so it counts.
-        public var driverLayerCounts: Bool = true
+        /// Removing an unused Mic helps restore input, but a selectable Mic may be chosen
+        /// again by macOS when it reappears. Stable selectability from driver 0.2.3 means the
+        /// driver layer alone is not an independent recovery guarantee; retain the app/guard.
+        public var driverLayerCounts: Bool = false
 
         public init() {}
 

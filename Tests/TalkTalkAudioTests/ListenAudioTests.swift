@@ -80,8 +80,14 @@ import Testing
         400: (1, "com.readread.app"),
         500: (1, "com.apple.WebKit.GPU"),               // XPC with no responsible process known
         600: (1, "com.tencent.meeting"),
+        700: (1, "com.apple.mobilephone"),
+        701: (700, nil),                              // Phone's child with no bundle id
+        702: (1, "com.apple.avconferenced"),           // XPC explicitly owned by Phone
+        800: (1, "com.apple.FaceTime"),
+        900: (1, "com.apple.TelephonyUtilities"),
+        901: (1, "com.apple.avconferenced"),           // Shared service with no known owner
     ]
-    static let responsible: [pid_t: pid_t] = [300: 400]
+    static let responsible: [pid_t: pid_t] = [300: 400, 702: 700]
 
     let resolver = MeetingSourceResolver(lookup: .init(
         parentPID: { table[$0]?.0 }, bundleID: { table[$0]?.1 }, responsiblePID: { responsible[$0] }))
@@ -93,6 +99,58 @@ import Testing
     @Test func bundlePrefixAndParentChain() {
         #expect(resolver.ownerBundleID(proc(1, 201, "com.google.Chrome.helper")) == "com.google.Chrome")
         #expect(resolver.ownerBundleID(proc(2, 101, nil)) == "us.zoom.xos")
+    }
+
+    @Test func phoneIsAKnownSourceWithItsOwnApplicationIdentity() {
+        #expect(MeetingApp.named("com.apple.mobilephone")?.name == "Phone")
+        #expect(resolver.ownerBundleID(proc(20, 700, "com.apple.mobilephone")) == "com.apple.mobilephone")
+    }
+
+    @Test func phoneRuntimeIdentityOverridesLegacyFaceTimeAudioIdentity() {
+        #expect(resolver.ownerBundleID(proc(20, 700, "com.apple.FaceTime")) == "com.apple.mobilephone")
+        #expect(resolver.ownerBundleID(proc(22, 800, "com.apple.FaceTime")) == "com.apple.FaceTime")
+    }
+
+    @Test func phoneHelpersFollowTheirVerifiedParentOrResponsibleProcess() {
+        #expect(resolver.ownerBundleID(proc(21, 701, nil)) == "com.apple.mobilephone")
+        #expect(resolver.ownerBundleID(proc(23, 702, "com.apple.avconferenced")) == "com.apple.mobilephone")
+    }
+
+    @Test func phoneAndFaceTimeRemainDistinctCandidates() throws {
+        let c = resolver.candidates([
+            proc(20, 700, "com.apple.FaceTime", input: true, output: false),
+            proc(21, 701, nil),
+            proc(22, 800, "com.apple.FaceTime"),
+        ])
+        #expect(c.count == 2)
+        let phone = try #require(c.first { $0.app.id == "com.apple.mobilephone" })
+        let faceTime = try #require(c.first { $0.app.id == "com.apple.FaceTime" })
+        #expect(phone.app.name == "Phone")
+        #expect(phone.objectIDs == [20, 21])
+        #expect(phone.isRunningInput && phone.isRunningOutput)
+        #expect(faceTime.app.name == "FaceTime")
+        #expect(faceTime.objectIDs == [22])
+        #expect(MeetingSourceResolver.defaultSource(c)?.app.id == phone.app.id)
+        #expect(MeetingSourceResolver.defaultSource(c, preferred: faceTime.app.id)?.app.id == phone.app.id)
+    }
+
+    @Test func sharedCallServicesAreNotAssignedToAnOpenPhoneWithoutAnOwner() throws {
+        let c = resolver.candidates([
+            proc(20, 700, "com.apple.mobilephone", output: false),
+            proc(24, 900, "com.apple.TelephonyUtilities", input: true),
+            proc(25, 901, "com.apple.avconferenced", input: true),
+        ])
+        #expect(c.count == 1)
+        let phone = try #require(c.first)
+        #expect(phone.app.id == "com.apple.mobilephone")
+        #expect(phone.objectIDs == [20])
+        #expect(!phone.isRunningInput && !phone.isRunningOutput)
+        #expect(MeetingSourceResolver.defaultSource(c) == nil)
+    }
+
+    @Test func audioIdentityRemainsTheFallbackWithoutARuntimeApplication() {
+        #expect(resolver.ownerBundleID(proc(26, 999, "com.apple.mobilephone")) == "com.apple.mobilephone")
+        #expect(resolver.ownerBundleID(proc(27, 999, "com.apple.FaceTime")) == "com.apple.FaceTime")
     }
 
     /// A WKWebView app's audio must not count as Safari's (here: readread's WebKit process).

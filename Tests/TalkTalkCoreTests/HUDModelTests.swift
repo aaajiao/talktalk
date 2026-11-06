@@ -2,6 +2,56 @@ import Foundation
 import Testing
 @testable import TalkTalkCore
 
+@Suite struct PhoneSpeechPresentationTests {
+    @Test func originalNeedsBothTheOpenGateModeAndConfirmedPhoneInput() {
+        let waiting = HUDModel.MeetingAudio.original.phonePresentation(inputConfirmed: false)
+        let sending = HUDModel.MeetingAudio.original.phonePresentation(inputConfirmed: true)
+        #expect(waiting.tone == .ready)
+        #expect(waiting.title != sending.title)
+        #expect(sending.tone == .original)
+        #expect(sending.title == "原声发送中")
+        #expect(sending.detail.contains("送入 Phone"))
+        #expect(!sending.detail.contains("对方已听"))
+    }
+
+    @Test func preparedPhoneRemainsReadyWithoutClaimingRawTransmission() {
+        for confirmed in [false, true] {
+            let ready = HUDModel.MeetingAudio.phoneReady.phonePresentation(inputConfirmed: confirmed)
+            #expect(ready.tone == .ready)
+            #expect(ready.title.contains("就绪"))
+            #expect(!ready.title.contains("发送中"))
+        }
+        #expect(HUDModel.MeetingAudio.phoneReady.phonePresentation(inputConfirmed: false).detail.contains("未确认 Phone 接入"))
+    }
+
+    @Test func recordingAndRemainingAudioHaveDifferentActionsAndEmphasis() {
+        let recording = HUDModel.MeetingAudio.translating.phonePresentation(inputConfirmed: true)
+        let draining = HUDModel.MeetingAudio.draining.phonePresentation(inputConfirmed: true)
+        #expect(recording.tone == .translation && draining.tone == .progress)
+        #expect(recording.action.contains("结束发言"))
+        #expect(draining.action.contains("继续翻译"))
+        #expect(recording.detail.contains("原声已关闭"))
+        #expect(draining.detail.contains("原声保持关闭"))
+    }
+
+    @Test func localTranslationDoesNotClaimPhoneIsReceiving() {
+        for mode in [HUDModel.MeetingAudio.translating, .draining] {
+            let local = mode.phonePresentation(inputConfirmed: false)
+            #expect(local.detail.contains("本机"))
+            #expect(local.detail.contains("未确认 Phone 接入"))
+            #expect(local.tone != .original)
+        }
+    }
+
+    @Test func restoringAndFailuresCannotBecomeSendingIndicators() {
+        let restoring = HUDModel.MeetingAudio.restoringOriginal.phonePresentation(inputConfirmed: true)
+        let failed = HUDModel.MeetingAudio.unavailable(reason: "设备断开").phonePresentation(inputConfirmed: true)
+        #expect(restoring.tone == .progress)
+        #expect(failed.tone == .unavailable && failed.detail == "设备断开")
+        #expect(restoring.title != "原声发送中" && failed.title != "原声发送中")
+    }
+}
+
 /// The §11 / §3.8 "state → text" table. The expected strings are copied from ARCHITECTURE.md.
 @Suite struct HUDModelTests {
     static let warnings: [(HUDModel.Warning, String, HUDLine.Style)] = [
@@ -301,6 +351,37 @@ import Testing
         #expect(risk.details.contains(remoteIssue))
         model.clear(.remoteHearsYourVoice); model.clear(.segmentNotSent)
         #expect(model.compactStatus(now: 1, extraLines: extras)?.summary.text == remoteIssue.text)
+    }
+
+    @Test func preparedPhoneWaitingIsNeutralAndDoesNotClaimConnectedAudio() throws {
+        var model = HUDModel()
+        model.meetingStarted()
+        model.meetingAudio = .phoneReady
+        let status = try #require(model.compactStatus(now: 0))
+        #expect(status.summary.style == .normal)
+        #expect(status.summary.text == "电话同传已就绪 · 点按右⌥即可开始翻译")
+        #expect(model.meetingAudio?.modeBadge == HUDLine("已就绪", .check, symbol: "phone"))
+        #expect(model.meetingAudio?.operationHint == "点按右⌥开始翻译，可在拨号前试说")
+        #expect(status.details.allSatisfy { $0.style != .yellow && $0.style != .red })
+        model.meetingAudio = .unavailable(reason: "安全输入开启中")
+        #expect(model.compactStatus(now: 1)?.summary.style == .yellow)
+        model.meetingAudio = .phoneReady
+        #expect(model.compactStatus(now: 2)?.summary == status.summary)
+    }
+
+    @Test func waitingPhoneKeepsRealAudioAndPermissionWarningsVisible() throws {
+        for warning in [HUDModel.Warning.remoteHearsYourVoice, .audioRestarting, .tccUnconfirmed,
+                        .switchBackFailed(current: "Built-in"), .segmentNotSent] {
+            var model = HUDModel()
+            model.meetingStarted(); model.meetingAudio = .phoneReady
+            model.post(warning, now: 0)
+            let status = try #require(model.compactStatus(now: 1))
+            #expect(status.summary.text == warning.summary)
+            #expect(status.summary.style == warning.style)
+            #expect(status.details.contains { $0.text == HUDModel.MeetingAudio.phoneReady.text })
+            model.clear(warning)
+            #expect(model.compactStatus(now: 1)?.summary.style == .normal)
+        }
     }
 
     @Test func compactDemoAndListeningStayStableAndExtraDetailsAreDeduplicated() throws {

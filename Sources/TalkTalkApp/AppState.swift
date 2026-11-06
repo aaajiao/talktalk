@@ -48,6 +48,8 @@ final class AppState {
         static let subtitleBackgroundOpacity = "ui.subtitleBackgroundOpacity"
         static let videoSubtitleFontSize = "ui.videoSubtitleFontSize"
         static let videoSubtitleBackgroundOpacity = "ui.videoSubtitleBackgroundOpacity"
+        static let phoneSubtitleFontSize = "ui.phoneSubtitleFontSize"
+        static let phoneSubtitleBackgroundOpacity = "ui.phoneSubtitleBackgroundOpacity"
         static let speakLanguage = "speak.targetLanguage"
     }
 
@@ -124,6 +126,19 @@ final class AppState {
     }
     @ObservationIgnored var onSubtitleAppearanceChange: (() -> Void)?
 
+    var phoneSubtitleFontSize: Double {
+        didSet {
+            defaults.set(phoneSubtitleFontSize, forKey: Key.phoneSubtitleFontSize)
+            onSubtitleAppearanceChange?()
+        }
+    }
+    var phoneSubtitleBackgroundOpacity: Double {
+        didSet {
+            defaults.set(phoneSubtitleBackgroundOpacity, forKey: Key.phoneSubtitleBackgroundOpacity)
+            onSubtitleAppearanceChange?()
+        }
+    }
+
     var speakLanguage: RemoteLanguage {
         didSet { defaults.set(speakLanguage.rawValue, forKey: Key.speakLanguage) }
     }
@@ -131,6 +146,49 @@ final class AppState {
     /// Meeting mode (LISTEN) can be started from the menu.
     var meetingAvailable = true
     var meetingMode: MeetingMode = .meeting
+    /// Settings selection only; choosing a scene never changes a running session.
+    var requestedScenario: MeetingMode = .meeting
+    struct SourceOption: Identifiable, Equatable {
+        let id: String
+        let name: String
+    }
+    var availableSources: [SourceOption] = []
+    var meetingSourceID: String {
+        didSet { ListeningSourcePreferences.setSource(meetingSourceID, for: .meeting, defaults: defaults) }
+    }
+    var videoSourceID: String {
+        didSet { ListeningSourcePreferences.setSource(videoSourceID, for: .captions, defaults: defaults) }
+    }
+    @ObservationIgnored var onRefreshSources: (() -> Void)?
+
+    func selectedSource(for mode: MeetingMode) -> String? {
+        switch mode {
+        case .phone: MeetingMode.phoneAppID
+        case .meeting: meetingSourceID.isEmpty ? nil : meetingSourceID
+        case .captions: videoSourceID.isEmpty ? nil : videoSourceID
+        }
+    }
+
+    func selectSource(_ id: String, for mode: MeetingMode) {
+        switch mode {
+        case .phone: break
+        case .meeting: meetingSourceID = id
+        case .captions: videoSourceID = id
+        }
+    }
+    /// Phone numbers are an in-memory dialing draft, never a saved preference or event field.
+    var phoneNumber = ""
+    var phoneStatus: String?
+    var phoneProblem: String?
+    var phoneReadyToDial = false
+    var phoneAudioActive = false
+    var phoneDialing = false
+    /// Presentation from the real speech gate and scoped microphone guard, never inferred
+    /// from opening Phone or preparing the local engine.
+    var phoneSpeechMode: HUDModel.MeetingAudio?
+    var phoneInputConfirmed = false
+    @ObservationIgnored var onOpenPhone: (() -> Void)?
+    @ObservationIgnored var onDialPhone: ((String) -> Void)?
     @ObservationIgnored var onToggleListening: ((MeetingMode) -> Void)?
     /// True while meeting mode (LISTEN) runs (also while suspended by sleep / lock).
     var meetingActive = false
@@ -162,6 +220,8 @@ final class AppState {
     init(defaults: UserDefaults = .standard, voiceStore: VoiceStore = .product) {
         self.defaults = defaults
         self.voiceStore = voiceStore
+        meetingSourceID = ListeningSourcePreferences.source(for: .meeting, defaults: defaults) ?? ""
+        videoSourceID = ListeningSourcePreferences.source(for: .captions, defaults: defaults) ?? ""
         remoteLanguage = RemoteLanguage(rawValue: defaults.string(forKey: Key.remoteLanguage) ?? "") ?? .en
         listenASREngine = ListenASREngine(rawValue: defaults.string(forKey: Key.listenASREngine) ?? "") ?? .qwen
         speakLanguage = RemoteLanguage(rawValue: defaults.string(forKey: Key.speakLanguage) ?? "") ?? .en
@@ -174,6 +234,10 @@ final class AppState {
         storedVideoSubtitleFontSize = savedVideoSize.isFinite ? min(36, max(16, savedVideoSize)) : 26
         let savedVideoOpacity = defaults.object(forKey: Key.videoSubtitleBackgroundOpacity) as? Double ?? 0.85
         storedVideoSubtitleBackgroundOpacity = savedVideoOpacity.isFinite ? min(1, max(0.35, savedVideoOpacity)) : 0.85
+        let phoneSize = defaults.object(forKey: Key.phoneSubtitleFontSize) as? Double ?? 22
+        phoneSubtitleFontSize = phoneSize.isFinite ? min(36, max(16, phoneSize)) : 22
+        let phoneOpacity = defaults.object(forKey: Key.phoneSubtitleBackgroundOpacity) as? Double ?? 0.85
+        phoneSubtitleBackgroundOpacity = phoneOpacity.isFinite ? min(1, max(0.35, phoneOpacity)) : 0.85
         voiceProfilePresent = voiceStore.hasProfile
     }
 

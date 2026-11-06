@@ -563,13 +563,12 @@ private func snap(_ devices: [D], _ def: D?) -> SystemInputPlan.Snapshot { Syste
         #expect(c.contestWindow == 10)
         #expect(c.pollInterval == 2)
         #expect(c.launchSettle == 2)
-        // Driver 0.2.0 (pinned): the Mic is never re-selected (d2t, d4t), the driver layer counts.
-        #expect(DriverPins.version == "0.2.0")
-        #expect(c.driverLayerCounts)
-        #expect(!c.loginStartStronglyRecommended)
-        var old = c
-        old.driverLayerCounts = false   // 0.1.0 (M0-T8 d3)
-        #expect(old.loginStartStronglyRecommended)
+        // A stable-selectable Mic can be re-selected on arrival; the guard/app remain needed.
+        #expect(!c.driverLayerCounts)
+        #expect(c.loginStartStronglyRecommended)
+        var independentlyProtected = c
+        independentlyProtected.driverLayerCounts = true
+        #expect(!independentlyProtected.loginStartStronglyRecommended)
     }
 
     @Test func trackerRemembersLastPhysicalDefault() {

@@ -178,11 +178,11 @@ std::shared_ptr<LoopInputDevice> MakeMicDevice(std::shared_ptr<const aspl::Conte
     aspl::DeviceParameters params;
     params.Name = kMicName;
     params.DeviceUID = kMicUID;
-    // §8.2 / §8.6: the Mic must be selectable as the system default input during meeting
-    // mode, but only then: it starts at CanBeDefaultDevice = 0 and talktalk's 'ttmm' = 1 write
-    // turns it on (MicVisibility::SetMeetingMode). M0-T8 d3: with a fixed 1, macOS picked the
-    // Mic again by itself whenever it re-entered the list.
-    params.CanBeDefault = false;
+    // Publish stable input capability from the first device-list announcement. System
+    // Settings caches a first-seen false value even after later capability/list notifications.
+    // MicVisibility controls presence; the app's SystemInputSwitcher owns default-input
+    // selection and restoration, including macOS automatically selecting a returning Mic.
+    params.CanBeDefault = true;
 
     auto device = MakeLoopInputDevice(std::move(context), params, LoopInputDevice::Role::Mic);
     if (kMicMode == 1) {

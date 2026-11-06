@@ -50,6 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Capture the physical default before settings/audio setup can register a Feed client
+        // and make the Mic appear. Reuse this watcher below; smoke never touches real input.
+        let inputSwitcher = isSmoke ? nil : SystemInputSwitcher()
+        inputSwitcher?.start()
         NSApp.mainMenu = MainMenu.make(settingsTarget: self)
         state.voiceStore.removeStaleStaging()   // §9.2: staging left by a crash
         let settings = SettingsWindowController(state: state, engineHost: engineHost)
@@ -95,9 +99,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let output = isSmoke ? nil : profile.flatMap { try? SpeakOutput(profile: $0) }
         if let output { engineHost.setAuditionMonitor(MonitorAudition(monitor: output.monitor)) }
         // §8.6: not in the smoke run, which must not read or write the real default input.
-        let systemInput = isSmoke ? nil : SystemInputController(state: state, events: meeting.events, hud: hud,
-            waitForFeed: true, monitorUID: { output?.monitor.isSelfListenAudible == true ? output?.monitor.device?.uid : nil })
+        let systemInput = inputSwitcher.map { switcher in
+            SystemInputController(state: state, events: meeting.events, hud: hud, switcher: switcher,
+                waitForFeed: true, monitorUID: { output?.monitor.isSelfListenAudible == true ? output?.monitor.device?.uid : nil })
+        }
         self.systemInput = systemInput
+        hud.phoneInputIsConfirmed = { [weak systemInput] in
+            guard let systemInput, systemInput.micGuard.state.verified,
+                  let verdict = systemInput.micGuard.state.verdict,
+                  case let .green(appID, _) = verdict else { return false }
+            return appID == MeetingMode.phoneAppID
+        }
+        hud.onPhoneSpeechModeChange = { [weak state] mode, inputConfirmed in
+            state?.phoneSpeechMode = mode
+            state?.phoneInputConfirmed = inputConfirmed
+        }
         settings.driver.systemInput = systemInput   // 组件 › 虚拟麦克风 / 完全卸载 (§8.4)
         settings.driver.isChannel1Busy = { output?.isChannel1Busy ?? false }
         if let output, let profile, let systemInput {
@@ -146,11 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let status = StatusItemController(state: state, actions: .init(
             openSettings: { [weak self] section in self?.settings?.show(section) },
             toggleMeeting: { [weak meeting] in meeting?.toggle() },
-            startCaptions: { [weak meeting] in meeting?.toggle(mode: .captions) },
             quit: { NSApp.terminate(nil) },
-            sources: { [weak meeting] in meeting?.sources().map { ($0.id, $0.name) } ?? [] },
-            lastSource: { [weak meeting] in meeting?.lastSource },
-            chooseSource: { [weak meeting] id in meeting?.lastSource = id },
             stillInMeeting: { [weak meeting] in meeting?.stillInMeeting() },
             openOnboarding: { [weak onboarding] in onboarding?.show() },
             canPlayAnnouncement: { [weak speak] in speak?.canPlayAnnouncement ?? false },
@@ -241,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                 translationDegraded: state.listenTranslationDegraded && state.listenTranslation != .appleOnly,
                                                 micGuard: systemInput?.micGuard.state ?? .init(),
                                                 mode: state.meetingMode,
+                                                phonePrepared: state.phoneReadyToDial,
                                                 talkTalkMicReadWhileInactive: systemInput?.micReadWhileInactive ?? false,
                                                 componentsMissing: engineHost.engine() == nil,
                                                 listenReady: meeting?.session?.listenLanguage != nil,

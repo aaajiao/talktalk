@@ -1073,7 +1073,10 @@ int CmdHold(const Args& a)
         const int want = int(a.Num("--ttmm", 1));
         WaitFor(MicListed, 5000);
         const OSStatus st = SetTTMM(want);
-        WaitFor([&] { return MicCanBeDefault() == UInt32(want); }, 1000, 2);
+        // Since 0.2.3 capability stays true; ttmm reports session state independently.
+        if (st == noErr) {
+            WaitFor([&] { return GetTTMM() == want; }, 1000, 2);
+        }
         EmitRaw("tt.hold",
             {{"event", S("ttmm")}, {"want", N(want)}, {"status", N(st)}, {"readback", N(GetTTMM())},
                 {"micCanBeDefault", N(MicCanBeDefault())}});
@@ -1622,7 +1625,9 @@ std::string TraceDefaultInput(double ms, std::string* last, double* firstChangeM
     return trace + "]";
 }
 
-// M2 CanBeDefaultDevice experiment. Run as TTDriverBench through open (part 3 starts a Mic reader).
+// Historical 0.2.0-0.2.2 dynamic CanBeDefaultDevice experiment. The measurements remain
+// available, but the expected false->true transition/notification does not apply to 0.2.3+.
+// Run as TTDriverBench through open (part 3 starts a Mic reader).
 int CmdM2a(const Args& a)
 {
     DefaultsGuard guard("m2a");

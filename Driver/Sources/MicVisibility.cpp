@@ -10,10 +10,9 @@
 //
 // Every add/remove runs on a private serial queue, never inside a HAL callback.
 //
-// M2 'ttmm' (meeting mode): the Mic reports CanBeDefaultDevice = 0 unless talktalk wrote
-// 'ttmm' = 1 since the Mic last entered the list. The driver never sets it back to 0 on its
-// own while the Mic is listed (a crash of talktalk must not make macOS move a meeting app off
-// the Mic mid-call); it resets only when the Mic re-enters the list.
+// 'ttmm' records meeting mode independently of the Mic's stable CanBeDefaultDevice = 1.
+// Capability never changes while the device exists: System Settings can cache its initial
+// value. The app owns default-input selection/restoration; this manager owns list presence.
 
 #include "Shared.hpp"
 
@@ -151,9 +150,6 @@ void MicVisibility::SetMeetingMode(bool on)
 {
     std::lock_guard lock(modeMutex_);
     meetingMode_ = on;
-    if (mic_) {
-        mic_->SetCanBeDefaultDevice(on); // notifies kAudioDevicePropertyDeviceCanBeDefaultDevice
-    }
     if (diag_) {
         diag_->Event(on ? "ttmm.1" : "ttmm.0");
     }
@@ -162,16 +158,14 @@ void MicVisibility::SetMeetingMode(bool on)
 
 void MicVisibility::Show()
 {
-    // §8.3 (M2): the Mic always (re)enters the list with CanBeDefaultDevice = 0, so the HAL
-    // cannot make it the default input by itself (M0-T8 d3: it did when the value was 1).
-    // Only a 'ttmm' = 1 write from talktalk makes it selectable again.
+    // A returning device begins a fresh meeting-mode diagnostic lifetime. Its input
+    // capability remains true before and after publication in the device list.
     {
         std::lock_guard lock(modeMutex_);
-        if (meetingMode_.load() || mic_->GetCanBeDefaultDevice()) {
+        if (meetingMode_.load()) {
             diag_->Event("ttmm.reset_on_show");
         }
         meetingMode_ = false;
-        mic_->SetCanBeDefaultDevice(false);
     }
     if (kMicMode == 0) {
         plugin_->AddDevice(mic_);

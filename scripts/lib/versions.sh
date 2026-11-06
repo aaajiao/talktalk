@@ -5,8 +5,8 @@
 # then run scripts/gen-pins.sh (check.sh fails when EnginePins.swift is out of sync).
 
 # Application identity; independent of engine API/recipe and model revisions.
-TT_APP_VERSION="1.0.14"
-TT_APP_BUILD="15"
+TT_APP_VERSION="1.0.15"
+TT_APP_BUILD="23"
 
 # Standalone CPython (astral-sh/python-build-standalone). Size and sha256 checked against the
 # GitHub release asset digest on 2026-11-04 (identical to the values readread uses).
@@ -113,7 +113,7 @@ TT_M_ASR_QWEN3_1_7B_8BIT_COMPAT_REVISIONS=""
 # TalkTalkAudio.driver and the device UIDs (M0-T8; moved here from Driver/versions.env 2026-11-04).
 # gen-pins.sh turns these into Sources/TalkTalkCore/Generated/DriverPins.swift and
 # Driver/Sources/Generated/DriverPins.hpp; build-driver.sh and install-driver.sh source this file.
-TT_DRIVER_VERSION="0.2.0"
+TT_DRIVER_VERSION="0.2.3"
 TT_DRIVER_BUNDLE_ID="com.aaajiao.talktalk.audio-driver"
 TT_DRIVER_BUNDLE_NAME="TalkTalkAudio.driver"
 TT_DRIVER_EXECUTABLE="TalkTalkAudio"

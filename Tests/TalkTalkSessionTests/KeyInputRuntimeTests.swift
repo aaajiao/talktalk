@@ -229,6 +229,80 @@ private let commandFlags: ModifierFlags = [.command, .deviceRightCommand]
         runtime.stop(at: ns(170))
     }
 
+    @Test func preparedPhoneToggleCapturesLocallyWhileRawGateRemainsClosed() throws {
+        let actions = KeyActions()
+        let (runtime, sink) = try runtime(actions: actions, automatic: true, interaction: .toggle)
+        runtime.updateFacts(at: ns(1), phoneLocalSpeechReady: true) {
+            $0.micGuard = .noReaderOfTalkTalkMic
+            $0.awaitingAudioConfirmation = true
+            $0.speakerMode = nil
+        }
+        #expect(!sink.current.open)
+        let ready = runtime.meetingAudioSnapshot(at: ns(1))
+        #expect(ready.translationReadiness == .available && !ready.originalReadiness.isAvailable)
+        #expect(runtime.gate.facts.micGuard == .noReaderOfTalkTalkMic)
+        #expect(runtime.gate.facts.awaitingAudioConfirmation == true && runtime.gate.facts.speakerMode == nil)
+        runtime.handle(.init(time: ns(10), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        runtime.handle(.init(time: ns(40), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        #expect(runtime.meetingAudioSnapshot(at: ns(40)).recordingActive)
+        runtime.actionHandled(translationBusy: true, at: ns(45))
+        runtime.handle(.init(time: ns(70), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        runtime.handle(.init(time: ns(100), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        #expect(actions.all == [.machine(.began(at: ns(10))), .machine(.released(at: ns(100), reason: .keyUp))])
+        runtime.actionHandled(translationBusy: false, at: ns(110))
+        runtime.handle(.init(time: ns(120), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+        #expect(!sink.current.open && !runtime.meetingAudioSnapshot(at: ns(120)).canRestoreOriginal)
+        #expect(actions.rawOpenOnAction.allSatisfy { !$0 })
+        runtime.stop(at: ns(130))
+    }
+
+    @Test func phoneLocalReadinessCannotBypassUnavailableFeedOrUnsafeFacts() throws {
+        for scenario in 0..<9 {
+            let actions = KeyActions()
+            let (runtime, sink) = try runtime(actions: actions, automatic: true, interaction: .toggle)
+            runtime.updateFacts(at: ns(1), phoneLocalSpeechReady: scenario != 0) {
+                $0.micGuard = .noReaderOfTalkTalkMic
+                $0.awaitingAudioConfirmation = true
+                $0.speakerMode = nil
+                switch scenario {
+                case 1: $0.micGuard = .meetingUsesPhysicalMic; $0.awaitingAudioConfirmation = false
+                case 2: $0.micGuard = nil; $0.awaitingAudioConfirmation = false
+                case 3: $0.physicalMicPassesRule2 = false
+                case 4: $0.selfTestRunning = true
+                case 7: $0.meetingModeActive = false
+                case 8: $0.awaitingAudioConfirmation = nil
+                default: break
+                }
+            }
+            if scenario == 5 {
+                runtime.handle(.init(time: ns(2), kind: .poll(.init(keysDown: [], flags: [], secureInput: true))))
+            }
+            if scenario == 6 { runtime.handle(.init(time: ns(2), kind: .tapDisabled(.disabledByTimeout))) }
+            runtime.handle(.init(time: ns(10), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+            runtime.handle(.init(time: ns(40), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+            #expect(!runtime.meetingAudioSnapshot(at: ns(40)).recordingActive, "scenario \(scenario)")
+            #expect(!runtime.meetingAudioSnapshot(at: ns(40)).translationReadiness.isAvailable, "scenario \(scenario)")
+            #expect(!sink.current.open)
+            #expect(!actions.all.contains { if case .machine(.began) = $0 { true } else { false } })
+            runtime.stop(at: ns(50))
+        }
+    }
+
+    @Test func phoneLocalReadinessIsRevokedByDeviceEventsUntilOwnerRefreshesIt() throws {
+        let (runtime, sink) = try runtime(automatic: true, interaction: .toggle)
+        runtime.updateFacts(at: ns(1), phoneLocalSpeechReady: true) {
+            $0.micGuard = .noReaderOfTalkTalkMic; $0.awaitingAudioConfirmation = true; $0.speakerMode = nil
+        }
+        #expect(runtime.meetingAudioSnapshot(at: ns(1)).translationReadiness.isAvailable)
+        runtime.systemEvent(.micFormatChanged, at: ns(10))
+        #expect(!runtime.meetingAudioSnapshot(at: ns(10)).translationReadiness.isAvailable)
+        runtime.updateFacts(at: ns(20), phoneLocalSpeechReady: true) { _ in }
+        #expect(runtime.meetingAudioSnapshot(at: ns(20)).translationReadiness.isAvailable)
+        #expect(!sink.current.open)
+        runtime.stop(at: ns(30))
+        #expect(!runtime.meetingAudioSnapshot(at: ns(30)).translationReadiness.isAvailable)
+    }
+
     @Test func toggleFaultsCancelAndRequireAnotherCleanTap() throws {
         for fault in 0..<3 {
             let actions = KeyActions()

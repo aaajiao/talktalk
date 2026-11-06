@@ -35,6 +35,8 @@ final class FakeHAL: SysInputHAL, @unchecked Sendable {
     var micSelectable: (() -> Bool)?
     /// Checks run at the moment of a write (e.g. "the record exists").
     var onWrite: ((String) -> Void)?
+    /// Runs after capturing a snapshot, outside the lock, to model changes before its use.
+    var afterSnapshot: ((SystemInputPlan.Snapshot) -> Void)?
     let trail: EventTrail?
 
     init(devices: [Dev], defaultUID: String?, trail: EventTrail? = nil) {
@@ -62,7 +64,12 @@ final class FakeHAL: SysInputHAL, @unchecked Sendable {
     var writeCount: Int { lock.withLock { writes.count } }
 
     func snapshot() -> SystemInputPlan.Snapshot {
-        lock.withLock { .init(devices: devices, defaultInput: devices.first { $0.uid == defaultUID }, serviceRestarts: restarts) }
+        let (snapshot, hook) = lock.withLock {
+            (SystemInputPlan.Snapshot(devices: devices, defaultInput: devices.first { $0.uid == defaultUID },
+                                      serviceRestarts: restarts), afterSnapshot)
+        }
+        hook?(snapshot)
+        return snapshot
     }
 
     func setDefaultInput(uid: String) -> Bool {
@@ -87,9 +94,10 @@ final class FakeHAL: SysInputHAL, @unchecked Sendable {
 }
 
 /// The driver's 'ttmm' switch. `.v010`: no property, the Mic is always selectable. `.v020`: the
-/// Mic's CanBeDefaultDevice follows 'ttmm' (unless `neverSelectable`); writes can be refused.
+/// Mic's CanBeDefaultDevice follows 'ttmm' (unless `neverSelectable`); `.v023` is always selectable
+/// while keeping a separate 'ttmm'. Mode writes can be refused.
 final class FakeMeetingSwitch: MeetingModeSwitch, @unchecked Sendable {
-    enum Driver { case v010, v020 }
+    enum Driver { case v010, v020, v023 }
     private let lock = NSLock()
     let driver: Driver
     private var ttmm = false
@@ -120,7 +128,7 @@ final class FakeMeetingSwitch: MeetingModeSwitch, @unchecked Sendable {
     func setMeetingMode(_ on: Bool) -> OSStatus {
         lock.withLock {
             attempts += 1
-            guard driver == .v020 else { return OSStatus(kAudioHardwareUnknownPropertyError) }
+            guard driver != .v010 else { return OSStatus(kAudioHardwareUnknownPropertyError) }
             if refuse { return OSStatus(kAudioHardwareIllegalOperationError) }
             ttmm = on
             writes.append(on)
@@ -129,7 +137,7 @@ final class FakeMeetingSwitch: MeetingModeSwitch, @unchecked Sendable {
         }
     }
     func micCanBeDefault() -> Bool? {
-        lock.withLock { driver == .v010 ? true : (ttmm && !neverSelectable) }
+        lock.withLock { driver == .v010 || driver == .v023 ? true : (ttmm && !neverSelectable) }
     }
 }
 

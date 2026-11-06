@@ -120,7 +120,7 @@ final class SystemInputController {
 
     private func handle(_ e: MeetingEvent) {
         if case let .started(_, _, _, mode) = e {
-            ownsMeetingMode = mode == .meeting
+            ownsMeetingMode = mode.supportsSpeaking
         }
         guard ownsMeetingMode else { return }
         switch e {

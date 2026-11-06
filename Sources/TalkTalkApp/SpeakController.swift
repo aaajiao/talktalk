@@ -16,6 +16,7 @@ import TalkTalkSession
 final class SpeakController {
     private enum Control: Sendable {
         case meeting(MeetingEvent), configurationChanged, endDemo
+        case phoneInputChanged(MeetingSession, UInt64)
         case startDemo(CheckedContinuation<Void, any Error>)
     }
     enum DemoFailure: LocalizedError {
@@ -60,6 +61,7 @@ final class SpeakController {
     private var meetingOutputUIDs: Set<String>?
     private var lastMicUID: String?
     private var feedConfirmed = false
+    private var phoneBoundary = PhoneSpeechBoundary()
     private var passthroughStart: HostTime?
     private(set) var speaking = false
     private(set) var passthroughOpen = false
@@ -113,7 +115,7 @@ final class SpeakController {
         subscription = meeting.events.subscribe { [weak self] event in
             guard let self else { return }
             if case let .started(_, _, _, mode) = event {
-                ownsMeetingMode = mode == .meeting
+                ownsMeetingMode = mode.supportsSpeaking
                 if !ownsMeetingMode {
                     if demoActive { continuation.yield(.endDemo) }
                     return
@@ -134,6 +136,16 @@ final class SpeakController {
                 guard !Task.isCancelled else { break }
                 switch event {
                 case .meeting(let event): await self?.handle(event)
+                case let .phoneInputChanged(session, token):
+                    guard let self, owner === session, session.mode == .phone, let pipeline,
+                          phoneBoundary.isPendingReset(token: token), case .running = session.state else { continue }
+                    await pipeline.phoneInputLost()
+                    guard owner === session, self.pipeline === pipeline, case .running = session.state,
+                          phoneBoundary.isPendingReset(token: token) else { continue }
+                    await pipeline.resume()
+                    guard owner === session, self.pipeline === pipeline, case .running = session.state,
+                          phoneBoundary.completeReset(token: token) else { continue }
+                    refreshFacts()
                 case .configurationChanged:
                     guard let self else { continue }
                     let wasDemo = demoActive
@@ -186,11 +198,12 @@ final class SpeakController {
         guard !closed else { return }
         switch event {
         case .started(_, _, _, let mode):
-            guard mode == .meeting else { return }
+            guard mode.supportsSpeaking else { return }
             if demoActive { await end() }
             await begin()
         case .ended: await end()
         case .suspended:
+            phoneBoundary.invalidate()
             keys?.suspend(at: HostClock.now())
             await pipeline?.suspend()
             mic?.setPassthroughCadence(false); mic?.setHot(false)
@@ -200,6 +213,7 @@ final class SpeakController {
         case .resumed:
             await output.resume()
             await pipeline?.resume()
+            if owner?.mode == .phone { phoneBoundary.invalidate() }
             mic?.refreshDevices()
             confirmFeed()
             refreshFacts()
@@ -215,7 +229,7 @@ final class SpeakController {
     private func begin(demo: Bool = false) async {
         guard !closed, owner == nil, !demoActive else { return }
         let session = demo ? nil : meeting.session
-        guard demo || session?.mode == .meeting else { return }
+        guard demo || session?.mode.supportsSpeaking == true else { return }
         let log = session?.eventLog
             ?? (try? EventLog(sessionID: "demo-" + UUID().uuidString.lowercased()))
             ?? EventLog(inMemory: HostClock.now)
@@ -232,6 +246,7 @@ final class SpeakController {
         let transcript = demo ? nil : privacy.map { TranscriptWriter(directory: $0.transcriptsDirectory) }
         self.transcript = transcript
         owner = session; warming = true; onChange?()
+        phoneBoundary.invalidate()
         sessionTarget = state.speakLanguage.lang
         translationRefusal = nil
         output.monitor.setMeetingMode(true)
@@ -499,6 +514,7 @@ final class SpeakController {
         } catch {
             if demo { demoFailure = error.localizedDescription }
             await end()
+            if !demo { meeting.phoneSpeechFailed(session) }
             hud.show(String(localized: "说话链路未能启动，请检查组件和输入监控权限。"), .yellow)
         }
         warming = false; onChange?()
@@ -514,7 +530,15 @@ final class SpeakController {
         let audio = AppUIModels.shared.audio
         let running: Bool
         if let owner, case .running = owner.state { running = true } else { running = false }
-        let speaker = state.meetingActive && !demoActive ? systemInput.route.state.speakerMode : false
+        var speaker = state.meetingActive && !demoActive ? systemInput.route.state.speakerMode : false
+        if owner?.mode == .phone, systemInput.micGuard.state.verdict == .noReader, speaker == nil {
+            // Before Phone supplies an output route, self-listen uses the actual local output.
+            // This does not replace the real route facts consumed by the original-audio gate.
+            speaker = OutputRouteClassifier.isSpeakerMode(
+                meetingOutputs: systemInput.route.state.defaultOutput.map { [$0] },
+                monitor: audio.monitor ? output.monitor.device : nil,
+                confirmedHeadphones: HeadphoneAnswers.confirmed())
+        }
         let outputs = systemInput.route.state.meetingOutputs.map { Set($0.map(\.uid)) }
         if outputs != meetingOutputUIDs {
             // A meeting can switch between two headphones without changing speakerMode.
@@ -559,21 +583,62 @@ final class SpeakController {
         let pendingVoice = engineHost.routing.source == .myVoicePending
         if warming != pendingVoice { warming = pendingVoice; onChange?() }
         let existing = keys.gate.facts
+        if owner.mode == .phone {
+            let reader: Bool?
+            switch systemInput.micGuard.state.verdict {
+            case .green?, .physicalMic?: reader = true
+            case .noReader?: reader = false
+            case nil: reader = nil
+            }
+            if let token = phoneBoundary.observe(reader: reader) {
+                // Clear pre-call/previous-call speech, then resume local speaking without
+                // making a new reader a prerequisite. A newer boundary owns its own barrier.
+                keys.systemEvent(.meetingModeEnded, at: HostClock.now())
+                mic.setHot(false)
+                lifecycleEvents?.yield(.phoneInputChanged(owner, token))
+            }
+        }
+        let inputReady: Bool
+        if case .holding = systemInput.switcher.status { inputReady = true }
+        else { inputReady = systemInput.micGuard.state.verified }
+        let localPhoneReady = owner.mode == .phone && running && output.isFeedAttached
+            && feedConfirmed && pipeline != nil && inputReady && !phoneBoundary.resetPending
         let facts = SpeakFacts(meetingState: owner.state, micGuard: systemInput.micGuard.state,
             route: systemInput.route.state, passthroughEnabled: true,
+            mode: owner.mode, phoneLocalReady: localPhoneReady,
             physicalMicPassesRule2: mic.state.physicalMicPassesRule2, tapHealthy: existing.tapHealthy,
             secureInput: existing.secureInput, pushToTalkActive: existing.pushToTalkActive, selfTestRunning: selfTestRunning())
-        keys.updateFacts(at: HostClock.now()) {
+        if owner.mode == .phone {
+            let ready = running && output.isFeedAttached && feedConfirmed && pipeline != nil
+                && facts.pushToTalkAvailable && mic.state.capture == .open
+                && !pendingVoice && inputReady && !phoneBoundary.resetPending
+            let detail: String?
+            if case .physicalMic = systemInput.micGuard.state.verdict {
+                detail = String(localized: "请在 Phone 的“音频 › 麦克风”选择“使用系统设置”或 TalkTalk Mic。")
+            } else if feedConfirmed, !inputReady {
+                detail = String(localized: "请开启自动接入系统输入，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。")
+            } else if speaker == true {
+                detail = String(localized: "请使用耳机；外放时，原声发送会受回声保护限制。")
+            } else if state.phoneAudioActive, speaker == nil {
+                detail = String(localized: "电话音频已接入，正在确认通话输出设备…")
+            } else { detail = nil }
+            meeting.updatePhoneReadiness(ready, detail: detail)
+        }
+        keys.updateFacts(at: HostClock.now(), phoneLocalSpeechReady: facts.allowsPhoneLocalSpeech) {
             $0 = facts.passthrough
             if !output.isFeedAttached || !feedConfirmed { $0.awaitingAudioConfirmation = true }
+            if owner.mode == .phone, phoneBoundary.resetPending { $0.meetingModeActive = false }
         }
         keys.gate.setMicWarm(mic.state.capture == .open)
         keys.gate.setCueAudible(output.monitor.cuesAudible)
         // Default original audio owns capture throughout a healthy meeting, including PTT and
         // its translation tail. The old optional pre-roll setting cannot close this microphone.
-        mic.setHot(running && facts.pushToTalkAvailable && output.isFeedAttached && feedConfirmed)
-        hud.setPushToTalkAvailable(facts.pushToTalkAvailable && output.isFeedAttached && feedConfirmed)
-        if speaker != false { hud.post(.speakerMode) } else { hud.clear(.speakerMode) }
+        let phoneAllowsSpeech = owner.mode != .phone || !phoneBoundary.resetPending
+        mic.setHot(running && facts.pushToTalkAvailable && output.isFeedAttached && feedConfirmed && phoneAllowsSpeech)
+        hud.setPushToTalkAvailable(facts.pushToTalkAvailable && output.isFeedAttached && feedConfirmed && phoneAllowsSpeech)
+        let waitingForPhone = owner.mode == .phone && state.phoneReadyToDial
+            && systemInput.micGuard.state.verdict == .noReader
+        if speaker != false && !waitingForPhone { hud.post(.speakerMode) } else { hud.clear(.speakerMode) }
         refreshMeetingAudio()
     }
 
@@ -640,6 +705,9 @@ final class SpeakController {
             hud.meetingAudio(.switching)
         } else if audio.busy {
             hud.meetingAudio(.draining)
+        } else if owner.mode == .phone, state.phoneReadyToDial,
+                  systemInput.micGuard.state.verdict == .noReader {
+            hud.meetingAudio(.phoneReady)
         } else if audio.canRestoreOriginal {
             // Healthy and drained, but the next hardware poll still owns opening the gate.
             // This is normal progress, never a claim that raw audio is already flowing.
@@ -680,6 +748,7 @@ final class SpeakController {
     }
 
     private func end() async {
+        if owner?.mode == .phone { meeting.updatePhoneReadiness(false) }
         let wasDemo = demoActive
         demoReady = false
         if let lockObserver { DistributedNotificationCenter.default().removeObserver(lockObserver); self.lockObserver = nil }
@@ -722,6 +791,7 @@ final class SpeakController {
         remoteSpeech = RemoteSpeechDetector(config: profile.speak.floor)
         transcript?.finish(); transcript = nil
         actionEvents = nil; actionTask = nil; feedConfirmed = false
+        phoneBoundary.invalidate()
         sessionTarget = nil; restartQueued = false; announcementEnabled = nil
         speaking = false; passthroughOpen = false; degraded = false; warming = false
         translationRefusal = nil; hud.meetingAudio(nil)

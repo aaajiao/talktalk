@@ -143,6 +143,7 @@ public enum MeetingMicGuardPlan {
         case "us.zoom.xos": String(localized: "Zoom › 设置 › 音频 › 麦克风")
         case "com.microsoft.teams2": String(localized: "Teams › 设置 › 设备 › 麦克风")
         case "com.tencent.meeting": String(localized: "腾讯会议 › 设置 › 音频 › 麦克风")
+        case "com.apple.mobilephone": String(localized: "Phone 菜单栏 › 音频 › 麦克风")
         case "com.apple.FaceTime": String(localized: "FaceTime 菜单栏 › 视频 › 麦克风")
         case "com.google.Chrome", "com.microsoft.edgemac", "company.thebrowser.Browser", "com.apple.Safari":
             String(localized: "网页里的设备设置，或 \(app) 的网站设置 › 麦克风")

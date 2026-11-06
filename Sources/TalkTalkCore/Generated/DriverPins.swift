@@ -3,7 +3,7 @@
 // from Driver/Sources/Generated/DriverPins.hpp.
 
 public enum DriverPins {
-    public static let version = "0.2.0"
+    public static let version = "0.2.3"
     public static let bundleID = "com.aaajiao.talktalk.audio-driver"
     public static let bundleName = "TalkTalkAudio.driver"
     public static let feedUID = "com.aaajiao.talktalk.feed"

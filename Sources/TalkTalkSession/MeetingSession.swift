@@ -58,6 +58,11 @@ public final class MeetingSession: SpeakEchoSink {
     public let mode: MeetingMode
     public let events: MeetingEvents
     public let onSubtitle: @MainActor @Sendable (SubtitleUpdate) -> Void
+    /// Observed Phone microphone activity, not a telephony connection/hangup notification.
+    /// Output alone (a ringtone or voicemail playback) must not claim a live call.
+    public private(set) var phoneAudioActive = false
+    public var onPhoneAudioActivity: (@MainActor @Sendable (Bool) -> Void)?
+    private var phoneAudioReported = false
 
     private let profile: PolicyProfile
     private let onRemoteAudio: @Sendable ([Float], HostTime) -> Void
@@ -310,6 +315,7 @@ public final class MeetingSession: SpeakEchoSink {
 
     /// UI calls only after the user explicitly accepts globalFallbackWarning. Never automatic.
     public func setGlobalFallback(_ enabled: Bool) throws {
+        if enabled, !mode.allowsGlobalFallback { throw SourceError.phoneRequiresPhoneAudio }
         guard case .running = state, enabled != usesGlobalFallback else { return }
         if enabled { _ = try AudioProcessList.current() } // fail closed if exclusions cannot be resolved
         let previous = usesGlobalFallback
@@ -317,6 +323,26 @@ public final class MeetingSession: SpeakEchoSink {
         do { try buildTap() }
         catch { usesGlobalFallback = previous; try? buildTap(); throw error }
         log?.event("tap.global_fallback", ["enabled": .bool(enabled)])
+    }
+
+    public enum SourceError: Error, LocalizedError, Equatable {
+        case phoneRequiresPhoneAudio
+
+        public var errorDescription: String? {
+            String(localized: "电话同传只收听 Phone，不能启用全局采集。")
+        }
+    }
+
+    func updatePhoneAudioActivity(_ source: MeetingCandidate?) {
+        guard mode == .phone else { return }
+        let active: Bool
+        if case .running = state {
+            active = source?.app.id == MeetingMode.phoneAppID && source?.isRunningInput == true
+        } else { active = false }
+        guard !phoneAudioReported || active != phoneAudioActive else { return }
+        phoneAudioReported = true
+        phoneAudioActive = active
+        onPhoneAudioActivity?(active)
     }
 
     private func sampleEcho() async {
@@ -330,6 +356,7 @@ public final class MeetingSession: SpeakEchoSink {
 
     private func set(_ s: State) {
         state = s
+        if case .running = s { } else { updatePhoneAudioActivity(nil) }
         events.emit(.state(s))
     }
 
@@ -351,16 +378,11 @@ public final class MeetingSession: SpeakEchoSink {
     }
 
     private func startFresh(lang: Lang, choice: String?, preferred: String?) async -> StartResult {
-        let candidates = (try? resolver.currentCandidates()) ?? []
-        let picked: MeetingCandidate?
-        if let choice { picked = candidates.first { $0.app.id == choice } }
-        else if mode == .captions {
-            let playing = candidates.filter(\.isRunningOutput)
-            picked = playing.first(where: { $0.app.id == preferred }) ?? (playing.count == 1 ? playing[0] : nil)
-                ?? (candidates.count == 1 ? candidates[0] : nil)
-        } else { picked = MeetingSourceResolver.defaultSource(candidates, preferred: preferred) ?? (candidates.count == 1 ? candidates[0] : nil) }
+        let candidates = mode.sourceCandidates(in: (try? resolver.currentCandidates()) ?? [])
+        let picked = mode.source(in: candidates, choice: choice, preferred: preferred)
         guard let source = picked else {
-            return candidates.isEmpty ? .noMeetingApp : .needsChoice(candidates.map(\.app.id))
+            return mode == .phone || choice != nil || candidates.isEmpty
+                ? .noMeetingApp : .needsChoice(candidates.map(\.app.id))
         }
         sessionGeneration &+= 1
         let session = sessionGeneration
@@ -407,7 +429,7 @@ public final class MeetingSession: SpeakEchoSink {
             set(.idle)
             return .failed("\(error)")
         }
-        log.event("meeting.start", ["app": .tag(source.app.id), "processes": .int(processes.count),
+        log.event("meeting.start", ["app": .tag(source.app.id), "mode": .tag(mode.rawValue), "processes": .int(processes.count),
                                     "lang": .tag((listenLanguage ?? lang).rawValue)])
         watchdog.reset()
         autoEnd = MeetingAutoEnd()
@@ -424,6 +446,7 @@ public final class MeetingSession: SpeakEchoSink {
         }
         if probe.verdict == .inconclusive { setHint(.tccUnconfirmed) }
         set(.running(app: source.app.name))
+        updatePhoneAudioActivity(source)
         echoTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.sampleEcho()
@@ -443,6 +466,7 @@ public final class MeetingSession: SpeakEchoSink {
         default: return
         }
         stopping = true; sessionGeneration &+= 1; listenConfigurationID &+= 1
+        updatePhoneAudioActivity(nil)
         listenTask?.cancel(); ingest.detach()
         let t = Task { await self.performStop(reason) }
         stopTask = t
@@ -586,6 +610,7 @@ public final class MeetingSession: SpeakEchoSink {
     private func everySecond() {
         guard case .running = state else { return }
         let c = usesGlobalFallback ? refreshProcesses() : (try? resolver.currentCandidates())?.first { $0.app.id == app?.id }
+        updatePhoneAudioActivity(c)
         let running = c?.isRunningOutput ?? false
         let anyAudio = running || (c?.isRunningInput ?? false)
         let lastNZ = tap?.lastNonZeroHostTime.map { HostClock.ms(startHost, to: $0) }
@@ -601,7 +626,7 @@ public final class MeetingSession: SpeakEchoSink {
         case .ask:
             log?.event("meeting.auto_end_ask")
             setHint(.meetingSeemsOver)
-            noticeTask = Task { await MeetingAutoEndNotification.postIfAuthorized() }
+            noticeTask = Task { await MeetingAutoEndNotification.postIfAuthorized(mode: mode) }
         case .end: Task { await stop(.autoEnd) }
         }
     }
@@ -622,7 +647,7 @@ public final class MeetingSession: SpeakEchoSink {
         switch e {
         case .processListChanged:
             guard case .running = state else { return }
-            _ = refreshProcesses()
+            updatePhoneAudioActivity(refreshProcesses())
         case .serviceRestarted:
             guard case .running = state else { return }
             setHint(.audioRestarting)
@@ -682,6 +707,7 @@ public final class MeetingSession: SpeakEchoSink {
             rebuildTap("resume")
             log?.event("meeting.resume")
             set(.running(app: name))
+            updatePhoneAudioActivity(c)
             let task = replaceListenPipeline(open: true), configuration = listenConfigurationID
             Task { [weak self] in
                 do { try await task.value }

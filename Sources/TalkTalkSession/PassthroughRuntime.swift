@@ -42,6 +42,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
     private let recordsIntervals: Bool
     private let log: EventLog?
     private var lastAvailability: PushToTalkKey.Availability?
+    private var phoneLocalSpeechReady = false
 
     public init(profile: PolicyProfile.Speak, scope: KeyTap.Scope = .meeting,
                 useAltKey: Bool = false, diagnosticsEnabled: Bool = false, automaticOriginal: Bool = false,
@@ -99,6 +100,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
     /// Close before waiting for the tap thread; never wait while holding the runtime lock.
     public func suspend(at time: HostTime) {
         lock.withLock {
+            phoneLocalSpeechReady = false
             automatic.held = nil
             lastHardwarePoll = nil
             gate.systemEvent(.sleep, at: time)
@@ -112,6 +114,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
         let first = lock.withLock { () -> Bool in
             guard !stopped else { return false }
             stopped = true
+            phoneLocalSpeechReady = false
             automatic.held = nil
             lastHardwarePoll = nil
             gate.systemEvent(.meetingModeEnded, at: time)
@@ -160,7 +163,8 @@ public final class PassthroughRuntime: @unchecked Sendable {
                     && now < state.leaseUntil && now < state.deadline,
                 hardwarePollFresh: fresh,
                 originalReadiness: PassthroughPolicy.evaluate(facts, allowInSpeakerMode: gate.config.allowInSpeakerMode),
-                translationReadiness: PassthroughPolicy.evaluate(facts, allowInSpeakerMode: true))
+                translationReadiness: phoneLocalSpeechVerdict(facts)
+                    ?? PassthroughPolicy.evaluate(facts, allowInSpeakerMode: true))
         }
     }
 
@@ -184,9 +188,11 @@ public final class PassthroughRuntime: @unchecked Sendable {
     }
 
     /// External facts cannot override tap health, secure input or the PTT state owned here.
-    public func updateFacts(at time: HostTime, _ update: (inout PassthroughPolicy.Facts) -> Void) {
+    public func updateFacts(at time: HostTime, phoneLocalSpeechReady: Bool = false,
+                            _ update: (inout PassthroughPolicy.Facts) -> Void) {
         lock.withLock {
             guard !stopped else { return }
+            self.phoneLocalSpeechReady = phoneLocalSpeechReady
             gate.updateFacts(at: time) { facts in
                 let health = facts.tapHealthy, secure = facts.secureInput, active = facts.pushToTalkActive
                 update(&facts)
@@ -199,6 +205,7 @@ public final class PassthroughRuntime: @unchecked Sendable {
     }
     public func systemEvent(_ event: PassthroughSystemEvent, at time: HostTime) {
         lock.withLock {
+            phoneLocalSpeechReady = false
             log?.event("key.system_event", ["reason": .tag(event.rawValue)], at: time)
             automatic.held = nil
             lastHardwarePoll = nil
@@ -303,7 +310,16 @@ public final class PassthroughRuntime: @unchecked Sendable {
     private func refreshAvailability(at time: HostTime) {
         let facts = gate.facts
         let availability: PushToTalkKey.Availability
-        if facts.secureInput != false { availability = .blocked(.secureInput) }
+        if let local = phoneLocalSpeechVerdict(facts) {
+            switch local {
+            case .available: availability = .allowed
+            case .unavailable(.secureInput), .unavailable(.unknown(.secureInput)): availability = .blocked(.secureInput)
+            case .unavailable(.meetingModeOff), .unavailable(.unknown(.meetingModeActive)): availability = .blocked(.notInSession)
+            case .unavailable(.micNotAllowed), .unavailable(.unknown(.physicalMicPassesRule2)): availability = .blocked(.noMeetingReader)
+            default: availability = .blocked(.awaitingAudioConfirmation)
+            }
+        }
+        else if facts.secureInput != false { availability = .blocked(.secureInput) }
         else if facts.awaitingAudioConfirmation != false || facts.tapHealthy != true || facts.selfTestRunning != false {
             availability = .blocked(.awaitingAudioConfirmation)
         }
@@ -322,6 +338,26 @@ public final class PassthroughRuntime: @unchecked Sendable {
             lastAvailability = availability
         }
         pushToTalk.setAvailability(availability, at: time)
+    }
+
+    /// A separate local-translation path for a prepared Phone with no reader yet. The missing
+    /// remote output/reader confirmation is expected; actual key, mic and Feed readiness is not.
+    /// The explicit flag comes from the owner and is revoked on every device/lifecycle event.
+    /// Never synthesize a green reader or a headphone route in the original-audio facts.
+    private func phoneLocalSpeechVerdict(_ facts: PassthroughPolicy.Facts) -> PassthroughPolicy.Verdict? {
+        guard phoneLocalSpeechReady, scope == .meeting, facts.micGuard == .noReaderOfTalkTalkMic else { return nil }
+        guard let secure = facts.secureInput else { return .unavailable(.unknown(.secureInput)) }
+        guard !secure else { return .unavailable(.secureInput) }
+        guard let tap = facts.tapHealthy else { return .unavailable(.unknown(.tapHealthy)) }
+        guard tap else { return .unavailable(.tapUnhealthy) }
+        guard let selfTest = facts.selfTestRunning else { return .unavailable(.unknown(.selfTestRunning)) }
+        guard !selfTest else { return .unavailable(.selfTestRunning) }
+        guard let mic = facts.physicalMicPassesRule2 else { return .unavailable(.unknown(.physicalMicPassesRule2)) }
+        guard mic else { return .unavailable(.micNotAllowed) }
+        guard let active = facts.meetingModeActive else { return .unavailable(.unknown(.meetingModeActive)) }
+        guard active else { return .unavailable(.meetingModeOff) }
+        guard facts.awaitingAudioConfirmation != nil else { return .unavailable(.unknown(.awaitingAudioConfirmation)) }
+        return .available
     }
 
     private struct NoticeSink: Sendable {

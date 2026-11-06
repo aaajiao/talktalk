@@ -10,12 +10,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     struct Actions {
         var openSettings: (SettingsSection?) -> Void
         var toggleMeeting: () -> Void
-        var startCaptions: () -> Void = {}
         var quit: () -> Void
-        /// Meeting apps with Core Audio process objects now, and the remembered choice.
-        var sources: () -> [(id: String, name: String)] = { [] }
-        var lastSource: () -> String? = { nil }
-        var chooseSource: (String) -> Void = { _ in }
         var stillInMeeting: () -> Void = {}
         var openOnboarding: () -> Void = {}
         var canPlayAnnouncement: () -> Bool = { false }
@@ -102,7 +97,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .standby: return String(localized: "待机 · 尚未开始收听")
         case .warming: return String(localized: "正在准备语音引擎")
         case .listening:
-            return state.meetingMode == .captions ? String(localized: "视频字幕运行中") : String(localized: "会议同传运行中")
+            return String(localized: "\(state.meetingMode.displayTitle)运行中")
         case .speaking: return String(localized: "正在识别或播放译音")
         case .passthroughOpen: return String(localized: "原声中 · 点按右⌥开始翻译")
         case .audioNeedsCheck: return String(localized: "音频尚未就绪")
@@ -115,7 +110,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let mode = state.meetingMode == .captions ? String(localized: "视频字幕") : String(localized: "会议同传")
+        let mode = state.meetingMode.displayTitle
         let headline = state.meetingActive && iconState != .listening
             ? String(localized: "\(mode) · \(statusDescription)") : statusDescription
         menu.addItem(statusLine(headline))
@@ -130,20 +125,31 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             stop.isEnabled = !state.meetingStarting && !state.meetingStopping
             menu.addItem(stop)
         } else {
-            let meeting = item(String(localized: "开始会议同传"), #selector(toggleMeeting), symbol: "person.2.wave.2")
+            let meeting = item(String(localized: "会议同传…"), #selector(openMeetingMode), symbol: "person.2.wave.2")
             meeting.isEnabled = state.meetingAvailable
             menu.addItem(meeting)
-            let captions = item(String(localized: "开始视频字幕"), #selector(startCaptions), symbol: "play.rectangle")
+            let phone = item(String(localized: "电话同传…"), #selector(openPhoneMode), symbol: "phone")
+            phone.isEnabled = state.meetingAvailable
+            menu.addItem(phone)
+            let captions = item(String(localized: "视频字幕…"), #selector(openVideoMode), symbol: "play.rectangle")
             captions.isEnabled = state.meetingAvailable
             menu.addItem(captions)
         }
         menu.addItem(.separator())
 
+        if state.meetingMode == .phone, state.meetingActive || state.meetingStarting {
+            if let status = state.phoneStatus { menu.addItem(statusLine(status)) }
+            menu.addItem(item(String(localized: "打开 Phone 拨号或接听"), #selector(openPhone)))
+            menu.addItem(item(String(localized: "电话同传设置…"), #selector(openPhoneMode)))
+            menu.addItem(.separator())
+        }
+
         // Problems and recovery stay one click away, including leftovers outside a session.
         var attention: [NSMenuItem] = []
         if let hint = state.meetingHint {
             attention.append(statusLine(hint))
-            if hint == MeetingSession.Hint.meetingSeemsOver.rawValue {
+            if hint == MeetingSession.Hint.meetingSeemsOver.rawValue ||
+                (state.meetingMode == .phone && state.meetingActive && state.meetingHint != nil) {
                 attention.append(item(String(localized: "继续收听，不自动停止"), #selector(stillInMeeting)))
             }
         }
@@ -155,7 +161,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         if let input = state.systemInputNotice {
             attention.append(detailItem(input, actionTitle: String(localized: "查看音频设置…"), action: #selector(openAudio)))
         }
-        if state.meetingActive, state.meetingMode == .meeting {
+        if state.meetingActive, state.meetingMode.supportsSpeaking {
             attention.append(detailItem(meetingMicNotice, actionTitle: String(localized: "检查会议麦克风…"), action: #selector(openAudio)))
         }
         let si = actions.systemInputItems()
@@ -169,75 +175,59 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
         }
 
-        let found = actions.sources()
-        let last = actions.lastSource()
         let allApps = state.meetingActive && actions.usesGlobalListenFallback()
-        let sourceTitle: String
-        if allApps {
-            sourceTitle = String(localized: "正在收听：所有应用（备用）")
-        } else if state.meetingActive {
-            sourceTitle = String(localized: "正在收听：\(state.meetingApp ?? String(localized: "正在确认应用"))")
-        } else {
-            let selected = found.first { $0.id == last }?.name
-                ?? (last == nil ? String(localized: "自动选择") : String(localized: "上次应用未就绪"))
-            sourceTitle = String(localized: "要听的应用：\(selected)")
-        }
-        let source = NSMenuItem(title: sourceTitle, action: nil, keyEquivalent: "")
-        let sources = NSMenu()
-        sources.autoenablesItems = false
-        let changingSession = state.meetingStarting || state.meetingStopping
-        sources.addItem(statusLine(changingSession
-            ? String(localized: "正在切换会话，请稍后更换应用")
-            : state.meetingActive ? String(localized: "选择下次收听的应用，当前会话不变")
-            : String(localized: "选择要转成字幕的应用声音")))
-        if found.isEmpty { sources.addItem(statusLine(String(localized: "请先打开会议应用或播放视频"))) }
-        for app in found {
-            let choice = item(app.name, #selector(chooseSource(_:)))
-            choice.representedObject = app.id
-            choice.state = app.id == last ? .on : .off
-            choice.isEnabled = !changingSession
-            sources.addItem(choice)
-        }
-        source.submenu = sources
-        menu.addItem(source)
-
-        let language = NSMenuItem(title: String(localized: "字幕：\(languageName(state.remoteLanguage)) → 中文"), action: nil, keyEquivalent: "")
-        let languages = NSMenu()
-        languages.autoenablesItems = false
-        for lang in AppState.RemoteLanguage.allCases {
-            let choice = item(lang.title, #selector(chooseLanguage(_:)))
-            choice.representedObject = lang.rawValue
-            choice.state = state.remoteLanguage == lang ? .on : .off
-            languages.addItem(choice)
-        }
-        language.submenu = languages
-        menu.addItem(language)
-
-        let videoOnly = state.meetingMode == .captions && (state.meetingActive || state.meetingStarting || state.meetingStopping)
-        if !videoOnly {
-            let speak = NSMenuItem(title: String(localized: "我说话：中文 → \(languageName(state.speakLanguage))"), action: nil, keyEquivalent: "")
-            let targets = NSMenu()
-            targets.autoenablesItems = false
-            targets.addItem(statusLine(String(localized: "中文可夹英语，译音统一为所选语言")))
+        if state.meetingActive {
+            let sourceName = state.meetingApp ?? String(localized: "正在确认应用")
+            let sourceTitle: String
+            if allApps { sourceTitle = String(localized: "正在收听：所有应用（备用）") }
+            else {
+                switch state.meetingMode {
+                case .meeting: sourceTitle = String(localized: "会议应用：\(sourceName)")
+                case .phone: sourceTitle = String(localized: "通话应用：Phone")
+                case .captions: sourceTitle = String(localized: "视频来源：\(sourceName)")
+                }
+            }
+            menu.addItem(statusLine(sourceTitle))
+            menu.addItem(item(String(localized: "查看当前场景…"), #selector(openCurrentScene)))
+            let language = NSMenuItem(title: String(localized: "字幕：\(languageName(state.remoteLanguage)) → 中文"), action: nil, keyEquivalent: "")
+            let languages = NSMenu()
+            languages.autoenablesItems = false
             for lang in AppState.RemoteLanguage.allCases {
-                let choice = item(lang.title, #selector(chooseSpeakLanguage(_:)))
+                let choice = item(lang.title, #selector(chooseLanguage(_:)))
                 choice.representedObject = lang.rawValue
-                choice.state = state.speakLanguage == lang ? .on : .off
-                targets.addItem(choice)
+                choice.state = state.remoteLanguage == lang ? .on : .off
+                languages.addItem(choice)
             }
-            speak.submenu = targets
-            menu.addItem(speak)
-        }
-        let subtitles = item(String(localized: "显示字幕"), #selector(toggleSubtitles))
-        subtitles.state = state.subtitlesVisible ? .on : .off
-        menu.addItem(subtitles)
-        if !videoOnly {
-            let monitor = item(String(localized: "在耳机中听到译音"), #selector(toggleMonitor))
-            monitor.state = AppUIModels.shared.audio.monitor ? .on : .off
-            menu.addItem(monitor)
-            if actions.canPlayAnnouncement() {
-                menu.addItem(item(String(localized: "现在播放告知语"), #selector(playAnnouncement)))
+            language.submenu = languages
+            menu.addItem(language)
+
+            let videoOnly = state.meetingMode == .captions && (state.meetingActive || state.meetingStarting || state.meetingStopping)
+            if !videoOnly {
+                let speak = NSMenuItem(title: String(localized: "我说话：中文 → \(languageName(state.speakLanguage))"), action: nil, keyEquivalent: "")
+                let targets = NSMenu()
+                targets.autoenablesItems = false
+                targets.addItem(statusLine(String(localized: "中文可夹英语，译音统一为所选语言")))
+                for lang in AppState.RemoteLanguage.allCases {
+                    let choice = item(lang.title, #selector(chooseSpeakLanguage(_:)))
+                    choice.representedObject = lang.rawValue
+                    choice.state = state.speakLanguage == lang ? .on : .off
+                    targets.addItem(choice)
+                }
+                speak.submenu = targets
+                menu.addItem(speak)
             }
+            let subtitles = item(String(localized: "显示字幕"), #selector(toggleSubtitles))
+            subtitles.state = state.subtitlesVisible ? .on : .off
+            menu.addItem(subtitles)
+            if !videoOnly {
+                let monitor = item(String(localized: "在耳机中听到译音"), #selector(toggleMonitor))
+                monitor.state = AppUIModels.shared.audio.monitor ? .on : .off
+                menu.addItem(monitor)
+                if actions.canPlayAnnouncement() {
+                    menu.addItem(item(String(localized: "现在播放告知语"), #selector(playAnnouncement)))
+                }
+            }
+
         }
 
         var running: [NSMenuItem] = []
@@ -276,7 +266,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         tools.addItem(.separator())
         let globalListen = item(String(localized: "收听所有应用声音（备用）"), #selector(toggleGlobalListenFallback))
         globalListen.state = allApps ? .on : .off
-        globalListen.isEnabled = state.meetingActive && !state.meetingStopping
+        globalListen.isEnabled = state.meetingActive && !state.meetingStopping && state.meetingMode.allowsGlobalFallback
         tools.addItem(globalListen)
         more.submenu = tools
         menu.addItem(more)
@@ -371,7 +361,23 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - actions
 
     @objc private func toggleMeeting() { actions.toggleMeeting() }
-    @objc private func startCaptions() { actions.startCaptions() }
+    @objc private func openMeetingMode() {
+        state.requestedScenario = .meeting
+        actions.openSettings(.meeting)
+    }
+    @objc private func openVideoMode() {
+        state.requestedScenario = .captions
+        actions.openSettings(.meeting)
+    }
+    @objc private func openCurrentScene() {
+        state.requestedScenario = state.meetingMode
+        actions.openSettings(.meeting)
+    }
+    @objc private func openPhoneMode() {
+        state.requestedScenario = .phone
+        actions.openSettings(.meeting)
+    }
+    @objc private func openPhone() { state.onOpenPhone?() }
     @objc private func chooseLanguage(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let lang = AppState.RemoteLanguage(rawValue: raw) {
             state.remoteLanguage = lang
@@ -386,10 +392,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
     @objc private func toggleMonitor() { AppUIModels.shared.audio.monitor.toggle() }
-    @objc private func chooseSource(_ sender: NSMenuItem) {
-        guard !state.meetingStarting, !state.meetingStopping else { return }
-        if let id = sender.representedObject as? String { actions.chooseSource(id) }
-    }
     @objc private func stillInMeeting() { actions.stillInMeeting() }
     @objc private func openOnboarding() { actions.openOnboarding() }
     @objc private func playAnnouncement() { actions.playAnnouncement() }

@@ -22,6 +22,52 @@ import TalkTalkCore
                                     translationDegraded: false, mode: .captions,
                                     componentsMissing: true, listenReady: false) == .missing)
     }
+
+    @Test func preparedPhoneCanWaitForACallWithoutAnAudioWarning() {
+        let waiting = MeetingMicGuardPlan.State(verdict: .noReader, awaitingConfirmation: true)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "Built-in"),
+                                   translationDegraded: false, micGuard: waiting, mode: .phone,
+                                   phonePrepared: true, speakerMode: nil) == .listening)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "Built-in"),
+                                   translationDegraded: false, micGuard: waiting, mode: .phone,
+                                   phonePrepared: false, speakerMode: nil) == .audioNeedsCheck)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "Built-in"),
+                                   translationDegraded: false, micGuard: waiting, mode: .meeting,
+                                   phonePrepared: true, speakerMode: nil) == .audioNeedsCheck)
+    }
+
+    @Test func preparedPhoneStillReportsPhysicalUnknownAndBrokenInputRoutes() {
+        let physical = MeetingMicGuardPlan.State(verdict: .physicalMic(appID: MeetingMode.phoneAppID,
+                                                                       app: "Phone", device: "Built-in"))
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "Built-in"),
+                                   translationDegraded: false, micGuard: physical, mode: .phone,
+                                   phonePrepared: true, speakerMode: nil) == .needsAttention)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "Built-in"),
+                                   translationDegraded: false, micGuard: .init(), mode: .phone,
+                                   phonePrepared: true, speakerMode: nil) == .audioNeedsCheck)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .overridden(by: "USB Mic"),
+                                   translationDegraded: false, micGuard: .init(verdict: .noReader), mode: .phone,
+                                   phonePrepared: true, speakerMode: nil) == .degraded)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .noRestoreTarget,
+                                   translationDegraded: false, micGuard: .init(verdict: .noReader), mode: .phone,
+                                   phonePrepared: true, speakerMode: nil) == .needsAttention)
+    }
+
+    @Test func waitingPhoneDoesNotHideOtherPreparationOrTranslationProblems() {
+        let waiting = MeetingMicGuardPlan.State(verdict: .noReader)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "Built-in"),
+                                   translationDegraded: true, micGuard: waiting, mode: .phone,
+                                   phonePrepared: true, speakerMode: nil) == .degraded)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "Built-in"),
+                                   translationDegraded: false, micGuard: waiting, mode: .phone,
+                                   phonePrepared: true, componentsMissing: true, speakerMode: nil) == .missing)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "Built-in"),
+                                   translationDegraded: false, micGuard: waiting, mode: .phone,
+                                   phonePrepared: true, warming: true, speakerMode: nil) == .warming)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "Built-in"),
+                                   translationDegraded: false, micGuard: waiting, mode: .phone,
+                                   phonePrepared: true, speakerMode: true) == .degraded)
+    }
     @Test func liveMicrophoneAndAttentionPrecedeSpeakingAndDegradation() {
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .noRestoreTarget,
                                     translationDegraded: true, speaking: true, passthroughOpen: true) == .passthroughOpen)

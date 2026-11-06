@@ -48,6 +48,17 @@ public struct HUDStatusPresentation: Sendable, Equatable {
     }
 }
 
+/// Phone-only emphasis shared by the settings page and subtitle HUD. Input confirmation
+/// proves that Phone reads TalkTalk Mic, never that the remote participant has heard it.
+public struct PhoneSpeechPresentation: Sendable, Equatable {
+    public enum Tone: Sendable, Equatable { case ready, original, translation, progress, unavailable }
+    public var title: String
+    public var action: String
+    public var detail: String
+    public var symbol: String
+    public var tone: Tone
+}
+
 /// Everything the HUD shows, as a pure function of what it was told and the time (seconds on a
 /// monotonic clock). No AppKit; the panel (`PTTHUD`) only draws `lines(now:)`.
 ///
@@ -269,6 +280,9 @@ public struct HUDModel: Sendable, Equatable {
     /// Set only by the real raw-audio gate / translate-and-drain lifecycle. `nil` means the
     /// caller is not using default-original meeting audio (for example the isolated demo).
     public enum MeetingAudio: Sendable, Equatable {
+        /// Phone is prepared but is not currently reading audio. This does not assert whether
+        /// the call is connected, muted, on hold or finished; the owner verifies readiness.
+        case phoneReady
         case original
         /// The physical key is down; its clean release confirms the recording-mode change.
         case switching
@@ -281,6 +295,7 @@ public struct HUDModel: Sendable, Equatable {
 
         public var text: String {
             switch self {
+            case .phoneReady: String(localized: "电话同传已就绪 · 点按右⌥即可开始翻译")
             case .original: String(localized: "原声发送中 · 点按右⌥开始翻译")
             case .switching: String(localized: "正在切换发言方式")
             case .translating: String(localized: "翻译收音中 · 再按右⌥结束（原声已关闭）")
@@ -293,6 +308,7 @@ public struct HUDModel: Sendable, Equatable {
         /// Always visible beside a warning: a problem summary must not hide the audio mode.
         public var modeBadge: HUDLine {
             switch self {
+            case .phoneReady: HUDLine(String(localized: "已就绪"), .check, symbol: "phone")
             case .original: HUDLine(String(localized: "原声发送中"), .check, symbol: "mic.fill")
             case .switching: HUDLine(String(localized: "切换中"), .secondary, symbol: "arrow.left.arrow.right")
             case .translating: HUDLine(String(localized: "翻译收音中"), symbol: "waveform")
@@ -305,12 +321,64 @@ public struct HUDModel: Sendable, Equatable {
         /// The action or consequence shown alongside the mode when no warning takes priority.
         public var operationHint: String? {
             switch self {
+            case .phoneReady: String(localized: "点按右⌥开始翻译，可在拨号前试说")
             case .original: String(localized: "点按右⌥开始翻译")
             case .switching: String(localized: "松开右⌥确认")
             case .translating: String(localized: "再按右⌥结束 · 原声已关闭")
             case .draining: String(localized: "播完后恢复原声")
             case .restoringOriginal: String(localized: "请稍候")
             case .unavailable: nil
+            }
+        }
+
+        public func phonePresentation(inputConfirmed: Bool) -> PhoneSpeechPresentation {
+            switch self {
+            case .phoneReady:
+                return .init(title: String(localized: "本机同传已就绪"),
+                             action: String(localized: "点按右⌥开始翻译"),
+                             detail: inputConfirmed
+                                ? String(localized: "Phone 已接入，正在准备发送原声。")
+                                : String(localized: "未确认 Phone 接入；可以先在本机试说。"),
+                             symbol: "phone", tone: .ready)
+            case .original:
+                guard inputConfirmed else {
+                    return .init(title: String(localized: "等待 Phone 接入"),
+                                 action: String(localized: "点按右⌥可本机试说"),
+                                 detail: String(localized: "尚未确认通话输入，不能确认原声已送入 Phone。"),
+                                 symbol: "phone", tone: .ready)
+                }
+                return .init(title: String(localized: "原声发送中"),
+                             action: String(localized: "点按右⌥开始翻译"),
+                             detail: String(localized: "Phone 已接入；你的原声正在送入 Phone。"),
+                             symbol: "mic.fill", tone: .original)
+            case .switching:
+                return .init(title: String(localized: "切换发言方式"),
+                             action: String(localized: "松开右⌥确认切换"),
+                             detail: String(localized: "原声已关闭，正在确认这次点按。"),
+                             symbol: "arrow.left.arrow.right", tone: .progress)
+            case .translating:
+                return .init(title: String(localized: "翻译收音中"),
+                             action: String(localized: "再点按右⌥结束发言"),
+                             detail: inputConfirmed
+                                ? String(localized: "Phone 已接入；原声已关闭，正在收音并翻译。")
+                                : String(localized: "本机翻译收音中，原声已关闭；未确认 Phone 接入。"),
+                             symbol: "waveform", tone: .translation)
+            case .draining:
+                return .init(title: String(localized: "译音处理中"),
+                             action: String(localized: "点按右⌥继续翻译"),
+                             detail: inputConfirmed
+                                ? String(localized: "原声保持关闭；剩余译音播完后恢复原声。")
+                                : String(localized: "正在处理剩余本机译音；未确认 Phone 接入。"),
+                             symbol: "speaker.wave.2.fill", tone: .progress)
+            case .restoringOriginal:
+                return .init(title: String(localized: "正在恢复原声"),
+                             action: String(localized: "点按右⌥开始翻译"),
+                             detail: String(localized: "正在准备恢复原声，确认后开始发送。"),
+                             symbol: "arrow.clockwise", tone: .progress)
+            case let .unavailable(reason):
+                return .init(title: String(localized: "音频暂不可用"),
+                             action: String(localized: "请先检查音频状态"), detail: reason,
+                             symbol: "exclamationmark.triangle", tone: .unavailable)
             }
         }
     }
@@ -503,7 +571,7 @@ public struct HUDModel: Sendable, Equatable {
         var out: [HUDLine] = []
         if let audio = meetingAudio, meetingActive {
             let style: HUDLine.Style = switch audio {
-            case .original, .switching, .translating, .draining, .restoringOriginal: .normal
+            case .phoneReady, .original, .switching, .translating, .draining, .restoringOriginal: .normal
             case .unavailable: .yellow
             }
             if case .unavailable = audio {
