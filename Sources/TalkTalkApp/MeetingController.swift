@@ -225,7 +225,7 @@ final class MeetingController {
         // Audio readiness already has typed gate/route warnings. Only distinct Phone
         // operation failures belong here, avoiding a second generic ready/status sentence.
         hud?.setSceneIssue(state.phoneProblem.map {
-            HUDLine(String(localized: "电话需要检查"), .yellow, detail: $0, symbol: "phone")
+            HUDChip(titlebarLabel("电话需要检查"), symbol: "exclamationmark.triangle", tone: .warn, detail: $0)
         })
         panel.setPhoneActionsEnabled(state.meetingActive && !state.meetingStarting && !state.meetingStopping)
         let text: String

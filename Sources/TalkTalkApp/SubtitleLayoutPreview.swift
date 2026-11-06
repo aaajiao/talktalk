@@ -7,8 +7,8 @@ struct SubtitleLayoutPreview: NSViewRepresentable {
     let presentation: SubtitlePanel.Presentation
     let fontSize: Double
 
-    func makeNSView(context: Context) -> SubtitlePreviewCanvas { SubtitlePreviewCanvas() }
-    func updateNSView(_ view: SubtitlePreviewCanvas, context: Context) {
+    func makeNSView(context: NSViewRepresentableContext<Self>) -> SubtitlePreviewCanvas { SubtitlePreviewCanvas() }
+    func updateNSView(_ view: SubtitlePreviewCanvas, context: NSViewRepresentableContext<Self>) {
         view.configure(presentation: presentation, fontSize: fontSize)
     }
 }

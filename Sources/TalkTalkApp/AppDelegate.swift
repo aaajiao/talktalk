@@ -114,6 +114,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   case let .green(appID, _) = verdict else { return false }
             return appID == MeetingMode.phoneAppID
         }
+        hud.endConfirmation = { [weak state, weak systemInput] scene in
+            guard state?.meetingActive == true else { return nil }
+            var switched = false
+            if case .holding = systemInput?.switcher.status { switched = true }
+            return SessionEndConfirmation.make(scene: scene, systemInputSwitched: switched)
+        }
         hud.onPhoneSpeechModeChange = { [weak state] mode, inputConfirmed, playing in
             state?.phoneSpeechMode = mode
             state?.phoneInputConfirmed = inputConfirmed

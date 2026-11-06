@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import TalkTalkAudio
 import TalkTalkCloudUI
+import TalkTalkCore
 import TalkTalkSession
 
 /// The sections of the settings window, in the order of ARCHITECTURE.md §11 "设置".
@@ -222,15 +223,15 @@ struct MeetingSettingsView: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                SettingsTabButton(title: String(localized: "会议同传"), symbol: "person.2.wave.2",
+                SettingsTabButton(title: String(localized: "会议同传"), symbol: SubtitleTokens.SceneIcon.meeting,
                                   summary: String(localized: "电脑会议 · 双向同传"), selected: state.requestedScenario == .meeting) {
                     state.requestedScenario = .meeting
                 }
-                SettingsTabButton(title: String(localized: "电话同传"), symbol: "phone",
+                SettingsTabButton(title: String(localized: "电话同传"), symbol: SubtitleTokens.SceneIcon.phone,
                                   summary: String(localized: "自己的号码 · 双向同传"), selected: state.requestedScenario == .phone) {
                     state.requestedScenario = .phone
                 }
-                SettingsTabButton(title: String(localized: "视频字幕"), symbol: "play.rectangle",
+                SettingsTabButton(title: String(localized: "视频字幕"), symbol: SubtitleTokens.SceneIcon.video,
                                   summary: String(localized: "观看视频 · 双语字幕"), selected: state.requestedScenario == .captions) {
                     state.requestedScenario = .captions
                 }

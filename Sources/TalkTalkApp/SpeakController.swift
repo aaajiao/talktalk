@@ -519,7 +519,8 @@ final class SpeakController {
             if demo { demoFailure = error.localizedDescription }
             await end()
             if !demo { meeting.phoneSpeechFailed(session) }
-            hud.show(String(localized: "说话链路未能启动，请检查组件和输入监控权限。"), .yellow)
+            hud.show(String(localized: "说话链路未能启动，请检查组件和输入监控权限。"), .yellow,
+                     label: titlebarLabel("说话链路未能启动"))
         }
         warming = false; onChange?()
     }
@@ -686,6 +687,10 @@ final class SpeakController {
         guard !demoActive, let owner, let keys else { hud.meetingAudio(nil); return }
         guard case .running = owner.state else {
             hud.meetingAudio(.unavailable(reason: String(localized: "音频已暂停"))); return
+        }
+        // A Phone reader change cancels current speech; its cleanup barrier is not a fault.
+        if owner.mode == .phone, phoneBoundary.resetPending {
+            hud.meetingAudio(.phoneReconnecting); return
         }
         // Key handling closes raw audio synchronously, while UI callbacks arrive later. Read
         // the key, work and gate facts together instead of mixing two sides of a transition.

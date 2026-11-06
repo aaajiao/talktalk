@@ -16,7 +16,10 @@
 #      error; `Text(verbatim:)` is for data, not for text). `// l10n-ignore` at the end of a line
 #      exempts that line;
 #   4. no stale key (in the catalog, used nowhere), unless its entry says
-#      "extractionState": "manual".
+#      "extractionState": "manual";
+#   5. titlebar short labels stay short (redesign §3): `titlebarLabel("…")` at most 10 and
+#      `noticeLabel("…")` at most 8 units, where a CJK character, a run of Latin letters/digits
+#      and an interpolation each count as one; spaces and punctuation are free.
 # Interpolations `\(…)` become `%@` in the key; catalog keys compare with %@ / %lld / %ld / %d /
 # %lf / %f (and positional %1$@) treated alike, so a catalog edited in Xcode still matches.
 # The catalog is source only for now: CLT has no xcstringstool, so the build ships no .strings
@@ -44,9 +47,16 @@ import json, os, re, sys
 root, update, quiet = sys.argv[1], sys.argv[2] == "1", sys.argv[3] == "1"
 MARKER = "// l10n: zh-Hans (scripts/check-strings.sh)"
 CATALOG = os.path.join(root, "Resources", "Localizable.xcstrings")
+SHORT_LIMITS = {"titlebarLabel": 10, "noticeLabel": 8}
 KEY_CALLEES = {"Text", "Button", "Toggle", "Label", "Picker", "LabeledContent", "Section", "Menu", "DisclosureGroup", "ProgressView",
                "alert", "confirmationDialog", "help", "navigationTitle",
-               "SettingsNote", "StepTitle", "GrantRow", "OnboardingCard"}
+               "SettingsNote", "StepTitle", "GrantRow", "OnboardingCard"} | set(SHORT_LIMITS)
+CJK_CHAR = re.compile("[㐀-鿿豈-﫿]")
+LATIN_RUN = re.compile("[A-Za-z0-9]+")
+
+def short_units(k):
+    k = SPEC.sub("X", k)
+    return len(CJK_CHAR.findall(k)) + len(LATIN_RUN.findall(CJK_CHAR.sub(" ", k)))
 # Labels whose literal is a LocalizedStringKey in the views above (first unlabeled argument too).
 KEY_LABELS = {"title", "note", "actionTitle"}
 CJK = re.compile("[　-〿㐀-鿿豈-﫿＀-￯]")
@@ -58,7 +68,7 @@ def norm(k):
     return SPEC.sub("%@", k)
 
 def scan(path, text, line=1, ignore_lines=None):
-    """Returns [(line, literal_key, localized, has_cjk, ignored)]. Code inside an interpolation
+    """Returns [(line, literal_key, localized, has_cjk, ignored, callee)]. Code inside an interpolation
     is scanned the same way (a zh literal nested in a localized one is checked on its own)."""
     i, n = 0, len(text)
     stack = []          # callee name per open paren ("" when not a call)
@@ -132,7 +142,7 @@ def scan(path, text, line=1, ignore_lines=None):
                 localized = True
             if multi:
                 localized = False
-            out.append((start_line, key, localized, cjk, start_line in ignore_lines))
+            out.append((start_line, key, localized, cjk, start_line in ignore_lines, callee if localized else ""))
             for a, b, l0 in segs:
                 out.extend(scan(path, text[a:b], l0, ignore_lines))
             i = j
@@ -176,9 +186,12 @@ for d, _, fs in os.walk(os.path.join(root, "Sources")):
         if MARKER not in text: continue
         files += 1
         rel = os.path.relpath(p, root)
-        for line, key, localized, cjk, ignored in scan(p, text):
+        for line, key, localized, cjk, ignored, callee in scan(p, text):
             if localized and key:
                 used.setdefault(norm(key), (key, "%s:%d" % (rel, line)))
+                limit = SHORT_LIMITS.get(callee)
+                if limit is not None and short_units(key) > limit:
+                    problems.append("%s:%d: %s label longer than %d characters (put the sentence in the detail): \"%s\"" % (rel, line, callee, limit, key))
             elif cjk and not ignored:
                 problems.append("%s:%d: bare zh-Hans literal (use String(localized:) or a LocalizedStringKey view): \"%s\"" % (rel, line, key))
 

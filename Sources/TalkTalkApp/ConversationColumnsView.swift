@@ -127,10 +127,13 @@ final class ConversationColumnsView: NSView {
 
     /// Processing and actual playback can coexist with input activity. Change only the
     /// translation heading; neither reading viewport is rebuilt or laid out by this update.
-    func setOutputActivity(symbol: String?, label: String?) {
-        guard outputSymbol != symbol || outputText != label else { return }
+    func setOutputActivity(symbol: String?, label: String?, tint: NSColor? = nil) {
+        let color = tint ?? .secondaryLabelColor
+        guard outputSymbol != symbol || outputText != label || outputIcon.contentTintColor != color else { return }
         outputSymbol = symbol
         outputText = label
+        outputIcon.contentTintColor = color
+        outputLabel.textColor = color
         outputIcon.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: label) }
         outputIcon.toolTip = label
         outputLabel.stringValue = label ?? ""
@@ -151,7 +154,7 @@ final class ConversationColumnsView: NSView {
             let headingWidth = min(max(0, available - inset), column.heading.intrinsicContentSize.width)
             let activitySpace = max(0, available - inset - headingWidth - 8)
             let showsActivity = columns && active && activitySpace >= 14
-            let desiredLabelWidth = min(64, activityLabel.intrinsicContentSize.width)
+            let desiredLabelWidth = min(150, activityLabel.intrinsicContentSize.width)
             let labelWidth = showsActivity && activitySpace >= desiredLabelWidth + 19 ? desiredLabelWidth : 0
             let activityWidth: CGFloat = showsActivity ? 14 + (labelWidth > 0 ? labelWidth + 5 : 0) : 0
             let activityX = x + available - activityWidth

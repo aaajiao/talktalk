@@ -1,10 +1,10 @@
 #!/bin/bash
 # shellcheck disable=SC2015  # ok/no always return 0, so "A && ok || no" is a safe if-then-else
 # check-strings.sh against planted fixtures: a clean tree passes; a missing key, a bare zh-Hans
-# literal (also Text(verbatim:) and a multi-line literal), a stale key, a wrong sourceLanguage,
-# invalid JSON and a missing catalog fail; interpolations match %@ / %lld keys; comments,
-# unmarked files and `// l10n-ignore` lines are not checked; manual keys may be unused;
-# --update adds and drops keys. Run: scripts/tests/test-check-strings.sh
+# literal (also Text(verbatim:) and a multi-line literal), an over-long titlebar label, a stale
+# key, a wrong sourceLanguage, invalid JSON and a missing catalog fail; interpolations match
+# %@ / %lld keys; comments, unmarked files and `// l10n-ignore` lines are not checked; manual
+# keys may be unused; --update adds and drops keys. Run: scripts/tests/test-check-strings.sh
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 cs="$here/../check-strings.sh"
@@ -117,6 +117,17 @@ R="$(fixture multiline)"
 printf '%s\n' 'let m = """' '多行文字' '"""' >> "$R/Sources/App/View.swift"
 run "$R"
 [ "$rc" = 1 ] && /usr/bin/grep -q 'bare zh-Hans literal' "$work/out" && ok "multi-line zh literal fails" || no "multi-line (rc=$rc)"
+
+R="$(fixture short)"
+printf '%s\n' 'let a = titlebarLabel("未接入 Phone")' 'let b = titlebarLabel("正在重新连接电话请稍候片刻")' \
+  'let c = noticeLabel("已恢复 TalkTalk Mic")' 'let d = noticeLabel("系统默认输入已经还原好了")' >> "$R/Sources/App/View.swift"
+/usr/bin/sed -i '' 's|"A": {},|"A": {},\n    "未接入 Phone": {},\n    "正在重新连接电话请稍候片刻": {},\n    "已恢复 TalkTalk Mic": {},\n    "系统默认输入已经还原好了": {},|' "$R/Resources/Localizable.xcstrings"
+run "$R"
+[ "$rc" = 1 ] && /usr/bin/grep -q 'titlebarLabel label longer than 10 characters.*"正在重新连接电话请稍候片刻"' "$work/out" \
+  && /usr/bin/grep -q 'noticeLabel label longer than 8 characters.*"系统默认输入已经还原好了"' "$work/out" \
+  && ! /usr/bin/grep -q '"未接入 Phone"\|"已恢复 TalkTalk Mic"' "$work/out" \
+  && /usr/bin/grep -q '2 problem(s)' "$work/out" \
+  && ok "titlebar labels over 10 and notifications over 8 characters fail; Latin words count once" || no "short labels (rc=$rc)"
 
 R="$(fixture stale)"
 /usr/bin/sed -i '' 's|"A": {},|"A": {},\n    "没人用": {},|' "$R/Resources/Localizable.xcstrings"

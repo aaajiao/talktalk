@@ -3,18 +3,20 @@ import Testing
 @testable import TalkTalkCore
 
 @Suite struct SpeechStatusPresentationTests {
-    @Test func inputLevelTicksNeverChangeTheCompactStatusOrItsDetails() throws {
+    @Test func inputLevelTicksNeverChangeTheTitlebarState() throws {
         var model = HUDModel()
         model.meetingStarted()
         model.meetingAudio = .translating
         model.pushToTalk = .holding(level: 0.1, preview: "同一句话", committed: [], queued: 0)
-        let first = try #require(model.compactStatus(now: 0))
+        let voice = try #require(model.voiceState)
+        let issue = model.issueSlot(now: 0)
+        let key = model.titlebarKey
         for level: Float in [0, 0.8, 0.2] {
             model.pushToTalk = .holding(level: level, preview: "同一句话", committed: [], queued: 0)
-            let changed = try #require(model.compactStatus(now: 0))
-            #expect(changed == first)
-            #expect(changed.summary.level == nil)
-            #expect(changed.details.allSatisfy { $0.level == nil })
+            #expect(model.voiceState == voice)
+            #expect(model.issueSlot(now: 0) == issue)
+            #expect(model.titlebarKey == key)
+            #expect(model.activityDetails(now: 0).allSatisfy { $0.level == nil })
         }
     }
 
@@ -22,21 +24,21 @@ import Testing
         var model = HUDModel()
         model.meetingStarted()
         model.meetingAudio = .original
-        #expect(model.compactStatus(now: 0)?.kind == .activity)
+        #expect(model.issueSlot(now: 0) == nil)
 
         model.post(.defaultInputRestored(to: "Built-in"), now: 0)
-        let confirmation = try #require(model.compactStatus(now: 1))
-        #expect(confirmation.kind == .notice)
-        #expect(confirmation.details.contains { $0.text == HUDModel.MeetingAudio.original.text })
-        #expect(model.compactStatus(now: HUDModel.noticeSeconds + 1)?.kind == .activity)
+        let confirmation = try #require(model.issueSlot(now: 1)?.chip)
+        #expect(confirmation.tone == .notice)
+        #expect(model.voiceState?.kind == .original)
+        #expect(model.issueSlot(now: HUDModel.noticeSeconds + 1) == nil)
 
         model.post(.segmentNotSent, now: 10)
-        let problem = try #require(model.compactStatus(now: 11))
-        #expect(problem.kind == .problem)
-        #expect(problem.summary.text == HUDModel.Warning.segmentNotSent.summary)
-        #expect(problem.details.contains { $0.text == HUDModel.MeetingAudio.original.text })
-        // The presenter consumes this fact separately from the problem. A warning must never
-        // replace the mode with an implication that the original microphone is now closed.
+        let problem = try #require(model.issueSlot(now: 11)?.chip)
+        #expect(problem.isProblem)
+        #expect(problem.label == "这段未发送")
+        // A warning must never replace the mode with an implication that the original
+        // microphone is now closed: the capsule is a separate, unchanged fact.
+        #expect(model.voiceState?.kind == .original)
         #expect(SpeechStatusPresentation(audio: model.meetingAudio).tone == .original)
     }
 
@@ -46,11 +48,39 @@ import Testing
         model.meetingAudio = .translating
         model.post(.passthroughTip, now: 0)
         model.post(.meetingSilent, now: 0)
-        let status = try #require(model.compactStatus(now: 1))
-        #expect(status.kind == .activity)
-        #expect(status.summary.text == HUDModel.MeetingAudio.translating.text)
-        #expect(status.details.contains { $0.text == HUDModel.Warning.passthroughTip.line.text })
-        #expect(status.details.contains { $0.text == HUDModel.Warning.meetingSilent.line.text })
+        let chip = try #require(model.issueSlot(now: 1)?.chip)
+        #expect(chip.tone == .info && chip.label == "未听到对方")
+        #expect(model.voiceState?.kind == .translating)
+        #expect(model.activityDetails(now: 1).contains { $0.text == HUDModel.Warning.passthroughTip.line.text })
+        #expect(chip.detail == HUDModel.Warning.meetingSilent.text)
+    }
+
+    @Test func keyActionsAreTheFourTitlebarVerbs() {
+        #expect(SpeechStatusPresentation(audio: .original).keyAction == "开始翻译")
+        #expect(SpeechStatusPresentation(audio: .restoringOriginal).keyAction == "开始翻译")
+        #expect(SpeechStatusPresentation(audio: .draining, playing: true).keyAction == "开始翻译")
+        #expect(SpeechStatusPresentation(audio: .translating).keyAction == "结束")
+        #expect(SpeechStatusPresentation(audio: .switching).keyAction == "松开确认")
+        for audio in [HUDModel.MeetingAudio.phoneReady, .original] {
+            #expect(SpeechStatusPresentation(audio: audio, phoneInputConfirmed: false).keyAction == "本机试说")
+        }
+        #expect(SpeechStatusPresentation(audio: .original, phoneInputConfirmed: true).keyAction == "开始翻译")
+        #expect(SpeechStatusPresentation(audio: .phoneReconnecting, phoneInputConfirmed: true).keyAction == nil)
+        #expect(SpeechStatusPresentation(audio: .unavailable(reason: "x")).keyAction == nil)
+        #expect(SpeechStatusPresentation(audio: .translating).shortcut == "右⌥ 结束")
+    }
+
+    @Test func micSlashOnlyMeansOriginalOffOrUnavailable() {
+        let all: [HUDModel.MeetingAudio] = [.phoneReady, .original, .switching, .translating, .draining,
+                                            .restoringOriginal, .phoneReconnecting, .unavailable(reason: "x")]
+        for audio in all {
+            for confirmed: Bool? in [nil, false, true] {
+                let status = SpeechStatusPresentation(audio: audio, phoneInputConfirmed: confirmed, playing: true)
+                let allowed = audio == .restoringOriginal || audio == .unavailable(reason: "x")
+                #expect((status.symbol == "mic.slash") == allowed, "\(audio)")
+                #expect(status.symbol != "phone", "\(audio)")
+            }
+        }
     }
 
     @Test func unconfirmedPhoneNeverShowsOriginalTransmission() {
@@ -90,7 +120,7 @@ import Testing
         let capture = SpeechStatusPresentation(audio: .translating, playing: false)
         let captureAndOutput = SpeechStatusPresentation(audio: .translating, playing: true)
         #expect(captureAndOutput == capture)
-        #expect(capture.shortcut?.contains("结束收音") == true)
+        #expect(capture.keyAction == "结束")
     }
 
     @Test func unavailableAudioHasNoRecordingActionAndRetainsTheReason() {

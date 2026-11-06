@@ -1,5 +1,6 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import SwiftUI
+import TalkTalkCore
 
 struct SubtitleSettingsView: View {
     @Bindable var state: AppState
@@ -43,11 +44,11 @@ struct SubtitleSettingsView: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                SettingsTabButton(title: String(localized: "会议同传"), symbol: "rectangle.split.2x2",
+                SettingsTabButton(title: String(localized: "会议同传"), symbol: SubtitleTokens.SceneIcon.meeting,
                                   summary: String(localized: "双方发言 · 原文与译文分栏"), selected: presentation == .meeting) { navigation.subtitlePresentation = .meeting }
-                SettingsTabButton(title: String(localized: "电话同传"), symbol: "phone",
+                SettingsTabButton(title: String(localized: "电话同传"), symbol: SubtitleTokens.SceneIcon.phone,
                                   summary: String(localized: "电话对话 · 原文与译文分栏"), selected: phone) { navigation.subtitlePresentation = .phone }
-                SettingsTabButton(title: String(localized: "视频字幕"), symbol: "captions.bubble",
+                SettingsTabButton(title: String(localized: "视频字幕"), symbol: SubtitleTokens.SceneIcon.video,
                                   summary: String(localized: "扁宽字幕条 · 原文在上，中文在下"), selected: video) { navigation.subtitlePresentation = .video }
             }
             .padding([.horizontal, .top], 20)

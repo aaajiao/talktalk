@@ -302,124 +302,210 @@ import Testing
         #expect(m.lines(now: 0).isEmpty)
     }
 
-    @Test func compactMeetingStatusFollowsTheGateNotRenderActivity() throws {
+    @Test func voiceCapsuleFollowsTheGateNotRenderActivity() throws {
         var model = HUDModel()
         model.meetingStarted(); model.pushToTalkAvailable = true
         model.meetingAudio = .original
-        let original = try #require(model.compactStatus(now: 0))
-        #expect(original.summary.text == HUDModel.MeetingAudio.original.text)
+        let original = try #require(model.voiceState)
+        #expect(original.kind == .original && original.appearance == .originalFill && original.title == "原声")
         model.meetingAudio = .translating
         model.pushToTalk = .holding(level: 0.1, preview: "开头", committed: [], queued: 0)
-        let holding = try #require(model.compactStatus(now: 0))
+        let holding = try #require(model.voiceState)
         model.pushToTalk = .holding(level: 0.9, preview: "更长的开头", committed: ["已提交"], queued: 4)
-        #expect(model.compactStatus(now: 0.1)?.summary == holding.summary)
+        #expect(model.voiceState == holding)
+        #expect(holding.kind == .translating && holding.title == "译音" && holding.appearance == .translateFill)
         model.pushToTalk = .playing(lang: .de, voice: .mine, source: .apple, queued: 2)
-        let playing = try #require(model.compactStatus(now: 0.2))
-        #expect(playing.summary == holding.summary)
-        #expect(playing.summary.text.contains("原声已关闭"))
-        #expect(playing.summary.level == nil && playing.summary.detail == nil)
-        #expect(playing.details.contains { $0.text == "待播 2 段" })
-        #expect(playing.details.contains { $0.text == "我的声音" })
-        #expect(playing.details.contains { $0.text == "Apple 本地翻译" })
+        #expect(model.voiceState == holding)
+        let activity = model.activityDetails(now: 0.2)
+        #expect(activity.contains { $0.text == "待播 2 段" })
+        #expect(activity.contains { $0.text == "我的声音" })
+        #expect(activity.contains { $0.text == "Apple 本地翻译" })
+        #expect(!activity.contains { $0.text.contains("开头") || $0.text.contains("已提交") })
         model.meetingAudio = .draining
-        #expect(model.compactStatus(now: 0.3)?.summary.text == HUDModel.MeetingAudio.draining.text)
+        #expect(model.voiceState?.kind == .processing)
+        model.outputPlaying = true
+        #expect(model.voiceState?.kind == .playingTranslation)
+        #expect(model.voiceState?.symbol == "speaker.wave.2.fill")
+        model.outputPlaying = false
         model.meetingAudio = .restoringOriginal
-        let restoring = try #require(model.compactStatus(now: 0.3))
-        #expect(restoring.summary.style == .normal)
-        #expect(restoring.summary.text == "正在恢复原声" && restoring.summary.text != original.summary.text)
+        let restoring = try #require(model.voiceState)
+        #expect(restoring.title == "原声已关" && restoring.symbol == "mic.slash" && restoring.appearance == .dimStroke)
         model.meetingAudio = .unavailable(reason: "设备已断开")
-        let unavailable = try #require(model.compactStatus(now: 0.3))
-        #expect(unavailable.summary.style == .yellow)
-        #expect(unavailable.details.contains { $0.detail?.contains("设备已断开") == true })
+        let unavailable = try #require(model.voiceState)
+        #expect(unavailable.kind == .unavailable && unavailable.appearance == .warnFill && unavailable.symbol == "mic.slash")
+        #expect(unavailable.detail.contains("设备已断开"))
         model.meetingAudio = .original
-        #expect(model.compactStatus(now: 0.4)?.summary == original.summary)
+        #expect(model.voiceState == original)
+        model.meetingEnded()
+        #expect(model.voiceState == nil)
     }
 
-    @Test func compactWarningsKeepRiskAndUnsentContentAheadOfProgress() throws {
+    @Test func onlyRawAudioRiskOrUnavailableRewriteTheCapsule() throws {
         var model = HUDModel()
         model.meetingStarted(); model.meetingAudio = .original
-        model.post(.passthroughTip, now: 0)
-        model.post(.segmentNotSent, now: 0)
-        let remoteIssue = HUDLine("对方字幕暂不可用", .yellow, detail: "请检查语音资源", symbol: "exclamationmark.triangle")
-        let extras = [remoteIssue, HUDLine("云端文字传输提醒", .yellow), HUDLine("刚刚恢复", .normal)]
-        #expect(model.compactStatus(now: 1, extraLines: extras)?.summary.text == "这段未发送")
-        model.post(.remoteHearsYourVoice, now: 0)
-        let risk = try #require(model.compactStatus(now: 1, extraLines: extras + [HUDLine("另一个错误", .red)]))
-        #expect(risk.summary.text == HUDModel.Warning.remoteHearsYourVoice.summary)
-        #expect(risk.summary.style == .red)
-        #expect(risk.details.contains(HUDModel.Warning.segmentNotSent.line))
-        #expect(risk.details.contains(remoteIssue))
-        model.clear(.remoteHearsYourVoice); model.clear(.segmentNotSent)
-        #expect(model.compactStatus(now: 1, extraLines: extras)?.summary.text == remoteIssue.text)
-    }
-
-    @Test func preparedPhoneWaitingIsNeutralAndDoesNotClaimConnectedAudio() throws {
-        var model = HUDModel()
-        model.meetingStarted()
-        model.meetingAudio = .phoneReady
-        let status = try #require(model.compactStatus(now: 0))
-        #expect(status.summary.style == .normal)
-        #expect(status.summary.text == "电话同传已就绪 · 点按右⌥即可开始翻译")
-        #expect(model.meetingAudio?.modeBadge == HUDLine("已就绪", .check, symbol: "phone"))
-        #expect(model.meetingAudio?.operationHint == "点按右⌥开始翻译，可在拨号前试说")
-        #expect(status.details.allSatisfy { $0.style != .yellow && $0.style != .red })
-        model.meetingAudio = .unavailable(reason: "安全输入开启中")
-        #expect(model.compactStatus(now: 1)?.summary.style == .yellow)
-        model.meetingAudio = .phoneReady
-        #expect(model.compactStatus(now: 2)?.summary == status.summary)
-    }
-
-    @Test func waitingPhoneKeepsRealAudioAndPermissionWarningsVisible() throws {
-        for warning in [HUDModel.Warning.remoteHearsYourVoice, .audioRestarting, .tccUnconfirmed,
-                        .switchBackFailed(current: "Built-in"), .segmentNotSent] {
-            var model = HUDModel()
-            model.meetingStarted(); model.meetingAudio = .phoneReady
+        for warning in [HUDModel.Warning.segmentNotSent, .speakerMode, .audioRestarting, .floorPaused(segments: 2),
+                        .switchBackFailed(current: "Built-in"), .openAIUnreachable] {
             model.post(warning, now: 0)
-            let status = try #require(model.compactStatus(now: 1))
-            #expect(status.summary.text == warning.summary)
-            #expect(status.summary.style == warning.style)
-            #expect(status.details.contains { $0.text == HUDModel.MeetingAudio.phoneReady.text })
+            #expect(model.voiceState?.kind == .original, "\(warning)")
+            #expect(model.issueSlot(now: 1)?.chip?.isProblem == true, "\(warning)")
             model.clear(warning)
-            #expect(model.compactStatus(now: 1)?.summary.style == .normal)
+        }
+        for risk in [HUDModel.Warning.remoteHearsYourVoice, .meetingNotUsingMic] {
+            model.post(risk, now: 0)
+            let voice = try #require(model.voiceState)
+            #expect(voice.kind == .remoteHearsOriginal && voice.appearance == .riskFill)
+            #expect(voice.title == "对方能听到原声" && voice.compactTitle == "风险")
+            #expect(voice.symbol == "mic.badge.exclamationmark")
+            #expect(model.titlebarKey == nil)
+            let chip = try #require(model.issueSlot(now: 1)?.chip)
+            #expect(chip.tone == .risk && chip.symbol != "mic.slash")
+            model.clear(risk)
+        }
+        #expect(HUDModel.Warning.remoteHearsYourVoice.symbol == "mic.badge.exclamationmark")
+        #expect(HUDModel.Warning.meetingNotUsingMic.symbol == "mic.badge.exclamationmark")
+    }
+
+    @Test func issueSlotRanksProblemsThenNoticesThenCloudPrivacy() throws {
+        var model = HUDModel()
+        model.meetingStarted(); model.meetingAudio = .original
+        model.cloudPrivacyPending = true
+        #expect(model.issueSlot(now: 0) == .cloudPrivacy)
+        model.post(.passthroughTip, now: 0)
+        #expect(model.issueSlot(now: 0) == .cloudPrivacy)
+        #expect(model.activityDetails(now: 0).contains(HUDModel.Warning.passthroughTip.line))
+        model.post(.meetingSilent, now: 0)
+        let silent = try #require(model.issueSlot(now: 0)?.chip)
+        #expect(silent.tone == .info && silent.label == "未听到对方")
+        model.post(.defaultInputRestored(to: "Built-in"), now: 0)
+        let notice = try #require(model.issueSlot(now: 1)?.chip)
+        #expect(notice.tone == .notice && notice.fades && notice.detail == "默认输入已还原为 Built-in")
+        #expect(model.issueSlot(now: HUDModel.noticeSeconds + 1)?.chip?.tone == .info)
+        model.setExternalIssue(.subtitles, HUDChip("字幕需要检查", symbol: "captions.bubble", tone: .warn, detail: "完整原因"))
+        model.post(.segmentNotSent, now: 10)
+        #expect(model.issueSlot(now: 11)?.chip?.label == "这段未发送")
+        model.post(.remoteHearsYourVoice, now: 10)
+        #expect(model.issueSlot(now: 11)?.chip?.tone == .risk)
+        let all = model.issueChips(now: 11)
+        #expect(all.map(\.label).prefix(3) == ["会议在用实体麦", "这段未发送", "字幕需要检查"])
+        model.clear(.remoteHearsYourVoice); model.clear(.segmentNotSent); model.clear(.meetingSilent)
+        model.setExternalIssue(.subtitles, nil)
+        #expect(model.issueSlot(now: 11) == .cloudPrivacy)
+        model.meetingEnded()
+        #expect(model.issueSlot(now: 11) == nil)
+    }
+
+    @Test func oneOffMessagesKeepAShortLabelAndTheCompleteDetail() throws {
+        var model = HUDModel()
+        let long = String(repeating: "没能还原系统默认输入，请在“系统设置 › 声音 › 输入”里改回。", count: 4)
+        model.show(HUDChip("系统麦克风未还原", symbol: "exclamationmark.triangle", tone: .risk, detail: long), now: 0)
+        let chip = try #require(model.issueSlot(now: 1)?.chip)
+        #expect(chip.label == "系统麦克风未还原" && chip.detail == long)
+        #expect(model.nextExpiry(after: 1) == HUDModel.noticeSeconds)
+        #expect(model.issueSlot(now: HUDModel.noticeSeconds) == nil)
+    }
+
+    @Test func phoneCapsuleNeverClaimsDeliveryWithoutAConfirmedReader() throws {
+        var model = HUDModel()
+        model.meetingStarted(); model.scene = .phone; model.pushToTalkAvailable = true
+        model.meetingAudio = .phoneReady
+        #expect(model.voiceState?.kind == .phoneNotConnected && model.voiceState?.appearance == .dashed)
+        #expect(model.voiceState?.title == "未接入 Phone")
+        #expect(model.titlebarKey?.action == "本机试说")
+        model.meetingAudio = .original
+        #expect(model.voiceState?.kind == .phoneLocalTrial && model.voiceState?.title == "本机试说")
+        model.phoneInputConfirmed = true
+        #expect(model.voiceState?.kind == .original && model.voiceState?.appearance == .originalFill)
+        #expect(model.titlebarKey?.action == "开始翻译")
+        #expect(model.voiceState?.consequence.contains("送入 Phone") == true)
+        model.meetingAudio = .draining; model.outputPlaying = true
+        #expect(model.voiceState?.kind == .playingTranslation)
+        #expect(!model.issueChips(now: 0).contains { $0.label == "Phone 未接收" })
+        model.phoneInputConfirmed = false
+        let local = try #require(model.voiceState)
+        #expect(local.kind == .phoneLocalOnly && local.title == "仅本机" && local.appearance == .warnStroke)
+        #expect(model.issueSlot(now: 0)?.chip?.label == "Phone 未接收")
+        model.meetingAudio = .phoneReconnecting; model.outputPlaying = false
+        #expect(model.voiceState?.title == "正在重新连接 Phone…" && model.voiceState?.appearance == .dimStroke)
+        #expect(model.titlebarKey == nil)
+        for voice in [VoiceState.Kind.phoneNotConnected, .phoneLocalTrial, .phoneLocalOnly, .phoneReconnecting] {
+            let state = VoiceState.make(voice, phone: true, risk: nil, reason: nil)
+            #expect(state.symbol != "phone" && state.appearance != .originalFill)
         }
     }
 
-    @Test func compactDemoAndListeningStayStableAndExtraDetailsAreDeduplicated() throws {
-        var model = HUDModel()
-        #expect(model.compactStatus(now: 0) == nil)
-        model.meetingStarted()
-        #expect(model.compactStatus(now: 0)?.details.contains { $0.text == "正在收听" } == true)
-        model.pushToTalkAvailable = true
-        model.post(.meetingSilent, now: 0)
-        #expect(model.compactStatus(now: 0)?.summary.text == "正在收听")
-        model.pushToTalk = .holding(level: 0.2, preview: "草稿", committed: [], queued: 0)
-        let holding = try #require(model.compactStatus(now: 0))
-        model.pushToTalk = .playing(lang: .en, voice: .system, source: .openAI, queued: 3)
-        #expect(model.compactStatus(now: 0.2)?.summary == holding.summary)
-        #expect(holding.summary.text == "按键翻译中")
-        let extra = HUDLine("还原需要处理", .red, detail: "完整设备原因", symbol: "mic.badge.xmark", settingsDestination: .audio)
-        let status = try #require(model.compactStatus(now: 0.3, extraLines: [extra, extra]))
-        #expect(status.details.filter { $0 == extra }.count == 1)
-        #expect(status.summary.text == extra.text && status.summary.detail == nil)
-        #expect(status.details.contains { $0.text == "系统声音" })
+    @Test func waitingPhoneKeepsRealAudioAndPermissionWarningsVisible() throws {
+        for warning in [HUDModel.Warning.audioRestarting, .tccUnconfirmed,
+                        .switchBackFailed(current: "Built-in"), .segmentNotSent] {
+            var model = HUDModel()
+            model.meetingStarted(); model.scene = .phone; model.meetingAudio = .phoneReady
+            model.post(warning, now: 0)
+            let chip = try #require(model.issueSlot(now: 1)?.chip)
+            #expect(chip.detail == warning.text)
+            #expect(chip.isProblem)
+            #expect(model.voiceState?.kind == .phoneNotConnected)
+            model.clear(warning)
+            #expect(model.issueSlot(now: 1) == nil)
+        }
     }
 
-    @Test func compactCountedWarningsChangeOnlyTheirDetails() throws {
+    @Test func demoAndVideoUseTheirOwnCapsules() throws {
+        var model = HUDModel()
+        #expect(model.voiceState == nil && model.issueSlot(now: 0) == nil)
+        model.meetingStarted()
+        #expect(model.voiceState?.kind == .notSent && model.voiceState?.title == "未发送")
+        #expect(model.titlebarKey == nil)
+        model.pushToTalkAvailable = true
+        #expect(model.titlebarKey?.action == "开始翻译")
+        model.pushToTalk = .holding(level: 0.2, preview: "草稿", committed: [], queued: 0)
+        #expect(model.voiceState?.kind == .translating)
+        #expect(model.titlebarKey == TitlebarKey(action: "结束", style: .translating))
+        model.pushToTalk = .playing(lang: .en, voice: .system, source: .openAI, queued: 3)
+        #expect(model.voiceState?.kind == .playingTranslation)
+        model.scene = .video
+        model.post(.remoteHearsYourVoice, now: 0)
+        let video = try #require(model.voiceState)
+        #expect(video.kind == .listening && video.title == "收听中" && video.symbol == "ear" && !video.opensDetails)
+        #expect(model.titlebarKey == nil)
+    }
+
+    @Test func countedWarningsKeepTheirChipLabel() throws {
         var model = HUDModel()
         model.meetingStarted(); model.meetingAudio = .draining
         model.post(.floorPaused(segments: 1), now: 0)
-        let paused = try #require(model.compactStatus(now: 0))
+        let paused = try #require(model.issueSlot(now: 0)?.chip)
         model.post(.floorPaused(segments: 7), now: 0.1)
-        let morePaused = try #require(model.compactStatus(now: 0.1))
-        #expect(morePaused.summary == paused.summary)
-        #expect(morePaused.summary.text == "对方在说话 · 译音已暂停")
-        #expect(morePaused.details.contains(HUDModel.Warning.floorPaused(segments: 7).line))
+        let morePaused = try #require(model.issueSlot(now: 0.1)?.chip)
+        #expect(morePaused.label == paused.label && morePaused.label == "对方在说话 · 译音已暂停")
+        #expect(morePaused.detail == HUDModel.Warning.floorPaused(segments: 7).text)
         model.post(.skipped(segments: 1), now: 0.2)
-        let skipped = try #require(model.compactStatus(now: 0.2))
         model.post(.skipped(segments: 3), now: 0.3)
-        #expect(model.compactStatus(now: 0.3)?.summary == skipped.summary)
-        #expect(skipped.summary.text == "部分内容已跳过")
-        #expect(model.compactStatus(now: 0.3)?.details.contains(HUDModel.Warning.skipped(segments: 3).line) == true)
+        let skipped = try #require(model.issueChips(now: 0.3).first { $0.label == "部分内容已跳过" })
+        #expect(skipped.detail == "已跳过 3 段")
+    }
+
+    @Test func everyWarningExceptTheTipHasAChipWithItsCompleteText() {
+        for (warning, text, _) in Self.warnings where warning != .passthroughTip {
+            let chip = warning.chip
+            #expect(chip?.detail == text, "\(warning)")
+            #expect((chip?.label.count ?? 0) <= 24, "\(warning)")
+        }
+        #expect(HUDModel.Warning.passthroughTip.chip == nil)
+        #expect(HUDModel.Warning.switchedBackAfterInsert(device: "X").chip?.tone == .notice)
+        #expect(HUDModel.Warning.meetingSilent.chip?.tone == .info)
+    }
+
+    @Test func announcementsFollowSpeakingModeFamiliesOnly() {
+        let translating = VoiceState.make(.translating, phone: false, risk: nil, reason: nil)
+        let processing = VoiceState.make(.processing, phone: false, risk: nil, reason: nil)
+        let playing = VoiceState.make(.playingTranslation, phone: false, risk: nil, reason: nil)
+        let original = VoiceState.make(.original, phone: false, risk: nil, reason: nil)
+        #expect(translating.announcementGroup == processing.announcementGroup)
+        #expect(processing.announcementGroup == playing.announcementGroup)
+        #expect(original.announcementGroup != translating.announcementGroup)
+        #expect(translating.announcement == "原声已关，翻译中")
+        #expect(original.accessibilityLabel == "发声：原声，对方可听到")
+        #expect(!original.accessibilityLabel.contains("\n"))
+        #expect(VoiceState.make(.switching, phone: false, risk: nil, reason: nil).announcement == nil)
     }
 
     @Test func speechTranscriptSurvivesReleaseAndDrainThenExpiresOrIsReplaced() {

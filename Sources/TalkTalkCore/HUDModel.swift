@@ -37,20 +37,6 @@ public struct HUDLine: Sendable, Equatable {
     }
 }
 
-/// One stable status on the meeting surface; detailed activity is shown only on request.
-public struct HUDStatusPresentation: Sendable, Equatable {
-    public enum Kind: Sendable, Equatable { case activity, notice, problem }
-    public var summary: HUDLine
-    public var details: [HUDLine]
-    public var kind: Kind
-
-    public init(summary: HUDLine, details: [HUDLine], kind: Kind = .activity) {
-        self.summary = summary
-        self.details = details
-        self.kind = kind
-    }
-}
-
 /// Phone-only emphasis shared by the settings page and subtitle HUD. Input confirmation
 /// proves that Phone reads TalkTalk Mic, never that the remote participant has heard it.
 public struct PhoneSpeechPresentation: Sendable, Equatable {
@@ -174,7 +160,8 @@ public struct HUDModel: Sendable, Equatable {
 
         public var symbol: String {
             switch self {
-            case .meetingNotUsingMic, .remoteHearsYourVoice: "mic.slash"
+            // mic.slash means "original off"; these mean the remote side may hear raw audio.
+            case .meetingNotUsingMic, .remoteHearsYourVoice: SubtitleTokens.VoiceIcon.originalRisk
             case .speakerMode: "headphones"
             case .audioRestarting: "arrow.clockwise"
             case .meetingSilent, .meetingSeemsOver: "waveform"
@@ -199,6 +186,55 @@ public struct HUDModel: Sendable, Equatable {
             }
             return HUDLine(summary, style, detail: summary == text ? nil : text,
                            symbol: symbol, settingsDestination: destination)
+        }
+
+        /// The titlebar chip (≤10 characters; notifications ≤8). nil: details only.
+        public var chip: HUDChip? {
+            let tone: HUDChip.Tone = switch self {
+            case .meetingSilent, .meetingSeemsOver: .info
+            case .passthroughTip: .info
+            default:
+                switch style {
+                case .red, .redBanner: .risk
+                case .yellow: .warn
+                case .normal, .secondary, .check: .notice
+                }
+            }
+            let label: String
+            switch self {
+            case .passthroughTip: return nil
+            case .remoteHearsYourVoice: label = titlebarLabel("会议在用实体麦")
+            case .meetingNotUsingMic: label = titlebarLabel("会议未用 TalkTalk Mic")
+            case .floorPaused: label = titlebarLabel("对方在说话 · 译音已暂停")
+            case .numberMaybeWrong: label = titlebarLabel("译文数字待核对")
+            case .skipped: label = titlebarLabel("部分内容已跳过")
+            case .segmentNotSent: label = titlebarLabel("这段未发送")
+            case .sentenceMaybeIncomplete: label = titlebarLabel("该句可能不完整")
+            case .unsupportedTextNotSent: label = titlebarLabel("文字不支持 · 未发送")
+            case .speakerMode: label = titlebarLabel("正在外放 · 请戴耳机")
+            case .audioRestarting: label = titlebarLabel("音频系统重启中")
+            case .meetingSilent: label = titlebarLabel("未听到对方")
+            case .meetingSeemsOver: label = titlebarLabel("会议似乎已结束")
+            case .tccUnconfirmed: label = titlebarLabel("录音权限未确认")
+            case .defaultInputChanged: label = titlebarLabel("系统麦克风已变化")
+            case .switchedBackAfterInsert: label = noticeLabel("已恢复 TalkTalk Mic")
+            case .switchBackFailed: label = titlebarLabel("切换麦克风失败")
+            case .defaultInputRestored: label = noticeLabel("系统麦克风已还原")
+            case .defaultInputRestoredElsewhere: label = noticeLabel("已还原其他麦克风")
+            case let .defaultInputNotSwitched(issue):
+                label = switch issue {
+                case .micMissing: titlebarLabel("未找到 TalkTalk Mic")
+                case .noPhysicalInput: titlebarLabel("未找到实体麦克风")
+                case .writeFailed: titlebarLabel("系统麦克风切换失败")
+                case .recordWriteFailed, .guardLaunchFailed: titlebarLabel("麦克风还原准备失败")
+                case .micNotSelectable: titlebarLabel("TalkTalk Mic 暂不可选")
+                }
+            case .openAIUnreachable: label = titlebarLabel("OpenAI 暂时不可用 · 已用 Apple")
+            case .openAIKeyInvalid: label = titlebarLabel("OpenAI key 异常 · 已用 Apple")
+            case .modelRetired: label = titlebarLabel("翻译模型已更换")
+            }
+            return HUDChip(label, symbol: symbol, tone: tone, detail: text,
+                           settingsDestination: line.settingsDestination)
         }
 
         /// Fixed ordering independent of post time, queue count and associated device/text.
@@ -293,6 +329,9 @@ public struct HUDModel: Sendable, Equatable {
         case draining
         /// Translation is finished and healthy routing is awaiting the next confirmed gate open.
         case restoringOriginal
+        /// Phone's microphone reader changed mid-call: current speech was cancelled and the
+        /// cleanup barrier holds local speech until the reset completes.
+        case phoneReconnecting
         /// The raw gate is closed, including a translation press that was refused.
         case unavailable(reason: String)
 
@@ -304,6 +343,7 @@ public struct HUDModel: Sendable, Equatable {
             case .translating: String(localized: "翻译收音中 · 再按右⌥结束（原声已关闭）")
             case .draining: String(localized: "译音处理中 · 播完后恢复原声")
             case .restoringOriginal: String(localized: "正在恢复原声")
+            case .phoneReconnecting: String(localized: "正在重新连接 Phone · 当前发言已停止")
             case let .unavailable(reason): String(localized: "TalkTalk 音频暂不可用：\(reason)")
             }
         }
@@ -311,12 +351,13 @@ public struct HUDModel: Sendable, Equatable {
         /// Always visible beside a warning: a problem summary must not hide the audio mode.
         public var modeBadge: HUDLine {
             switch self {
-            case .phoneReady: HUDLine(String(localized: "已就绪"), .check, symbol: "phone")
+            case .phoneReady: HUDLine(String(localized: "已就绪"), .check, symbol: SubtitleTokens.VoiceIcon.localOnly)
             case .original: HUDLine(String(localized: "原声发送中"), .check, symbol: "mic.fill")
             case .switching: HUDLine(String(localized: "切换中"), .secondary, symbol: "arrow.left.arrow.right")
             case .translating: HUDLine(String(localized: "翻译收音中"), symbol: "waveform")
             case .draining: HUDLine(String(localized: "译音处理中"), .secondary, symbol: "speaker.wave.2.fill")
-            case .restoringOriginal: HUDLine(String(localized: "恢复原声"), .secondary, symbol: "arrow.clockwise")
+            case .restoringOriginal: HUDLine(String(localized: "恢复原声"), .secondary, symbol: SubtitleTokens.VoiceIcon.originalOff)
+            case .phoneReconnecting: HUDLine(String(localized: "重新连接 Phone"), .secondary, symbol: "arrow.clockwise")
             case .unavailable: HUDLine(String(localized: "待检查"), .yellow, symbol: "exclamationmark.triangle")
             }
         }
@@ -330,6 +371,7 @@ public struct HUDModel: Sendable, Equatable {
             case .translating: String(localized: "再按右⌥结束 · 原声已关闭")
             case .draining: String(localized: "播完后恢复原声")
             case .restoringOriginal: String(localized: "请稍候")
+            case .phoneReconnecting: String(localized: "等待 Phone")
             case .unavailable: nil
             }
         }
@@ -342,13 +384,13 @@ public struct HUDModel: Sendable, Equatable {
                              detail: inputConfirmed
                                 ? String(localized: "Phone 已接入，正在准备发送原声。")
                                 : String(localized: "未确认 Phone 接入；可以先在本机试说。"),
-                             symbol: "phone", tone: .ready)
+                             symbol: SubtitleTokens.VoiceIcon.localOnly, tone: .ready)
             case .original:
                 guard inputConfirmed else {
                     return .init(title: String(localized: "等待 Phone 接入"),
                                  action: String(localized: "点按右⌥可本机试说"),
                                  detail: String(localized: "尚未确认通话输入，不能确认原声已送入 Phone。"),
-                                 symbol: "phone", tone: .ready)
+                                 symbol: SubtitleTokens.VoiceIcon.localOnly, tone: .ready)
                 }
                 return .init(title: String(localized: "原声发送中"),
                              action: String(localized: "点按右⌥开始翻译"),
@@ -377,6 +419,11 @@ public struct HUDModel: Sendable, Equatable {
                 return .init(title: String(localized: "正在恢复原声"),
                              action: String(localized: "点按右⌥开始翻译"),
                              detail: String(localized: "正在准备恢复原声，确认后开始发送。"),
+                             symbol: SubtitleTokens.VoiceIcon.originalOff, tone: .progress)
+            case .phoneReconnecting:
+                return .init(title: String(localized: "正在重新连接 Phone"),
+                             action: String(localized: "请稍候"),
+                             detail: String(localized: "Phone 的麦克风读取发生变化，当前发言已停止；完成清理后才能继续说话。"),
                              symbol: "arrow.clockwise", tone: .progress)
             case let .unavailable(reason):
                 return .init(title: String(localized: "音频暂不可用"),
@@ -443,6 +490,22 @@ public struct HUDModel: Sendable, Equatable {
     private var notices: [(warning: Warning, until: Double)] = []
     private var shownThisMeeting: Set<String> = []
 
+    // Titlebar facts (§3). The voice capsule reads these directly; they never compete
+    // with problems for the issue slot.
+    public var scene: SubtitleScene = .meeting
+    /// Phone reads TalkTalk Mic (verified). Never proof that the remote side heard anything.
+    public var phoneInputConfirmed = false
+    /// Translated audio is actually being played into the feed.
+    public var outputPlaying = false
+    /// Cloud translation is on and its privacy note has not been dismissed this session.
+    public var cloudPrivacyPending = false
+
+    /// Problems reported outside the §11 table (subtitle engine, Phone operation).
+    public enum ExternalIssue: String, Sendable, Hashable, CaseIterable { case subtitles, scene }
+    private var externalIssues: [ExternalIssue: HUDChip] = [:]
+    /// A one-off message (SysInputDialogPlan, a failed speech start) shown for `noticeSeconds`.
+    private var message: (chip: HUDChip, until: Double)?
+
     public init() {}
 
     public static func == (a: HUDModel, b: HUDModel) -> Bool {
@@ -455,6 +518,10 @@ public struct HUDModel: Sendable, Equatable {
             && a.conditions == b.conditions && a.conditionOrder == b.conditionOrder
             && a.notices.map(\.warning) == b.notices.map(\.warning) && a.notices.map(\.until) == b.notices.map(\.until)
             && a.shownThisMeeting == b.shownThisMeeting
+            && a.scene == b.scene && a.phoneInputConfirmed == b.phoneInputConfirmed
+            && a.outputPlaying == b.outputPlaying && a.cloudPrivacyPending == b.cloudPrivacyPending
+            && a.externalIssues == b.externalIssues
+            && a.message?.chip == b.message?.chip && a.message?.until == b.message?.until
     }
 
     // MARK: updates
@@ -470,6 +537,9 @@ public struct HUDModel: Sendable, Equatable {
 
     public mutating func meetingEnded() {
         meetingActive = false
+        outputPlaying = false
+        cloudPrivacyPending = false
+        externalIssues = [:]
         conditions = [:]
         conditionOrder = []
         notices.removeAll { !$0.warning.isSysInput }
@@ -574,7 +644,7 @@ public struct HUDModel: Sendable, Equatable {
         var out: [HUDLine] = []
         if let audio = meetingAudio, meetingActive {
             let style: HUDLine.Style = switch audio {
-            case .phoneReady, .original, .switching, .translating, .draining, .restoringOriginal: .normal
+            case .phoneReady, .original, .switching, .translating, .draining, .restoringOriginal, .phoneReconnecting: .normal
             case .unavailable: .yellow
             }
             if case .unavailable = audio {
@@ -593,90 +663,100 @@ public struct HUDModel: Sendable, Equatable {
         return out
     }
 
-    /// Presentation only: no delay, latching or rotation. The actual gate owns normal progress;
-    /// every warning and supplemental line remains available in the deduplicated details.
-    public func compactStatus(now: Double, extraLines: [HUDLine] = []) -> HUDStatusPresentation? {
-        var details: [HUDLine] = []
-        func addDetail(_ value: HUDLine) {
-            var line = value
-            line.level = nil
-            // Ignore meter differences and decorative symbols when merging the same explanation.
-            guard !details.contains(where: {
-                $0.text == line.text && $0.style == line.style && $0.detail == line.detail
-                    && $0.settingsDestination == line.settingsDestination
-            }) else { return }
-            details.append(line)
-        }
-        (lines(now: now) + extraLines).forEach(addDetail)
+    public mutating func setExternalIssue(_ key: ExternalIssue, _ chip: HUDChip?) {
+        externalIssues[key] = chip
+    }
 
-        var selected: (priority: Int, line: HUDLine, kind: HUDStatusPresentation.Kind)?
-        func consider(_ line: HUDLine, priority: Int, kind: HUDStatusPresentation.Kind = .activity) {
-            if selected == nil || priority < selected!.priority { selected = (priority, line, kind) }
+    /// The complete sentence goes to the chip's detail; the label stays short (§3).
+    public mutating func show(_ chip: HUDChip, now: Double) {
+        message = (chip, now + Self.noticeSeconds)
+    }
+
+    /// Raw-audio risk facts that rewrite the voice capsule.
+    public var voiceRisk: VoiceState.Risk? {
+        if conditions[Warning.remoteHearsYourVoice.slot] != nil { return .remoteHearsYourVoice }
+        if conditions[Warning.meetingNotUsingMic.slot] != nil { return .meetingNotUsingMic }
+        return nil
+    }
+
+    /// The voice capsule: the current speaking mode, independent of the issue slot. nil
+    /// outside a session.
+    public var voiceState: VoiceState? {
+        guard meetingActive else { return nil }
+        return VoiceState.resolve(audio: meetingAudio, scene: scene, phoneInputConfirmed: phoneInputConfirmed,
+                                  playing: outputPlaying, pushToTalk: pushToTalk,
+                                  risk: scene == .video ? nil : voiceRisk)
+    }
+
+    /// The keycap and its action, using SpeechStatusPresentation.keyAction.
+    public var titlebarKey: TitlebarKey? {
+        guard meetingActive, scene != .video, let voice = voiceState else { return nil }
+        var audio = meetingAudio
+        if audio == nil {
+            switch pushToTalk {
+            case .holding: audio = .translating
+            case .playing: audio = .draining
+            case .idle: guard pushToTalkAvailable else { return nil }; audio = .original
+            }
+        }
+        let presentation = SpeechStatusPresentation(audio: audio,
+            phoneInputConfirmed: scene == .phone ? phoneInputConfirmed : nil, playing: outputPlaying)
+        return TitlebarKey.make(presentation, voice: voice)
+    }
+
+    /// Every active chip, most important first. Informational tips stay in details only.
+    public func issueChips(now: Double) -> [HUDChip] {
+        var ranked: [(priority: Int, slot: String, chip: HUDChip)] = []
+        func rank(_ chip: HUDChip) -> Int {
+            switch chip.tone {
+            case .risk: 10
+            case .warn: 30
+            case .notice: 75
+            case .info: 85
+            }
         }
         let warnings = Array(conditions.values) + notices.filter { $0.until > now }.map(\.warning)
-        for warning in warnings.sorted(by: {
-            $0.compactPriority == $1.compactPriority ? $0.slot < $1.slot : $0.compactPriority < $1.compactPriority
-        }) {
-            var line = warning.line
-            switch warning {
-            case .floorPaused: line.text = String(localized: "对方在说话 · 译音已暂停")
-            case .skipped: line.text = String(localized: "部分内容已跳过")
-            default: break
-            }
-            // Informational tips live in details. Confirmations briefly use the same compact
-            // slot as problems, with no dismiss button and no second banner.
-            let informational = warning == .passthroughTip || warning == .meetingSilent
-            if !informational {
-                let problem = warning.style == .yellow || warning.style == .red || warning.style == .redBanner
-                consider(line, priority: problem ? warning.compactPriority : 75,
-                         kind: problem ? .problem : .notice)
-            }
+        for warning in warnings {
+            guard let chip = warning.chip else { continue }
+            ranked.append((chip.isProblem ? warning.compactPriority : rank(chip), warning.slot, chip))
         }
-        for line in extraLines {
-            let priority: Int = switch line.style {
-            case .red, .redBanner: 10
-            case .yellow: 30
-            case .normal, .secondary, .check: 90
-            }
-            consider(line, priority: priority, kind: priority < 80 ? .problem : .notice)
+        if voiceState?.kind == .phoneLocalOnly {
+            ranked.append((10, "phoneNotReceiving", HUDChip(titlebarLabel("Phone 未接收"),
+                symbol: SubtitleTokens.VoiceIcon.localOnly, tone: .warn,
+                detail: String(localized: "译音只在本机播放：Phone 没有读取 TalkTalk Mic。"),
+                settingsDestination: .audio)))
         }
+        for (key, chip) in externalIssues { ranked.append((rank(chip), "external." + key.rawValue, chip)) }
+        if let message, message.until > now { ranked.append((rank(message.chip), "message", message.chip)) }
+        var seen = Set<String>()
+        return ranked.sorted { $0.priority == $1.priority ? $0.slot < $1.slot : $0.priority < $1.priority }
+            .map(\.chip).filter { seen.insert($0.label + "\u{1F}" + $0.detail).inserted }
+    }
 
-        if let audio = meetingAudio, meetingActive {
-            let line: HUDLine
-            if case .unavailable = audio {
-                line = HUDLine(String(localized: "音频暂不可用"), .yellow, detail: audio.text,
-                               symbol: "exclamationmark.triangle")
-                consider(line, priority: 20, kind: .problem)
-            } else {
-                line = HUDLine(audio.text, symbol: audio.modeBadge.symbol)
-                consider(line, priority: 80)
-            }
-            // Legacy `lines` suppresses generic unavailable beside the physical-mic warning.
-            // Keep its full reason in details even when that more urgent warning wins here.
-            addDetail(line)
-        } else {
-            if var legacy = passthroughLine(now: now) {
-                if case .open = passthrough {
-                    legacy.text = String(localized: "原声 · 对方正在听你说")
-                }
-                consider(legacy, priority: 70)
-            }
+    /// The titlebar slot beside the capsule: problem > notification > cloud privacy (§3).
+    public func issueSlot(now: Double) -> IssueSlot? {
+        if let chip = issueChips(now: now).first { return .chip(chip) }
+        return meetingActive && cloudPrivacyPending ? .cloudPrivacy : nil
+    }
+
+    /// Supplemental lines for the details popover: playback queue, voice and translation
+    /// source, plus informational tips. Meter levels are stripped.
+    public func activityDetails(now: Double) -> [HUDLine] {
+        var out: [HUDLine] = []
+        if meetingActive {
+            // Speech text never goes into the popover; only queue/voice/source facts.
             switch pushToTalk {
-            case .holding, .playing:
-                consider(HUDLine(String(localized: "按键翻译中"), symbol: "waveform"), priority: 80)
-                pushToTalkLines().forEach(addDetail)
-            case .idle:
-                if meetingActive {
-                    let line = HUDLine(String(localized: "正在收听"), symbol: "waveform")
-                    consider(line, priority: 80)
-                    addDetail(line)
-                }
+            case let .holding(_, _, _, queued) where queued > 0:
+                out.append(HUDLine(String(localized: "待播 \(queued) 段"), .secondary))
+            case .playing: out += pushToTalkLines()
+            case .holding, .idle: break
             }
         }
-        guard var summary = selected?.line else { return nil }
-        summary.level = nil
-        summary.detail = nil
-        return HUDStatusPresentation(summary: summary, details: details, kind: selected?.kind ?? .activity)
+        if conditions[Warning.passthroughTip.slot] != nil
+            || notices.contains(where: { $0.warning == .passthroughTip && $0.until > now }) {
+            out.append(Warning.passthroughTip.line)
+        }
+        return out.map { var l = $0; l.level = nil; return l }
     }
 
     /// The HUD has something to draw (it is shown even while the subtitle panel is hidden).
@@ -685,6 +765,7 @@ public struct HUDModel: Sendable, Equatable {
     /// The next time `lines` changes by itself (a notice or a passthrough line expiring).
     public func nextExpiry(after now: Double) -> Double? {
         var ts = notices.map(\.until).filter { $0 > now }
+        if let until = message?.until, until > now { ts.append(until) }
         if let until = transcriptUntil, until > now { ts.append(until) }
         switch passthrough {
         case let .closed(_, u) where u > now: ts.append(u)

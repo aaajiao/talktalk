@@ -18,10 +18,14 @@ final class SubtitlePanel {
     private var renderedVideoCue: VideoSubtitleBoard.Cue?
     private var speechView: NSView?
     private let divider = NSBox()
-    private let titlebarActions = SubtitleTitlebarActionsView()
+    /// Shared titlebar controls (redesign §3); PTTHUD supplies voice, issue and key state.
+    let titlebar = SubtitleTitlebarView()
+    private let titleView = SubtitleTitleView()
     private let titlebarAccessory = NSTitlebarAccessoryViewController()
     private let sceneAccessory = NSTitlebarAccessoryViewController()
-    private let sceneIcon = NSImageView(frame: NSRect(x: 0, y: 0, width: 24, height: 28))
+    private var titlebarVoice: VoiceState?
+    private var titlebarIssue: IssueSlot?
+    private var titlebarKey: TitlebarKey?
     private var sourceName: String?
     private var titlebarAccessoryInstalled = false
     private var phoneContext: String?
@@ -33,20 +37,35 @@ final class SubtitlePanel {
     private var resetRemoteScroll = false
     private(set) var board = SubtitleBoard(maxCharactersPerSecond: 9, retention: .meeting)
     private(set) var baseFontSize: CGFloat = 22
-    var textScale: CGFloat { contentWidth / (presentation == .video ? 960 : 760) }
-    var fontSize: CGFloat { max(14, baseFontSize * textScale) }
+    /// Reading sizes come from the shared typography tokens (redesign §2).
+    var conversationTypography: ConversationTypography {
+        ConversationTypography(base: Double(baseFontSize), width: Double(contentWidth))
+    }
+    var videoTypography: VideoCaptionTypography {
+        VideoCaptionTypography(base: Double(baseFontSize), width: Double(contentWidth))
+    }
+    var fontSize: CGFloat {
+        presentation == .video ? videoTypography.translation.size : conversationTypography.remoteTranslation.size
+    }
     private var backgroundOpacity: CGFloat = 0.85
     private var manualContentSize: NSSize?
     private var isLayingOut = false
     private var subtitlesRequested = false
     private var speechHeight: CGFloat = 0
     private var speechHasLocalContent = false
-    private var statusVisible = false
+    private var statusVisible: Bool { titlebarVoice != nil || titlebarIssue != nil }
     var onPresentationChange: (() -> Void)?
     var onAppearanceChange: (() -> Void)?
     var onHintChange: ((String?) -> Void)?
     var openPhone: (() -> Void)?
     var endPhoneTranslation: (() -> Void)?
+    var scene: SubtitleScene {
+        switch presentation {
+        case .meeting: .meeting
+        case .phone: .phone
+        case .video: .video
+        }
+    }
     private var liveSource = ""
     private var renderedSource = ""
     private var renderedDraft: SubtitleBoard.Line?
@@ -88,7 +107,8 @@ final class SubtitlePanel {
         panel.title = String(localized: "TalkTalk · 会议同传")
         panel.identifier = NSUserInterfaceItemIdentifier("TalkTalkConversation")
         panel.appearance = NSAppearance(named: .darkAqua)
-        panel.titleVisibility = .visible
+        // The leading accessory draws the scene title; the window title remains for AX/menus.
+        panel.titleVisibility = .hidden
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -110,13 +130,12 @@ final class SubtitlePanel {
         videoCaptions.isHidden = true
         divider.boxType = .separator
         content.addSubview(divider)
-        titlebarActions.openPhone = { [weak self] in self?.openPhone?() }
+        titlebar.onPhone = { [weak self] in self?.openPhone?() }
+        titlebar.onLayoutChange = { [weak self] in self?.updateTitlebarActions() }
         titlebarAccessory.layoutAttribute = .trailing
-        titlebarAccessory.view = titlebarActions
+        titlebarAccessory.view = titlebar
         sceneAccessory.layoutAttribute = .leading
-        sceneIcon.contentTintColor = .secondaryLabelColor
-        sceneIcon.imageScaling = .scaleNone
-        sceneAccessory.view = sceneIcon
+        sceneAccessory.view = titleView
         panel.addTitlebarAccessoryViewController(sceneAccessory)
         updateWindowTitle()
         updateRemoteHeadings()
@@ -147,7 +166,11 @@ final class SubtitlePanel {
             }
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateBackground() }
+                MainActor.assumeIsolated {
+                    self?.updateBackground()
+                    self?.updateTitlebarActions()
+                    self?.onAppearanceChange?()
+                }
             }
     }
 
@@ -206,18 +229,21 @@ final class SubtitlePanel {
         updateTitlebarActions()
     }
 
-    /// HUD owns the actions and status semantics; the titlebar owns their placement.
-    func setStatusActions(details: NSButton, end: NSButton, shortcut: NSTextField) {
-        titlebarActions.setStatusActions(details: details, end: end, shortcut: shortcut)
+    /// HUD owns voice, issue and key semantics; the panel adds scene, source, Phone and end.
+    func setTitlebarStatus(voice: VoiceState?, issue: IssueSlot?, key: TitlebarKey?) {
+        guard titlebarVoice != voice || titlebarIssue != issue || titlebarKey != key else { return }
+        let wasVisible = statusVisible
+        titlebarVoice = voice; titlebarIssue = issue; titlebarKey = key
         updateTitlebarActions()
+        if wasVisible != statusVisible { updateWindowVisibility() }
     }
 
-    func updateStatusActions(visible: Bool, showsShortcut: Bool, showsLabel: Bool) {
-        let visibilityChanged = statusVisible != visible
-        statusVisible = visible
-        titlebarActions.setStatusVisibility(visible, showsShortcut: showsShortcut, showsLabel: showsLabel)
-        updateTitlebarActions()
-        if visibilityChanged { updateWindowVisibility() }
+    /// The same content the titlebar draws, for previews and smoke checks.
+    var titlebarContent: SubtitleTitlebarContent {
+        SubtitleTitlebarContent(scene: scene, source: sourceName, voice: titlebarVoice, issue: titlebarIssue,
+                                key: titlebarKey, showsPhone: showsPhoneActions,
+                                phoneEnabled: phoneActionsEnabled && sessionActionsEnabled,
+                                showsEnd: sessionActionsActive, endEnabled: sessionActionsEnabled)
     }
 
     func setSessionActions(active: Bool, enabled: Bool = true) {
@@ -235,18 +261,11 @@ final class SubtitlePanel {
     }
 
     private func updateWindowTitle() {
-        let title: String
-        let symbol: String
-        switch presentation {
-        case .meeting: title = String(localized: "会议同传"); symbol = "person.2"
-        case .phone: title = String(localized: "电话同传"); symbol = "phone"
-        case .video: title = String(localized: "视频字幕"); symbol = "captions.bubble"
-        }
-        let source = presentation == .phone ? "Phone" : sourceName
+        let title = scene.title
+        let source = titlebarContent.sourceTitle
         panel.title = source.map { String(localized: "\(title) · \($0)") } ?? title
-        sceneIcon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
-        sceneIcon.toolTip = title
+        titleView.apply(scene: scene, source: source)
+        updateTitlebarActions()
     }
 
     func setRemoteLanguageTitle(_ title: String) {
@@ -260,12 +279,21 @@ final class SubtitlePanel {
                                   sourceSymbol: "person", translation: String(localized: "中文"))
     }
 
+    /// Traffic lights plus margins before the leading accessory, and after the trailing one.
+    private static let titlebarChrome: CGFloat = 78 + 12 + 16
+
     private func updateTitlebarActions() {
-        titlebarActions.configure(showPhone: showsPhoneActions,
-            phoneEnabled: phoneActionsEnabled && sessionActionsEnabled,
-            showEnd: sessionActionsActive, endEnabled: sessionActionsEnabled,
-            availableWidth: contentWidth)
-        let wanted = titlebarActions.hasActions
+        let content = titlebarContent
+        let width = Double(contentWidth)
+        let reserved = Double(Self.titlebarChrome + titleView.minimumWidth)
+        let compaction = TitlebarCompaction.choose(windowWidth: width, reservedLeading: reserved) {
+            Double(titlebar.measure(content, $0))
+        }
+        titlebar.apply(content, compaction: compaction)
+        // The source name yields first: the leading title takes only the remaining width.
+        titleView.setWidth(min(titleView.naturalWidth,
+                               max(titleView.minimumWidth, contentWidth - Self.titlebarChrome - titlebar.frame.width)))
+        let wanted = titlebar.hasItems
         guard wanted != titlebarAccessoryInstalled else { return }
         if wanted {
             panel.addTitlebarAccessoryViewController(titlebarAccessory)
@@ -275,14 +303,23 @@ final class SubtitlePanel {
         titlebarAccessoryInstalled = wanted
     }
 
+    /// Scene opacity after Increase Contrast (at least 0.95).
+    private var effectiveOpacity: CGFloat {
+        CGFloat(SubtitleTokens.effectiveOpacity(Double(backgroundOpacity),
+                                                increaseContrast: SubtitleStyle.Display.current.increaseContrast))
+    }
+
     private func updateBackground() {
-        let opaque = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency || backgroundOpacity >= 1
+        let display = SubtitleStyle.Display.current
+        let opacity = effectiveOpacity
+        let opaque = display.reduceTransparency || opacity >= 1
         panel.isOpaque = opaque
         panel.backgroundColor = opaque ? .windowBackgroundColor : .clear
         backgroundEffect.isHidden = opaque
         // This view is a background sibling: labels, buttons and scrolling content keep alpha 1.
-        backgroundEffect.alphaValue = backgroundOpacity
+        backgroundEffect.alphaValue = opacity
         panel.invalidateShadow()
+        render(forceLayout: true)
     }
 
     /// PTTHUD supplies only content; it never creates or orders another window.
@@ -384,27 +421,30 @@ final class SubtitlePanel {
             displayedLines = nextLines
             let source = NSMutableAttributedString(string: "")
             let translation = NSMutableAttributedString(string: "")
-            let sourceFont = NSFont.systemFont(ofSize: max(11, max(12, baseFontSize * 0.78) * textScale))
-            let targetFont = NSFont.systemFont(ofSize: fontSize, weight: .medium)
-            let draftFont = NSFont.systemFont(ofSize: max(12, max(14, baseFontSize * 0.88) * textScale))
-            func append(_ text: String, to output: NSMutableAttributedString, font: NSFont, color: NSColor) {
+            let typography = conversationTypography
+            let display = SubtitleStyle.Display.current
+            let shadow = SubtitleStyle.readingShadow(opacity: Double(effectiveOpacity))
+            // Draft and final translations share size and weight; only the colour differs.
+            func append(_ text: String, to output: NSMutableAttributedString, role: ConversationTypography.Role,
+                        color: SubtitleTokens.Color) {
                 guard !text.isEmpty else { return }
                 if output.length > 0 { output.append(NSAttributedString(string: "\n")) }
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.lineBreakMode = .byWordWrapping
-                paragraph.alignment = presentation == .video ? .center : .left
+                let paragraph = SubtitleStyle.paragraph(role, alignment: presentation == .video ? .center : .left)
                 paragraph.paragraphSpacing = 12
-                output.append(NSAttributedString(string: text, attributes: [
-                    .font: font, .foregroundColor: color, .paragraphStyle: paragraph,
-                ]))
+                var attributes: [NSAttributedString.Key: Any] = [
+                    .font: SubtitleStyle.font(role), .foregroundColor: SubtitleStyle.color(color, display: display),
+                    .paragraphStyle: paragraph,
+                ]
+                if let shadow { attributes[.shadow] = shadow }
+                output.append(NSAttributedString(string: text, attributes: attributes))
             }
             for line in lines {
-                append(line.source, to: source, font: sourceFont, color: NSColor(white: 0.65, alpha: 1))
-                append(line.display, to: translation, font: targetFont, color: .white)
+                append(line.source, to: source, role: typography.source, color: .textSource)
+                append(line.display, to: translation, role: typography.remoteTranslation, color: .textPrimary)
             }
-            append(renderedSource, to: source, font: sourceFont, color: NSColor(white: 0.65, alpha: 1))
+            append(renderedSource, to: source, role: typography.source, color: .textSourceLive)
             if let renderedDraft {
-                append(renderedDraft.text, to: translation, font: draftFont, color: NSColor(white: 0.68, alpha: 1))
+                append(renderedDraft.text, to: translation, role: typography.remoteTranslation, color: .textDraft)
             }
             remoteColumns.setText(source: source, translation: translation, resetScroll: resetRemoteScroll)
             resetRemoteScroll = false
@@ -414,10 +454,8 @@ final class SubtitlePanel {
         recordPresentation()
     }
 
-    private var videoSourceFont: NSFont {
-        .systemFont(ofSize: max(11, max(12, baseFontSize * 0.78) * textScale))
-    }
-    private var videoTranslationFont: NSFont { .systemFont(ofSize: fontSize, weight: .medium) }
+    private var videoSourceFont: NSFont { SubtitleStyle.font(videoTypography.source) }
+    private var videoTranslationFont: NSFont { SubtitleStyle.font(videoTypography.translation) }
 
     private func applyVideo(_ update: SubtitleUpdate, at now: HostTime) {
         let previousPending = videoBoard.pendingSentenceIDs
@@ -463,14 +501,22 @@ final class SubtitlePanel {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byWordWrapping
-        let sourceText = NSAttributedString(string: source, attributes: [
-            .font: videoSourceFont, .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: paragraph
-        ])
-        let targetText = NSAttributedString(string: translation, attributes: [
-            .font: videoTranslationFont,
-            .foregroundColor: cue?.isFinal == true ? NSColor.labelColor : NSColor.labelColor.withAlphaComponent(0.80),
+        let display = SubtitleStyle.Display.current
+        var sourceAttributes: [NSAttributedString.Key: Any] = [
+            .font: videoSourceFont, .foregroundColor: SubtitleStyle.color(.videoSource, display: display),
             .paragraphStyle: paragraph
-        ])
+        ]
+        var targetAttributes: [NSAttributedString.Key: Any] = [
+            .font: videoTranslationFont,
+            .foregroundColor: cue?.isFinal == true ? NSColor.white : SubtitleStyle.white(0.80),
+            .paragraphStyle: paragraph
+        ]
+        if let shadow = SubtitleStyle.readingShadow(opacity: Double(effectiveOpacity)) {
+            sourceAttributes[.shadow] = shadow
+            targetAttributes[.shadow] = shadow
+        }
+        let sourceText = NSAttributedString(string: source, attributes: sourceAttributes)
+        let targetText = NSAttributedString(string: translation, attributes: targetAttributes)
         renderedVideoCue = cue
         renderedSource = liveSource
         lastPreviewRenderAt = now
@@ -770,110 +816,6 @@ final class SubtitlePanel {
         panel.orderFrontRegardless()
     }
     #endif
-}
-
-/// Every scene keeps status, the shortcut hint and session actions in the native titlebar.
-/// No part of this control group consumes the reading area's height.
-private final class SubtitleTitlebarActionsView: NSView {
-    var openPhone: (() -> Void)?
-    private let openButton = NSButton()
-    private var detailsButton: NSButton?
-    private var endButton: NSButton?
-    private var shortcutKey: NSTextField?
-    private var showsStatusLabel = false
-    private var maximumStatusWidth: CGFloat = 216
-    var hasActions: Bool { !visibleItems.isEmpty }
-
-    override init(frame frameRect: NSRect = .zero) {
-        super.init(frame: NSRect(x: 0, y: 0, width: 0, height: 28))
-        configureButton(openButton)
-        openButton.target = self
-        openButton.isHidden = true
-        addSubview(openButton)
-        openButton.image = NSImage(systemSymbolName: "phone", accessibilityDescription: nil)
-        openButton.setAccessibilityLabel(String(localized: "打开 Phone"))
-        openButton.toolTip = String(localized: "在 Phone 中拨号、接听或挂断电话。")
-        openButton.action = #selector(openPhonePressed)
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    private func configureButton(_ button: NSButton) {
-        button.controlSize = .small
-        button.bezelStyle = .accessoryBarAction
-        button.imagePosition = .imageOnly
-        button.font = .systemFont(ofSize: 11, weight: .medium)
-        button.cell?.lineBreakMode = .byTruncatingTail
-        button.setButtonType(.momentaryPushIn)
-    }
-
-    func setStatusActions(details: NSButton, end: NSButton, shortcut: NSTextField) {
-        for view in [detailsButton, endButton, shortcutKey] as [NSView?] { view?.removeFromSuperview() }
-        detailsButton = details
-        endButton = end
-        shortcutKey = shortcut
-        configureButton(details)
-        configureButton(end)
-        for view in [details, end, shortcut] as [NSView] {
-            view.removeFromSuperview()
-            view.isHidden = true
-            addSubview(view)
-        }
-        updateSize()
-    }
-
-    func setStatusVisibility(_ visible: Bool, showsShortcut: Bool, showsLabel: Bool) {
-        detailsButton?.isHidden = !visible
-        shortcutKey?.isHidden = !visible || !showsShortcut
-        showsStatusLabel = showsLabel
-        detailsButton?.imagePosition = showsLabel ? .imageLeading : .imageOnly
-        updateSize()
-    }
-
-    func configure(showPhone: Bool, phoneEnabled: Bool, showEnd: Bool, endEnabled: Bool, availableWidth: CGFloat) {
-        openButton.isHidden = !showPhone
-        openButton.isEnabled = phoneEnabled
-        endButton?.isHidden = !showEnd
-        endButton?.isEnabled = endEnabled
-        // Important consequences outrank the source name; AppKit can shorten the native title.
-        // This fits the complete original-audio warning even at the 480-point minimum.
-        maximumStatusWidth = min(216, max(96, availableWidth - 264))
-        updateSize()
-    }
-
-    private var visibleItems: [NSView] {
-        ([detailsButton, shortcutKey, openButton, endButton] as [NSView?])
-            .compactMap { $0 }.filter { !$0.isHidden }
-    }
-
-    private func width(of view: NSView) -> CGFloat {
-        if view === shortcutKey { return 34 }
-        if view === detailsButton, showsStatusLabel, let button = detailsButton {
-            let textWidth = (button.title as NSString).size(withAttributes: [.font: button.font!]).width
-            return min(maximumStatusWidth, max(28, ceil(textWidth) + 32))
-        }
-        return 28
-    }
-
-    private func updateSize() {
-        let items = visibleItems
-        let width = items.reduce(CGFloat(0)) { $0 + self.width(of: $1) } + CGFloat(items.count) * 6
-        if abs(frame.width - width) > 0.5 { frame.size = NSSize(width: width, height: 28) }
-        needsLayout = true
-        layoutSubtreeIfNeeded()
-    }
-
-    override func layout() {
-        super.layout()
-        var x: CGFloat = 0
-        for item in visibleItems {
-            let isKey = item === shortcutKey
-            let width = width(of: item)
-            item.frame = NSRect(x: x, y: isKey ? 5 : 2, width: width, height: isKey ? 18 : 24)
-            x += width + 6
-        }
-    }
-
-    @objc private func openPhonePressed() { openPhone?() }
 }
 
 private final class SubtitleWindow: NSPanel {

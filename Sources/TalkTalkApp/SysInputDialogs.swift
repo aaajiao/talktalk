@@ -56,6 +56,8 @@ enum SysInputDialogs {
     /// "默认输入已还原为 X" is not posted here: the switcher's onNotice `.restored(d, note)` already
     /// says it, with the §8.6 note (PTTHUD.sysInput).
     static func report(_ r: SystemInputSwitcher.EndResult, status: SystemInputSwitcher.Status, hud: PTTHUD?) {
-        if let m = SysInputDialogPlan.reportMessage(outcome(r, status: status)) { hud?.show(m.text, m.style) }
+        if let m = SysInputDialogPlan.reportMessage(outcome(r, status: status)) {
+            hud?.show(m.text, m.style, label: titlebarLabel("系统麦克风未还原"))
+        }
     }
 }
