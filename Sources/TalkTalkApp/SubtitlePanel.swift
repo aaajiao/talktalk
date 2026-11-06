@@ -41,8 +41,7 @@ final class SubtitlePanel {
     private var subtitlesRequested = false
     private var speechHeight: CGFloat = 0
     private var speechHasLocalContent = false
-    private var statusView: NSView?
-    private var statusHeight: CGFloat = 0
+    private var statusVisible = false
     var onPresentationChange: (() -> Void)?
     var onAppearanceChange: (() -> Void)?
     var onHintChange: ((String?) -> Void)?
@@ -71,7 +70,7 @@ final class SubtitlePanel {
     private var minimumWidth: CGFloat { presentation == .video ? 640 : 480 }
     private var showsPhoneActions: Bool { presentation == .phone && phoneContext != nil }
     private var hasWindowContent: Bool {
-        subtitlesRequested || (presentation != .video && speechHeight > 0) || statusHeight > 0 || showsPhoneActions
+        subtitlesRequested || (presentation != .video && speechHeight > 0) || statusVisible || sessionActionsActive || showsPhoneActions
     }
     var contentWidth: CGFloat {
         let visible = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1440
@@ -193,8 +192,8 @@ final class SubtitlePanel {
         updateBackground()
     }
 
-    /// Phone owns dialing and the actual call. The titlebar provides only the two
-    /// translation-session actions; explanatory context stays out of the reading area.
+    /// Phone owns dialing and the actual call. Its opener shares the compact titlebar;
+    /// explanatory context stays out of the reading area.
     func setPhoneContext(_ text: String?) {
         guard phoneContext != text else { return }
         phoneContext = text
@@ -207,11 +206,18 @@ final class SubtitlePanel {
         updateTitlebarActions()
     }
 
-    /// The unified details button keeps its owner and action; native titlebar layout owns
-    /// its position so it cannot compete with a warning or shortcut in the status row.
-    func setDetailsAction(button: NSButton) {
-        titlebarActions.setDetailsButton(button)
+    /// HUD owns the actions and status semantics; the titlebar owns their placement.
+    func setStatusActions(details: NSButton, end: NSButton, shortcut: NSTextField) {
+        titlebarActions.setStatusActions(details: details, end: end, shortcut: shortcut)
         updateTitlebarActions()
+    }
+
+    func updateStatusActions(visible: Bool, showsShortcut: Bool, showsLabel: Bool) {
+        let visibilityChanged = statusVisible != visible
+        statusVisible = visible
+        titlebarActions.setStatusVisibility(visible, showsShortcut: showsShortcut, showsLabel: showsLabel)
+        updateTitlebarActions()
+        if visibilityChanged { updateWindowVisibility() }
     }
 
     func setSessionActions(active: Bool, enabled: Bool = true) {
@@ -219,6 +225,7 @@ final class SubtitlePanel {
         sessionActionsActive = active
         sessionActionsEnabled = enabled
         updateTitlebarActions()
+        updateWindowVisibility()
     }
 
     func setSourceName(_ name: String?) {
@@ -255,7 +262,9 @@ final class SubtitlePanel {
 
     private func updateTitlebarActions() {
         titlebarActions.configure(showPhone: showsPhoneActions,
-            enabled: phoneActionsEnabled && sessionActionsEnabled)
+            phoneEnabled: phoneActionsEnabled && sessionActionsEnabled,
+            showEnd: sessionActionsActive, endEnabled: sessionActionsEnabled,
+            availableWidth: contentWidth)
         let wanted = titlebarActions.hasActions
         guard wanted != titlebarAccessoryInstalled else { return }
         if wanted {
@@ -289,23 +298,6 @@ final class SubtitlePanel {
         let visibilityChanged = (speechHeight > 0) != (nextHeight > 0)
         speechHasLocalContent = hasLocalSpeech
         speechHeight = nextHeight
-        layout()
-        if visibilityChanged { updateWindowVisibility() }
-    }
-
-    /// One persistent status row outside both scrolling reading areas. Its usable width is
-    /// contentWidth - 32; updating the row's labels at the same height never relays out text.
-    func setStatusContent(_ view: NSView, height: CGFloat) {
-        let changedView = statusView !== view
-        if changedView {
-            statusView?.removeFromSuperview()
-            statusView = view
-            content.addSubview(view)
-        }
-        let nextHeight = max(0, height)
-        guard changedView || abs(statusHeight - nextHeight) > 0.5 else { return }
-        let visibilityChanged = (statusHeight > 0) != (nextHeight > 0)
-        statusHeight = nextHeight
         layout()
         if visibilityChanged { updateWindowVisibility() }
     }
@@ -559,20 +551,17 @@ final class SubtitlePanel {
         let maxHeight = max(140, visible.height - titleHeight - 40)
         let hasSpeech = presentation != .video && speechHeight > 0
         let hasReadingArea = subtitlesRequested || hasSpeech
-        let footerContentHeight = statusHeight
-        let footerSpace = footerContentHeight > 0 ? footerContentHeight + (hasReadingArea ? 12 : 0) : 0
         let rowGap: CGFloat = subtitlesRequested && hasSpeech ? 22 : 0
-        let sectionChrome: CGFloat = 24 + rowGap + footerSpace
+        let sectionChrome: CGFloat = 24 + rowGap
         let minimumReading = presentation == .video
             ? VideoSubtitleView.minimumReadingHeight(sourceFont: videoSourceFont, translationFont: videoTranslationFont)
             : (subtitlesRequested && hasSpeech ? 80 : 48)
         let minHeight: CGFloat = hasReadingArea
             ? min(maxHeight, max(140, sectionChrome + minimumReading))
-            : max(24, footerContentHeight + 24)
+            : 0
         panel.contentMinSize = NSSize(width: min(minimumWidth, width), height: minHeight)
         panel.contentMaxSize = NSSize(width: max(280, visible.width - 40), height: maxHeight)
-        // Each presentation has its own fixed reading size. Status-only mode temporarily
-        // collapses to a strip without overwriting that mode's saved reading dimensions.
+        // Status-only mode collapses to the titlebar without changing saved reading sizes.
         let height = hasReadingArea
             ? min(maxHeight, max(minHeight, manualContentSize?.height ?? defaultContentSize.height))
             : minHeight
@@ -609,8 +598,7 @@ final class SubtitlePanel {
         if sizeChanged { panel.setContentSize(size) }
         content.frame = NSRect(origin: .zero, size: size)
         backgroundEffect.frame = content.bounds
-        statusView?.isHidden = statusHeight <= 0
-        statusView?.frame = NSRect(x: 16, y: size.height - 12 - footerContentHeight, width: width - 32, height: statusHeight)
+        updateTitlebarActions()
         // A content refresh must not fight an in-progress drag or overwrite a manual size.
         if sizeChanged {
             let x = min(max(visible.minX + 12, old.midX - width / 2), visible.maxX - width - 12)
@@ -683,7 +671,7 @@ final class SubtitlePanel {
     var isVisible: Bool { subtitlesRequested && isWindowVisible }
     var isWindowVisible: Bool { panel.isVisible && !isMiniaturized && !panel.userHidden }
     var speechIsVisible: Bool { presentation != .video && speechHeight > 0 && isWindowVisible }
-    var statusIsVisible: Bool { statusHeight > 0 && isWindowVisible }
+    var statusIsVisible: Bool { statusVisible && isWindowVisible }
 
     private func poll() {
         let now = HostClock.now()
@@ -784,13 +772,17 @@ final class SubtitlePanel {
     #endif
 }
 
-/// The status/details entry lives at the same native titlebar position in every scene.
-/// Phone contributes one opener; the unified footer owns ending a TalkTalk session.
+/// Every scene keeps status, the shortcut hint and session actions in the native titlebar.
+/// No part of this control group consumes the reading area's height.
 private final class SubtitleTitlebarActionsView: NSView {
     var openPhone: (() -> Void)?
     private let openButton = NSButton()
     private var detailsButton: NSButton?
-    var hasActions: Bool { !openButton.isHidden || detailsButton != nil }
+    private var endButton: NSButton?
+    private var shortcutKey: NSTextField?
+    private var showsStatusLabel = false
+    private var maximumStatusWidth: CGFloat = 216
+    var hasActions: Bool { !visibleItems.isEmpty }
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: NSRect(x: 0, y: 0, width: 0, height: 28))
@@ -809,40 +801,75 @@ private final class SubtitleTitlebarActionsView: NSView {
         button.controlSize = .small
         button.bezelStyle = .accessoryBarAction
         button.imagePosition = .imageOnly
+        button.font = .systemFont(ofSize: 11, weight: .medium)
+        button.cell?.lineBreakMode = .byTruncatingTail
         button.setButtonType(.momentaryPushIn)
     }
 
-    func setDetailsButton(_ button: NSButton) {
-        guard detailsButton !== button else { return }
-        detailsButton?.removeFromSuperview()
-        button.removeFromSuperview()
-        configureButton(button)
-        detailsButton = button
-        addSubview(button)
+    func setStatusActions(details: NSButton, end: NSButton, shortcut: NSTextField) {
+        for view in [detailsButton, endButton, shortcutKey] as [NSView?] { view?.removeFromSuperview() }
+        detailsButton = details
+        endButton = end
+        shortcutKey = shortcut
+        configureButton(details)
+        configureButton(end)
+        for view in [details, end, shortcut] as [NSView] {
+            view.removeFromSuperview()
+            view.isHidden = true
+            addSubview(view)
+        }
         updateSize()
     }
 
-    func configure(showPhone: Bool, enabled: Bool) {
+    func setStatusVisibility(_ visible: Bool, showsShortcut: Bool, showsLabel: Bool) {
+        detailsButton?.isHidden = !visible
+        shortcutKey?.isHidden = !visible || !showsShortcut
+        showsStatusLabel = showsLabel
+        detailsButton?.imagePosition = showsLabel ? .imageLeading : .imageOnly
+        updateSize()
+    }
+
+    func configure(showPhone: Bool, phoneEnabled: Bool, showEnd: Bool, endEnabled: Bool, availableWidth: CGFloat) {
         openButton.isHidden = !showPhone
-        openButton.isEnabled = enabled
+        openButton.isEnabled = phoneEnabled
+        endButton?.isHidden = !showEnd
+        endButton?.isEnabled = endEnabled
+        // Important consequences outrank the source name; AppKit can shorten the native title.
+        // This fits the complete original-audio warning even at the 480-point minimum.
+        maximumStatusWidth = min(216, max(96, availableWidth - 264))
         updateSize()
     }
 
-    private var visibleButtons: [NSButton] {
-        (openButton.isHidden ? [] : [openButton]) + (detailsButton.map { [$0] } ?? [])
+    private var visibleItems: [NSView] {
+        ([detailsButton, shortcutKey, openButton, endButton] as [NSView?])
+            .compactMap { $0 }.filter { !$0.isHidden }
+    }
+
+    private func width(of view: NSView) -> CGFloat {
+        if view === shortcutKey { return 34 }
+        if view === detailsButton, showsStatusLabel, let button = detailsButton {
+            let textWidth = (button.title as NSString).size(withAttributes: [.font: button.font!]).width
+            return min(maximumStatusWidth, max(28, ceil(textWidth) + 32))
+        }
+        return 28
     }
 
     private func updateSize() {
-        let count = visibleButtons.count
-        frame.size = NSSize(width: count > 0 ? CGFloat(count) * 30 + 6 : 0, height: 28)
+        let items = visibleItems
+        let width = items.reduce(CGFloat(0)) { $0 + self.width(of: $1) } + CGFloat(items.count) * 6
+        if abs(frame.width - width) > 0.5 { frame.size = NSSize(width: width, height: 28) }
         needsLayout = true
         layoutSubtreeIfNeeded()
     }
 
     override func layout() {
         super.layout()
-        for (index, button) in visibleButtons.enumerated() {
-            button.frame = NSRect(x: CGFloat(index) * 30, y: 2, width: 28, height: 24)
+        var x: CGFloat = 0
+        for item in visibleItems {
+            let isKey = item === shortcutKey
+            let width = width(of: item)
+            item.frame = NSRect(x: x, y: isKey ? 5 : 2, width: width, height: isKey ? 18 : 24)
+            x += width + 6
         }
     }
 
@@ -858,7 +885,7 @@ private final class SubtitleWindow: NSPanel {
     override var canBecomeMain: Bool { false }
 
     /// Red close hides only the presentation. The owner still runs audio, translation and
-    /// shortcuts; only the independent footer stop action ends that work.
+    /// shortcuts; only the independent titlebar stop action ends that work.
     override func close() {
         if dismissingMiniwindow { super.close(); return }
         userHidden = true

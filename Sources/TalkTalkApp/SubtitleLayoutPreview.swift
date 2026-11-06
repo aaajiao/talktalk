@@ -2,7 +2,7 @@
 import AppKit
 import SwiftUI
 
-/// Settings previews use the real scrolling text view, with fixed examples and no audio work.
+/// Settings previews use each scene's real reading view, with fixed examples and no audio work.
 struct SubtitleLayoutPreview: NSViewRepresentable {
     let presentation: SubtitlePanel.Presentation
     let fontSize: Double

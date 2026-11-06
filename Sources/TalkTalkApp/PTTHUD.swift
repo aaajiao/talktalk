@@ -8,8 +8,6 @@ import TalkTalkSession
 /// remain independent of remote subtitles, but it never creates another floating window.
 @MainActor
 final class PTTHUD {
-    static let rowHeight: CGFloat = 30
-
     private(set) var model = HUDModel()
     private var limiter = RefreshLimiter()
     private var redrawTimer: Timer?
@@ -21,16 +19,9 @@ final class PTTHUD {
     var onEndSession: (() -> Void)?
     var phoneInputIsConfirmed: (() -> Bool)?
     var onPhoneSpeechModeChange: ((HUDModel.MeetingAudio?, Bool, Bool) -> Void)?
-    private let statusRow = NSView()
-    private let modeBadge = NSView()
-    private let modeIcon = NSImageView()
-    private let modeLabel = ConversationLabel(labelWithString: "")
-    private let shortcutLabel = ConversationLabel(labelWithString: "")
     private let shortcutKey = ConversationLabel(labelWithString: String(localized: "右⌥"))
     private let endButton = NSButton()
     private var endAction: HUDButtonAction?
-    private let statusIcon = NSImageView()
-    private let statusLabel = ConversationLabel(labelWithString: "")
     private let detailsButton = NSButton()
     private let detailsPopover = NSPopover()
     private var statusAction: HUDButtonAction?
@@ -53,16 +44,6 @@ final class PTTHUD {
 
     init(panel: SubtitlePanel) {
         self.panel = panel
-        statusRow.addSubview(modeBadge)
-        modeBadge.addSubview(modeIcon)
-        modeBadge.addSubview(modeLabel)
-        modeBadge.wantsLayer = true
-        modeBadge.layer?.cornerRadius = 5
-        modeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        modeLabel.maximumNumberOfLines = 1
-        modeLabel.cell?.isScrollable = false
-        statusRow.addSubview(shortcutLabel)
-        statusRow.addSubview(shortcutKey)
         shortcutKey.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
         shortcutKey.alignment = .center
         shortcutKey.textColor = .secondaryLabelColor
@@ -70,13 +51,6 @@ final class PTTHUD {
         shortcutKey.layer?.cornerRadius = 4
         shortcutKey.layer?.borderWidth = 0.5
         shortcutKey.layer?.borderColor = NSColor.separatorColor.cgColor
-        shortcutLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        shortcutLabel.maximumNumberOfLines = 1
-        shortcutLabel.lineBreakMode = .byTruncatingTail
-        shortcutLabel.isHidden = true
-        statusRow.addSubview(statusIcon)
-        statusRow.addSubview(statusLabel)
-        statusRow.addSubview(endButton)
         endButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)
         endButton.imagePosition = .imageOnly
         endButton.isBordered = false
@@ -84,10 +58,8 @@ final class PTTHUD {
         endAction = HUDButtonAction { [weak self] in self?.onEndSession?() }
         endButton.target = endAction
         endButton.action = #selector(HUDButtonAction.run)
-        statusLabel.maximumNumberOfLines = 1
-        statusLabel.lineBreakMode = .byTruncatingTail
-        statusLabel.cell?.isScrollable = false
         detailsButton.title = ""
+        detailsButton.font = .systemFont(ofSize: 11, weight: .medium)
         detailsButton.bezelStyle = .rounded
         detailsButton.controlSize = .small
         detailsButton.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
@@ -97,7 +69,7 @@ final class PTTHUD {
         statusAction = HUDButtonAction { [weak self] in self?.toggleDetails() }
         detailsButton.target = statusAction
         detailsButton.action = #selector(HUDButtonAction.run)
-        panel.setDetailsAction(button: detailsButton)
+        panel.setStatusActions(details: detailsButton, end: endButton, shortcut: shortcutKey)
         detailsPopover.behavior = .transient
         detailsPopover.animates = false
         panel.onAppearanceChange = { [weak self] in
@@ -372,7 +344,7 @@ final class PTTHUD {
 
     private(set) var shownLines: [HUDLine] = []
 
-    /// Keep the status strip and transcript independent. Meter ticks and queue changes must
+    /// Keep titlebar status and transcript independent. Meter ticks and queue changes must
     /// never reconstruct a reading view or reset its scroll position.
     private func render(force: Bool = false) {
         let now = clock()
@@ -416,70 +388,46 @@ final class PTTHUD {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        statusRow.isHidden = status == nil
-        modeBadge.isHidden = mode == nil
-        let rowWidth = max(0, width - 24)
-        statusRow.frame.size = NSSize(width: rowWidth, height: Self.rowHeight)
-        let modeWidth: CGFloat = mode == nil ? 0 : 110
-        if let mode {
-            let color = Self.color(for: mode.tone)
-            modeLabel.stringValue = mode.title
-            modeLabel.font = .systemFont(ofSize: 12, weight: .medium)
-            modeLabel.textColor = color
-            modeBadge.layer?.backgroundColor = NSColor.clear.cgColor
-            modeBadge.toolTip = mode.detail
-            modeIcon.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: mode.title)
-            modeIcon.contentTintColor = color
-        }
-        modeBadge.frame = NSRect(x: 0, y: 3, width: modeWidth, height: 24)
-        modeIcon.frame = NSRect(x: 6, y: 4, width: 16, height: 16)
-        modeLabel.frame = NSRect(x: 28, y: 3, width: max(0, modeWidth - 32), height: 18)
-
         let notice = status.flatMap { $0.kind == .activity && mode != nil ? nil : $0.summary }
-        detailsButton.isHidden = status == nil
-        panel.setSessionActions(active: model.meetingActive)
-        endButton.isHidden = !model.meetingActive
-        endButton.frame = NSRect(x: rowWidth - 28, y: 1, width: 28, height: 28)
+        let hasProblem = status?.kind == .problem || mode?.tone == .unavailable
+        detailsButton.title = hasProblem ? (notice?.text ?? mode?.title ?? status?.summary.text ?? "") : ""
+        let statusSymbol: String
+        let statusColor: NSColor
+        if status?.kind == .problem, let summary = status?.summary {
+            statusSymbol = summary.symbol ?? Self.symbol(for: summary.style)
+            statusColor = Self.color(for: summary.style)
+        } else if let mode {
+            statusSymbol = mode.symbol
+            statusColor = Self.color(for: mode.tone)
+        } else if let summary = status?.summary {
+            statusSymbol = summary.symbol ?? Self.symbol(for: summary.style)
+            statusColor = Self.color(for: summary.style)
+        } else {
+            statusSymbol = "info.circle"
+            statusColor = .secondaryLabelColor
+        }
+        detailsButton.image = NSImage(systemSymbolName: statusSymbol, accessibilityDescription: nil)
+        detailsButton.contentTintColor = statusColor
+        // The titlebar icon carries the live state. Full context and keyboard guidance remain
+        // discoverable without reserving a second row underneath the captions.
+        var context: [String] = []
+        for value in [mode?.title, mode?.detail, notice?.text, notice?.detail, mode?.shortcut].compactMap({ $0 })
+            where !value.isEmpty && !context.contains(value) {
+            context.append(value)
+        }
+        let detailsTitle = String(localized: "状态与提示")
+        let description = ([detailsTitle] + context).joined(separator: "\n")
+        detailsButton.toolTip = description
+        detailsButton.setAccessibilityLabel(description)
+        shortcutKey.toolTip = [mode?.shortcut, mode?.detail].compactMap { $0 }.joined(separator: "\n")
+        shortcutKey.setAccessibilityLabel(mode?.shortcut)
+        shortcutKey.setAccessibilityHelp(mode?.detail)
         let endTitle = panel.presentation == .video ? String(localized: "结束字幕") : String(localized: "结束同传")
         endButton.setAccessibilityLabel(endTitle)
         endButton.toolTip = endTitle
-        let hasProblem = status?.kind == .problem || mode?.tone == .unavailable
-        detailsButton.image = NSImage(systemSymbolName: hasProblem ? "exclamationmark.circle" : "info.circle", accessibilityDescription: nil)
-        detailsButton.contentTintColor = hasProblem ? Self.color(for: status?.summary.style ?? .yellow) : .secondaryLabelColor
-        detailsButton.toolTip = notice.map { String(localized: "状态与提示：\($0.text)") } ?? String(localized: "状态与提示")
-        let shortcut = mode?.shortcut
-        let shortcutWidth: CGFloat = shortcut == nil ? 0 : 118
-        shortcutLabel.isHidden = shortcut == nil
-        shortcutKey.isHidden = shortcut == nil
-        shortcutLabel.stringValue = mode?.keyAction ?? ""
-        shortcutLabel.setAccessibilityLabel(shortcut)
-        shortcutLabel.textColor = .secondaryLabelColor
-        shortcutLabel.toolTip = mode?.detail
-        let actionsEnd = model.meetingActive ? endButton.frame.minX - 10 : rowWidth
-        let shortcutStart = max(modeWidth, actionsEnd - shortcutWidth)
-        shortcutKey.frame = NSRect(x: shortcutStart, y: 6, width: 34, height: 18)
-        shortcutLabel.frame = NSRect(x: shortcutStart + 42, y: 6, width: shortcutWidth - 42, height: 18)
-        statusLabel.isHidden = notice == nil
-        statusIcon.isHidden = notice == nil
-        if let notice {
-            statusLabel.stringValue = notice.text
-            statusLabel.toolTip = notice.text
-            statusLabel.font = .systemFont(ofSize: 12, weight: hasProblem ? .medium : .regular)
-            statusLabel.textColor = Self.color(for: notice.style)
-            statusIcon.image = NSImage(systemSymbolName: notice.symbol ?? Self.symbol(for: notice.style), accessibilityDescription: nil)
-            statusIcon.contentTintColor = Self.color(for: notice.style)
-        }
-        let noticeStart = modeWidth > 0 ? modeWidth + 10 : 0
-        let noticeEnd = shortcut == nil ? actionsEnd : shortcutStart - 8
-        statusIcon.frame = NSRect(x: noticeStart, y: 7, width: 16, height: 16)
-        statusLabel.frame = NSRect(x: noticeStart + 22, y: 6, width: max(0, noticeEnd - noticeStart - 22), height: 18)
-        // At the narrowest window, consequential text gets the space; the action remains
-        // available through the mode tooltip and accessible shortcut label.
-        if let notice, (notice.text as NSString).size(withAttributes: [.font: statusLabel.font!]).width > statusLabel.frame.width {
-            shortcutLabel.isHidden = true
-            shortcutKey.isHidden = true
-            statusLabel.frame.size.width = max(0, actionsEnd - statusLabel.frame.minX)
-        }
+        panel.setSessionActions(active: model.meetingActive)
+        panel.updateStatusActions(visible: status != nil, showsShortcut: mode?.shortcut != nil,
+                                  showsLabel: hasProblem)
 
         if force || transcriptChanged {
             let newPress = transcript?.press != shownTranscript?.press
@@ -488,7 +436,6 @@ final class PTTHUD {
             transcriptColumns.setText(source: text.source, translation: text.translation, resetScroll: newPress)
         }
         panel.setSpeechContent(transcriptColumns, height: showSpeech ? 180 : 0, hasLocalSpeech: showSpeech)
-        panel.setStatusContent(statusRow, height: status == nil ? 0 : Self.rowHeight)
         if !showSpeech { inputActivity(nil) }
         if status == nil { detailsPopover.close() }
         else if detailsPopover.isShown, statusChanged || modeChanged { updateDetails() }
@@ -524,7 +471,7 @@ final class PTTHUD {
     }
 
     /// Details are a snapshot opened deliberately, never a stream of rows inside the captions.
-    /// The live one-line summary remains outside and continues to show current problems.
+    /// The live titlebar state remains outside and continues to show current problems.
     private func toggleDetails() {
         if detailsPopover.isShown { detailsPopover.close(); return }
         updateDetails()
