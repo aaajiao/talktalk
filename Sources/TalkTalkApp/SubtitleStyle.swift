@@ -30,6 +30,11 @@ enum SubtitleStyle {
 
     static func white(_ alpha: CGFloat) -> NSColor { NSColor(white: 1, alpha: alpha) }
 
+    /// A tail-truncating `NSTextField` sized to exactly its text width still shows "…"
+    /// (seen in an offscreen render of the settings preview: "原声" became "…"). Labels get
+    /// this much trailing room beyond their measured width; the glyphs do not move.
+    static let labelSlack: CGFloat = 4
+
     static func weight(_ value: ConversationTypography.Weight) -> NSFont.Weight {
         switch value {
         case .regular: .regular

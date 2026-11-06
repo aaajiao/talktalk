@@ -134,6 +134,39 @@ final class VideoSubtitleView: NSView {
 
     required init?(coder: NSCoder) { return nil }
 
+    /// The live window blurs what lies behind it; the settings preview blurs its in-window
+    /// backdrop instead.
+    var glassBlendingMode: NSVisualEffectView.BlendingMode {
+        get { glass.blendingMode }
+        set { glass.blendingMode = newValue }
+    }
+
+    // MARK: caption text (shared by the live window and the settings preview)
+
+    /// Source text in the video.source token. Stroke, shadow, paragraph and line breaks
+    /// belong to this view's style.
+    static func sourceText(_ text: String, font: NSFont, display: SubtitleStyle.Display) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            .font: font, .foregroundColor: SubtitleStyle.color(.videoSource, display: display),
+        ])
+    }
+
+    /// Finals are white 100%. A draft keeps the first `stablePrefix` characters (shared with
+    /// its previous version) at full white; only the changed tail is 65% and ends with "…"
+    /// (§6 视觉反馈). `text` is the final's display text, or the draft's raw text.
+    static func translationText(_ text: String, isFinal: Bool, stablePrefix: Int, font: NSFont) -> NSAttributedString {
+        guard !text.isEmpty else { return NSAttributedString(string: "") }
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
+        guard !isFinal else { return NSAttributedString(string: text, attributes: attributes) }
+        let shown = ConversationTextRules.draftDisplay(text)
+        let split = shown.index(shown.startIndex, offsetBy: min(max(0, stablePrefix), shown.count))
+        var tail = attributes
+        tail[.foregroundColor] = SubtitleStyle.white(CGFloat(VideoCaptionLayout.draftTailAlpha))
+        let result = NSMutableAttributedString(string: String(shown[..<split]), attributes: attributes)
+        result.append(NSAttributedString(string: String(shown[split...]), attributes: tail))
+        return result
+    }
+
     /// VoiceOver names the two blocks with their languages, e.g. "原文 · 英语" (§6 无障碍).
     func setAccessibilityTitles(source: String, translation: String) {
         sourceView.setAccessibilityLabel(source)

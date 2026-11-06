@@ -37,6 +37,11 @@ final class SubtitleTitlebarView: NSView {
     /// Empty room after the end button; the video window keeps its status dot there.
     var trailingInset: CGFloat = 0 { didSet { if trailingInset != oldValue { relayout() } } }
 
+    /// Traffic lights plus margins before the leading accessory, and after the trailing one.
+    static let windowChrome: CGFloat = 78 + 12 + 16
+    /// Where the leading scene title starts: after the traffic lights.
+    static let leadingTitleX: CGFloat = 78
+
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
     var hasItems: Bool { content.hasTrailingItems || fadingChip }
@@ -462,7 +467,8 @@ final class VoiceCapsuleView: TitlebarControl {
         let labelX = pad + iconSize + 4
         let labelHeight = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: labelX, y: (height - labelHeight) / 2,
-                             width: max(0, bounds.width - labelX - pad - chevronWidth), height: labelHeight)
+                             width: max(0, bounds.width - labelX - pad - chevronWidth) + SubtitleStyle.labelSlack,
+                             height: labelHeight)
         chevron.frame = NSRect(x: bounds.width - pad - SubtitleTokens.Size.capsuleChevronSize - 1, y: (height - 10) / 2,
                                width: SubtitleTokens.Size.capsuleChevronSize + 2, height: 10)
     }
@@ -526,7 +532,8 @@ final class IssueChipView: TitlebarControl {
         if showsText {
             icon.frame = NSRect(x: 8, y: (height - 12) / 2, width: 12, height: 12)
             let labelHeight = ceil(label.intrinsicContentSize.height)
-            label.frame = NSRect(x: 24, y: (height - labelHeight) / 2, width: max(0, bounds.width - 32), height: labelHeight)
+            label.frame = NSRect(x: 24, y: (height - labelHeight) / 2, width: max(0, bounds.width - 32) + SubtitleStyle.labelSlack,
+                                 height: labelHeight)
         } else {
             icon.frame = NSRect(x: (bounds.width - 12) / 2, y: (height - 12) / 2, width: 12, height: 12)
         }
@@ -654,7 +661,7 @@ final class KeycapActionView: TitlebarControl {
         keyLabel.frame = NSRect(x: 0, y: (keyBox.bounds.height - labelHeight) / 2, width: width, height: labelHeight)
         let actionHeight = ceil(action.intrinsicContentSize.height)
         action.frame = NSRect(x: width + 5, y: (bounds.height - actionHeight) / 2,
-                              width: max(0, bounds.width - width - 5), height: actionHeight)
+                              width: max(0, bounds.width - width - 5) + SubtitleStyle.labelSlack, height: actionHeight)
     }
 }
 

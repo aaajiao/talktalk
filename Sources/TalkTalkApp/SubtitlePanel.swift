@@ -407,20 +407,17 @@ final class SubtitlePanel {
                                              translation: String(localized: "译文 · 中文"))
     }
 
-    /// Traffic lights plus margins before the leading accessory, and after the trailing one.
-    private static let titlebarChrome: CGFloat = 78 + 12 + 16
-
     private func updateTitlebarActions() {
         let content = titlebarContent
         let width = Double(contentWidth)
-        let reserved = Double(Self.titlebarChrome + titleView.minimumWidth)
+        let reserved = Double(SubtitleTitlebarView.windowChrome + titleView.minimumWidth)
         let compaction = TitlebarCompaction.choose(windowWidth: width, reservedLeading: reserved) {
             Double(titlebar.measure(content, $0))
         }
         titlebar.apply(content, compaction: compaction)
         // The source name yields first: the leading title takes only the remaining width.
         titleView.setWidth(min(titleView.naturalWidth,
-                               max(titleView.minimumWidth, contentWidth - Self.titlebarChrome - titlebar.frame.width)))
+                               max(titleView.minimumWidth, contentWidth - SubtitleTitlebarView.windowChrome - titlebar.frame.width)))
         let wanted = titlebar.hasItems
         guard wanted != titlebarAccessoryInstalled else { return }
         if wanted {
@@ -783,11 +780,7 @@ final class SubtitlePanel {
         let previewDue = now >= lastPreviewRenderAt && now - lastPreviewRenderAt >= Self.previewInterval
         guard forceLayout || newSentence || finalChanged || previewDue else { return }
         let source = cue?.line.source ?? liveSource
-        let display = SubtitleStyle.Display.current
-        // Stroke, shadow, paragraph and line breaks belong to the caption view's style.
-        let sourceText = NSAttributedString(string: source, attributes: [
-            .font: videoSourceFont, .foregroundColor: SubtitleStyle.color(.videoSource, display: display),
-        ])
+        let sourceText = VideoSubtitleView.sourceText(source, font: videoSourceFont, display: .current)
         let targetText = videoTranslationText(cue)
         videoCaptions.placeholder = videoPlaceholder
         renderedVideoCue = cue
@@ -807,21 +800,16 @@ final class SubtitlePanel {
         titlebarContent.sourceTitle.map { String(localized: "正在听 \($0)…") }
     }
 
-    /// Finals are white 100%. A draft keeps the text it shares with the previous version at
-    /// full white; only the changed tail is 65% and ends with "…" (§6 视觉反馈).
+    /// A draft keeps the text it shares with the previous version of the same sentence at
+    /// full white; only the changed tail is dimmed (§6 视觉反馈).
     private func videoTranslationText(_ cue: VideoSubtitleBoard.Cue?) -> NSAttributedString {
         guard let cue, !cue.line.text.isEmpty else { return NSAttributedString(string: "") }
-        let attributes: [NSAttributedString.Key: Any] = [.font: videoTranslationFont, .foregroundColor: NSColor.white]
-        guard !cue.isFinal else { return NSAttributedString(string: cue.line.display, attributes: attributes) }
+        guard !cue.isFinal else {
+            return VideoSubtitleView.translationText(cue.line.display, isFinal: true, stablePrefix: 0, font: videoTranslationFont)
+        }
         let previous = renderedVideoCue.flatMap { $0.line.sentence == cue.line.sentence && !$0.isFinal ? $0.line.text : nil }
-        let text = ConversationTextRules.draftDisplay(cue.line.text)
-        let stable = previous.map { min(VideoCaptionPacing.stablePrefixLength(previous: $0, current: cue.line.text), text.count) } ?? 0
-        let split = text.index(text.startIndex, offsetBy: stable)
-        var tail = attributes
-        tail[.foregroundColor] = SubtitleStyle.white(CGFloat(VideoCaptionLayout.draftTailAlpha))
-        let result = NSMutableAttributedString(string: String(text[..<split]), attributes: attributes)
-        result.append(NSAttributedString(string: String(text[split...]), attributes: tail))
-        return result
+        let stable = previous.map { VideoCaptionPacing.stablePrefixLength(previous: $0, current: cue.line.text) } ?? 0
+        return VideoSubtitleView.translationText(cue.line.text, isFinal: false, stablePrefix: stable, font: videoTranslationFont)
     }
 
     /// Only the page actually assigned to the video view counts as displayed. Pending cues

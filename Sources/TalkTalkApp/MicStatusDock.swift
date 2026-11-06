@@ -273,7 +273,8 @@ final class MicStatusDock: NSView {
         icon.frame = NSRect(x: padding, y: ((rowHeight - iconSize) / 2).rounded(), width: iconSize, height: iconSize)
         func place(_ field: NSTextField, x: CGFloat, width: CGFloat) {
             let fieldHeight = ceil(field.intrinsicContentSize.height)
-            field.frame = NSRect(x: x, y: ((rowHeight - fieldHeight) / 2).rounded(), width: max(0, width), height: fieldHeight)
+            field.frame = NSRect(x: x, y: ((rowHeight - fieldHeight) / 2).rounded(),
+                                 width: width > 0 ? width + SubtitleStyle.labelSlack : 0, height: fieldHeight)
         }
         var x = textStart
         let shownLabel = min(labelWidth, max(0, limit - textStart))

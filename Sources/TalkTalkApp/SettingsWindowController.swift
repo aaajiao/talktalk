@@ -48,6 +48,9 @@ final class SettingsNavigation {
     var componentsTab: ComponentsSettingsTab = .engine
     var diagnosticsTab: DiagnosticsSettingsTab = .privacy
     var subtitlePresentation: SubtitlePanel.Presentation = .meeting
+    /// Settings › 字幕 preview backdrop per scene: a viewing aid, never saved (no @State: the
+    /// CLT toolchain has no SwiftUIMacros plugin).
+    var subtitlePreviewBackdrops: [SubtitleScene: SubtitlePreviewBackdrop] = [:]
     var selection: SettingsSection? {
         didSet {
             UserDefaults.standard.set(selection?.rawValue, forKey: Self.key)
