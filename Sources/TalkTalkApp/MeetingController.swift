@@ -66,7 +66,7 @@ final class MeetingController {
             switch e {
             case let .state(st): self?.sessionState(st)
             case .stopping:
-                // Every end reason: the window leaves as the stop begins (§9.1); the menu shows
+                // Every end reason: the window leaves as the stop begins (redesign §9.2.2); the menu shows
                 // 正在结束… until the session reaches idle.
                 self?.state.meetingStopping = true
                 self?.panel.endSession()

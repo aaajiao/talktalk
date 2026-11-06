@@ -528,8 +528,10 @@ final class ListenDemo {
             panel.setPresentation(.video)
             panel.clear()
             showingPanel = true
-            panel.beginSession()
+            // Lay the captions out first, then open the window at its final size (as a session
+            // does at `.started`): no titlebar-only frame on the way in.
             panel.setVisible(true)
+            panel.beginSession()
             phase = .playing
             player.play()
             // Real-time feed in 20 ms chunks, like MeetingTap.

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Whether the subtitle window may be on screen (redesign §9.1). Only an explicit session start
+/// Whether the subtitle window may be on screen (redesign §9.2.2). Only an explicit session start
 /// opens it; ending closes it at once, before any layout, so the window leaves in one step.
 /// Late status for an ended session (a restore notice, a fading chip) then has no window to
 /// bring back, and an idle notice never shows one. While a session runs with subtitles off,

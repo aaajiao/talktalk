@@ -116,7 +116,7 @@ final class SubtitlePanel {
     var openPhone: (() -> Void)?
     /// The session window just closed: anything anchored to it (a details popover) goes too.
     var onSessionClosed: (() -> Void)?
-    /// Only `beginSession` opens it; `endSession` closes it before any layout (§9.1).
+    /// Only `beginSession` opens it; `endSession` closes it before any layout (redesign §9.2.2).
     private var presence = SubtitleWindowPresence()
     private var endInputSwitched = false
     var scene: SubtitleScene {
