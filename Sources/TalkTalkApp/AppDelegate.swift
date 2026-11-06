@@ -28,7 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let smokeOut: String?
     private let isSmoke: Bool
     private var quitting = false
-    private var subtitleTabSynced = false
 
     init(smoke: Bool, smokeOut: String?) {
         isSmoke = smoke
@@ -208,18 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             voiceState: { [weak hud] in hud?.model.voiceState }))
         statusItem = status
-        meeting.onActiveChange = { [weak self] active in
-            self?.updateIcon()
-            // §7: the subtitle settings tab follows the scenario that just started (once per
-            // session; later running-state updates keep the user's choice).
-            guard let self else { return }
-            if active, !self.subtitleTabSynced {
-                self.subtitleTabSynced = true
-                self.settings?.navigation.subtitlePresentation = self.state.meetingMode.subtitlePresentation
-            } else if !active {
-                self.subtitleTabSynced = false
-            }
-        }
+        meeting.onActiveChange = { [weak self] _ in self?.updateIcon() }
         meeting.onTranslationChange = { [weak self] in self?.updateIcon() }
         systemInput?.onStatusChange = { [weak self] in self?.updateIcon() }
 

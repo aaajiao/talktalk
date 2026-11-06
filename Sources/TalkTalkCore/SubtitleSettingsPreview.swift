@@ -1,19 +1,6 @@
 /// Settings › 字幕 (redesign §7 字幕页): the layout preview's geometry and the rules that
-/// enable or explain its controls. Pure values; the App target draws the preview.
-
-/// What the preview window floats over. The glass blurs this backdrop, so a light web page
-/// and a dark video frame show how the chosen opacity reads on either.
-public enum SubtitlePreviewBackdrop: String, Sendable, CaseIterable {
-    case lightPage
-    case darkVideoFrame
-
-    /// Meeting and phone windows usually sit over documents; video captions over video.
-    public static func initial(for scene: SubtitleScene) -> SubtitlePreviewBackdrop {
-        scene == .video ? .darkVideoFrame : .lightPage
-    }
-
-    public var isDark: Bool { self == .darkVideoFrame }
-}
+/// enable or explain its controls. Pure values; the App target draws the preview over a
+/// backdrop that follows the system appearance.
 
 /// The preview renders the live window's components at their real logical size and scales
 /// the whole window into the settings column, so breakpoints, compaction and font formulas

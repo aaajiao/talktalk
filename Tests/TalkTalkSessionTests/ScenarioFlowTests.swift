@@ -51,13 +51,6 @@ import TalkTalkCore
         #expect(ScenarioRunState.cardSubtitle(elapsed: 723) == "运行中 · 12:03")
     }
 
-    @Test func headerCollapseHasHysteresis() {
-        #expect(!ScenarioHeaderCollapse.collapsed(offset: 10, wasCollapsed: false))
-        #expect(ScenarioHeaderCollapse.collapsed(offset: 30, wasCollapsed: false))
-        #expect(ScenarioHeaderCollapse.collapsed(offset: 10, wasCollapsed: true))
-        #expect(!ScenarioHeaderCollapse.collapsed(offset: 2, wasCollapsed: true))
-    }
-
     @Test func browserNoteOnlyForBrowsers() {
         #expect(ScenarioSourceNote.showsBrowserNote(selectedID: "com.google.Chrome"))
         #expect(!ScenarioSourceNote.showsBrowserNote(selectedID: "us.zoom.xos"))

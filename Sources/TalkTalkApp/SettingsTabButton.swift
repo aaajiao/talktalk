@@ -2,7 +2,7 @@
 import SwiftUI
 import TalkTalkCore
 
-/// Shared by model and component tabs, the scenario cards and onboarding's scenario choice, so
+/// Shared by the pinned scene header (使用场景, 字幕) and onboarding's scenario choice, so
 /// selection, focus and hit areas stay consistent. `running` (§7) is independent of `selected`:
 /// an 8 pt voice.original dot at the top left and a green caption2 subtitle.
 struct SettingsTabButton: View {

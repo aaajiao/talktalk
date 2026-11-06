@@ -205,7 +205,7 @@ struct ScenarioChoiceStep: View {
             HStack(spacing: 12) {
                 ForEach(OnboardingScenario.allCases, id: \.self) { scenario in
                     let mode = OnboardingFlowModel.mode(scenario)
-                    SettingsTabButton(title: mode.scene.title, symbol: mode.sceneSymbol, summary: summary(scenario),
+                    SettingsTabButton(title: mode.scene.title, symbol: mode.sceneSymbol, summary: mode.sceneSummary,
                                       selected: model.selectedScenarios.contains(scenario), multiSelect: true) {
                         model.toggleScenario(scenario)
                     }
@@ -213,14 +213,6 @@ struct ScenarioChoiceStep: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(String(localized: "使用场景，可多选"))
-        }
-    }
-
-    private func summary(_ scenario: OnboardingScenario) -> String {
-        switch scenario {
-        case .meeting: String(localized: "电脑会议 · 双向同传")
-        case .phone: String(localized: "自己的号码 · 双向同传")
-        case .video: String(localized: "观看视频 · 双语字幕")
         }
     }
 }

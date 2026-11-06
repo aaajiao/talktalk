@@ -15,7 +15,8 @@ struct SubtitleLayoutPreview: NSViewRepresentable {
         var opacity: Double
         var videoStyle: VideoCaptionStyle
         var videoArrangement: VideoCaptionArrangement
-        var backdrop: SubtitlePreviewBackdrop
+        /// Follows the settings window's appearance: black page in Dark Mode, white page in Light.
+        var darkBackdrop: Bool
         /// Passed in (not read inside) so SwiftUI's accessibility environment refreshes it.
         var display: SubtitleStyle.Display
     }
@@ -121,7 +122,7 @@ final class SubtitlePreviewCanvas: NSView {
         laidOut = (configuration, bounds.size)
         let geometry = SubtitlePreviewLayout(scene: configuration.scene, canvasWidth: Double(bounds.width))
         backdrop.frame = bounds
-        backdrop.style = configuration.backdrop
+        backdrop.isDark = configuration.darkBackdrop
         let windowRect = NSRect(x: geometry.windowX, y: geometry.windowY,
                                 width: geometry.windowWidth, height: geometry.windowHeight)
         shadowHost.frame = windowRect
@@ -317,34 +318,38 @@ private final class PreviewTrafficLightsView: NSView {
     }
 }
 
-/// "浅色网页" or "深色视频帧" under the preview window, drawn in plain shapes.
+/// A white page in Light Mode, a black page in Dark Mode (the system appearance), drawn in
+/// plain shapes under the preview window.
 @MainActor
 final class SubtitlePreviewBackdropView: NSView {
-    var style: SubtitlePreviewBackdrop = .lightPage { didSet { if style != oldValue { needsDisplay = true } } }
+    var isDark = false { didSet { if isDark != oldValue { needsDisplay = true } } }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    private static func color(_ hex: UInt32, _ alpha: Double = 1) -> NSColor {
-        SubtitleStyle.nsColor(SubtitleTokens.RGBA(hex: hex, alpha: alpha))
+    private struct Palette {
+        let base, toolbar, separator, heading, lines, accent: UInt32
+    }
+
+    private static let light = Palette(base: 0xFFFFFF, toolbar: 0xF2F2F7, separator: 0xE5E5EA,
+                                       heading: 0x3A3A3C, lines: 0xD1D1D6, accent: 0xCFE3FF)
+    private static let dark = Palette(base: 0x000000, toolbar: 0x1C1C1E, separator: 0x2C2C2E,
+                                      heading: 0x8E8E93, lines: 0x3A3A3C, accent: 0x1F3A5F)
+
+    private static func color(_ hex: UInt32) -> NSColor {
+        SubtitleStyle.nsColor(SubtitleTokens.RGBA(hex: hex))
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        switch style {
-        case .lightPage: drawPage()
-        case .darkVideoFrame: drawVideoFrame()
-        }
-    }
-
-    private func drawPage() {
+        let palette = isDark ? Self.dark : Self.light
         let width = bounds.width, height = bounds.height
-        Self.color(0xF5F5F7).setFill(); bounds.fill()
-        Self.color(0xFFFFFF).setFill(); NSRect(x: 0, y: 0, width: width, height: 30).fill()
-        Self.color(0xE5E5EA).setFill(); NSRect(x: 0, y: 30, width: width, height: 1).fill()
+        Self.color(palette.base).setFill(); bounds.fill()
+        Self.color(palette.toolbar).setFill(); NSRect(x: 0, y: 0, width: width, height: 30).fill()
+        Self.color(palette.separator).setFill(); NSRect(x: 0, y: 30, width: width, height: 1).fill()
         NSBezierPath(roundedRect: NSRect(x: width * 0.3, y: 8, width: width * 0.4, height: 14), xRadius: 7, yRadius: 7).fill()
         let left = width * 0.08, column = width * 0.56
-        Self.color(0x3A3A3C).setFill()
+        Self.color(palette.heading).setFill()
         NSBezierPath(roundedRect: NSRect(x: left, y: 50, width: column * 0.7, height: 14), xRadius: 3, yRadius: 3).fill()
-        Self.color(0xC7C7CC).setFill()
+        Self.color(palette.lines).setFill()
         var y: CGFloat = 80
         var index = 0
         let widths: [CGFloat] = [1, 0.94, 0.98, 0.7, 1, 0.9, 0.96, 0.6]
@@ -354,26 +359,8 @@ final class SubtitlePreviewBackdropView: NSView {
             y += index % 4 == 3 ? 30 : 16
             index += 1
         }
-        Self.color(0xCFE3FF).setFill()
+        Self.color(palette.accent).setFill()
         NSBezierPath(roundedRect: NSRect(x: left + column + width * 0.06, y: 50, width: width * 0.24, height: min(160, height * 0.4)),
                      xRadius: 8, yRadius: 8).fill()
-    }
-
-    private func drawVideoFrame() {
-        let width = bounds.width, height = bounds.height
-        NSGradient(starting: Self.color(0x2E4458), ending: Self.color(0x0C1015))?.draw(in: bounds, angle: 90)
-        Self.color(0xF2B35E, 0.55).setFill()
-        NSBezierPath(ovalIn: NSRect(x: width * 0.68, y: height * 0.12, width: height * 0.32, height: height * 0.32)).fill()
-        let hills = NSBezierPath()
-        hills.move(to: NSPoint(x: 0, y: height))
-        hills.line(to: NSPoint(x: 0, y: height * 0.62))
-        hills.curve(to: NSPoint(x: width * 0.45, y: height * 0.58),
-                    controlPoint1: NSPoint(x: width * 0.15, y: height * 0.48), controlPoint2: NSPoint(x: width * 0.3, y: height * 0.66))
-        hills.curve(to: NSPoint(x: width, y: height * 0.5),
-                    controlPoint1: NSPoint(x: width * 0.65, y: height * 0.5), controlPoint2: NSPoint(x: width * 0.85, y: height * 0.42))
-        hills.line(to: NSPoint(x: width, y: height))
-        hills.close()
-        Self.color(0x141C24).setFill()
-        hills.fill()
     }
 }

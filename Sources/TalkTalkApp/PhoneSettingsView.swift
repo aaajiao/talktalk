@@ -36,15 +36,6 @@ struct PhoneSettingsView: View {
 
     var body: some View {
         Section {
-            HStack {
-                Label("电话同传", systemImage: SubtitleTokens.SceneIcon.phone).font(.headline)
-                Spacer()
-                InfoButton(topic: String(localized: "电话同传"), lines: [
-                    String(localized: "TalkTalk 专门收听 Phone；拨号、接听、静音和挂断都在 Phone 中完成。"),
-                    String(localized: "准备好后即可收音，点按右⌥就能翻译自己的发言，不必等电话接通。")
-                ])
-            }
-            Text("用 iPhone 号码在 Mac 上通话，双向同传").foregroundStyle(.secondary)
             if phoneSession { phoneSpeechStatus }
 
             VStack(alignment: .leading, spacing: 12) {
@@ -55,15 +46,18 @@ struct PhoneSettingsView: View {
                     ("captions.bubble", String(localized: "原文＋中文字幕"))
                 ], links: [
                     1: FlowLink(String(localized: "模型设置")) { follow { navigation.openModel(.recognition) } },
-                    2: FlowLink(String(localized: "字幕设置")) {
-                        follow {
-                            navigation.subtitlePresentation = .phone
-                            navigation.selection = .subtitles
-                        }
-                    }
+                    2: FlowLink(String(localized: "字幕设置")) { follow { navigation.selection = .subtitles } }
                 ])
                 Divider()
                 SpeakingLanes(mode: .phone, follow: follow, navigation: navigation)
+            }
+        } header: {
+            HStack {
+                Text("工作方式")
+                InfoButton(topic: String(localized: "电话同传"), lines: [
+                    String(localized: "TalkTalk 专门收听 Phone；拨号、接听、静音和挂断都在 Phone 中完成。"),
+                    String(localized: "准备好后即可收音，点按右⌥就能翻译自己的发言，不必等电话接通。")
+                ])
             }
         }
 

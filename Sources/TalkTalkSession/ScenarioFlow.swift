@@ -17,6 +17,15 @@ extension MeetingMode {
 
     /// The scene's unified icon (§2 图标).
     public var sceneSymbol: String { scene.symbol }
+
+    /// The scene card's one-line summary (settings header, onboarding).
+    public var sceneSummary: String {
+        switch self {
+        case .meeting: String(localized: "电脑会议 · 双向同传")
+        case .phone: String(localized: "自己的号码 · 双向同传")
+        case .captions: String(localized: "观看视频 · 双语字幕")
+        }
+    }
 }
 
 /// Persisted scenario choices: the settings page's browsing selection (`ui.requestedScenario`)
@@ -144,17 +153,6 @@ public struct ScenarioRunState: Sendable, Equatable {
     public static func cardSubtitle(elapsed: TimeInterval?) -> String {
         guard let elapsed else { return String(localized: "运行中") }
         return String(localized: "运行中 · \(SessionClock.elapsed(elapsed))")
-    }
-}
-
-/// The scenario cards collapse to a 32 pt segmented control once the content scrolls up, with
-/// hysteresis so the header does not flicker at the threshold.
-public enum ScenarioHeaderCollapse {
-    public static let collapseAbove: Double = 24
-    public static let expandBelow: Double = 4
-
-    public static func collapsed(offset: Double, wasCollapsed: Bool) -> Bool {
-        wasCollapsed ? offset > expandBelow : offset > collapseAbove
     }
 }
 

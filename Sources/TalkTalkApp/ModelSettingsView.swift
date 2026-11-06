@@ -63,21 +63,18 @@ struct ModelSettingsView: View {
 
             Section {
                 LabeledContent("按键翻译的识别引擎", value: String(localized: "Qwen3-ASR，Apple Speech 备用"))
-                Text("支持中文夹英语，统一生成选定的英语或德语译音。")
-                    .font(.callout).foregroundStyle(.secondary)
-            } header: { Text("我说话 · 点按右⌥开始，再点按结束") }
+            } header: { Text("我说话 · 按键翻译") }
 
             Section {
                 LabeledContent("Qwen3-ASR", value: installedModel(role: "asr"))
                 Button("管理本地模型安装") { navigation.openComponents(.engine) }
-            } header: { Text("本地识别模型") }
-            Section {
-                DisclosureGroup("识别与翻译的分工") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("声音在这台 Mac 上转成原文，再交给文本翻译。Qwen3-ASR 不负责翻译或合成声音；Apple Speech 由 macOS 提供。")
-                        Text("自己发言的识别与上面的听译选择独立。英文术语和单独的英文片段都会交给翻译，无需手动切换语言；常用中英文名称可加入术语表，帮助识别。")
-                    }
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } header: {
+                HStack {
+                    Text("本地识别模型")
+                    InfoButton(topic: String(localized: "本地识别"), lines: [
+                        String(localized: "声音在这台 Mac 上转成原文，再交给文本翻译。"),
+                        String(localized: "常用中英文名称可加入术语表，帮助识别。")
+                    ])
                 }
             }
         }
@@ -98,21 +95,18 @@ struct ModelSettingsView: View {
             Section {
                 LabeledContent("Qwen3-TTS 模型", value: installedModel(role: "tts"))
                 LabeledContent("声音档案", value: state.voiceProfilePresent ? String(localized: "已创建") : String(localized: "尚未创建"))
-            } header: { Text("我的声音") }
-            Section {
-                LabeledContent("macOS 系统声音", value: String(localized: "无需创建声音档案"))
-                Text("没有声音档案时，译音使用系统声音。")
-                    .font(.callout).foregroundStyle(.secondary)
-            } header: { Text("系统声音") }
-            Section {
-                DisclosureGroup("声音档案与恢复说明") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Qwen3-TTS 使用你录制的声音档案生成译音，模型与声音档案需要分别准备。")
-                        Text("已有声音档案但克隆引擎暂不可用时，会等待恢复或停止发送该段，不会立即切换为系统声音。")
-                    }
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } header: {
+                HStack {
+                    Text("我的声音")
+                    InfoButton(topic: String(localized: "我的声音"), lines: [
+                        String(localized: "Qwen3-TTS 使用你录制的声音档案生成译音，模型与声音档案需要分别准备。"),
+                        String(localized: "已有声音档案但克隆引擎暂不可用时，会等待恢复或停止发送该段，不会立即切换为系统声音。")
+                    ])
                 }
             }
+            Section {
+                LabeledContent("macOS 系统声音", value: String(localized: "没有声音档案时使用"))
+            } header: { Text("系统声音") }
         }
         .formStyle(.grouped)
     }

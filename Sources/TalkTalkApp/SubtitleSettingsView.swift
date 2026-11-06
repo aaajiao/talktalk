@@ -3,15 +3,17 @@ import SwiftUI
 import TalkTalkCore
 import TalkTalkSession
 
-/// Settings › 字幕 (redesign §7 字幕页). The scene cards only choose which scene's settings
-/// are edited; they never start or switch a session.
+/// Settings › 字幕 (redesign §7 字幕页). The pinned scene cards are the same as 使用场景's and
+/// share its selection: they only choose which scene's settings are edited and never start or
+/// switch a session.
 struct SubtitleSettingsView: View {
     @Bindable var state: AppState
     @Bindable var navigation: SettingsNavigation
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
-    private var presentation: SubtitlePanel.Presentation { navigation.subtitlePresentation }
+    @Environment(\.colorScheme) private var colorScheme
+    private var presentation: SubtitlePanel.Presentation { state.requestedScenario.subtitlePresentation }
     private var video: Bool { presentation == .video }
     private var phone: Bool { presentation == .phone }
     private var scene: SubtitleScene {
@@ -19,14 +21,6 @@ struct SubtitleSettingsView: View {
         case .meeting: .meeting
         case .phone: .phone
         case .video: .video
-        }
-    }
-
-    private static func presentation(for mode: MeetingMode) -> SubtitlePanel.Presentation {
-        switch mode {
-        case .meeting: .meeting
-        case .phone: .phone
-        case .captions: .video
         }
     }
 
@@ -65,25 +59,12 @@ struct SubtitleSettingsView: View {
             }
         })
     }
-    private var backdrop: Binding<SubtitlePreviewBackdrop> {
-        let scene = scene
-        return Binding(get: { navigation.subtitlePreviewBackdrops[scene] ?? .initial(for: scene) },
-                       set: { navigation.subtitlePreviewBackdrops[scene] = $0 })
-    }
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                SettingsTabButton(title: String(localized: "会议同传"), symbol: SubtitleTokens.SceneIcon.meeting,
-                                  summary: String(localized: "双方发言 · 原文与译文分栏"), selected: presentation == .meeting) { navigation.subtitlePresentation = .meeting }
-                SettingsTabButton(title: String(localized: "电话同传"), symbol: SubtitleTokens.SceneIcon.phone,
-                                  summary: String(localized: "电话对话 · 原文与译文分栏"), selected: phone) { navigation.subtitlePresentation = .phone }
-                SettingsTabButton(title: String(localized: "视频字幕"), symbol: SubtitleTokens.SceneIcon.video,
-                                  summary: String(localized: "扁宽字幕条 · 原文与中文"), selected: video) { navigation.subtitlePresentation = .video }
-            }
-            .padding([.horizontal, .top], 20)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(String(localized: "字幕使用场景"))
+        VStack(spacing: 0) {
+            ScenarioCardHeader(selection: state.requestedScenario,
+                               running: state.meetingActive ? state.meetingMode : nil,
+                               startedAt: state.meetingStartedAt) { state.requestedScenario = $0 }
 
             Form {
                 Section {
@@ -98,10 +79,7 @@ struct SubtitleSettingsView: View {
                 } footer: {
                     // The preview sits in a footer: no grouped card around the window picture
                     // (macOS grouped forms ignore listRowBackground).
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text("字号、背景和窗口位置按场景分别保存；朗读新译文对所有场景生效，只读定稿、不读草稿。切换此标签只编辑设置，不会启动或切换正在进行的会话。")
-                        preview
-                    }
+                    preview.padding(.top, 8)
                 }
 
                 Section {
@@ -130,62 +108,59 @@ struct SubtitleSettingsView: View {
                         }
                     }
                 } header: {
-                    Text("字幕大小")
-                } footer: {
-                    Text(video
-                         ? String(localized: "每次显示同一句的原文与中文，草稿在原位更新为定稿。长句分页显示，每页最多两行；中文下方的圆点表示还有下一页。")
-                         : String(localized: "对方和自己的发言按句对排列，保留最近约一分钟。向上滚动时整条时间线暂停跟随，点击“新字幕”提示回到最新。"))
+                    HStack {
+                        Text("字幕大小")
+                        InfoButton(topic: String(localized: "字幕大小"), lines: [
+                            String(localized: "字号、背景和窗口位置按场景分别保存。"),
+                            video ? String(localized: "长句分页，每页最多两行；中文下方的圆点表示还有下一页。")
+                                : String(localized: "向上滚动时暂停跟随；点“N 条新字幕”回到最新。")
+                        ])
+                    }
                 }
 
                 if video { videoCaptionSettings }
 
                 backgroundSettings
 
-                Section("移动与隐私") {
-                    Label("拖动标题栏或文字区域移动；视频可在菜单中锁定位置。", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                Section {
+                    Label("不出现在屏幕共享中", systemImage: "rectangle.on.rectangle.slash").foregroundStyle(.secondary)
                     Label {
-                        Text("窗口左上角的最小化按钮收起字幕，同传继续；从菜单栏选择“恢复字幕窗口”。")
+                        Text(video ? String(localized: "最小化后收听和翻译继续，可从菜单栏恢复")
+                             : String(localized: "最小化后同传继续，可从菜单栏恢复"))
                     } icon: {
-                        // The yellow traffic light it refers to; the text names it by position.
+                        // The yellow traffic light it refers to.
                         Image(systemName: "minus.circle.fill").foregroundStyle(.yellow)
                     }
-                    Label("不抢键盘焦点", systemImage: "keyboard").foregroundStyle(.secondary)
-                    Label("不出现在屏幕共享中", systemImage: "rectangle.on.rectangle.slash").foregroundStyle(.secondary)
-                    Text("标题栏右侧显示发声状态、右⌥ 和结束操作；点状态查看说明。")
-                        .font(.callout).foregroundStyle(.secondary)
-                    if phone {
-                        Text("电话窗口标题栏有“Phone”和“结束同传”按钮；拨号、接听和挂断在 Phone 中完成。")
-                            .font(.callout).foregroundStyle(.secondary)
+                } header: {
+                    HStack {
+                        Text("窗口")
+                        InfoButton(topic: String(localized: "字幕窗口"), lines: windowNotes)
                     }
                 }
             }
             .formStyle(.grouped)
         }
-        // Cards open on the scene chosen in 使用场景 (and follow a session that starts).
-        .onAppear { navigation.subtitlePresentation = Self.presentation(for: state.requestedScenario) }
-        .onChange(of: state.requestedScenario) { _, mode in navigation.subtitlePresentation = Self.presentation(for: mode) }
+    }
+
+    private var windowNotes: [String] {
+        var lines = [String(localized: "拖动标题栏或文字区域移动；视频可在菜单中锁定位置。"),
+                     String(localized: "不抢键盘焦点。")]
+        if !video { lines.append(String(localized: "标题栏右侧是发声状态、右⌥ 和结束；点状态查看说明。")) }
+        if phone { lines.append(String(localized: "拨号、接听和挂断在 Phone 中完成。")) }
+        return lines
     }
 
     private var preview: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("布局预览").font(.headline).foregroundStyle(.primary)
-                Spacer()
-                Picker("预览背景", selection: backdrop) {
-                    Text("浅色网页").tag(SubtitlePreviewBackdrop.lightPage)
-                    Text("深色视频帧").tag(SubtitlePreviewBackdrop.darkVideoFrame)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-            }
+            Text("布局预览").font(.headline).foregroundStyle(.primary)
+            // The backdrop follows the system appearance (live); the window itself is always dark.
             SubtitleLayoutPreview(configuration: .init(
                 scene: scene, fontSize: fontSize.wrappedValue, opacity: opacity.wrappedValue,
                 videoStyle: state.videoCaptionStyle, videoArrangement: state.videoCaptionArrangement,
-                backdrop: backdrop.wrappedValue, display: display))
-            Text(previewExplanation)
-                .font(.callout).fontWeight(.regular).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                darkBackdrop: colorScheme == .dark, display: display))
+            if video {
+                Text("预览显示鼠标悬停时的标题栏").font(.caption).foregroundStyle(.secondary)
+            }
         }
         .padding(.bottom, 4)
     }
@@ -264,17 +239,6 @@ struct SubtitleSettingsView: View {
         case .fittedGlass: String(localized: "贴合玻璃：只在文字后面铺毛玻璃，其余区域完全透明。")
         case .stroke: String(localized: "描边：不铺背景，文字加黑色描边和阴影。")
         case .plate: String(localized: "实底：每行文字后垫深色底块。")
-        }
-    }
-
-    private var previewExplanation: String {
-        switch presentation {
-        case .meeting:
-            String(localized: "示例文字与音波，不启动音频。对方和自己的发言按句对排列，左原文、右译文；底部状态带显示你的发声状态。")
-        case .phone:
-            String(localized: "示例通话与音波，不拨号、不启动音频。电话对方和自己的发言按句对排列；电话操作位于窗口标题栏。")
-        case .video:
-            String(localized: "示例文字，不启动音频。视频只显示原文和中文；标题栏只在鼠标悬停时出现，这里显示悬停时的样子。")
         }
     }
 }

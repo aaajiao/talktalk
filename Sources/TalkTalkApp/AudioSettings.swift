@@ -236,11 +236,13 @@ struct AudioSettingsView: View {
             if let p = sel.userPickProblem {
                 Text(problemText(p)).font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
-            DisclosureGroup("采音设备如何选择") {
-                SettingsNote("自动选择时优先使用内建麦。这里只选实体设备，不受系统默认输入影响。换麦后可单独校准音量，不必重录声音档案。")
-            }
         } header: {
-            Text("实体麦克风 · 采集你的声音")
+            HStack {
+                Text("实体麦克风 · 采集你的声音")
+                InfoButton(topic: String(localized: "采音设备"), lines: [
+                    String(localized: "自动选择时优先使用内建麦。这里只选实体设备，不受系统默认输入影响。换麦后可单独校准音量，不必重录声音档案。")
+                ])
+            }
         }
     }
 
@@ -310,13 +312,15 @@ struct AudioSettingsView: View {
             if model.loginStronglyRecommended {
                 LaunchAtLoginRow(launch: model.launch, stronglyRecommended: true)
             }
-            DisclosureGroup("默认输入如何恢复") {
-                SettingsNote("准备会议或电话同传时自动接入；停止同传或退出 TalkTalk 时自动还原。Phone 需选择“使用系统设置”；你手动更改过的输入会保留。")
-            }
         } header: {
-            Text("TalkTalk Mic · 通话输入")
+            HStack {
+                Text("TalkTalk Mic · 通话输入")
+                InfoButton(topic: String(localized: "默认输入"), lines: [
+                    String(localized: "准备会议或电话同传时自动接入；停止同传或退出 TalkTalk 时自动还原。Phone 需选择“使用系统设置”；你手动更改过的输入会保留。")
+                ])
+            }
         } footer: {
-            Text("跟随系统默认输入的应用（听写、Siri、录音等）也会接收原声或译音。视频字幕不更改默认输入。")
+            Text("跟随系统默认输入的应用（听写、Siri、录音等）也会收到原声或译音。")
         }
     }
 
@@ -346,13 +350,14 @@ struct AudioSettingsView: View {
                     Text(verbatim: h.name)
                 }
             }
-            DisclosureGroup("设备分类说明") {
-                SettingsNote("首次连接蓝牙或 USB 播放设备时，会询问它是耳机还是扬声器。选择会被记住，可随时修改或忘记。")
-            }
         } header: {
-            Text("已记住的耳机与扬声器")
-        } footer: {
-            Text("这里的设备分类不表示当前正在使用的输出。")
+            HStack {
+                Text("已记住的耳机与扬声器")
+                InfoButton(topic: String(localized: "设备分类"), lines: [
+                    String(localized: "首次连接蓝牙或 USB 播放设备时，会询问它是耳机还是扬声器。选择会被记住，可随时修改或忘记。"),
+                    String(localized: "分类不表示当前正在使用的输出。")
+                ])
+            }
         }
     }
 
@@ -363,7 +368,7 @@ struct AudioSettingsView: View {
         } header: {
             Text("会议与电话应用检查")
         } footer: {
-            Text("会议应用请选择 TalkTalk Mic；Phone 可在“音频 › 麦克风”选择“使用系统设置”，跟随 TalkTalk 的默认输入切换。")
+            Text("Phone：在其菜单栏“音频 › 麦克风”中选“使用系统设置”。")
         }
     }
 }

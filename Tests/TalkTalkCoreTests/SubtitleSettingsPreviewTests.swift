@@ -25,9 +25,6 @@ import Testing
         // Video draws its hover bar over the full-size content; meeting/phone sit below it.
         #expect(SubtitlePreviewLayout.contentHeight(for: .meeting) == 448)
         #expect(SubtitlePreviewLayout.contentHeight(for: .video) == 150)
-        #expect(SubtitlePreviewBackdrop.initial(for: .video) == .darkVideoFrame)
-        #expect(SubtitlePreviewBackdrop.initial(for: .meeting) == .lightPage)
-        #expect(SubtitlePreviewBackdrop.initial(for: .phone) == .lightPage)
     }
 
     @Test func opacitySliderIsGreyedForStrokeAndUnderReduceTransparency() {

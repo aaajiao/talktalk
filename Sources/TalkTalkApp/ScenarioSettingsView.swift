@@ -5,16 +5,12 @@ import TalkTalkAudio
 import TalkTalkCore
 import TalkTalkSession
 
-/// Settings › 使用场景 (redesign §7). Switching cards scrolls back to the top; scrolling up
-/// collapses the cards into a 32 pt segmented control. The bottom bar stays locked to the
-/// running scenario (§33) while another one is browsed, and a pinned banner says so.
+/// Settings › 使用场景 (redesign §7). The scene cards stay pinned above the form; switching
+/// cards scrolls back to the top. The bottom bar stays locked to the running scenario (§33)
+/// while another one is browsed, and a pinned banner says so.
 struct MeetingSettingsView: View {
     @Bindable var state: AppState
     @Bindable var navigation: SettingsNavigation
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    static let modes: [MeetingMode] = [.meeting, .phone, .captions]
-
     private var sessionBusy: Bool { state.meetingActive || state.meetingStarting || state.meetingStopping }
 
     private var runState: ScenarioRunState {
@@ -25,7 +21,9 @@ struct MeetingSettingsView: View {
         // Read the token so a programmatic scroll re-renders and the Form applies it.
         let _ = navigation.sceneScrollRequest
         VStack(spacing: 0) {
-            scenarioHeader
+            ScenarioCardHeader(selection: state.requestedScenario,
+                               running: state.meetingActive ? state.meetingMode : nil,
+                               startedAt: state.meetingStartedAt) { state.requestedScenario = $0 }
             if let banner = runState.banner, let running = runState.running {
                 runningBanner(banner.text, returnTitle: banner.returnTitle, running: running)
             }
@@ -46,11 +44,6 @@ struct MeetingSettingsView: View {
             .scrollPosition(navigation.sceneScrollBinding)
             .onScrollGeometryChange(for: Double.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { _, offset in
                 navigation.sceneScrollOffset = offset
-                let collapsed = navigation.sceneHeaderCollapsed
-                let next = ScenarioHeaderCollapse.collapsed(offset: offset, wasCollapsed: collapsed)
-                guard next != collapsed else { return }
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: SubtitleTokens.Motion.statusBandResize
-                    .duration(reduceMotion: false))) { navigation.sceneHeaderCollapsed = next }
             }
             scenarioActionBar
         }
@@ -61,60 +54,15 @@ struct MeetingSettingsView: View {
                 DispatchQueue.main.async { navigation.scrollScene { $0.scrollTo(y: offset) } }
             } else {
                 navigation.scrollScene { $0.scrollTo(edge: .top) }
-                navigation.sceneHeaderCollapsed = false
             }
         }
         .onChange(of: state.requestedScenario) { _, _ in
             state.onRefreshSources?()
             navigation.scrollScene { $0.scrollTo(edge: .top) }
-            navigation.sceneHeaderCollapsed = false
         }
     }
 
-    // MARK: header
-
-    @ViewBuilder private var scenarioHeader: some View {
-        Group {
-            if navigation.sceneHeaderCollapsed {
-                Picker(String(localized: "使用场景"), selection: $state.requestedScenario) {
-                    ForEach(Self.modes, id: \.self) { mode in
-                        Label(mode.scene.title, systemImage: mode.sceneSymbol).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.large)
-                // The 32 pt band is the container's; the control keeps its native height.
-                .frame(height: 32)
-                .padding(.horizontal, 20).padding(.vertical, 8)
-            } else {
-                TimelineView(.periodic(from: .now, by: sessionBusy ? 1 : 3600)) { context in
-                    HStack(spacing: 12) {
-                        ForEach(Self.modes, id: \.self) { mode in
-                            let running = state.meetingActive && state.meetingMode == mode
-                            SettingsTabButton(title: mode.scene.title, symbol: mode.sceneSymbol, summary: summary(mode),
-                                              selected: state.requestedScenario == mode, running: running,
-                                              runningSubtitle: running ? ScenarioRunState.cardSubtitle(
-                                                elapsed: state.meetingStartedAt.map { context.date.timeIntervalSince($0) }) : nil) {
-                                state.requestedScenario = mode
-                            }
-                        }
-                    }
-                }
-                .padding([.horizontal, .top], 20).padding(.bottom, 12)
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(String(localized: "使用场景"))
-    }
-
-    private func summary(_ mode: MeetingMode) -> String {
-        switch mode {
-        case .meeting: String(localized: "电脑会议 · 双向同传")
-        case .phone: String(localized: "自己的号码 · 双向同传")
-        case .captions: String(localized: "观看视频 · 双语字幕")
-        }
-    }
+    // MARK: banner
 
     private func runningBanner(_ text: String, returnTitle: String, running: MeetingMode) -> some View {
         HStack(spacing: 10) {
@@ -132,15 +80,6 @@ struct MeetingSettingsView: View {
 
     private var meetingScenario: some View {
         Section {
-            HStack {
-                Label("会议同传", systemImage: SubtitleTokens.SceneIcon.meeting).font(.headline)
-                Spacer()
-                InfoButton(topic: String(localized: "会议同传"), lines: [
-                    String(localized: "在会议应用里选 TalkTalk Mic；需要静音时，使用会议应用的静音按钮。"),
-                    String(localized: "点按右⌥开始翻译，说中文，可夹英语；再点按结束，译音播完后回到原声。")
-                ])
-            }
-            Text("听对方、看双语字幕；点按右⌥把中文译给对方").foregroundStyle(.secondary)
             sourceSelection(for: .meeting)
             VStack(alignment: .leading, spacing: 12) {
                 Text("听对方").font(.subheadline.weight(.semibold))
@@ -148,29 +87,38 @@ struct MeetingSettingsView: View {
                                    ("character.bubble", String(localized: "识别与翻译")),
                                    ("captions.bubble", String(localized: "原文＋中文字幕"))], links: [
                     1: FlowLink(String(localized: "模型设置")) { follow { navigation.openModel(.recognition) } },
-                    2: FlowLink(String(localized: "字幕设置")) { follow { openSubtitles(.meeting) } }
+                    2: FlowLink(String(localized: "字幕设置")) { follow { openSubtitles() } }
                 ])
                 Divider()
                 SpeakingLanes(mode: .meeting, follow: follow, navigation: navigation)
+            }
+        } header: {
+            HStack {
+                Text("工作方式")
+                InfoButton(topic: String(localized: "会议同传"), lines: [
+                    String(localized: "在会议应用里选 TalkTalk Mic；需要静音时，使用会议应用的静音按钮。"),
+                    String(localized: "点按右⌥开始翻译，说中文，可夹英语；再点按结束，译音播完后回到原声。")
+                ])
             }
         }
     }
 
     private var videoScenario: some View {
         Section {
-            HStack {
-                Label("视频字幕", systemImage: SubtitleTokens.SceneIcon.video).font(.headline)
-                Spacer()
-                InfoButton(topic: String(localized: "视频字幕"), lines: [String(localized: "不启用按键说话，也不更改系统默认麦克风。")])
-            }
-            Text("看视频时只收听应用声音，显示双语字幕").foregroundStyle(.secondary)
             sourceSelection(for: .captions)
             SpeechFlow(steps: [(SubtitleTokens.SceneIcon.video, String(localized: "视频声音")),
                                ("text.bubble", String(localized: "识别原文")),
                                ("captions.bubble", String(localized: "中文字幕"))], links: [
                 1: FlowLink(String(localized: "识别设置")) { follow { navigation.openModel(.recognition) } },
-                2: FlowLink(String(localized: "字幕设置")) { follow { openSubtitles(.video) } }
+                2: FlowLink(String(localized: "字幕设置")) { follow { openSubtitles() } }
             ])
+        } header: {
+            HStack {
+                Text("工作方式")
+                InfoButton(topic: String(localized: "视频字幕"), lines: [
+                    String(localized: "只收听所选应用的声音，不启用麦克风或按键说话，也不更改系统默认麦克风。")
+                ])
+            }
         }
     }
 
@@ -192,8 +140,7 @@ struct MeetingSettingsView: View {
         navigation.follow(from: state.requestedScenario, open)
     }
 
-    private func openSubtitles(_ presentation: SubtitlePanel.Presentation) {
-        navigation.subtitlePresentation = presentation
+    private func openSubtitles() {
         navigation.selection = .subtitles
     }
 

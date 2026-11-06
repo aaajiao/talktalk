@@ -45,18 +45,12 @@ struct GlossarySettingsView: View {
     @Bindable var model: GlossarySettingsModel
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("填写中文及至少一种外语译法；保存后，下次翻译请求生效。")
-                .font(.callout).foregroundStyle(.secondary)
-            DisclosureGroup("术语使用说明") {
-                Text("为产品名、人名和专业词指定译法。中文与英文名称也会帮助识别中英混说；可在备注中说明词语的用途。")
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
             ScrollView {
                 if model.rows.isEmpty {
                     ContentUnavailableView {
                         Label("还没有术语", systemImage: SubtitleTokens.SettingsIcon.glossary)
                     } description: {
-                        Text("添加产品名、人名或专业词，填写中文及至少一种外语译法。")
+                        Text("为产品名、人名和专业词指定译法，也帮助识别中英混说。")
                     }
                     .frame(maxWidth: .infinity, minHeight: 220)
                 } else {

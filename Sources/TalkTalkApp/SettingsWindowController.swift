@@ -48,10 +48,6 @@ final class SettingsNavigation {
     var modelStage: ModelSettingsStage = .recognition
     var componentsTab: ComponentsSettingsTab = .engine
     var diagnosticsTab: DiagnosticsSettingsTab = .privacy
-    var subtitlePresentation: SubtitlePanel.Presentation = .meeting
-    /// Settings › 字幕 preview backdrop per scene: a viewing aid, never saved (no @State: the
-    /// CLT toolchain has no SwiftUIMacros plugin).
-    var subtitlePreviewBackdrops: [SubtitleScene: SubtitlePreviewBackdrop] = [:]
     var selection: SettingsSection? {
         didSet {
             UserDefaults.standard.set(selection?.rawValue, forKey: Self.key)
@@ -85,7 +81,6 @@ final class SettingsNavigation {
         change(&sceneScrollStorage)
         sceneScrollRequest &+= 1
     }
-    var sceneHeaderCollapsed = false
     @ObservationIgnored private var savedSceneScrollOffset: Double?
 
     /// Opens another page from the scenario page and remembers where to come back to.
@@ -245,7 +240,11 @@ struct SettingsView: View {
             Divider()
             VStack(spacing: 0) {
                 if let scene = navigation.returnToScene, navigation.selection != .meeting {
-                    ReturnToScenePill(mode: scene, back: navigation.returnToScenePage,
+                    // 字幕's cards share the scene selection: going back restores the one named.
+                    ReturnToScenePill(mode: scene, back: {
+                        state.requestedScenario = scene
+                        navigation.returnToScenePage()
+                    },
                                       dismiss: navigation.dismissReturnToScene)
                 }
                 detail
