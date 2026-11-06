@@ -46,11 +46,11 @@ struct PhoneSettingsView: View {
                     ("character.bubble", String(localized: "识别与翻译")),
                     ("captions.bubble", String(localized: "原文＋中文字幕"))
                 ], links: [
-                    1: FlowLink(String(localized: "模型设置")) { follow { navigation.openModel(.recognition) } },
-                    2: FlowLink(String(localized: "字幕设置")) { follow { navigation.selection = .subtitles } }
+                    1: FlowLink(String(localized: "模型设置")) { open(.translation, .model(.recognition)) },
+                    2: FlowLink(String(localized: "字幕设置")) { open(.subtitles) }
                 ])
                 Divider()
-                SpeakingLanes(mode: .phone, follow: follow, navigation: navigation)
+                SpeakingLanes(mode: .phone, open: open)
             }
         } header: {
             HStack {
@@ -102,13 +102,14 @@ struct PhoneSettingsView: View {
                 Text("建议使用耳机，避免对方的声音从扬声器回到麦克风。")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("打开音频设置") { follow { navigation.selection = .audio } }
+                Button("打开音频设置") { open(.audio) }
             }
         }
     }
 
-    private func follow(_ open: @escaping () -> Void) {
-        navigation.follow(from: .phone, open)
+    /// A flow link: ReturnPill on the target page leads back to this scene and position.
+    private func open(_ section: SettingsSection, _ subpage: SettingsSubpage? = nil) {
+        navigation.open(section, subpage, scenario: .phone)
     }
 
     private func checklistRow<Content: View>(_ number: Int, status: PhoneChecklist.Status, title: String,
@@ -252,7 +253,7 @@ struct PhoneSettingsView: View {
                         if [.unavailable, .phoneLocalOnly, .remoteHearsOriginal].contains(voice.kind) {
                             Button("打开音频设置") {
                                 state.phoneStatusDetailsPresented = false
-                                follow { navigation.selection = .audio }
+                                open(.audio)
                             }
                         }
                     }

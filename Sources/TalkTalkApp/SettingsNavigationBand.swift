@@ -1,0 +1,180 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
+import SwiftUI
+import TalkTalkCloudUI
+import TalkTalkCore
+import TalkTalkDriverSupport
+import TalkTalkSettingsUI
+
+/// Z1 of the settings detail container (settings visual system §2, §6): the page's card row,
+/// pinned above the page's Form, never collapsed and never scrolled, with a native divider
+/// under it. 字幕 has its GlobalRow above the scene cards; single pages keep only the divider. The cards
+/// carry state: the running scene, and a corner badge wherever a sub-page needs something
+/// (no badge = ready), read from the models the pages already own.
+struct SettingsNavigationBand: View {
+    @Bindable var state: AppState
+    @Bindable var navigation: SettingsNavigation
+    let translation: TranslationPage
+    let driver: DriverComponentsPage
+    let subtitles: SubtitleSettingsModel
+    var engine: EngineComponentsModel = AppUIModels.shared.engine
+    var privacy: PrivacySettings = .shared
+
+    private typealias Icon = SubtitleTokens.SettingsIcon
+
+    var body: some View {
+        switch navigation.selection ?? .general {
+        case .meeting:
+            band { ScenarioCardHeader(state: state) }
+        case .subtitles:
+            band {
+                VStack(alignment: .leading, spacing: 10) {
+                    globalRow
+                    ScenarioCardHeader(state: state)
+                }
+            }
+        case .translation:
+            band {
+                CardRow(SettingsSection.translation.title, items: ModelSettingsStage.allCases.map(modelCard),
+                        selection: $navigation.modelStage, arrows: true)
+            }
+        case .components:
+            band {
+                CardRow(SettingsSection.components.title, items: ComponentsSettingsTab.allCases.map(componentsCard),
+                        selection: $navigation.componentsTab)
+            }
+        case .privacy:
+            band {
+                CardRow(SettingsSection.privacy.title, items: DiagnosticsSettingsTab.allCases.map(diagnosticsCard),
+                        selection: $navigation.diagnosticsTab)
+            }
+        case .general, .audio, .voice, .glossary:
+            // §2 Z1c: no cards, the same divider (it separates a ReturnPill from the Form).
+            Divider()
+        }
+    }
+
+    private func band<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            content()
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            Divider()
+        }
+    }
+
+    // MARK: 字幕
+
+    /// For every scene; the VoiceOver switch only while VoiceOver runs. Hiding it keeps the
+    /// preference (`ui.announceNewTranslations`).
+    private var globalRow: some View {
+        GlobalRow {
+            Toggle(isOn: $state.subtitlesVisible) {
+                Label("显示字幕", systemImage: Icon.subtitles)
+            }
+            if subtitles.voiceOverRunning {
+                Toggle(isOn: $state.announceNewTranslations) {
+                    Label("用 VoiceOver 读出新字幕", systemImage: Icon.voiceOver)
+                }
+                .help("只读定稿")
+                .accessibilityHint(String(localized: "用 VoiceOver 朗读每条定稿译文，不读草稿"))
+            }
+        }
+    }
+
+    // MARK: 模型
+
+    private func modelCard(_ stage: ModelSettingsStage) -> CardItem<ModelSettingsStage> {
+        CardItem(id: stage, title: stage.title, symbol: stage.symbol, summary: stage.summary, badge: modelBadge(stage))
+    }
+
+    private func modelBadge(_ stage: ModelSettingsStage) -> CardBadge? {
+        switch stage {
+        case .recognition:
+            return .mostSevere([
+                state.meetingActive && state.listenASRFallback ? .status(.warn, String(localized: "已转 Apple 备用")) : nil,
+                engine.record?.roles["asr"] == nil ? .status(.pending, String(localized: "识别模型未安装")) : nil
+            ])
+        case .translation:
+            return translationBadge
+        case .synthesis:
+            return engine.record?.roles["tts"] == nil ? .status(.pending, String(localized: "合成模型未安装")) : nil
+        }
+    }
+
+    /// OpenAI in use shows `network`; with OpenAI chosen but no key, a failed check or a retirement
+    /// notice, a warning. Nothing until the page's model has answered whether the key item exists
+    /// (a metadata query; the key is never read), so no false "无 key" flashes on first open.
+    private var translationBadge: CardBadge? {
+        guard let model = translation.model, model.keyStateKnown else { return nil }
+        let prefs = model.preferences
+        guard prefs.cloudConsentGiven, prefs.listenCloudEnabled || prefs.speakCloudEnabled else { return nil }
+        guard model.hasKey else { return .status(.warn, String(localized: "无 key → Apple")) }
+        let warning: String?
+        if case .failed = model.verification {
+            warning = String(localized: "key 未通过验证")
+        } else {
+            switch model.retirement {
+            case .fellBackToDefault: warning = String(localized: "所选模型已下线")
+            case .defaultRetiring: warning = String(localized: "模型即将下线")
+            case .keep, nil: warning = nil
+            }
+        }
+        guard let warning else { return .cloud(String(localized: "已启用 OpenAI")) }
+        // The one corner shows the warning; its help and VoiceOver still say text goes to OpenAI (§5.4).
+        return .status(.warn, String(localized: "\(warning) · 已启用 OpenAI"))
+    }
+
+    // MARK: 组件
+
+    private func componentsCard(_ tab: ComponentsSettingsTab) -> CardItem<ComponentsSettingsTab> {
+        CardItem(id: tab, title: tab.title, symbol: tab.symbol, summary: tab.summary,
+                 badge: tab == .engine ? engineBadge : driverBadge)
+    }
+
+    /// Install, update or repair needed: warn; a damaged record: failed.
+    private var engineBadge: CardBadge? {
+        switch engine.state {
+        case .installed: nil
+        case .notInstalled: .status(.warn, String(localized: "未安装"))
+        case .outdated: .status(.warn, String(localized: "可更新"))
+        case .incompatible: .status(.warn, String(localized: "需更新运行时"))
+        case let .incomplete(missing, _): .status(.warn, String(localized: "缺 \(missing.count) 个文件"))
+        case .unfinished: .status(.warn, String(localized: "未完成"))
+        case .damaged: .status(.failed, String(localized: "记录损坏"))
+        }
+    }
+
+    /// Read once the page has built the driver model (its first appearance).
+    private var driverBadge: CardBadge? {
+        guard let model = driver.model else { return nil }
+        switch model.state {
+        case .loaded: return nil
+        case .notInstalled:
+            return model.carriesDriver ? .status(.warn, String(localized: "未安装"))
+                : .status(.pending, String(localized: "此版本未带驱动"))
+        case .onDiskNotLoaded: return .status(.warn, String(localized: "需重启音频服务"))
+        case .outdated: return .status(.warn, String(localized: "可更新"))
+        case .selfTestFailed: return .status(.warn, String(localized: "自检未通过"))
+        case .damaged: return .status(.failed, String(localized: "有问题"))
+        }
+    }
+
+    // MARK: 隐私与诊断
+
+    private func diagnosticsCard(_ tab: DiagnosticsSettingsTab) -> CardItem<DiagnosticsSettingsTab> {
+        CardItem(id: tab, title: tab.title, symbol: tab.symbol, summary: tab.summary, badge: diagnosticsBadge(tab))
+    }
+
+    private func diagnosticsBadge(_ tab: DiagnosticsSettingsTab) -> CardBadge? {
+        switch tab {
+        case .privacy:
+            return nil
+        case .subtitles:
+            let analysis = privacy.subtitleAnalysis
+            return analysis.isRecording || analysis.isStarting
+                ? .analysing(String(localized: "正在保存字幕文字")) : nil
+        case .troubleshooting:
+            return privacy.recorder.recordingTracks.isEmpty ? nil : .status(.recording, String(localized: "诊断录音中"))
+        }
+    }
+}

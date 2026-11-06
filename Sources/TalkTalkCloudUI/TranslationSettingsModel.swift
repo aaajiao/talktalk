@@ -32,6 +32,9 @@ public final class TranslationSettingsModel {
     public static let yellowReasoningBudget = 64
 
     public private(set) var keyState: KeyState = .none
+    /// False until the first metadata query answers (or a save or delete sets the state): until
+    /// then `keyState == .none` means "not known yet", not "no key".
+    public private(set) var keyStateKnown = false
     public var pasteField = ""
     public private(set) var pasteProblem: String?
     public private(set) var savedHint: String?
@@ -41,6 +44,9 @@ public final class TranslationSettingsModel {
     public private(set) var probe: Check = .idle
     public private(set) var picker = ModelFilter.picker([], current: nil)
     public private(set) var notice: String?
+    /// Which retirement `notice` reports: `.fellBackToDefault` (already switched) or
+    /// `.defaultRetiring` (still in use, going away). Nil with no notice.
+    public private(set) var retirement: ModelFilter.Resolution?
     public var pendingYellow: YellowConfirmation?
 
     public private(set) var preferences: TranslationPreferences
@@ -119,6 +125,7 @@ public final class TranslationSettingsModel {
         guard revision == keyStateRevision, keyStateLoad != nil else { return }
         keyStateLoad = nil
         keyState = exists ? .saved(masked: String(localized: "已保存")) : .none
+        keyStateKnown = true
     }
 
     private func invalidateKeyStateLoad() {
@@ -156,6 +163,7 @@ public final class TranslationSettingsModel {
         client = nil        // the next request reads the new key
         invalidateKeyStateLoad()
         keyState = .saved(masked: masked)
+        keyStateKnown = true
         await verify()
     }
 
@@ -190,6 +198,7 @@ public final class TranslationSettingsModel {
         invalidateKeyStateLoad()
         client = nil
         keyState = .none
+        keyStateKnown = true
         verification = .idle
         listing = .idle
         probe = .idle
@@ -224,15 +233,18 @@ public final class TranslationSettingsModel {
         switch r {
         case .keep: break
         case .fellBackToDefault(let from):
-            if preferences.notifiedRetiredFrom != from { notice = TranslationSettingsText.retirementNotice(r) }
+            if preferences.notifiedRetiredFrom != from { notice = TranslationSettingsText.retirementNotice(r); retirement = r }
             update { $0.model = ModelFilter.defaultModel; $0.effort = "none"; $0.notifiedRetiredFrom = from }
         case .defaultRetiring:
-            if !preferences.notifiedDefaultRetiring { notice = TranslationSettingsText.retirementNotice(r) }
+            if !preferences.notifiedDefaultRetiring { notice = TranslationSettingsText.retirementNotice(r); retirement = r }
             update { $0.notifiedDefaultRetiring = true }
         }
     }
 
-    public func dismissNotice() { notice = nil }
+    public func dismissNotice() {
+        notice = nil
+        retirement = nil
+    }
 
     /// Picking a model: probe with effort none; a model that rejects none (or is known not to
     /// support it) asks for the yellow-path confirmation instead of switching.

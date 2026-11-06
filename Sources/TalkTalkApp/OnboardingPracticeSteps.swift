@@ -44,7 +44,7 @@ struct MeetingMicStep: View {
                 ])
                 Divider()
                 // The scenario page's two lanes, with the titlebar's own capsules and keycap.
-                SpeakingLanes(mode: .meeting, follow: nil, navigation: nil)
+                SpeakingLanes(mode: .meeting, open: nil)
             }
         }
         .onAppear { model.beginMeetingMicCheck() }
@@ -203,17 +203,11 @@ struct ScenarioChoiceStep: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("你会用 TalkTalk 做什么？").font(.title2.bold())
             SettingsNote("可以多选。只看视频时，引导只准备应用声音、语音识别和语音资源。")
-            HStack(spacing: 12) {
-                ForEach(OnboardingScenario.allCases, id: \.self) { scenario in
-                    let mode = OnboardingFlowModel.mode(scenario)
-                    SettingsTabButton(title: mode.scene.title, symbol: mode.sceneSymbol, summary: mode.sceneSummary,
-                                      selected: model.selectedScenarios.contains(scenario), multiSelect: true) {
-                        model.toggleScenario(scenario)
-                    }
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(String(localized: "使用场景，可多选"))
+            // The settings window's scene cards (settings visual system §3.1), each one a toggle.
+            CardRow(String(localized: "使用场景，可多选"), items: OnboardingScenario.allCases.map { scenario in
+                let mode = OnboardingFlowModel.mode(scenario)
+                return CardItem(id: scenario, title: mode.scene.title, symbol: mode.sceneSymbol, summary: mode.sceneSummary)
+            }, selected: model.selectedScenarios) { model.toggleScenario($0) }
         }
     }
 }

@@ -4,9 +4,9 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkSettingsUI
 
-// Shared pieces of the scenario pages and onboarding (redesign §7): flow node cards, the two
-// speaking lanes with the subtitle window's own capsule and keycap, and the "‹ 返回" pill. The
-// capsule, keycap, ⓘ and the status vocabulary live in TalkTalkSettingsUI.
+// Shared pieces of the scenario pages and onboarding (redesign §7): flow node cards and the two
+// speaking lanes with the subtitle window's own capsule and keycap. The capsule, keycap, ⓘ,
+// ReturnPill and the status vocabulary live in TalkTalkSettingsUI.
 
 /// A link under a flow node ("模型设置 ›").
 struct FlowLink {
@@ -91,15 +91,14 @@ struct SpeechFlow: View {
 /// with the loop note between them. Capsules and keycap are the subtitle window's components.
 struct SpeakingLanes: View {
     let mode: MeetingMode
-    /// Opens another settings page and offers "‹ 返回 <场景>" there. nil (onboarding): the
+    /// Opens another settings page and offers ReturnPill back there. nil (onboarding): the
     /// lanes show without links.
-    let follow: ((_ open: @escaping () -> Void) -> Void)?
-    let navigation: SettingsNavigation?
+    let open: ((SettingsSection, SettingsSubpage?) -> Void)?
 
-    /// A flow link that opens `page` in settings; none without settings navigation.
-    private func link(_ title: String, _ page: @escaping (SettingsNavigation) -> Void) -> FlowLink? {
-        guard let follow, let navigation else { return nil }
-        return FlowLink(title) { follow { page(navigation) } }
+    /// A flow link to a settings page; none without settings navigation.
+    private func link(_ title: String, _ section: SettingsSection, _ subpage: SettingsSubpage? = nil) -> FlowLink? {
+        guard let open else { return nil }
+        return FlowLink(title) { open(section, subpage) }
     }
 
     private var phone: Bool { mode == .phone }
@@ -114,7 +113,7 @@ struct SpeakingLanes: View {
                        title: String(localized: "默认 · 原声"))
             HStack(spacing: 8) {
                 FlowNodeCard(symbol: SubtitleTokens.SettingsIcon.physicalMic, title: String(localized: "麦克风"),
-                             link: link(String(localized: "麦克风设置")) { $0.selection = .audio })
+                             link: link(String(localized: "麦克风设置"), .audio))
                 FlowArrow()
                 FlowNodeCard(symbol: SubtitleTokens.SettingsIcon.talkTalkMic, title: "TalkTalk Mic")
                 FlowArrow()
@@ -132,10 +131,10 @@ struct SpeakingLanes: View {
                 }
                 FlowArrow()
                 FlowNodeCard(symbol: "character.bubble", title: String(localized: "识别与翻译"),
-                             link: link(String(localized: "翻译设置")) { $0.openModel(.translation) })
+                             link: link(String(localized: "翻译设置"), .translation, .model(.translation)))
                 FlowArrow()
                 FlowNodeCard(symbol: SubtitleTokens.SettingsIcon.myVoice, title: String(localized: "我的声音"),
-                             link: link(String(localized: "声音与试听")) { $0.selection = .voice })
+                             link: link(String(localized: "声音与试听"), .voice))
                 FlowArrow()
                 // The same audience as the original lane: the lane headers say what it hears.
                 FlowNodeCard(symbol: remoteSymbol, title: String(localized: "对方听英语／德语"))
@@ -149,34 +148,6 @@ struct SpeakingLanes: View {
             VoiceCapsule(state: voice).accessibilityLabel(voice.title)
             Text(title).font(.callout.weight(.medium))
         }
-    }
-}
-
-/// "‹ 返回 会议同传" at the top of a page reached from a scenario's flow link (§7).
-struct ReturnToScenePill: View {
-    let mode: MeetingMode
-    let back: () -> Void
-    let dismiss: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Button(action: back) {
-                Label(String(localized: "返回 \(mode.scene.title)"), systemImage: "chevron.left")
-            }
-            .buttonStyle(.plain)
-            Button(action: dismiss) {
-                Image(systemName: "xmark").imageScale(.small)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help(String(localized: "关闭"))
-            .accessibilityLabel(String(localized: "关闭返回提示"))
-        }
-        .font(.callout)
-        .padding(.horizontal, 12).padding(.vertical, 5)
-        .background(Capsule().fill(.quaternary))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 4)
     }
 }
 

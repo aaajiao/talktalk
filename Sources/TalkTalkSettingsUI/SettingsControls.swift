@@ -122,16 +122,20 @@ public struct InfoButton: NSViewRepresentable {
 
 /// An icon-only action (§3.10): borderless, 13 pt regular, 22 × 22 click area, secondary. Use
 /// the fixed glyph for the action (`SettingsIcon.refresh`, `.reset`, `.remove`, `.add`,
-/// `.close`, `.copy`, `.finder`, `.verify`, `.delete`, `.cancel`, `.openApp`). `help` is both
-/// the tooltip and the VoiceOver label. Destructive actions turn red only in their confirmation.
+/// `.close`, `.copy`, `.finder`, `.verify`, `.delete`, `.cancel`, `.openApp`). `help` is the
+/// tooltip and, unless `accessibilityLabel` names more, the VoiceOver label. Destructive actions
+/// turn red only in their confirmation.
 public struct IconButton: View {
     private let symbol: String
     private let help: String
+    private let label: String
     private let action: () -> Void
 
-    public init(_ symbol: String, help: String, action: @escaping () -> Void) {
+    /// `accessibilityLabel`: when the help alone does not name the object ("关闭" → "关闭返回提示").
+    public init(_ symbol: String, help: String, accessibilityLabel: String? = nil, action: @escaping () -> Void) {
         self.symbol = symbol
         self.help = help
+        self.label = accessibilityLabel ?? help
         self.action = action
     }
 
@@ -145,7 +149,7 @@ public struct IconButton: View {
         .buttonStyle(.borderless)
         .foregroundStyle(.secondary)
         .help(help)
-        .accessibilityLabel(help)
+        .accessibilityLabel(label)
     }
 }
 

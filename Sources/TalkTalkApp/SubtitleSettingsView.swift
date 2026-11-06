@@ -1,12 +1,36 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
+import AppKit
+import Observation
 import SwiftUI
 import TalkTalkCore
 import TalkTalkSession
 import TalkTalkSettingsUI
 
-/// Settings › 字幕 (redesign §7 字幕页). The pinned scene cards are the same as 使用场景's and
-/// share its selection: they only choose which scene's settings are edited and never start or
-/// switch a session.
+/// Whether VoiceOver runs (settings visual system §7.4): 字幕's "用 VoiceOver 读出新字幕"
+/// shows only then. `isVoiceOverEnabled` is KVO-observable (NSAccessibility.h; SubtitlePanel
+/// observes it too); the callback is not on the main thread, so it hops to the main actor
+/// before writing. Hiding the switch never clears `ui.announceNewTranslations`.
+@MainActor
+@Observable
+final class SubtitleSettingsModel {
+    private(set) var voiceOverRunning = NSWorkspace.shared.isVoiceOverEnabled
+    @ObservationIgnored private var observation: NSKeyValueObservation?
+
+    init() {
+        observation = NSWorkspace.shared.observe(\.isVoiceOverEnabled, options: [.new]) { @Sendable [weak self] _, change in
+            let running = change.newValue
+            Task { @MainActor in
+                guard let self else { return }
+                let now = running ?? NSWorkspace.shared.isVoiceOverEnabled
+                if self.voiceOverRunning != now { self.voiceOverRunning = now }
+            }
+        }
+    }
+}
+
+/// Settings › 字幕 (redesign §7 字幕页). The scene cards in the window's fixed band, under the
+/// page-wide switches, are the same as 使用场景's and share its selection: they only choose
+/// which scene's settings are edited and never start or switch a session.
 struct SubtitleSettingsView: View {
     @Bindable var state: AppState
     @Bindable var navigation: SettingsNavigation
@@ -63,20 +87,8 @@ struct SubtitleSettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScenarioCardHeader(selection: state.requestedScenario,
-                               running: state.meetingActive ? state.meetingMode : nil,
-                               startedAt: state.meetingStartedAt) { state.requestedScenario = $0 }
-
             Form {
                 Section {
-                    Toggle(isOn: $state.subtitlesVisible) {
-                        Label("显示字幕（所有场景）", systemImage: "captions.bubble")
-                    }
-                    Toggle(isOn: $state.announceNewTranslations) {
-                        Label("朗读新译文（VoiceOver）", systemImage: "voiceover")
-                    }
-                    .help("用 VoiceOver 朗读每条定稿译文，不读草稿")
-                    .accessibilityHint(String(localized: "用 VoiceOver 朗读每条定稿译文，不读草稿"))
                 } footer: {
                     // The preview sits in a footer: no grouped card around the window picture
                     // (macOS grouped forms ignore listRowBackground).
@@ -140,7 +152,11 @@ struct SubtitleSettingsView: View {
                 }
             }
             .formStyle(.grouped)
+            .id(state.requestedScenario)
+            .settingsPageScroll(navigation, subpage: state.requestedScenario)
         }
+        // The scene cards warn about a chosen app that is not running.
+        .onAppear { state.onRefreshSources?() }
     }
 
     private var windowNotes: [String] {

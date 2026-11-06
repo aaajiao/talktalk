@@ -15,14 +15,15 @@ enum DiagnosticsSettingsTab: String, CaseIterable, Identifiable {
     }
     var symbol: String {
         switch self {
-        case .privacy: "hand.raised"
-        case .subtitles: "captions.bubble"
-        case .troubleshooting: "stethoscope"
+        case .privacy: SubtitleTokens.SettingsIcon.Page.privacy
+        case .subtitles: SubtitleTokens.SettingsIcon.subtitles
+        case .troubleshooting: SubtitleTokens.SettingsIcon.troubleshooting
         }
     }
+    /// The card's help and VoiceOver hint (settings visual system §3.1).
     var summary: String {
         switch self {
-        case .privacy: String(localized: "存储与清理")
+        case .privacy: String(localized: "去向与保留")
         case .subtitles: String(localized: "检查本次字幕")
         case .troubleshooting: String(localized: "自检与导出")
         }
@@ -30,18 +31,17 @@ enum DiagnosticsSettingsTab: String, CaseIterable, Identifiable {
 }
 
 /// Settings › 隐私与诊断 (ARCHITECTURE.md §11, §12). View state lives in `PrivacySettings`
-/// (an @Observable model): CLT has no SwiftUI macro plugin, so no @State here.
+/// (an @Observable model): CLT has no SwiftUI macro plugin, so no @State here. The sub-page
+/// cards sit in the window's fixed band; the recording status stays pinned above the Form.
 struct DiagnosticsView: View {
     @Bindable var model: PrivacySettings
     @Bindable var navigation: SettingsNavigation
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SettingsSubpagePicker(label: String(localized: "隐私与诊断分类"), selection: $navigation.diagnosticsTab,
-                                  pages: DiagnosticsSettingsTab.allCases, title: \.title, symbol: \.symbol,
-                                  summary: \.summary)
-                .padding([.horizontal, .top], 20)
-            activeRecordingStatus.padding(.horizontal, 20)
+        VStack(alignment: .leading, spacing: 0) {
+            if showsRecordingStatus {
+                activeRecordingStatus.padding(.horizontal, 20).padding(.top, 8)
+            }
             Form {
                 switch navigation.diagnosticsTab {
                 case .privacy:
@@ -53,7 +53,7 @@ struct DiagnosticsView: View {
                         SpeechFlow(steps: [("play.rectangle", String(localized: "开始收听")),
                                            ("record.circle", String(localized: "开启本次分析")),
                                            ("doc.text.magnifyingglass", String(localized: "查看本地记录"))], links: [
-                            0: .init(String(localized: "选择使用场景")) { navigation.selection = .meeting }
+                            0: .init(String(localized: "选择使用场景")) { navigation.open(.meeting) }
                         ])
                     }
                     Section { subtitleAnalysis } header: { Text("本次分析") }
@@ -77,6 +77,7 @@ struct DiagnosticsView: View {
             .formStyle(.grouped)
             .id(navigation.diagnosticsTab)
         }
+        .settingsPageScroll(navigation, subpage: navigation.diagnosticsTab)
         .onAppear { model.diagnosticsStatus.refresh() }
         .confirmationDialog(String(localized: "删除本场诊断录音？"), isPresented: $model.confirmDiscardRecording) {
             Button(String(localized: "删除"), role: .destructive) { model.recorder.discardCurrent() }
@@ -89,6 +90,11 @@ struct DiagnosticsView: View {
         } message: {
             Text(String(localized: "对方的声音只能在会议进行时、经你当场确认所有参与者都同意之后才录。"))
         }
+    }
+
+    private var showsRecordingStatus: Bool {
+        model.subtitleAnalysis.isStarting || model.subtitleAnalysis.isRecording
+            || !model.recorder.recordingTracks.isEmpty || model.recorder.micAndTTSArmed
     }
 
     @ViewBuilder private var activeRecordingStatus: some View {
@@ -292,7 +298,7 @@ struct DiagnosticsView: View {
             SpeechFlow(steps: [("desktopcomputer", String(localized: "声音留在本机")),
                                ("text.bubble", String(localized: "识别为文字")),
                                ("cloud", String(localized: "可选云端翻译"))], links: [
-                2: .init(String(localized: "翻译设置")) { navigation.openModel(.translation) }
+                2: .init(String(localized: "翻译设置")) { navigation.open(.translation, .model(.translation)) }
             ])
             note(String(localized: "语音识别与合成在本机完成，音频和声音档案不上传。只有启用 OpenAI 时，才发送待翻译文字、短上下文和相关术语。"))
             DisclosureGroup(String(localized: "密钥与常规日志")) {

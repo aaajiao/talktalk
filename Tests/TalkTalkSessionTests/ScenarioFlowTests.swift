@@ -48,7 +48,6 @@ import TalkTalkCore
         #expect(other.banner?.returnTitle == "回到会议同传")
         #expect(ScenarioRunState(running: nil, browsing: .phone).runningLine(source: nil) == nil)
         #expect(ScenarioRunState(running: .phone, browsing: .phone).runningLine(source: nil) == "正在运行：电话同传 · Phone")
-        #expect(ScenarioRunState.cardSubtitle(elapsed: 723) == "运行中 · 12:03")
     }
 
     @Test func browserNoteOnlyForBrowsers() {

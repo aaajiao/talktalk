@@ -18,12 +18,13 @@ extension MeetingMode {
     /// The scene's unified icon (§2 图标).
     public var sceneSymbol: String { scene.symbol }
 
-    /// The scene card's one-line summary (settings header, onboarding).
+    /// The scene card's purpose (settings visual system §3.1): only its help and VoiceOver hint;
+    /// the card itself shows no summary line.
     public var sceneSummary: String {
         switch self {
         case .meeting: String(localized: "电脑会议 · 双向同传")
-        case .phone: String(localized: "自己的号码 · 双向同传")
-        case .captions: String(localized: "观看视频 · 双语字幕")
+        case .phone: String(localized: "iPhone 号码 · 双向同传")
+        case .captions: String(localized: "看视频 · 双语字幕")
         }
     }
 }
@@ -49,17 +50,6 @@ public enum ScenarioPreferences {
 
     public static func setLast(_ mode: MeetingMode, defaults: UserDefaults = .standard) {
         defaults.set(mode.rawValue, forKey: lastKey)
-    }
-}
-
-/// Elapsed session time for the menu header and the running scenario card: "12:03", "1:02:03".
-public enum SessionClock {
-    public static func elapsed(_ seconds: TimeInterval) -> String {
-        let total = seconds.isFinite ? max(0, Int(seconds)) : 0
-        let hours = total / 3600, minutes = (total % 3600) / 60, rest = total % 60
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, rest)
-            : String(format: "%d:%02d", minutes, rest)
     }
 }
 
@@ -147,12 +137,6 @@ public struct ScenarioRunState: Sendable, Equatable {
         guard let running, running != browsing else { return nil }
         return (String(localized: "\(running.scene.title)正在运行，结束后才能开始\(browsing.scene.title)"),
                 String(localized: "回到\(running.scene.title)"))
-    }
-
-    /// The running card's subtitle: "运行中 · 12:03".
-    public static func cardSubtitle(elapsed: TimeInterval?) -> String {
-        guard let elapsed else { return String(localized: "运行中") }
-        return String(localized: "运行中 · \(SessionClock.elapsed(elapsed))")
     }
 }
 

@@ -126,7 +126,9 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
     @Test func existingKeyStateDoesNotReadSecretOrBlockMainThread() async throws {
         let store = MemoryKeyStore(fakeKey)
         let m = try make(store)
+        #expect(!m.keyStateKnown)                               // .none means "not known yet"
         await m.loadKeyState()
+        #expect(m.keyStateKnown)
         #expect(m.keyState == .saved(masked: "已保存"))
         #expect(store.reads == 0)
         #expect(!store.queriedOnMain)
@@ -198,9 +200,11 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         #expect(m.picker.snapshots.map(\.id) == ["gpt-6-luna-2026-10-01"])
         #expect(m.preferences.model == "gpt-6-luna")
         #expect(m.notice?.contains("gpt-6-oldtier") == true)
+        #expect(m.retirement == .fellBackToDefault(from: "gpt-6-oldtier"))
         #expect(TranslationPreferences.load(d).model == "gpt-6-luna")
         // Shown once: a second load does not notify again.
         m.dismissNotice()
+        #expect(m.retirement == nil)
         var q = TranslationPreferences.load(d); q.model = "gpt-6-oldtier"; q.save(d)
         let m2 = try make(MemoryKeyStore(fakeKey), defaults: d)
         await m2.loadModels()
@@ -225,6 +229,7 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         m.deleteKey()
         #expect(!store.exists())
         #expect(m.keyState == .none)
+        #expect(m.keyStateKnown)
         #expect(!m.hasKey)
     }
 

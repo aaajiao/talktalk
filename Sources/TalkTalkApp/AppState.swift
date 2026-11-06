@@ -75,6 +75,8 @@ final class AppState {
     }
     /// Selected engine and actual backend may differ when Qwen falls back to Apple.
     var listenASRStatus: String?
+    /// Qwen3-ASR was chosen but Apple Speech took over (the 语音识别 card's warning).
+    var listenASRFallback = false
     @ObservationIgnored var onListenConfigurationChange: (() -> Void)?
 
     var subtitlesVisible: Bool {

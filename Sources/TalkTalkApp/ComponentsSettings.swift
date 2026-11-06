@@ -14,30 +14,28 @@ enum ComponentsSettingsTab: CaseIterable, Identifiable {
         }
     }
 
-    var symbol: String { self == .engine ? "cpu" : SubtitleTokens.SettingsIcon.talkTalkMic }
+    var symbol: String {
+        self == .engine ? SubtitleTokens.SettingsIcon.engine : SubtitleTokens.SettingsIcon.talkTalkMic
+    }
 
+    /// The card's help and VoiceOver hint (settings visual system §3.1).
     var summary: String {
         switch self {
-        case .engine: String(localized: "语音识别 · 语音合成")
-        case .driver: String(localized: "TalkTalk Mic · 连接会议应用")
+        case .engine: String(localized: "本地识别与合成")
+        case .driver: String(localized: "把声音送进会议")
         }
     }
 }
 
-/// Component installation pages share the model page's tab navigation. Their owners survive
-/// switching tabs, preserving installer progress and confirmation/blocking rules.
+/// Component installation pages; their cards sit in the window's fixed band. The owners survive
+/// switching cards, preserving installer progress and confirmation/blocking rules.
 struct ComponentsSettingsView: View {
     @Bindable var navigation: SettingsNavigation
     let engine: EngineComponentsModel
     let driver: DriverComponentsPage
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SettingsSubpagePicker(label: String(localized: "组件分类"), selection: $navigation.componentsTab,
-                                  pages: ComponentsSettingsTab.allCases, title: \.title, symbol: \.symbol,
-                                  summary: \.summary)
-                .padding([.horizontal, .top], 20)
-
+        VStack(spacing: 0) {
             Form {
                 switch navigation.componentsTab {
                 case .engine:
@@ -62,6 +60,7 @@ struct ComponentsSettingsView: View {
             .formStyle(.grouped)
             .id(navigation.componentsTab)
         }
+        .settingsPageScroll(navigation, subpage: navigation.componentsTab)
         .onAppear { engine.reload(); driver.load() }
     }
 }

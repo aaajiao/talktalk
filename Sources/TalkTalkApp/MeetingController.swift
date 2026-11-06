@@ -318,6 +318,7 @@ final class MeetingController {
 
     private func makeListenASR(log: EventLog, configuration: UInt64, sessionID: UUID,
                                jobs: JobIDSequence) -> any StreamingASREngine {
+        state.listenASRFallback = false
         if state.listenASREngine == .apple {
             state.listenASRStatus = String(localized: "Apple Speech（准备中）")
             return AppleSpeechASR()
@@ -331,6 +332,7 @@ final class MeetingController {
                 Task { @MainActor in
                     guard let self, self.subtitleSessionID == sessionID, self.listenRequestID == requestID,
                           self.session?.listenConfigurationID == configuration else { return }
+                    self.state.listenASRFallback = engine.placement != .engineGPU
                     self.state.listenASRStatus = engine.placement == .engineGPU
                         ? "Qwen3-ASR" : String(localized: "Apple Speech（Qwen 不可用，备用接管）")
                 }

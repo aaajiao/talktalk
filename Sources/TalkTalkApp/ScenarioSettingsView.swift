@@ -6,9 +6,9 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkSettingsUI
 
-/// Settings › 使用场景 (redesign §7). The scene cards stay pinned above the form; switching
-/// cards scrolls back to the top. The bottom bar stays locked to the running scenario (§33)
-/// while another one is browsed, and a pinned banner says so.
+/// Settings › 使用场景 (redesign §7). The scene cards sit in the window's fixed band
+/// (ScenarioCardHeader); switching cards scrolls back to the top. The bottom bar stays locked to
+/// the running scenario (§33) while another one is browsed, and a pinned banner says so.
 struct MeetingSettingsView: View {
     @Bindable var state: AppState
     @Bindable var navigation: SettingsNavigation
@@ -19,12 +19,7 @@ struct MeetingSettingsView: View {
     }
 
     var body: some View {
-        // Read the token so a programmatic scroll re-renders and the Form applies it.
-        let _ = navigation.sceneScrollRequest
         VStack(spacing: 0) {
-            ScenarioCardHeader(selection: state.requestedScenario,
-                               running: state.meetingActive ? state.meetingMode : nil,
-                               startedAt: state.meetingStartedAt) { state.requestedScenario = $0 }
             if let banner = runState.banner, let running = runState.running {
                 runningBanner(banner.text, returnTitle: banner.returnTitle, running: running)
             }
@@ -42,25 +37,12 @@ struct MeetingSettingsView: View {
             }
             .formStyle(.grouped)
             .id(state.requestedScenario)
-            .scrollPosition(navigation.sceneScrollBinding)
-            .onScrollGeometryChange(for: Double.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { _, offset in
-                navigation.sceneScrollOffset = offset
-            }
+            // Back from a flow link's page: the previous position; otherwise the top.
+            .settingsPageScroll(navigation, subpage: state.requestedScenario)
             scenarioActionBar
         }
-        .onAppear {
-            state.onRefreshSources?()
-            // Back from a flow link's page: the previous position; otherwise the top.
-            if let offset = navigation.takeSceneScrollRestore() {
-                DispatchQueue.main.async { navigation.scrollScene { $0.scrollTo(y: offset) } }
-            } else {
-                navigation.scrollScene { $0.scrollTo(edge: .top) }
-            }
-        }
-        .onChange(of: state.requestedScenario) { _, _ in
-            state.onRefreshSources?()
-            navigation.scrollScene { $0.scrollTo(edge: .top) }
-        }
+        .onAppear { state.onRefreshSources?() }
+        .onChange(of: state.requestedScenario) { _, _ in state.onRefreshSources?() }
     }
 
     // MARK: banner
@@ -87,11 +69,11 @@ struct MeetingSettingsView: View {
                 SpeechFlow(steps: [(SubtitleTokens.SettingsIcon.remote, String(localized: "对方说英语／德语")),
                                    ("character.bubble", String(localized: "识别与翻译")),
                                    ("captions.bubble", String(localized: "原文＋中文字幕"))], links: [
-                    1: FlowLink(String(localized: "模型设置")) { follow { navigation.openModel(.recognition) } },
-                    2: FlowLink(String(localized: "字幕设置")) { follow { openSubtitles() } }
+                    1: FlowLink(String(localized: "模型设置")) { open(.translation, .model(.recognition)) },
+                    2: FlowLink(String(localized: "字幕设置")) { open(.subtitles) }
                 ])
                 Divider()
-                SpeakingLanes(mode: .meeting, follow: follow, navigation: navigation)
+                SpeakingLanes(mode: .meeting, open: open)
             }
         } header: {
             HStack {
@@ -110,8 +92,8 @@ struct MeetingSettingsView: View {
             SpeechFlow(steps: [(SubtitleTokens.SceneIcon.video, String(localized: "视频声音")),
                                ("text.bubble", String(localized: "识别原文")),
                                ("captions.bubble", String(localized: "中文字幕"))], links: [
-                1: FlowLink(String(localized: "识别设置")) { follow { navigation.openModel(.recognition) } },
-                2: FlowLink(String(localized: "字幕设置")) { follow { openSubtitles() } }
+                1: FlowLink(String(localized: "识别设置")) { open(.translation, .model(.recognition)) },
+                2: FlowLink(String(localized: "字幕设置")) { open(.subtitles) }
             ])
         } header: {
             HStack {
@@ -137,12 +119,9 @@ struct MeetingSettingsView: View {
         }
     }
 
-    private func follow(_ open: @escaping () -> Void) {
-        navigation.follow(from: state.requestedScenario, open)
-    }
-
-    private func openSubtitles() {
-        navigation.selection = .subtitles
+    /// A flow link: ReturnPill on the target page leads back to this scene and position.
+    private func open(_ section: SettingsSection, _ subpage: SettingsSubpage? = nil) {
+        navigation.open(section, subpage, scenario: state.requestedScenario)
     }
 
     // MARK: source

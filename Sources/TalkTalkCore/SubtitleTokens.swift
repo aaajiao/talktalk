@@ -340,6 +340,17 @@ public enum SubtitleTokens {
         public static let glossary = "character.book.closed"
         public static let headphones = "headphones"
         public static let speaker = "hifispeaker"
+        /// 隐私与诊断 › 故障检查.
+        public static let troubleshooting = "stethoscope"
+        /// 字幕 › 用 VoiceOver 读出新字幕.
+        public static let voiceOver = "voiceover"
+        /// A feature this build lacks (ContentUnavailableView "此构建不可用").
+        public static let unavailable = "xmark.circle"
+
+        // Navigation (§3.1, §3.13): the arrow between the model page's cards and the ReturnPill's
+        // leading chevron.
+        public static let flowArrow = "arrow.right"
+        public static let back = "chevron.left"
 
         // Icon buttons (§3.10): one fixed glyph per action.
         public static let refresh = "arrow.clockwise"

@@ -23,10 +23,12 @@ let package = Package(
         ),
         .testTarget(name: "TalkTalkCoreTests", dependencies: ["TalkTalkCore"]),
         // Settings visual system (docs/decisions/2026-11-06-settings-visual-system.md §3.0): the
-        // status vocabulary, icon buttons, fact chips, section headers and row style, and the
-        // subtitle window's own capsule, keycap and style factories, shared by the app, the cloud
-        // settings, the driver page and enrollment. Core only: no session state.
+        // status vocabulary, icon buttons, fact chips, section headers and row style, the card
+        // navigation and ReturnPill, and the subtitle window's own capsule, keycap and style
+        // factories, shared by the app, the cloud settings, the driver page and enrollment. Core
+        // only: no session state.
         .target(name: "TalkTalkSettingsUI", dependencies: ["TalkTalkCore"]),
+        .testTarget(name: "TalkTalkSettingsUITests", dependencies: ["TalkTalkSettingsUI"]),
         .testTarget(name: "TalkTalkCloudTests", dependencies: ["TalkTalkCloud"]),
         // m0-voice: real-time C core (§2.2: [[clang::nonblocking]] checked by -Wfunction-effects) and
         // the "my voice" enrollment (§9, §13).

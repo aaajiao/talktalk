@@ -5,6 +5,7 @@ import TalkTalkAudio
 import TalkTalkCloudUI
 import TalkTalkCore
 import TalkTalkSession
+import TalkTalkSettingsUI
 
 /// The sections of the settings window, in the order of ARCHITECTURE.md §11 "设置".
 enum SettingsSection: String, CaseIterable, Identifiable {
@@ -43,91 +44,191 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 }
 
+/// The sub-page a page's card row selects (settings visual system §6.1).
+enum SettingsSubpage: Hashable {
+    case model(ModelSettingsStage)
+    case components(ComponentsSettingsTab)
+    case diagnostics(DiagnosticsSettingsTab)
+}
+
+/// Where ReturnPill leads back to (§3.13, §6.4): the page, its sub-page, the scene card and the
+/// scroll position at the moment a flow link left it, with the name and icon the pill shows.
+struct SettingsReturnTarget: Equatable {
+    let section: SettingsSection
+    let subpage: SettingsSubpage?
+    let scenario: MeetingMode?
+    let scrollOffset: Double
+    let title: String
+    let symbol: String
+}
+
+/// The window's navigation state (no @State: the CLT toolchain has no SwiftUIMacros plugin):
+/// the page, each page's last sub-page (§6.2), the ReturnPill target and the page scroll.
 @MainActor
 @Observable
 final class SettingsNavigation {
     private static let key = "ui.settingsSection"
-    var modelStage: ModelSettingsStage = .recognition
-    var componentsTab: ComponentsSettingsTab = .engine
-    var diagnosticsTab: DiagnosticsSettingsTab = .privacy
+    var modelStage: ModelSettingsStage = .recognition {
+        didSet { if modelStage != oldValue { subpageChanged() } }
+    }
+    var componentsTab: ComponentsSettingsTab = .engine {
+        didSet { if componentsTab != oldValue { subpageChanged() } }
+    }
+    var diagnosticsTab: DiagnosticsSettingsTab = .privacy {
+        didSet { if diagnosticsTab != oldValue { subpageChanged() } }
+    }
     var selection: SettingsSection? {
         didSet {
             UserDefaults.standard.set(selection?.rawValue, forKey: Self.key)
             onSelectionChange?(selection ?? .general)
-            // The return pill belongs to the page a scenario link opened; elsewhere it goes.
-            if !followingLink, selection == .meeting || (returnToScene != nil && selection != returnTarget) {
-                returnToScene = nil
-                savedSceneScrollOffset = nil
+            guard selection != oldValue else { return }
+            // A new page starts at the top, not at the leaving page's position.
+            pageScrollStorage = ScrollPosition(edge: .top)
+            pageScrollOffset = 0
+            // The pill belongs to the page a link opened; any other page change drops it.
+            if !followingLink {
+                returnTarget = nil
+                pendingScrollRestore = nil
             }
         }
     }
     @ObservationIgnored var onSelectionChange: ((SettingsSection) -> Void)?
+    /// The flow diagrams' flash state (§3.3).
+    let flow = FlowInteraction()
 
-    /// "‹ 返回 <场景>" on a page reached from a scenario's flow link (redesign §7).
-    private(set) var returnToScene: MeetingMode?
-    @ObservationIgnored private var returnTarget: SettingsSection?
+    /// ReturnPill on a page reached through a flow link; nil after any other navigation.
+    private(set) var returnTarget: SettingsReturnTarget?
     @ObservationIgnored private var followingLink = false
-    /// The scenario page's current scroll offset, and the one to restore when coming back.
-    @ObservationIgnored var sceneScrollOffset: Double = 0
-    /// Scenario page view state (no @State: the CLT toolchain has no SwiftUIMacros plugin).
-    /// The scroll position is not observed: SwiftUI writes it back on every scroll commit, and
-    /// an observed write re-renders the page, which commits and writes again — an endless
-    /// layout loop that froze the settings window. Programmatic scrolls go through
-    /// `scrollScene(_:)`, whose observed token makes the page apply the new position once.
-    @ObservationIgnored private var sceneScrollStorage = ScrollPosition(edge: .top)
-    private(set) var sceneScrollRequest = 0
-    var sceneScrollBinding: Binding<ScrollPosition> {
-        Binding(get: { self.sceneScrollStorage }, set: { self.sceneScrollStorage = $0 })
-    }
-    func scrollScene(_ change: (inout ScrollPosition) -> Void) {
-        change(&sceneScrollStorage)
-        sceneScrollRequest &+= 1
-    }
-    @ObservationIgnored private var savedSceneScrollOffset: Double?
+    @ObservationIgnored private var pendingScrollRestore: Double?
 
-    /// Opens another page from the scenario page and remembers where to come back to.
-    func follow(from scene: MeetingMode, _ open: () -> Void) {
-        let offset = sceneScrollOffset
+    /// The shown page's scroll offset (written on scroll, never observed).
+    @ObservationIgnored var pageScrollOffset: Double = 0
+    /// The page Form's scroll position. Not observed: SwiftUI writes it back on every scroll
+    /// commit, and an observed write re-renders the page, which commits and writes again — an
+    /// endless layout loop that froze the settings window (8c87ba7). Programmatic scrolls go
+    /// through `scrollPage(_:)`, whose observed token makes the page apply the position once.
+    @ObservationIgnored private var pageScrollStorage = ScrollPosition(edge: .top)
+    private(set) var pageScrollRequest = 0
+    var pageScrollBinding: Binding<ScrollPosition> {
+        Binding(get: { self.pageScrollStorage }, set: { self.pageScrollStorage = $0 })
+    }
+    func scrollPage(_ change: (inout ScrollPosition) -> Void) {
+        change(&pageScrollStorage)
+        pageScrollRequest &+= 1
+    }
+
+    /// A page, or a new sub-page or scene of it, appeared: at the position ReturnPill saved for
+    /// it, otherwise at the top (§2: switching cards scrolls back to the top).
+    func pageAppeared() {
+        pageScrollOffset = 0
+        guard let offset = pendingScrollRestore else {
+            scrollPage { $0.scrollTo(edge: .top) }
+            return
+        }
+        pendingScrollRestore = nil
+        // After the first layout: an offset applies only once the content is there.
+        DispatchQueue.main.async { self.scrollPage { $0.scrollTo(y: offset) } }
+    }
+
+    private func subpageChanged() {
+        pageScrollStorage = ScrollPosition(edge: .top)
+    }
+
+    /// A flow link (§6.4): selects the page and its sub-page together and offers ReturnPill back
+    /// to the current page, sub-page, scene (`scenario`, from 使用场景 and 字幕) and position.
+    func open(_ section: SettingsSection, _ subpage: SettingsSubpage? = nil, scenario: MeetingMode? = nil) {
+        let origin = selection ?? .general
+        let label = returnLabel(origin, scenario: scenario)
+        let target = SettingsReturnTarget(section: origin, subpage: self.subpage(of: origin), scenario: scenario,
+                                          scrollOffset: pageScrollOffset, title: label.title, symbol: label.symbol)
         followingLink = true
-        open()
+        if let subpage { apply(subpage) }
+        selection = section
         followingLink = false
-        guard selection != .meeting else { return }
-        returnTarget = selection
-        returnToScene = scene
-        savedSceneScrollOffset = offset
+        if section != origin { returnTarget = target }
     }
 
-    /// The pill's action: back to the scenario page at its previous scroll position.
-    func returnToScenePage() {
+    /// ReturnPill's action, after the caller has put the target's scene back.
+    func returnToOrigin() {
+        guard let target = returnTarget else { return }
+        returnTarget = nil
+        pendingScrollRestore = target.scrollOffset > 0 ? target.scrollOffset : nil
         followingLink = true
-        selection = .meeting
+        if let subpage = target.subpage { apply(subpage) }
+        selection = target.section
         followingLink = false
-        returnToScene = nil
     }
 
-    func dismissReturnToScene() {
-        returnToScene = nil
-        savedSceneScrollOffset = nil
+    func dismissReturn() {
+        returnTarget = nil
     }
 
-    /// The offset to restore once, after `returnToScenePage`.
-    func takeSceneScrollRestore() -> Double? {
-        defer { savedSceneScrollOffset = nil }
-        return returnToScene == nil ? savedSceneScrollOffset : nil
-    }
-
+    /// Opens a model sub-page without a way back (the menu and the subtitle window's settings).
+    /// Not a flow link, so a pill from an earlier link goes, even when 模型 is already shown.
     func openModel(_ stage: ModelSettingsStage) {
+        returnTarget = nil
         modelStage = stage
         selection = .translation
     }
 
-    func openComponents(_ tab: ComponentsSettingsTab) {
-        componentsTab = tab
-        selection = .components
+    private func subpage(of section: SettingsSection) -> SettingsSubpage? {
+        switch section {
+        case .translation: .model(modelStage)
+        case .components: .components(componentsTab)
+        case .privacy: .diagnostics(diagnosticsTab)
+        case .general, .meeting, .subtitles, .audio, .voice, .glossary: nil
+        }
+    }
+
+    private func apply(_ subpage: SettingsSubpage) {
+        switch subpage {
+        case .model(let stage): modelStage = stage
+        case .components(let tab): componentsTab = tab
+        case .diagnostics(let tab): diagnosticsTab = tab
+        }
+    }
+
+    /// The pill names the card the link left: the scene on 使用场景, the sub-page on pages
+    /// with cards, otherwise the page.
+    private func returnLabel(_ origin: SettingsSection, scenario: MeetingMode?) -> (title: String, symbol: String) {
+        if origin == .meeting, let scenario { return (scenario.scene.title, scenario.sceneSymbol) }
+        switch subpage(of: origin) {
+        case .model(let stage): return (stage.title, stage.symbol)
+        case .components(let tab): return (tab.title, tab.symbol)
+        case .diagnostics(let tab): return (tab.title, tab.symbol)
+        case nil: return (origin.title, origin.symbol)
+        }
     }
 
     init() {
         selection = SettingsSection(rawValue: UserDefaults.standard.string(forKey: Self.key) ?? "") ?? .general
+    }
+}
+
+/// The page Form's scroll (§2): bound to the navigation's unobserved position, its offset kept
+/// for ReturnPill, and back at the top (or the restored position) when the page, sub-page or
+/// scene appears. Apply it outside the Form's `.id(subpage)`. The request token is read here,
+/// in the caller's body, so a programmatic scroll re-renders the page once and nothing else does.
+extension View {
+    func settingsPageScroll<Subpage: Hashable>(_ navigation: SettingsNavigation, subpage: Subpage) -> some View {
+        modifier(SettingsPageScroll(navigation: navigation, request: navigation.pageScrollRequest, subpage: subpage))
+    }
+}
+
+private struct SettingsPageScroll<Subpage: Hashable>: ViewModifier {
+    let navigation: SettingsNavigation
+    /// Unused in the body: a new value makes SwiftUI re-read the position binding.
+    let request: Int
+    let subpage: Subpage
+
+    func body(content: Content) -> some View {
+        content
+            .scrollPosition(navigation.pageScrollBinding)
+            .onScrollGeometryChange(for: Double.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { _, offset in
+                navigation.pageScrollOffset = offset
+            }
+            .onAppear { navigation.pageAppeared() }
+            .onChange(of: subpage) { _, _ in navigation.pageAppeared() }
     }
 }
 
@@ -142,6 +243,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let voice: MyVoiceModel
     let translation = TranslationPage()
     let glossary = GlossarySettingsModel()
+    /// 字幕's VoiceOver switch shows only while VoiceOver runs (§7.4).
+    let subtitles = SubtitleSettingsModel()
     /// 组件 › 虚拟麦克风 and 通用 › 应用管理 share the same guarded maintenance owner.
     let driver = DriverComponentsPage(engine: AppUIModels.shared.engine)
     private var window: NSWindow?
@@ -157,7 +260,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     var isVisible: Bool { window?.isVisible ?? false }
 
     func show(_ section: SettingsSection? = nil) {
-        if let section { navigation.selection = section }
+        if let section {
+            // An entry from the menu, HUD or onboarding, not a flow link: no pill back, even when
+            // that page is already selected (the selection's own change would not clear it).
+            navigation.dismissReturn()
+            navigation.selection = section
+        }
         let window = self.window ?? makeWindow()
         self.window = window
         voice.reload()
@@ -187,7 +295,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func makeWindow() -> NSWindow {
         let view = SettingsView(state: state, navigation: navigation, voice: voice, translation: translation,
-                                driver: driver, glossary: glossary)
+                                driver: driver, glossary: glossary, subtitles: subtitles)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: 640),
                               styleMask: [.titled, .closable, .resizable],
                               backing: .buffered, defer: false)
@@ -229,6 +337,7 @@ struct SettingsView: View {
     let translation: TranslationPage
     let driver: DriverComponentsPage
     let glossary: GlossarySettingsModel
+    let subtitles: SubtitleSettingsModel
 
     var body: some View {
         HStack(spacing: 0) {
@@ -240,15 +349,21 @@ struct SettingsView: View {
             .listStyle(.sidebar)
             .frame(width: 190)
             Divider()
+            // The detail container's fixed slots (settings visual system §2, §7.0): Z0 ReturnPill,
+            // Z1 the page's card row, then the page itself, whose Form alone scrolls.
             VStack(spacing: 0) {
-                if let scene = navigation.returnToScene, navigation.selection != .meeting {
-                    // 字幕's cards share the scene selection: going back restores the one named.
-                    ReturnToScenePill(mode: scene, back: {
-                        state.requestedScenario = scene
-                        navigation.returnToScenePage()
-                    },
-                                      dismiss: navigation.dismissReturnToScene)
+                if let target = navigation.returnTarget {
+                    ReturnPill(target.title, symbol: target.symbol, back: {
+                        // 使用场景 and 字幕 share the scene: going back restores the one the link left.
+                        if let scenario = target.scenario { state.requestedScenario = scenario }
+                        navigation.returnToOrigin()
+                    }, dismiss: navigation.dismissReturn)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
                 }
+                SettingsNavigationBand(state: state, navigation: navigation, translation: translation, driver: driver,
+                                       subtitles: subtitles)
                 detail
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -279,22 +394,6 @@ struct SettingsView: View {
     }
 }
 
-struct PlaceholderSettingsView: View {
-    let title: String
-    let lines: [String]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.title2.bold())
-            ForEach(lines, id: \.self) { line in
-                Text(line).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-        }
-        .padding(20)
-    }
-}
-
 /// Settings › 翻译 is talktalk-swift's `TranslationSettingsView` (§7.7, §11). Its model reads the
 /// key item's presence, so it is created when the page first appears, not when the window opens.
 @MainActor
@@ -319,7 +418,10 @@ struct TranslationPageView: View {
             if let model = page.model {
                 TranslationSettingsView(model: model)
             } else if let problem = page.problem {
-                PlaceholderSettingsView(title: String(localized: "翻译"), lines: [problem])
+                // A development binary without a bundle id (§5.2, §7.0): the reason is the help.
+                ContentUnavailableView(String(localized: "此构建不可用"),
+                                       systemImage: SubtitleTokens.SettingsIcon.unavailable)
+                    .help(problem)
             } else {
                 ProgressView()
             }

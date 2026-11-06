@@ -18,8 +18,10 @@ import TalkTalkCore
         let meanings = [S.remote, S.myVoice, S.talkTalkMic, S.physicalMic, S.audio, S.recognition, S.translation,
                         S.sourceText, S.subtitles, S.speech, S.me, S.listen, S.thisMac, S.cloud, S.openApp, S.info,
                         S.privacyPromise, S.locked, S.auto, S.engine, S.verify, S.export, S.recording,
-                        S.recordingActive, S.slow, S.performance, S.cost, S.glossary, S.headphones, S.speaker]
-        let actions = [S.refresh, S.reset, S.add, S.remove, S.close, S.copy, S.finder, S.delete, S.cancel, S.more]
+                        S.recordingActive, S.slow, S.performance, S.cost, S.glossary, S.headphones, S.speaker,
+                        S.troubleshooting, S.voiceOver, S.unavailable]
+        let actions = [S.refresh, S.reset, S.add, S.remove, S.close, S.copy, S.finder, S.delete, S.cancel, S.more,
+                       S.flowArrow, S.back]
         let status = [S.statusWarn, S.statusFailed, S.statusOK, S.statusPending, S.statusWaiting,
                       S.statusRecording]
         for name in pages + meanings + actions + status {
