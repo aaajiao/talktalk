@@ -1,5 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import AppKit
+import QuartzCore
+import TalkTalkCore
 
 /// A fixed viewport containing two independent, persistent reading areas. The owner supplies
 /// attributed text and the frame; it must not wrap this view in another scroll view.
@@ -180,9 +182,11 @@ final class ConversationColumnsView: NSView {
         needsLayout = true
     }
 
-    func setText(source: NSAttributedString, translation: NSAttributedString, resetScroll: Bool = false) {
-        let sourceChanged = self.source.setText(source, reset: resetScroll)
-        let translationChanged = self.translation.setText(translation, reset: resetScroll)
+    /// `finalized`: a draft became final in place; its colour fades over 150 ms without reflow.
+    func setText(source: NSAttributedString, translation: NSAttributedString, resetScroll: Bool = false,
+                 finalized: Bool = false) {
+        let sourceChanged = self.source.setText(source, reset: resetScroll, finalized: finalized)
+        let translationChanged = self.translation.setText(translation, reset: resetScroll, finalized: finalized)
         guard sourceChanged || translationChanged else { return }
         needsLayout = true
         layoutSubtreeIfNeeded()
@@ -226,6 +230,8 @@ final class ConversationColumnsView: NSView {
         let latestButton = NSButton(title: String(localized: "回到最新"), target: nil, action: nil)
         private let document = ConversationContentView()
         private let label = ConversationLabel(wrappingLabelWithString: "")
+        /// 2 pt voice.translate bar beside the open draft translation (§4 三态).
+        private let draftBar = NSView()
         private var hasContent = false
         private var pendingText: NSAttributedString?
         private var allowsFreeze = true
@@ -250,6 +256,10 @@ final class ConversationColumnsView: NSView {
             label.isSelectable = false
             label.cell?.isScrollable = false
             document.addSubview(label)
+            draftBar.wantsLayer = true
+            draftBar.isHidden = true
+            draftBar.setAccessibilityElement(false)
+            document.addSubview(draftBar)
             scroll.documentView = document
             scroll.drawsBackground = false
             scroll.contentView.drawsBackground = false
@@ -281,14 +291,14 @@ final class ConversationColumnsView: NSView {
         func setFreezingEnabled(_ enabled: Bool) {
             allowsFreeze = enabled
             if let pendingText {
-                label.attributedStringValue = pendingText
+                show(pendingText)
                 hasContent = pendingText.length > 0
             }
             pendingText = nil
             pendingScroll = .tail
         }
 
-        func setText(_ text: NSAttributedString, reset: Bool) -> Bool {
+        func setText(_ text: NSAttributedString, reset: Bool, finalized: Bool = false) -> Bool {
             let oldText = label.attributedStringValue
             if !reset, allowsFreeze, hasContent, !atBottom, text.length > 0, oldText.string != text.string {
                 guard pendingText?.isEqual(to: text) != true else { return false }
@@ -305,13 +315,74 @@ final class ConversationColumnsView: NSView {
             }
             // Font/color-only updates (including resize) preserve the reading offset.
             hasContent = text.length > 0
-            label.attributedStringValue = NSAttributedString(attributedString: text)
+            if finalized, !reset { fadeNextChange() }
+            show(text)
             return true
+        }
+
+        private func show(_ text: NSAttributedString) {
+            label.attributedStringValue = NSAttributedString(attributedString: text)
+            label.setAccessibilityValue(ConversationText.accessibilityText(text))
+        }
+
+        /// Draft → final changes colour only; a short cross-fade avoids a hard switch.
+        private func fadeNextChange() {
+            let duration = SubtitleStyle.duration(.draftToFinal)
+            guard duration > 0 else { return }
+            label.wantsLayer = true
+            let transition = CATransition()
+            transition.type = .fade
+            transition.duration = duration
+            transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            label.layer?.add(transition, forKey: "draftToFinal")
+            draftBar.wantsLayer = true
+            draftBar.layer?.add(transition, forKey: "draftToFinal")
+        }
+
+        /// Places the draft bar and badge tooltips from the label's laid-out text.
+        private func decorate(textWidth: CGFloat) {
+            let text = label.attributedStringValue
+            document.removeAllToolTips()
+            var draft: NSRange?
+            var badges: [(NSRange, String)] = []
+            let whole = NSRange(location: 0, length: text.length)
+            text.enumerateAttribute(.talkTalkDraft, in: whole) { value, range, _ in
+                guard value != nil else { return }
+                draft = draft.map { NSUnionRange($0, range) } ?? range
+            }
+            text.enumerateAttribute(.talkTalkBadgeHelp, in: whole) { value, range, _ in
+                if let help = value as? String, !help.isEmpty { badges.append((range, help)) }
+            }
+            guard draft != nil || !badges.isEmpty else { draftBar.isHidden = true; return }
+            let storage = NSTextStorage(attributedString: text)
+            let manager = NSLayoutManager()
+            let container = NSTextContainer(size: NSSize(width: textWidth, height: .greatestFiniteMagnitude))
+            container.lineFragmentPadding = 2
+            manager.addTextContainer(container)
+            storage.addLayoutManager(manager)
+            manager.ensureLayout(for: container)
+            func rect(_ range: NSRange) -> NSRect {
+                let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                return manager.boundingRect(forGlyphRange: glyphs, in: container)
+                    .offsetBy(dx: label.frame.minX, dy: label.frame.minY)
+            }
+            if let draft {
+                let bounds = rect(draft)
+                draftBar.layer?.backgroundColor = SubtitleStyle.color(.voiceTranslate)
+                    .withAlphaComponent(ConversationTextRules.draftBarAlpha).cgColor
+                draftBar.frame = NSRect(x: 0, y: bounds.minY, width: ConversationTextRules.draftBarWidth, height: bounds.height)
+                draftBar.isHidden = false
+            } else {
+                draftBar.isHidden = true
+            }
+            for (range, help) in badges {
+                document.addToolTip(rect(range), owner: help as NSString, userData: nil)
+            }
         }
 
         @objc private func returnToLatest() {
             guard let pendingText else { return }
-            label.attributedStringValue = pendingText
+            show(pendingText)
             hasContent = pendingText.length > 0
             self.pendingText = nil
             pendingScroll = .tail
@@ -330,6 +401,7 @@ final class ConversationColumnsView: NSView {
             let measured = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: textWidth, height: .greatestFiniteMagnitude)).height ?? 0
             let textHeight = ceil(measured) + 2
             label.frame = NSRect(x: left, y: verticalInset, width: textWidth, height: textHeight)
+            decorate(textWidth: textWidth)
             document.frame = NSRect(x: 0, y: 0, width: viewport.width,
                                     height: max(viewport.height, textHeight + verticalInset * 2))
             let limit = max(0, document.bounds.height - viewport.height)

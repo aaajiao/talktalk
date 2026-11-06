@@ -149,3 +149,26 @@ import Testing
         #expect(board.current?.line.sentence == 1)
     }
 }
+
+@Suite struct VideoSubtitleBoardLagTests {
+    @Test func overflowCountsSkippedCuesAndLagFollowsTheOldestPendingCue() {
+        var board = VideoSubtitleBoard()
+        let second: UInt64 = 1_000_000_000
+        board.apply(.final(sentence: 1, text: "第一句。", source: "First.", approx: false, numberWarning: false), at: 1 * second)
+        #expect(board.lag(at: 20 * second) == nil)
+        board.apply(.final(sentence: 2, text: "第二句。", source: "Second.", approx: false, numberWarning: false), at: 2 * second)
+        board.apply(.final(sentence: 3, text: "第三句。", source: "Third.", approx: false, numberWarning: false), at: 3 * second)
+        #expect(board.skippedCount == 0)
+        #expect(board.lag(at: 6 * second) == nil)
+        #expect(board.lag(at: 8 * second) == 6)
+        board.apply(.final(sentence: 4, text: "第四句。", source: "Fourth.", approx: false, numberWarning: false), at: 4 * second)
+        #expect(board.skippedCount == 1)
+        #expect(board.pendingSentenceIDs == [3, 4])
+        // Sentence 2 left the queue; the lag is now measured from sentence 3.
+        #expect(abs(board.lagSeconds(at: 9 * second) - 6) < 1e-9)
+        board.advance(); board.advance()
+        #expect(board.lag(at: 30 * second) == nil)
+        board.clear()
+        #expect(board.skippedCount == 0)
+    }
+}

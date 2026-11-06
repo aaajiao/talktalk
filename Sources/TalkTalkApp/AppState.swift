@@ -48,6 +48,8 @@ final class AppState {
         static let subtitleBackgroundOpacity = "ui.subtitleBackgroundOpacity"
         static let videoSubtitleFontSize = "ui.videoSubtitleFontSize"
         static let videoSubtitleBackgroundOpacity = "ui.videoSubtitleBackgroundOpacity"
+        static let videoCaptionStyle = "ui.videoCaptionStyle"
+        static let videoCaptionArrangement = "ui.videoCaptionArrangement"
         static let phoneSubtitleFontSize = "ui.phoneSubtitleFontSize"
         static let phoneSubtitleBackgroundOpacity = "ui.phoneSubtitleBackgroundOpacity"
         static let speakLanguage = "speak.targetLanguage"
@@ -121,6 +123,23 @@ final class AppState {
             guard opacity != storedVideoSubtitleBackgroundOpacity else { return }
             storedVideoSubtitleBackgroundOpacity = opacity
             defaults.set(opacity, forKey: Key.videoSubtitleBackgroundOpacity)
+            onSubtitleAppearanceChange?()
+        }
+    }
+    /// Video caption style (redesign §6 字幕样式), stored for the video scene only. Reduce
+    /// Transparency overrides it with plates at display time without changing this choice.
+    var videoCaptionStyle: VideoCaptionStyle {
+        didSet {
+            guard videoCaptionStyle != oldValue else { return }
+            defaults.set(videoCaptionStyle.rawValue, forKey: Key.videoCaptionStyle)
+            onSubtitleAppearanceChange?()
+        }
+    }
+    /// "中文在上" (§6 排版); the source sits above Chinese by default.
+    var videoCaptionArrangement: VideoCaptionArrangement {
+        didSet {
+            guard videoCaptionArrangement != oldValue else { return }
+            defaults.set(videoCaptionArrangement.rawValue, forKey: Key.videoCaptionArrangement)
             onSubtitleAppearanceChange?()
         }
     }
@@ -236,6 +255,9 @@ final class AppState {
         storedVideoSubtitleFontSize = savedVideoSize.isFinite ? min(36, max(16, savedVideoSize)) : 26
         let savedVideoOpacity = defaults.object(forKey: Key.videoSubtitleBackgroundOpacity) as? Double ?? 0.85
         storedVideoSubtitleBackgroundOpacity = savedVideoOpacity.isFinite ? min(1, max(0.35, savedVideoOpacity)) : 0.85
+        videoCaptionStyle = VideoCaptionStyle(rawValue: defaults.string(forKey: Key.videoCaptionStyle) ?? "") ?? .default
+        videoCaptionArrangement = VideoCaptionArrangement(
+            rawValue: defaults.string(forKey: Key.videoCaptionArrangement) ?? "") ?? .default
         let phoneSize = defaults.object(forKey: Key.phoneSubtitleFontSize) as? Double ?? 22
         phoneSubtitleFontSize = phoneSize.isFinite ? min(36, max(16, phoneSize)) : 22
         let phoneOpacity = defaults.object(forKey: Key.phoneSubtitleBackgroundOpacity) as? Double ?? 0.85

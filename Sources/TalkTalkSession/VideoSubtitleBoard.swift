@@ -1,3 +1,5 @@
+import TalkTalkCore
+
 /// Video presents one bilingual cue. Draft and final are states of that same cue, never
 /// additional paragraphs. The view owns measured paging and decides when to call advance.
 public struct VideoSubtitleBoard: Sendable, Equatable {
@@ -17,9 +19,28 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
     /// Draft cancellation is monotonic for newly arriving draft identities. Keep current
     /// and queued pairs revisable, and never suppress a valid final with this watermark.
     private var discardedDraftThrough: UInt64?
+    /// When each pending sentence first arrived, for the lag signal (§6 视觉反馈).
+    private var queuedAt: [UInt64: HostTime] = [:]
+    /// Cues dropped from the pending queue without ever being displayed. The view shows
+    /// "已跳过 N 句" when this grows.
+    public private(set) var skippedCount = 0
     private static let pendingLimit = 2
+    /// Subtitles count as lagging once the next pending cue has waited this long.
+    public static let lagThresholdSeconds: Double = 5
 
     public init() {}
+
+    /// Seconds the oldest pending cue has waited; 0 without pending cues.
+    public func lagSeconds(at now: HostTime) -> Double {
+        guard let first = pending.first, let queued = queuedAt[first.line.sentence], now > queued else { return 0 }
+        return Double(now - queued) / 1_000_000_000
+    }
+
+    /// Whole seconds behind once over the threshold; nil while on time.
+    public func lag(at now: HostTime) -> Int? {
+        let seconds = lagSeconds(at: now)
+        return seconds > Self.lagThresholdSeconds ? Int(seconds.rounded(.down)) : nil
+    }
 
     public var pendingSentenceIDs: [UInt64] { pending.map { $0.line.sentence } }
     public var pendingFinalSentenceIDs: [UInt64] { pending.filter(\.isFinal).map { $0.line.sentence } }
@@ -28,8 +49,10 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
     /// Returns whether the visible cue changed. Updating the pending queue alone is not a
     /// display event. In particular, volatile raw source cannot alter a translated pair.
     @discardableResult
-    public mutating func apply(_ update: SubtitleUpdate) -> Bool {
+    public mutating func apply(_ update: SubtitleUpdate, at now: HostTime = HostClock.now()) -> Bool {
         let before = current
+        arrival = now
+        defer { trimQueueTimes() }
         switch update {
         case .source:
             break
@@ -49,6 +72,13 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
         return before != current
     }
 
+    private var arrival: HostTime = 0
+
+    private mutating func trimQueueTimes() {
+        let live = Set(pending.map(\.line.sentence))
+        queuedAt = queuedAt.filter { live.contains($0.key) }
+    }
+
     private mutating func accept(_ cue: Cue) {
         let sentence = cue.line.sentence
         if current?.line.sentence == sentence {
@@ -65,8 +95,13 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
         } else {
             guard cue.isFinal || (discardedDraftThrough.map({ sentence > $0 }) ?? true) else { return }
             pending.append(cue)
+            if queuedAt[sentence] == nil { queuedAt[sentence] = arrival }
             pending.sort { $0.line.sentence < $1.line.sentence }
-            if pending.count > Self.pendingLimit { pending.removeFirst(pending.count - Self.pendingLimit) }
+            if pending.count > Self.pendingLimit {
+                let overflow = pending.count - Self.pendingLimit
+                skippedCount += overflow
+                pending.removeFirst(overflow)
+            }
         }
         if current == nil { _ = advance() }
     }
@@ -77,6 +112,7 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
     public mutating func advance() -> Bool {
         guard !pending.isEmpty else { return false }
         let next = pending.removeFirst()
+        queuedAt[next.line.sentence] = nil
         current = next
         newestDisplayed = next.line.sentence
         if let discardedDraftThrough, next.line.sentence >= discardedDraftThrough {
@@ -90,5 +126,7 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
         pending.removeAll()
         newestDisplayed = nil
         discardedDraftThrough = nil
+        queuedAt = [:]
+        skippedCount = 0
     }
 }

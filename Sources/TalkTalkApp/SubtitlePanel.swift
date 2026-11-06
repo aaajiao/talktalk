@@ -16,6 +16,16 @@ final class SubtitlePanel {
     private let videoCaptions = VideoSubtitleView()
     private var videoBoard = VideoSubtitleBoard()
     private var renderedVideoCue: VideoSubtitleBoard.Cue?
+    /// Video-only preferences (redesign §6): caption style and block order.
+    private(set) var videoCaptionStyle: VideoCaptionStyle = .default
+    private(set) var videoCaptionArrangement: VideoCaptionArrangement = .default
+    private var seenSkippedCount = 0
+    /// Whole seconds the video captions trail the audio once over 5 s; nil while on time.
+    /// The titlebar/hover dot turns yellow from this (§6 视觉反馈).
+    private(set) var videoLag: Int?
+    var onVideoLagChange: ((Int?) -> Void)?
+    /// "字幕落后约 N 秒" for the video hover bar.
+    var videoLagNotice: String? { videoLag.map { String(localized: "字幕落后约 \($0) 秒") } }
     private var speechView: NSView?
     private let divider = NSBox()
     /// Shared titlebar controls (redesign §3); PTTHUD supplies voice, issue and key state.
@@ -69,6 +79,8 @@ final class SubtitlePanel {
     private var liveSource = ""
     private var renderedSource = ""
     private var renderedDraft: SubtitleBoard.Line?
+    private var presentedDraftSentence: UInt64?
+    private var renderedBadges: [Bool] = []
     private var lastPreviewRenderAt: HostTime = 0
     private static let previewInterval: HostTime = 500_000_000
     private var timer: Timer?
@@ -84,7 +96,9 @@ final class SubtitlePanel {
     var frame: NSRect { panel.frame }
     var screen: NSScreen? { panel.screen }
     private var defaultContentSize: NSSize {
-        presentation == .video ? NSSize(width: 960, height: 180) : NSSize(width: 760, height: 480)
+        presentation == .video
+            ? NSSize(width: VideoCaptionLayout.defaultContentWidth, height: VideoCaptionLayout.defaultContentHeight)
+            : NSSize(width: 760, height: 480)
     }
     private var minimumWidth: CGFloat { presentation == .video ? 640 : 480 }
     private var showsPhoneActions: Bool { presentation == .phone && phoneContext != nil }
@@ -195,6 +209,7 @@ final class SubtitlePanel {
         updateWindowTitle()
         updateRemoteHeadings()
         remoteColumns.style = value == .video ? .subtitles : .columns
+        updateBackground()
         if let screen { loadSize(for: screen) }
         else { manualContentSize = nil }
         render(forceLayout: true)
@@ -213,6 +228,31 @@ final class SubtitlePanel {
     func setBackgroundOpacity(_ value: Double) {
         backgroundOpacity = CGFloat(value.isFinite ? min(1, max(0.35, value)) : 0.85)
         updateBackground()
+    }
+
+    func setVideoCaptionStyle(_ style: VideoCaptionStyle) {
+        guard videoCaptionStyle != style else { return }
+        videoCaptionStyle = style
+        updateBackground()
+    }
+
+    /// "中文在上" swaps the two blocks; bottom anchoring follows the lower one.
+    func setVideoCaptionArrangement(_ arrangement: VideoCaptionArrangement) {
+        guard videoCaptionArrangement != arrangement else { return }
+        videoCaptionArrangement = arrangement
+        updateVideoAppearance()
+    }
+
+    /// Style after Reduce Transparency (plates).
+    var effectiveVideoCaptionStyle: VideoCaptionStyle {
+        videoCaptionStyle.effective(reduceTransparency: SubtitleStyle.Display.current.reduceTransparency)
+    }
+
+    private func updateVideoAppearance() {
+        let display = SubtitleStyle.Display.current
+        videoCaptions.appearanceSettings = .init(style: effectiveVideoCaptionStyle, arrangement: videoCaptionArrangement,
+                                                 opacity: effectiveOpacity, reduceTransparency: display.reduceTransparency,
+                                                 reduceMotion: display.reduceMotion)
     }
 
     /// Phone owns dialing and the actual call. Its opener shares the compact titlebar;
@@ -258,6 +298,7 @@ final class SubtitlePanel {
         guard sourceName != name else { return }
         sourceName = name
         updateWindowTitle()
+        if presentation == .video { videoCaptions.placeholder = videoPlaceholder }
     }
 
     private func updateWindowTitle() {
@@ -277,6 +318,8 @@ final class SubtitlePanel {
     private func updateRemoteHeadings() {
         remoteColumns.setHeadings(source: String(localized: "对方 · \(remoteLanguageTitle)"),
                                   sourceSymbol: "person", translation: String(localized: "中文"))
+        videoCaptions.setAccessibilityTitles(source: String(localized: "原文 · \(remoteLanguageTitle)"),
+                                             translation: String(localized: "译文 · 中文"))
     }
 
     /// Traffic lights plus margins before the leading accessory, and after the trailing one.
@@ -303,6 +346,9 @@ final class SubtitlePanel {
         titlebarAccessoryInstalled = wanted
     }
 
+    /// Opacity that decides the reading shadow for every row of this window.
+    var readingOpacity: Double { Double(effectiveOpacity) }
+
     /// Scene opacity after Increase Contrast (at least 0.95).
     private var effectiveOpacity: CGFloat {
         CGFloat(SubtitleTokens.effectiveOpacity(Double(backgroundOpacity),
@@ -312,6 +358,17 @@ final class SubtitlePanel {
     private func updateBackground() {
         let display = SubtitleStyle.Display.current
         let opacity = effectiveOpacity
+        updateVideoAppearance()
+        if presentation == .video {
+            // Video draws its own fitted glass, stroke or plates (§6 字幕样式); text-free areas
+            // stay fully transparent, also under Reduce Transparency (plates at 0.85).
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            backgroundEffect.isHidden = true
+            panel.invalidateShadow()
+            render(forceLayout: true)
+            return
+        }
         let opaque = display.reduceTransparency || opacity >= 1
         panel.isOpaque = opaque
         panel.backgroundColor = opaque ? .windowBackgroundColor : .clear
@@ -417,36 +474,34 @@ final class SubtitlePanel {
             nextLines += [line?.source ?? "", line?.display ?? ""]
         }
         nextLines += [renderedSource, renderedDraft?.text ?? ""]
-        if nextLines != displayedLines || forceLayout || resetRemoteScroll {
+        // A fallback final that the cloud later replaces with the same text still re-renders its badge.
+        let badges = lines.map(\.showsFallbackBadge)
+        let badgesChanged = badges != renderedBadges
+        renderedBadges = badges
+        if nextLines != displayedLines || badgesChanged || forceLayout || resetRemoteScroll {
             displayedLines = nextLines
             let source = NSMutableAttributedString(string: "")
             let translation = NSMutableAttributedString(string: "")
             let typography = conversationTypography
-            let display = SubtitleStyle.Display.current
-            let shadow = SubtitleStyle.readingShadow(opacity: Double(effectiveOpacity))
+            let text = ConversationText(typography: typography, opacity: Double(effectiveOpacity))
             // Draft and final translations share size and weight; only the colour differs.
-            func append(_ text: String, to output: NSMutableAttributedString, role: ConversationTypography.Role,
-                        color: SubtitleTokens.Color) {
-                guard !text.isEmpty else { return }
-                if output.length > 0 { output.append(NSAttributedString(string: "\n")) }
-                let paragraph = SubtitleStyle.paragraph(role, alignment: presentation == .video ? .center : .left)
-                paragraph.paragraphSpacing = 12
-                var attributes: [NSAttributedString.Key: Any] = [
-                    .font: SubtitleStyle.font(role), .foregroundColor: SubtitleStyle.color(color, display: display),
-                    .paragraphStyle: paragraph,
-                ]
-                if let shadow { attributes[.shadow] = shadow }
-                output.append(NSAttributedString(string: text, attributes: attributes))
-            }
             for line in lines {
-                append(line.source, to: source, role: typography.source, color: .textSource)
-                append(line.display, to: translation, role: typography.remoteTranslation, color: .textPrimary)
+                text.appendSource(line.source, live: false, speaker: .remote, to: source)
+                text.appendTranslation(line.display, role: typography.remoteTranslation, isFinal: true,
+                                       fallback: line.showsFallbackBadge, to: translation)
             }
-            append(renderedSource, to: source, role: typography.source, color: .textSourceLive)
+            text.appendSource(renderedSource, live: true, speaker: .remote, to: source)
             if let renderedDraft {
-                append(renderedDraft.text, to: translation, role: typography.remoteTranslation, color: .textDraft)
+                text.appendTranslation(renderedDraft.text, role: typography.remoteTranslation, isFinal: false,
+                                       fallback: false, to: translation)
             }
-            remoteColumns.setText(source: source, translation: translation, resetScroll: resetRemoteScroll)
+            // A visible draft that became final in place fades its colour instead of switching.
+            let finalized = presentedDraftSentence.map { sentence in
+                renderedDraft?.sentence != sentence && lines.contains { $0.sentence == sentence }
+            } ?? false
+            presentedDraftSentence = renderedDraft?.sentence
+            remoteColumns.setText(source: source, translation: translation, resetScroll: resetRemoteScroll,
+                                  finalized: finalized)
             resetRemoteScroll = false
         }
         // Text only reflows inside its own cells; it never determines the window or row heights.
@@ -461,7 +516,11 @@ final class SubtitlePanel {
         let previousPending = videoBoard.pendingSentenceIDs
         var droppedSentence: UInt64?
         if case .source(let text) = update { liveSource = text }
-        let changed = videoBoard.apply(update)
+        let changed = videoBoard.apply(update, at: now)
+        if videoBoard.skippedCount > seenSkippedCount {
+            videoCaptions.showSkipped(count: videoBoard.skippedCount - seenSkippedCount, at: Double(now) / 1_000_000_000)
+        }
+        seenSkippedCount = videoBoard.skippedCount
         switch update {
         case let .final(sentence, text, source, approx, warning):
             observe("subtitle_queued", at: now,
@@ -497,35 +556,45 @@ final class SubtitlePanel {
         let previewDue = now >= lastPreviewRenderAt && now - lastPreviewRenderAt >= Self.previewInterval
         guard forceLayout || newSentence || finalChanged || previewDue else { return }
         let source = cue?.line.source ?? liveSource
-        let translation = cue?.line.display ?? ""
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        paragraph.lineBreakMode = .byWordWrapping
         let display = SubtitleStyle.Display.current
-        var sourceAttributes: [NSAttributedString.Key: Any] = [
+        // Stroke, shadow, paragraph and line breaks belong to the caption view's style.
+        let sourceText = NSAttributedString(string: source, attributes: [
             .font: videoSourceFont, .foregroundColor: SubtitleStyle.color(.videoSource, display: display),
-            .paragraphStyle: paragraph
-        ]
-        var targetAttributes: [NSAttributedString.Key: Any] = [
-            .font: videoTranslationFont,
-            .foregroundColor: cue?.isFinal == true ? NSColor.white : SubtitleStyle.white(0.80),
-            .paragraphStyle: paragraph
-        ]
-        if let shadow = SubtitleStyle.readingShadow(opacity: Double(effectiveOpacity)) {
-            sourceAttributes[.shadow] = shadow
-            targetAttributes[.shadow] = shadow
-        }
-        let sourceText = NSAttributedString(string: source, attributes: sourceAttributes)
-        let targetText = NSAttributedString(string: translation, attributes: targetAttributes)
+        ])
+        let targetText = videoTranslationText(cue)
+        videoCaptions.placeholder = videoPlaceholder
         renderedVideoCue = cue
         renderedSource = liveSource
         lastPreviewRenderAt = now
         videoCaptions.setCaption(source: sourceText, translation: targetText,
                                  sentence: cue?.line.sentence, isFinal: cue?.isFinal ?? false,
+                                 fallback: cue?.line.showsFallbackBadge ?? false,
                                  at: Double(now) / 1_000_000_000)
         resetRemoteScroll = false
         if forceLayout { layout() }
         recordPresentation()
+    }
+
+    /// Empty state at the source position, naming the actual source (§6).
+    private var videoPlaceholder: String? {
+        titlebarContent.sourceTitle.map { String(localized: "正在听 \($0)…") }
+    }
+
+    /// Finals are white 100%. A draft keeps the text it shares with the previous version at
+    /// full white; only the changed tail is 65% and ends with "…" (§6 视觉反馈).
+    private func videoTranslationText(_ cue: VideoSubtitleBoard.Cue?) -> NSAttributedString {
+        guard let cue, !cue.line.text.isEmpty else { return NSAttributedString(string: "") }
+        let attributes: [NSAttributedString.Key: Any] = [.font: videoTranslationFont, .foregroundColor: NSColor.white]
+        guard !cue.isFinal else { return NSAttributedString(string: cue.line.display, attributes: attributes) }
+        let previous = renderedVideoCue.flatMap { $0.line.sentence == cue.line.sentence && !$0.isFinal ? $0.line.text : nil }
+        let text = ConversationTextRules.draftDisplay(cue.line.text)
+        let stable = previous.map { min(VideoCaptionPacing.stablePrefixLength(previous: $0, current: cue.line.text), text.count) } ?? 0
+        let split = text.index(text.startIndex, offsetBy: stable)
+        var tail = attributes
+        tail[.foregroundColor] = SubtitleStyle.white(CGFloat(VideoCaptionLayout.draftTailAlpha))
+        let result = NSMutableAttributedString(string: String(text[..<split]), attributes: attributes)
+        result.append(NSAttributedString(string: String(text[split...]), attributes: tail))
+        return result
     }
 
     /// Only the page actually assigned to the video view counts as displayed. Pending cues
@@ -602,8 +671,9 @@ final class SubtitlePanel {
         let minimumReading = presentation == .video
             ? VideoSubtitleView.minimumReadingHeight(sourceFont: videoSourceFont, translationFont: videoTranslationFont)
             : (subtitlesRequested && hasSpeech ? 80 : 48)
+        // Video: two Chinese lines, one source line and 24 pt already include its margins (§6).
         let minHeight: CGFloat = hasReadingArea
-            ? min(maxHeight, max(140, sectionChrome + minimumReading))
+            ? min(maxHeight, presentation == .video ? ceil(minimumReading) : max(140, sectionChrome + minimumReading))
             : 0
         panel.contentMinSize = NSSize(width: min(minimumWidth, width), height: minHeight)
         panel.contentMaxSize = NSSize(width: max(280, visible.width - 40), height: maxHeight)
@@ -621,7 +691,8 @@ final class SubtitlePanel {
         divider.isHidden = !subtitlesRequested || !hasSpeech
         if subtitlesRequested {
             if presentation == .video {
-                videoCaptions.frame = NSRect(x: 16, y: top, width: width - 32, height: remoteHeight)
+                // Block widths and bottom anchoring are measured from the whole content area.
+                videoCaptions.frame = NSRect(x: 0, y: 0, width: width, height: height)
                 videoCaptions.layoutSubtreeIfNeeded()
             } else {
                 remoteColumns.frame = NSRect(x: 16, y: top, width: width - 32, height: remoteHeight)
@@ -723,8 +794,10 @@ final class SubtitlePanel {
         let now = HostClock.now()
         if presentation == .video {
             renderVideo(at: now)
+            updateVideoLag(at: now)
             guard isWindowVisible else { return }
             let seconds = Double(now) / 1_000_000_000
+            videoCaptions.catchingUp = !videoBoard.pendingSentenceIDs.isEmpty
             let pageChanged = videoCaptions.advance(at: seconds)
             if videoCaptions.canAdvance(at: seconds), videoBoard.advance() {
                 renderVideo(at: now)
@@ -736,6 +809,13 @@ final class SubtitlePanel {
         let previewDue = now >= lastPreviewRenderAt && now - lastPreviewRenderAt >= Self.previewInterval
         if advanced || (previewPending && previewDue) { render(at: now) }
         else { recordPresentation() }
+    }
+
+    private func updateVideoLag(at now: HostTime) {
+        let lag = presentation == .video ? videoBoard.lag(at: now) : nil
+        guard lag != videoLag else { return }
+        videoLag = lag
+        onVideoLagChange?(lag)
     }
 
     private func userResized() {
@@ -789,7 +869,9 @@ final class SubtitlePanel {
             }
         }
         let visible = screen.visibleFrame
-        panel.setFrameOrigin(NSPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + 80))
+        // Video starts 8% of the visible height above the bottom edge, centred (§6 窗口).
+        let bottom = presentation == .video ? visible.minY + (visible.height * 0.08).rounded() : visible.minY + 80
+        panel.setFrameOrigin(NSPoint(x: visible.midX - panel.frame.width / 2, y: bottom))
     }
     private func savePosition() {
         guard !isLayingOut, !isMiniaturized, let screen = panel.screen else { return }

@@ -100,7 +100,7 @@ struct TryItStep: View {
             }
             DisclosureGroup(String(localized: "字幕和备用翻译说明")) {
                 VStack(alignment: .leading, spacing: 8) {
-                    SettingsNote("使用 Apple 备用翻译时，译文前带“≈”。")
+                    SettingsNote("使用 Apple 备用翻译时，字幕句末显示“备用翻译”标记。")
                     SettingsNote("本页汇总示例原文和已收到的中文译文；逐句配对请看字幕面板。")
                 }
                 .padding(.top, 6)

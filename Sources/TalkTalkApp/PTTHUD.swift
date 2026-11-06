@@ -370,9 +370,11 @@ final class PTTHUD {
 
         if force || transcriptChanged {
             let newPress = transcript?.press != shownTranscript?.press
+            let finalized = !newPress && shownTranscript?.isFinal == false && transcript?.isFinal == true
             shownTranscript = transcript
             let text = transcriptText(transcript)
-            transcriptColumns.setText(source: text.source, translation: text.translation, resetScroll: newPress)
+            transcriptColumns.setText(source: text.source, translation: text.translation, resetScroll: newPress,
+                                      finalized: finalized)
         }
         panel.setSpeechContent(transcriptColumns, height: showSpeech ? 180 : 0, hasLocalSpeech: showSpeech)
         if !showSpeech { inputActivity(nil) }
@@ -663,27 +665,16 @@ final class PTTHUD {
 
     private func transcriptText(_ value: SpeakTranscript?) -> (source: NSAttributedString, translation: NSAttributedString) {
         guard let value else { return (NSAttributedString(string: ""), NSAttributedString(string: "")) }
-        let display = SubtitleStyle.Display.current
+        // Same typography, colours, shadow and three states as the remote rows (§2, §4).
         let typography = ConversationTypography(base: Double(panel.baseFontSize), width: Double(panel.contentWidth))
+        let text = ConversationText(typography: typography, opacity: panel.readingOpacity, paragraphSpacing: 10)
         let source = NSMutableAttributedString(string: "")
-        func append(_ text: String, color: NSColor) {
-            guard !text.isEmpty else { return }
-            let paragraph = SubtitleStyle.paragraph(typography.source)
-            paragraph.paragraphSpacing = 10
-            source.append(NSAttributedString(string: text + "\n", attributes: [
-                .font: SubtitleStyle.font(typography.source), .foregroundColor: color, .paragraphStyle: paragraph
-            ]))
-        }
-        append(value.source, color: SubtitleStyle.color(value.isFinal ? .textSource : .textSourceLive, display: display))
-        if !value.unsubmittedSource.isEmpty {
-            // Same size as the source; the warn colour marks it as not sent.
-            append(String(localized: "未发送：\(value.unsubmittedSource)"), color: SubtitleStyle.color(.warn, display: display))
-        }
-        let translation = NSAttributedString(string: value.target, attributes: [
-            .font: SubtitleStyle.font(typography.myTranslation),
-            .foregroundColor: SubtitleStyle.color(value.isFinal ? .textPrimary : .textDraft, display: display),
-            .paragraphStyle: SubtitleStyle.paragraph(typography.myTranslation)
-        ])
+        text.appendSource(value.source, live: !value.isFinal, speaker: .me, to: source)
+        // Same size as the source; the warn badge marks the preview-only tail as not sent.
+        text.appendUnsent(value.unsubmittedSource, to: source)
+        let translation = NSMutableAttributedString(string: "")
+        text.appendTranslation(value.target, role: typography.myTranslation, isFinal: value.isFinal, fallback: false,
+                               to: translation)
         return (source, translation)
     }
 

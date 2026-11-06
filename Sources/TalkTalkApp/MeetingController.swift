@@ -132,6 +132,8 @@ final class MeetingController {
             panel.setFontSize(state.subtitleFontSize)
             panel.setBackgroundOpacity(state.subtitleBackgroundOpacity)
         case .video:
+            panel.setVideoCaptionStyle(state.videoCaptionStyle)
+            panel.setVideoCaptionArrangement(state.videoCaptionArrangement)
             panel.setFontSize(state.videoSubtitleFontSize)
             panel.setBackgroundOpacity(state.videoSubtitleBackgroundOpacity)
         case .phone:
@@ -326,9 +328,9 @@ final class MeetingController {
         })
     }
 
-    /// Selected local ASR + Apple Translation (drafts, and the "≈" fallback for finals) + OpenAIMT as
-    /// the finals' primary when the user set it up (ListenCloud); without it every final is Apple
-    /// with "≈" (§4.2: the no-key path).
+    /// Selected local ASR + Apple Translation (drafts, and the fallback for finals, shown with a
+    /// "备用翻译" badge) + OpenAIMT as the finals' primary when the user set it up (ListenCloud);
+    /// without it every final is Apple with that badge (§4.2: the no-key path).
     static func engines(cloud: ListenCloud.Box?,
                         makeASR: (@MainActor @Sendable (EventLog, UInt64) -> (any StreamingASREngine)?)? = nil) -> MeetingSession.EngineFactory {
         { lang, log, configuration in

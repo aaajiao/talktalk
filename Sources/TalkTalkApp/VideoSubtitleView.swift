@@ -1,19 +1,43 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import AppKit
+import QuartzCore
+import TalkTalkCore
+import TalkTalkSession
 
-/// Two fixed caption tracks for one sentence. Drafts and finals share the same translation
-/// slot; long text advances by complete laid-out lines, never by scrolling to its tail.
+/// Two fixed caption blocks for one sentence (redesign §6). Drafts and finals share the same
+/// translation slot; long text advances by complete pages of at most two lines, never by
+/// scrolling to its tail. Block widths come from the font size, not the window; the pair is
+/// anchored to the bottom so a single line sinks instead of floating.
 @MainActor
 final class VideoSubtitleView: NSView {
-    private struct Page {
-        var range: NSRange
-        var text: NSAttributedString
+    /// Caption presentation chosen by the panel. `style` is already resolved for Reduce
+    /// Transparency; `opacity` is the scene opacity after Increase Contrast.
+    struct Appearance: Equatable {
+        var style: VideoCaptionStyle = .default
+        var arrangement: VideoCaptionArrangement = .default
+        var opacity: CGFloat = 0.85
+        var reduceTransparency = false
+        var reduceMotion = false
     }
 
+    private struct Page {
+        /// UTF-16 range in the whole text, matching TextKit's ranges.
+        var range: NSRange
+        /// The page's characters as laid out, for reading time and analysis.
+        var text: NSAttributedString
+        /// Line ranges (UTF-16) that the view joins with explicit line breaks.
+        var lines: [NSRange]
+    }
+
+    private let captionLayer = CaptionContainerView()
+    private let glass = NSVisualEffectView()
     private let sourceView = VideoCaptionTextView()
     private let translationView = VideoCaptionTextView()
+    private let dots = PageDotsView()
+    private let noticeView = VideoCaptionTextView()
     private var source = NSAttributedString(string: "")
     private var translation = NSAttributedString(string: "")
+    private var fallback = false
     private var sourcePages: [Page] = []
     private var translationPages: [Page] = []
     private var sourcePageIndex = 0
@@ -22,12 +46,21 @@ final class VideoSubtitleView: NSView {
     private var layoutReady = false
     private var resetPage = true
     private var lastTime = 0.0
+    private var pageShownAt = 0.0
     private var pageReadyAt = 0.0
-    private var lastSourceSize = NSSize.zero
-    private var lastTranslationSize = NSSize.zero
+    private var lastLayoutKey: LayoutKey?
     private var textNeedsLayout = true
     private var sourceCorrectionAnchor: Int?
     private var translationCorrectionAnchor: Int?
+    private var skippedNotice: (text: String, until: Double)?
+    private var visualGeneration = 0
+    /// Fading out the old page; the new one is placed when it completes.
+    private var fadeInFlight = false
+    /// Blank frame and fade-in of the new page.
+    private var fadingIn = false
+    private var finalizing = false
+    private var advanceCache: [String: CGFloat] = [:]
+    private var baselineCache: [String: CGFloat] = [:]
 
     private(set) var displayedSentence: UInt64?
     private(set) var isDisplayingFinal = false
@@ -37,9 +70,24 @@ final class VideoSubtitleView: NSView {
     private(set) var pageCount = 0
     var onDisplayedTextChange: (() -> Void)?
 
-    private static let trackGap: CGFloat = 8
-    private static let verticalInset: CGFloat = 2
-    private static let horizontalInset: CGFloat = 4
+    var appearanceSettings = Appearance() {
+        didSet {
+            guard appearanceSettings != oldValue else { return }
+            textNeedsLayout = true
+            needsLayout = true
+        }
+    }
+    /// Pending cues exist: each page waits 0.7 of its reading time (at least 1 s).
+    var catchingUp = false
+    /// Empty state shown at the source position, e.g. "正在听 Google Chrome…".
+    var placeholder: String? {
+        didSet { if placeholder != oldValue, !hasCaption { applyVisual() } }
+    }
+
+    private struct LayoutKey: Equatable {
+        var translationWidth: CGFloat, sourceWidth: CGFloat, sourceLines: Int
+        var appearance: Appearance
+    }
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
@@ -48,25 +96,51 @@ final class VideoSubtitleView: NSView {
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
-        addSubview(sourceView)
-        addSubview(translationView)
+        wantsLayer = true
+        addSubview(captionLayer)
+        glass.material = .hudWindow
+        glass.blendingMode = .behindWindow
+        glass.state = .active
+        glass.wantsLayer = true
+        glass.layer?.cornerRadius = SubtitleTokens.Radius.videoGlass
+        glass.layer?.masksToBounds = true
+        glass.isHidden = true
+        captionLayer.addSubview(glass)
+        for view in [sourceView, translationView, noticeView] { captionLayer.addSubview(view) }
+        captionLayer.addSubview(dots)
+        noticeView.isHidden = true
+        noticeView.setAccessibilityElement(false)
+        dots.isHidden = true
         sourceView.setAccessibilityLabel(String(localized: "原文"))
         translationView.setAccessibilityLabel(String(localized: "译文"))
     }
 
     required init?(coder: NSCoder) { return nil }
 
-    /// One complete source line and two complete translated lines, plus the fixed padding.
-    /// The panel uses the same metrics for its minimum size, independent of incoming text.
-    static func minimumReadingHeight(sourceFont: NSFont, translationFont: NSFont) -> CGFloat {
-        lineHeight(sourceFont) + 2 * lineHeight(translationFont) + trackGap + 4 * verticalInset
+    /// VoiceOver names the two blocks with their languages, e.g. "原文 · 英语" (§6 无障碍).
+    func setAccessibilityTitles(source: String, translation: String) {
+        sourceView.setAccessibilityLabel(source)
+        translationView.setAccessibilityLabel(translation)
     }
 
+    // MARK: metrics
+
+    static func lineHeight(_ font: NSFont) -> CGFloat { ceil(font.pointSize * 1.30) }
+
+    /// Two Chinese lines, one source line and 24 pt (§6 窗口).
+    static func minimumReadingHeight(sourceFont: NSFont, translationFont: NSFont) -> CGFloat {
+        CGFloat(VideoCaptionLayout.minimumContentHeight(translationLineHeight: Double(lineHeight(translationFont)),
+                                                        sourceLineHeight: Double(lineHeight(sourceFont))))
+    }
+
+    // MARK: input
+
     func setCaption(source: NSAttributedString, translation: NSAttributedString,
-                    sentence: UInt64?, isFinal: Bool, at now: Double) {
+                    sentence: UInt64?, isFinal: Bool, fallback: Bool = false, at now: Double) {
         lastTime = now
         let newSentence = !hasCaption || displayedSentence != sentence
         let changed = !self.source.isEqual(to: source) || !self.translation.isEqual(to: translation)
+            || self.fallback != fallback
         let metadataChanged = displayedSentence != sentence || isDisplayingFinal != isFinal
         if newSentence {
             sourceCorrectionAnchor = nil; translationCorrectionAnchor = nil
@@ -82,26 +156,40 @@ final class VideoSubtitleView: NSView {
                 translationCorrectionAnchor = min(translationCorrectionAnchor ?? targetAnchor, change)
             }
         }
+        finalizing = !newSentence && !isDisplayingFinal && isFinal
         hasCaption = source.length > 0 || translation.length > 0
         displayedSentence = sentence
         isDisplayingFinal = isFinal
-        guard changed || newSentence || metadataChanged else { return }
+        guard changed || newSentence || metadataChanged else { finalizing = false; return }
         self.source = NSAttributedString(attributedString: source)
         self.translation = NSAttributedString(attributedString: translation)
+        self.fallback = fallback
         resetPage = resetPage || newSentence
         textNeedsLayout = true
         needsLayout = true
         layoutSubtreeIfNeeded()
+        finalizing = false
         if metadataChanged, !changed { onDisplayedTextChange?() }
     }
 
-    /// Called by the panel's existing clock; this view creates no timer or animation.
+    /// "已跳过 N 句" at the source position for 1.5 s (§6 视觉反馈).
+    func showSkipped(count: Int, at now: Double) {
+        guard count > 0 else { return }
+        skippedNotice = (String(localized: "已跳过 \(count) 句"), now + VideoCaptionLayout.skippedNoticeSeconds)
+        applyVisual()
+    }
+
+    /// Called by the panel's existing clock; this view creates no timer.
     @discardableResult
     func advance(at now: Double) -> Bool {
         lastTime = now
+        if let notice = skippedNotice, now >= notice.until {
+            skippedNotice = nil
+            applyVisual()
+        }
         let hasSourcePage = sourcePageIndex + 1 < sourcePages.count
         let hasTranslationPage = translationPageIndex + 1 < translationPages.count
-        guard layoutReady, hasSourcePage || hasTranslationPage, now >= pageReadyAt else { return false }
+        guard layoutReady, hasSourcePage || hasTranslationPage, now >= readyTime else { return false }
         if hasSourcePage { sourcePageIndex += 1 }
         if hasTranslationPage { translationPageIndex += 1 }
         currentPageIndex = max(sourcePageIndex, translationPageIndex)
@@ -111,15 +199,22 @@ final class VideoSubtitleView: NSView {
 
     func canAdvance(at now: Double) -> Bool {
         !hasCaption || (layoutReady && sourcePageIndex + 1 >= sourcePages.count
-                       && translationPageIndex + 1 >= translationPages.count && now >= pageReadyAt)
+                       && translationPageIndex + 1 >= translationPages.count && now >= readyTime)
+    }
+
+    /// The page budget, shortened while pending cues wait.
+    private var readyTime: Double {
+        pageShownAt + VideoCaptionPacing.effectiveDuration(max(0, pageReadyAt - pageShownAt), catchingUp: catchingUp)
     }
 
     /// Hidden time is not reading time. An explicit restore gives the currently visible page
     /// a fresh budget without changing its text, page positions or sentence identity.
     func resetReadingTime(at now: Double) {
         lastTime = now
+        pageShownAt = now
         pageReadyAt = now + (hasCaption && layoutReady
-            ? Self.readingTime(source: displayedSource.count, translation: displayedTranslation.count) : 0)
+            ? VideoCaptionPacing.readingTime(sourceCharacters: displayedSource.count,
+                                             translationCharacters: displayedTranslation.count) : 0)
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -127,35 +222,33 @@ final class VideoSubtitleView: NSView {
         needsLayout = true
     }
 
+    // MARK: layout
+
+    private var sourceFont: NSFont { Self.font(in: source, fallback: 17) }
+    private var translationFont: NSFont { Self.font(in: translation, fallback: 26) }
+    private var markerWidth: CGFloat {
+        ceil((VideoCaptionLayout.continuationMarker as NSString).size(withAttributes: [.font: translationFont]).width) + 2
+    }
+
     override func layout() {
         super.layout()
-        let sourceFont = Self.font(in: source, fallback: 17)
-        let translationFont = Self.font(in: translation, fallback: 22)
-        let sourceLine = Self.lineHeight(sourceFont)
-        let targetLine = Self.lineHeight(translationFont)
-        let usableHeight = max(0, bounds.height - Self.trackGap)
-        let sourceMinimum = sourceLine + 2 * Self.verticalInset
-        let targetMinimum = 2 * targetLine + 2 * Self.verticalInset
-        let sourceWanted = max(sourceMinimum, min(usableHeight / 3, usableHeight - targetMinimum))
-        let sourceLines = max(1, floor((sourceWanted - 2 * Self.verticalInset) / sourceLine))
-        let sourceHeight = min(usableHeight, sourceLines * sourceLine + 2 * Self.verticalInset)
-        let targetHeight = max(0, usableHeight - sourceHeight)
-        let sourceTextHeight = max(0, floor((sourceHeight - 2 * Self.verticalInset) / sourceLine) * sourceLine)
-        let targetTextHeight = max(0, floor((targetHeight - 2 * Self.verticalInset) / targetLine) * targetLine)
-        let width = max(0, bounds.width - 2 * Self.horizontalInset)
-        sourceView.frame = NSRect(x: Self.horizontalInset, y: Self.verticalInset,
-                                  width: width, height: sourceTextHeight)
-        translationView.frame = NSRect(x: Self.horizontalInset,
-                                       y: sourceHeight + Self.trackGap + Self.verticalInset,
-                                       width: width, height: targetTextHeight)
-        let sourceSize = sourceView.bounds.size, targetSize = translationView.bounds.size
-        guard textNeedsLayout || sourceSize != lastSourceSize || targetSize != lastTranslationSize else { return }
+        captionLayer.frame = bounds
+        let width = Double(bounds.width)
+        let translationWidth = CGFloat(VideoCaptionLayout.translationBlockWidth(
+            windowWidth: width, translationSize: Double(translationFont.pointSize)))
+        let sourceWidth = CGFloat(VideoCaptionLayout.sourceBlockWidth(windowWidth: width,
+                                                                      sourceSize: Double(sourceFont.pointSize)))
+        let key = LayoutKey(translationWidth: translationWidth, sourceWidth: sourceWidth,
+                            sourceLines: sourceLineBudget, appearance: appearanceSettings)
+        guard textNeedsLayout || key != lastLayoutKey else { applyVisual(); return }
         let previousSourceAnchor = page(in: sourcePages, at: sourcePageIndex)?.range.location ?? 0
         let previousTargetAnchor = page(in: translationPages, at: translationPageIndex)?.range.location ?? 0
         let sourceAnchor = isDisplayingFinal ? min(previousSourceAnchor, sourceCorrectionAnchor ?? previousSourceAnchor) : previousSourceAnchor
         let targetAnchor = isDisplayingFinal ? min(previousTargetAnchor, translationCorrectionAnchor ?? previousTargetAnchor) : previousTargetAnchor
-        sourcePages = Self.pages(for: source, in: sourceSize)
-        translationPages = Self.pages(for: translation, in: targetSize)
+        sourcePages = paginate(source, lineWidth: sourceWidth, maxLines: key.sourceLines)
+        // Reserve room for the continuation marker on every Chinese line.
+        translationPages = paginate(translation, lineWidth: max(1, translationWidth - markerWidth),
+                                    maxLines: VideoCaptionLayout.maxLinesPerPage)
         pageCount = max(sourcePages.count, translationPages.count)
         layoutReady = (!hasCaption || pageCount > 0)
             && (source.length == 0 || !sourcePages.isEmpty)
@@ -170,11 +263,58 @@ final class VideoSubtitleView: NSView {
             translationPageIndex = Self.pageIndex(containing: targetAnchor, in: translationPages)
         }
         currentPageIndex = max(sourcePageIndex, translationPageIndex)
-        lastSourceSize = sourceSize; lastTranslationSize = targetSize
+        lastLayoutKey = key
+        let resized = !textNeedsLayout
         textNeedsLayout = false
         let startsNewPage = resetPage
         resetPage = false
-        showPage(at: lastTime, newPage: startsNewPage, newSentence: startsNewPage)
+        showPage(at: lastTime, newPage: startsNewPage, newSentence: startsNewPage, animated: startsNewPage && !resized)
+    }
+
+    /// Two source lines when the height allows them with two Chinese lines; otherwise one.
+    private var sourceLineBudget: Int {
+        let translationLine = Self.lineHeight(translationFont), sourceLine = Self.lineHeight(sourceFont)
+        let needed = CGFloat(VideoCaptionLayout.glassVerticalPadding) + 2 * sourceLine
+            + CGFloat(VideoCaptionLayout.blockGap) + 2 * translationLine + CGFloat(VideoCaptionLayout.bottomBaselineInset)
+        return bounds.height >= needed ? VideoCaptionLayout.maxLinesPerPage : 1
+    }
+
+    private func paginate(_ text: NSAttributedString, lineWidth: CGFloat, maxLines: Int) -> [Page] {
+        guard text.length > 0, lineWidth > 0 else { return [] }
+        let characters = Array(text.string)
+        var offsets = [0]
+        offsets.reserveCapacity(characters.count + 1)
+        var advances: [Double] = []
+        advances.reserveCapacity(characters.count)
+        for character in characters {
+            let location = offsets.last!
+            let length = character.utf16.count
+            offsets.append(location + length)
+            let font = text.attribute(.font, at: min(location, text.length - 1), effectiveRange: nil) as? NSFont ?? translationFont
+            advances.append(Double(advance(of: character, font: font)))
+        }
+        let laidOut = VideoCaptionPager.paginate(characters, advances: advances, lineWidth: Double(lineWidth), maxLines: maxLines)
+            .map { page in
+                page.lines.map { NSRange(location: offsets[$0.lowerBound], length: offsets[$0.upperBound] - offsets[$0.lowerBound]) }
+            }
+            .filter { !$0.isEmpty }
+        // Pages tile the whole text: each owns the spaces after it, so correction anchors and
+        // the final page's end match the text length.
+        return laidOut.enumerated().map { index, lines in
+            let start = index == 0 ? 0 : lines[0].location
+            let end = index + 1 < laidOut.count ? laidOut[index + 1][0].location : text.length
+            let range = NSRange(location: start, length: max(0, end - start))
+            return Page(range: range, text: text.attributedSubstring(from: range), lines: lines)
+        }
+    }
+
+    private func advance(of character: Character, font: NSFont) -> CGFloat {
+        let key = "\(font.fontName)|\(font.pointSize)|\(character)"
+        if let cached = advanceCache[key] { return cached }
+        let width = (String(character) as NSString).size(withAttributes: [.font: font]).width
+        if advanceCache.count > 4096 { advanceCache.removeAll(keepingCapacity: true) }
+        advanceCache[key] = width
+        return width
     }
 
     private func page(in pages: [Page], at index: Int) -> Page? {
@@ -183,7 +323,7 @@ final class VideoSubtitleView: NSView {
         return pages[min(index, pages.count - 1)]
     }
 
-    private func showPage(at now: Double, newPage: Bool, newSentence: Bool = false) {
+    private func showPage(at now: Double, newPage: Bool, newSentence: Bool = false, animated: Bool? = nil) {
         let sourcePage = layoutReady ? page(in: sourcePages, at: sourcePageIndex)?.text : nil
         let targetPage = layoutReady ? page(in: translationPages, at: translationPageIndex)?.text : nil
         let newSource = sourcePage?.string ?? "", newTarget = targetPage?.string ?? ""
@@ -193,8 +333,8 @@ final class VideoSubtitleView: NSView {
         let pageTargetCharacters = newSentence || newTarget != displayedTranslation ? newTarget.count : 0
         let textChanged = newSource != displayedSource || newTarget != displayedTranslation
         displayedSource = newSource; displayedTranslation = newTarget
-        sourceView.setCaption(sourcePage ?? NSAttributedString(string: ""))
-        translationView.setCaption(targetPage ?? NSAttributedString(string: ""))
+        // Page flips cross-fade; in-place draft growth and resizes do not.
+        presentVisual(animated: animated ?? newPage)
         if layoutReady {
             if correctionIsVisible(sourceCorrectionAnchor, in: page(in: sourcePages, at: sourcePageIndex), length: source.length) {
                 sourceCorrectionAnchor = nil
@@ -206,24 +346,249 @@ final class VideoSubtitleView: NSView {
         if newPage {
             // A shorter language may hold its last page while the other advances. That text
             // has already been read and must not consume another page's reading budget.
-            pageReadyAt = now + Self.readingTime(source: pageSourceCharacters, translation: pageTargetCharacters)
+            pageShownAt = now
+            pageReadyAt = now + VideoCaptionPacing.readingTime(sourceCharacters: pageSourceCharacters,
+                                                               translationCharacters: pageTargetCharacters)
         } else if changedSource > 0 || changedTarget > 0 {
             // A same-sentence final or partial does not charge the already visible prefix
             // again, and a color/font-only update never restarts its reading clock.
-            pageReadyAt = max(pageReadyAt, now + Self.readingTime(source: changedSource, translation: changedTarget))
+            pageReadyAt = max(pageReadyAt, now + VideoCaptionPacing.readingTime(sourceCharacters: changedSource,
+                                                                               translationCharacters: changedTarget))
         }
         if textChanged || newPage { onDisplayedTextChange?() }
     }
+
+    // MARK: visual
+
+    /// Page flips fade out, leave one blank frame and fade in, 120 ms in total (§6).
+    private func presentVisual(animated: Bool) {
+        let duration = appearanceSettings.reduceMotion ? 0 : SubtitleTokens.Motion.videoPageCrossfade.seconds
+        guard animated, duration > 0, window != nil, !captionLayer.isHidden else {
+            // Outside a page flip the captions are fully visible.
+            if !fadeInFlight, !fadingIn { captionLayer.alphaValue = 1 }
+            applyVisual()
+            return
+        }
+        visualGeneration += 1
+        let generation = visualGeneration
+        // Updates during the fade-out are picked up when the new page is placed.
+        fadeInFlight = true
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = duration / 2
+            captionLayer.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, generation == self.visualGeneration else { return }
+                self.fadeInFlight = false
+                self.fadingIn = true
+                self.applyVisual()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self, generation == self.visualGeneration else { return }
+                        NSAnimationContext.runAnimationGroup({ context in
+                            context.duration = duration / 2
+                            self.captionLayer.animator().alphaValue = 1
+                        }, completionHandler: { [weak self] in
+                            MainActor.assumeIsolated {
+                                guard let self, generation == self.visualGeneration else { return }
+                                self.fadingIn = false
+                            }
+                        })
+                    }
+                }
+            }
+        })
+    }
+
+    /// Places blocks, glass, plates, dots and notices for the current pages.
+    private func applyVisual() {
+        guard !fadeInFlight else { return }
+        let style = appearanceSettings.style
+        let sourcePageValue = layoutReady ? page(in: sourcePages, at: sourcePageIndex) : nil
+        let targetPageValue = layoutReady ? page(in: translationPages, at: translationPageIndex) : nil
+        let hasNextPage = layoutReady && currentPageIndex + 1 < pageCount
+        let isLastTranslationPage = translationPageIndex + 1 >= translationPages.count
+
+        // Source slot: the skipped notice, the page, or the empty-state placeholder.
+        var sourceVisual = sourcePageValue.map { visual(for: $0, in: source) } ?? NSAttributedString(string: "")
+        var notice: NSAttributedString?
+        if let skipped = skippedNotice {
+            notice = plain(skipped.text, size: VideoCaptionLayout.skippedNoticeSize, alpha: VideoCaptionLayout.skippedNoticeAlpha)
+        } else if !hasCaption, let placeholder, !placeholder.isEmpty {
+            notice = plain(placeholder, size: VideoCaptionLayout.placeholderSize, alpha: VideoCaptionLayout.placeholderAlpha)
+        }
+        if notice != nil { sourceVisual = NSAttributedString(string: "") }
+        let translationVisual = NSMutableAttributedString(attributedString:
+            targetPageValue.map { visual(for: $0, in: translation) } ?? NSAttributedString(string: ""))
+        if translationVisual.length > 0 {
+            let attributes = translationVisual.attributes(at: translationVisual.length - 1, effectiveRange: nil)
+            if hasNextPage {
+                var marker = attributes
+                marker[.foregroundColor] = SubtitleStyle.white(CGFloat(VideoCaptionLayout.continuationAlpha))
+                marker[.strokeWidth] = nil
+                translationVisual.append(NSAttributedString(string: VideoCaptionLayout.continuationMarker, attributes: marker))
+            } else if fallback, isDisplayingFinal, isLastTranslationPage {
+                translationVisual.append(ConversationText.fallbackBadge(baseFont: translationFont, attributes: attributes))
+            }
+        }
+
+        let plateAlpha = CGFloat(VideoCaptionStyle.plateAlpha(reduceTransparency: appearanceSettings.reduceTransparency))
+        for view in [sourceView, translationView, noticeView] {
+            view.plateAlpha = style == .plate ? plateAlpha : 0
+        }
+        if finalizing, !appearanceSettings.reduceMotion {
+            translationView.fade(duration: SubtitleTokens.Motion.draftToFinal.seconds)
+        }
+        sourceView.setCaption(sourceVisual)
+        translationView.setCaption(translationVisual)
+        noticeView.setCaption(notice ?? NSAttributedString(string: ""))
+        sourceView.setAccessibilityValue(displayedSource)
+        translationView.setAccessibilityValue(displayedTranslation)
+        if fallback, isDisplayingFinal {
+            translationView.setAccessibilityHelp(ConversationText.fallbackHelp)
+        } else {
+            translationView.setAccessibilityHelp(nil)
+        }
+
+        // Bottom anchoring: the bottom block's last baseline sits 12 pt above the content edge.
+        let height = bounds.height
+        let translationFirst = appearanceSettings.arrangement == .translationFirst
+        let topSlot = translationFirst ? translationView : (notice != nil ? noticeView : sourceView)
+        let bottomSlot = translationFirst ? (notice != nil ? noticeView : sourceView) : translationView
+        sourceView.isHidden = notice != nil
+        noticeView.isHidden = notice == nil
+        let showsDots = hasNextPage && pageCount > 1
+        let dotsSpace = CGFloat(VideoCaptionLayout.pageDotGap + VideoCaptionLayout.pageDotDiameter + 2)
+        let bottomBaseline = height - CGFloat(VideoCaptionLayout.bottomBaselineInset)
+        let bottomLines = bottomSlot.lineCount
+        let bottomFont = bottomSlot.firstFont ?? translationFont
+        let bottomLine = Self.lineHeight(bottomFont)
+        let bottomTop = bottomLines > 0
+            ? bottomBaseline - (CGFloat(bottomLines - 1) * bottomLine + baselineOffset(for: bottomFont))
+            : bottomBaseline
+        place(bottomSlot, top: bottomTop, lines: bottomLines, font: bottomFont)
+        let gap = CGFloat(VideoCaptionLayout.blockGap) + (translationFirst && showsDots ? dotsSpace : 0)
+        let topLines = topSlot.lineCount
+        let topFont = topSlot.firstFont ?? sourceFont
+        let topBottom = bottomLines > 0 ? bottomTop - gap : bottomBaseline
+        place(topSlot, top: topBottom - CGFloat(topLines) * Self.lineHeight(topFont), lines: topLines, font: topFont)
+
+        // Page dots 4 pt under the Chinese block, hidden on the last page.
+        dots.isHidden = !showsDots
+        if showsDots {
+            dots.count = pageCount
+            dots.current = currentPageIndex
+            let baseline = translationView.frame.minY + CGFloat(max(0, translationView.lineCount - 1)) * Self.lineHeight(translationFont)
+                + baselineOffset(for: translationFont)
+            let size = dots.intrinsicContentSize
+            let y = min(baseline - translationFont.descender + CGFloat(VideoCaptionLayout.pageDotGap),
+                        height - size.height - 1)
+            dots.frame = NSRect(x: (bounds.width - size.width) / 2, y: y, width: size.width, height: size.height)
+        }
+
+        // Fitted glass: one rounded block around both text blocks' used bounds.
+        var union = NSRect.null
+        for view in [topSlot, bottomSlot] where !view.isHidden && view.lineCount > 0 {
+            union = union.union(view.usedTextRect.offsetBy(dx: view.frame.minX, dy: view.frame.minY))
+        }
+        if showsDots { union = union.union(dots.frame) }
+        let showsGlass = style == .fittedGlass && !union.isNull
+        glass.isHidden = !showsGlass
+        if showsGlass {
+            glass.frame = union.insetBy(dx: -CGFloat(VideoCaptionLayout.glassHorizontalPadding),
+                                        dy: -CGFloat(VideoCaptionLayout.glassVerticalPadding)).integral
+            glass.alphaValue = appearanceSettings.opacity
+        }
+    }
+
+    private func place(_ view: VideoCaptionTextView, top: CGFloat, lines: Int, font: NSFont) {
+        // A little slack keeps TextKit from re-wrapping lines the pager already broke.
+        let blockWidth = view === sourceView
+            ? CGFloat(VideoCaptionLayout.sourceBlockWidth(windowWidth: Double(bounds.width), sourceSize: Double(font.pointSize)))
+            : CGFloat(VideoCaptionLayout.translationBlockWidth(windowWidth: Double(bounds.width), translationSize: Double(font.pointSize)))
+        let width = min(bounds.width, max(blockWidth, view.naturalWidth) + 4 * font.pointSize)
+        view.frame = NSRect(x: (bounds.width - width) / 2, y: top, width: width,
+                            height: CGFloat(lines) * Self.lineHeight(font))
+    }
+
+    /// Baseline offset from a fixed-height line's top, measured once per font.
+    private func baselineOffset(for font: NSFont) -> CGFloat {
+        let key = "\(font.fontName)|\(font.pointSize)"
+        if let cached = baselineCache[key] { return cached }
+        let storage = NSTextStorage(string: "国A", attributes: [.font: font, .paragraphStyle: Self.paragraph(for: font)]) // l10n-ignore
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: 1000, height: 1000))
+        container.lineFragmentPadding = 0
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        manager.ensureLayout(for: container)
+        let value = manager.location(forGlyphAt: 0).y
+        baselineCache[key] = value
+        return value
+    }
+
+    static func paragraph(for font: NSFont) -> NSParagraphStyle {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.minimumLineHeight = lineHeight(font)
+        paragraph.maximumLineHeight = lineHeight(font)
+        return paragraph
+    }
+
+    /// The page's lines joined by explicit breaks, with the style's stroke and shadow.
+    private func visual(for page: Page, in text: NSAttributedString) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        for (index, line) in page.lines.enumerated() {
+            if index > 0 {
+                let attributes = text.attributes(at: max(0, line.location - 1), effectiveRange: nil)
+                result.append(NSAttributedString(string: "\n", attributes: attributes))
+            }
+            result.append(text.attributedSubstring(from: line))
+        }
+        styled(result)
+        return result
+    }
+
+    private func plain(_ value: String, size: Double, alpha: Double) -> NSAttributedString {
+        let font = NSFont.systemFont(ofSize: size)
+        let result = NSMutableAttributedString(string: value, attributes: [
+            .font: font, .foregroundColor: SubtitleStyle.white(CGFloat(alpha)),
+        ])
+        styled(result)
+        return result
+    }
+
+    private func styled(_ text: NSMutableAttributedString) {
+        let whole = NSRange(location: 0, length: text.length)
+        guard whole.length > 0 else { return }
+        text.enumerateAttribute(.font, in: whole) { value, range, _ in
+            let font = value as? NSFont ?? translationFont
+            text.addAttribute(.paragraphStyle, value: Self.paragraph(for: font), range: range)
+        }
+        let style = appearanceSettings.style
+        if let token = style.textShadow(opacity: Double(appearanceSettings.opacity)) {
+            let shadow = NSShadow()
+            shadow.shadowColor = SubtitleStyle.nsColor(token.color)
+            shadow.shadowBlurRadius = token.blur
+            shadow.shadowOffset = NSSize(width: token.offsetX, height: token.offsetY)
+            text.addAttribute(.shadow, value: shadow, range: whole)
+        } else {
+            text.removeAttribute(.shadow, range: whole)
+        }
+        if style == .stroke {
+            // Negative stroke width keeps the foreground fill.
+            text.addAttributes([.strokeWidth: VideoCaptionStyle.strokeWidth, .strokeColor: NSColor.black], range: whole)
+        }
+    }
+
+    // MARK: helpers
 
     private func correctionIsVisible(_ offset: Int?, in page: Page?, length: Int) -> Bool {
         guard let offset else { return false }
         if length == 0 { return true }
         guard let page, page.range.location <= offset else { return false }
         return offset < NSMaxRange(page.range) || (offset == length && NSMaxRange(page.range) == length)
-    }
-
-    private static func readingTime(source: Int, translation: Int) -> Double {
-        min(6, max(1, max(Double(source) / 18, Double(translation) / 9)))
     }
 
     private static func changedCharacters(_ text: String, replacing old: String) -> Int {
@@ -245,58 +610,53 @@ final class VideoSubtitleView: NSView {
         return text.attribute(.font, at: 0, effectiveRange: nil) as? NSFont ?? .systemFont(ofSize: size)
     }
 
-    private static func lineHeight(_ font: NSFont) -> CGFloat {
-        ceil(NSLayoutManager().defaultLineHeight(for: font))
-    }
-
     private static func pageIndex(containing anchor: Int, in pages: [Page]) -> Int {
         pages.firstIndex { anchor < NSMaxRange($0.range) } ?? max(0, pages.count - 1)
     }
+}
 
-    private static func pages(for text: NSAttributedString, in size: NSSize) -> [Page] {
-        guard text.length > 0, size.width > 0, size.height > 0 else { return [] }
-        var result: [Page] = []
-        var offset = 0
-        while offset < text.length {
-            let remaining = text.attributedSubstring(from: NSRange(location: offset, length: text.length - offset))
-            let storage = NSTextStorage(attributedString: remaining)
-            let manager = NSLayoutManager()
-            let container = NSTextContainer(size: size)
-            container.lineFragmentPadding = 0
-            container.lineBreakMode = .byWordWrapping
-            manager.addTextContainer(container)
-            storage.addLayoutManager(manager)
-            manager.ensureLayout(for: container)
-            let glyphs = manager.glyphRange(for: container)
-            var completeEnd = 0
-            manager.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, range, stop in
-                guard rect.maxY <= size.height + 0.5 else { stop.pointee = true; return }
-                completeEnd = NSMaxRange(range)
-            }
-            // An undersized viewport must not silently drop the remaining text or claim its
-            // final page is ready. The panel raises its minimum size from the same metrics.
-            guard completeEnd > 0 else { return [] }
-            let chars = manager.characterRange(forGlyphRange: NSRange(location: 0, length: completeEnd), actualGlyphRange: nil)
-            let length = min(remaining.length, NSMaxRange(chars))
-            guard length > 0 else { return [] }
-            let range = NSRange(location: offset, length: length)
-            result.append(Page(range: range, text: text.attributedSubstring(from: range)))
-            offset += length
+/// Holds every caption element so a page flip can fade them together.
+private final class CaptionContainerView: NSView {
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+    override var mouseDownCanMoveWindow: Bool { true }
+    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+}
+
+/// 3 pt dots, 4 pt apart: the current page white 90%, the others 30%.
+private final class PageDotsView: NSView {
+    var count = 0 { didSet { if count != oldValue { needsDisplay = true; invalidateIntrinsicContentSize() } } }
+    var current = 0 { didSet { if current != oldValue { needsDisplay = true } } }
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+
+    override var intrinsicContentSize: NSSize {
+        let diameter = CGFloat(VideoCaptionLayout.pageDotDiameter), spacing = CGFloat(VideoCaptionLayout.pageDotSpacing)
+        return NSSize(width: max(0, CGFloat(count) * diameter + CGFloat(max(0, count - 1)) * spacing), height: diameter)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let diameter = CGFloat(VideoCaptionLayout.pageDotDiameter), spacing = CGFloat(VideoCaptionLayout.pageDotSpacing)
+        for index in 0..<count {
+            let alpha = index == current ? VideoCaptionLayout.pageDotCurrentAlpha : VideoCaptionLayout.pageDotOtherAlpha
+            SubtitleStyle.white(CGFloat(alpha)).setFill()
+            NSBezierPath(ovalIn: NSRect(x: CGFloat(index) * (diameter + spacing), y: 0, width: diameter, height: diameter)).fill()
         }
-        return result
     }
 }
 
 @MainActor
 private final class VideoCaptionTextView: NSTextView {
     private let captionStorage: NSTextStorage
+    /// Plate style: a rounded dark block behind each line; 0 draws none.
+    var plateAlpha: CGFloat = 0 { didSet { if plateAlpha != oldValue { needsDisplay = true } } }
     override var acceptsFirstResponder: Bool { false }
     override var mouseDownCanMoveWindow: Bool { true }
     override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
 
     init() {
-        // Supply the same TextKit 1 stack used for pagination. A nil container can opt into
-        // TextKit 2 on newer systems, whose metrics and layout-manager access differ.
+        // Supply a TextKit 1 stack. A nil container can opt into TextKit 2 on newer systems,
+        // whose metrics and layout-manager access differ.
         let storage = NSTextStorage()
         let manager = NSLayoutManager()
         let container = NSTextContainer(size: .zero)
@@ -314,6 +674,7 @@ private final class VideoCaptionTextView: NSTextView {
         textContainer?.lineFragmentPadding = 0
         textContainer?.widthTracksTextView = true
         textContainer?.heightTracksTextView = true
+        wantsLayer = true
     }
 
     required init?(coder: NSCoder) { return nil }
@@ -321,5 +682,59 @@ private final class VideoCaptionTextView: NSTextView {
     func setCaption(_ value: NSAttributedString) {
         guard textStorage?.isEqual(to: value) != true else { return }
         textStorage?.setAttributedString(value)
+        needsDisplay = true
+    }
+
+    /// The colour change of a final replacing its draft in place.
+    func fade(duration: TimeInterval) {
+        guard duration > 0 else { return }
+        let transition = CATransition()
+        transition.type = .fade
+        transition.duration = duration
+        layer?.add(transition, forKey: "draftToFinal")
+    }
+
+    var lineCount: Int {
+        guard let text = textStorage, text.length > 0 else { return 0 }
+        return text.string.components(separatedBy: "\n").count
+    }
+
+    var firstFont: NSFont? {
+        guard let text = textStorage, text.length > 0 else { return nil }
+        return text.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+    }
+
+    /// Widest line, so the frame never forces a wrap of a pager line.
+    var naturalWidth: CGFloat {
+        guard let text = textStorage, text.length > 0 else { return 0 }
+        return ceil(text.size().width)
+    }
+
+    /// Union of the laid-out lines' used rects in view coordinates.
+    var usedTextRect: NSRect {
+        guard let manager = layoutManager, let container = textContainer, (textStorage?.length ?? 0) > 0 else { return .null }
+        manager.ensureLayout(for: container)
+        var union = NSRect.null
+        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, used, _, _, _ in
+            union = union.union(used)
+        }
+        return union
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if plateAlpha > 0, let manager = layoutManager, let container = textContainer, (textStorage?.length ?? 0) > 0 {
+            manager.ensureLayout(for: container)
+            NSColor(white: 0, alpha: plateAlpha).setFill()
+            manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { [weak self] rect, used, _, glyphs, _ in
+                guard let self, used.width > 0 else { return }
+                let characterIndex = manager.characterIndexForGlyph(at: glyphs.location)
+                let font = self.textStorage?.attribute(.font, at: characterIndex, effectiveRange: nil) as? NSFont
+                let padding = CGFloat(VideoCaptionLayout.plateHorizontalPaddingEm) * (font?.pointSize ?? 20)
+                let block = NSRect(x: used.minX - padding, y: rect.minY, width: used.width + 2 * padding, height: rect.height)
+                let radius = CGFloat(SubtitleTokens.Radius.solidRowBlock)
+                NSBezierPath(roundedRect: block, xRadius: radius, yRadius: radius).fill()
+            }
+        }
+        super.draw(dirtyRect)
     }
 }

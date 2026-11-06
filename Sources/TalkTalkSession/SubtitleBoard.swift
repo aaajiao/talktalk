@@ -14,9 +14,12 @@ public struct SubtitleBoard: Sendable, Equatable {
             self.sentence = sentence; self.text = text; self.source = source
             self.approx = approx; self.numberWarning = numberWarning
         }
-        /// Number-check results remain metadata and never append text to the subtitle.
-        /// “≈” still identifies the Apple fallback (§5.1).
-        public var display: String { (approx ? "≈ " : "") + text }
+        /// Number-check results remain metadata and never append text to the subtitle. The
+        /// Apple fallback is no longer a "≈" prefix: the view appends a "备用翻译" badge at the
+        /// sentence end (redesign §4 三态), so the text itself stays unmodified.
+        public var display: String { text }
+        /// The final came from the Apple fallback; the view shows the "备用翻译" badge.
+        public var showsFallbackBadge: Bool { approx }
     }
 
     public let finalLines: Int
