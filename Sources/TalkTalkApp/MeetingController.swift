@@ -75,6 +75,10 @@ final class MeetingController {
                     default: text = h?.rawValue
                     }
                     self?.state.meetingHint = text
+                    // Phone uses the same persistent issue surface as the other scenes.
+                    // Silence itself is ordinary; the auto-end warning and actual failures
+                    // must survive removal of the old explanatory footer.
+                    self?.hud?.listen(h == .meetingSilent ? nil : h)
                     self?.refreshPhoneContext()
                 } else {
                     self?.state.meetingHint = h?.rawValue
@@ -121,6 +125,8 @@ final class MeetingController {
     }
 
     private func applySubtitleAppearance() {
+        panel.setRemoteLanguageTitle(state.remoteLanguage.title)
+        panel.setSourceName(state.meetingMode == .phone ? "Phone" : state.meetingApp)
         switch panel.presentation {
         case .meeting:
             panel.setFontSize(state.subtitleFontSize)
@@ -212,9 +218,15 @@ final class MeetingController {
     private func refreshPhoneContext() {
         guard state.meetingMode == .phone else { return }
         guard state.meetingActive || state.meetingStarting else {
+            hud?.setSceneIssue(nil)
             panel.setPhoneContext(nil)
             return
         }
+        // Audio readiness already has typed gate/route warnings. Only distinct Phone
+        // operation failures belong here, avoiding a second generic ready/status sentence.
+        hud?.setSceneIssue(state.phoneProblem.map {
+            HUDLine(String(localized: "电话需要检查"), .yellow, detail: $0, symbol: "phone")
+        })
         panel.setPhoneActionsEnabled(state.meetingActive && !state.meetingStarting && !state.meetingStopping)
         let text: String
         if state.meetingStopping {
@@ -249,6 +261,7 @@ final class MeetingController {
     }
 
     private func listenConfigurationChanged() {
+        panel.setRemoteLanguageTitle(state.remoteLanguage.title)
         listenConfigurationTask?.cancel()
         let requestID = UUID(); listenRequestID = requestID
         guard let session, !state.meetingStopping else { return }
@@ -553,6 +566,7 @@ final class MeetingController {
             state.meetingActive = true
             if let session { state.meetingMode = session.mode }
             state.meetingApp = name
+            panel.setSourceName(name)
             if state.meetingStartedAt == nil { state.meetingStartedAt = session?.startedAt ?? Date() }
             panel.setVisible(state.subtitlesVisible)
             if state.meetingMode == .phone { refreshPhoneContext() }
@@ -575,6 +589,7 @@ final class MeetingController {
             if state.meetingMode == .phone {
                 state.phoneStatus = String(localized: "电话同传已结束；如仍在通话，请在 Phone 中挂断。")
             }
+            hud?.setSceneIssue(nil)
             panel.setPhoneContext(nil)
             panel.setVisible(false)
             panel.clear()

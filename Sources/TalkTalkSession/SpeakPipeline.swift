@@ -111,6 +111,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private var announcementEngine: (any TTSEngine)?
     private var announcementJob: JobID?
     private var announcementClause: UInt64?
+    private var announcementOutputJob: JobID?
     private var presses: [UInt64: Press] = [:]
     private var currentPress: UInt64?
     private var previewStart: Task<Void, Never>?
@@ -134,6 +135,8 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private var workBarriers = 0
     private var cancellingJobs: Set<JobID> = []
     private var reportedBusy = false
+    private var playingOutput: [UInt64: JobID] = [:]
+    private var reportedOutputPlaying = false
     public var commitWhileHeld = true
     public var isIdle: Bool {
         workBarriers == 0 && cancellingJobs.isEmpty && presses.isEmpty && asrTasks.isEmpty
@@ -214,6 +217,13 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         guard reportedBusy != busy else { return }
         reportedBusy = busy
         onWorkChange(busy)
+    }
+
+    private func reportOutputActivity() {
+        let playing = !playingOutput.isEmpty
+        guard reportedOutputPlaying != playing else { return }
+        reportedOutputPlaying = playing
+        ui(.outputActivity(playing))
     }
 
     private func publishTranscript() {
@@ -798,7 +808,14 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                     ledger.firstSampleEnqueued(member, job: job, at: at)
                 }
             case .firstSamplePlayed(let id, let job, let at):
-                guard let row = clauses[id], row.ttsJob == job else { continue }
+                if id == announcementClause, job == announcementOutputJob {
+                    playingOutput[id] = job
+                    reportOutputActivity()
+                    continue
+                }
+                guard let row = clauses[id], row.ttsJob == job, ledger.accepts(id, job: job) else { continue }
+                playingOutput[id] = job
+                reportOutputActivity()
                 let members = renderMembers[id] ?? [id]
                 if members.contains(where: { !heard.contains($0) }) {
                     log.event("speak.voice_played", ["voice": .tag(row.voice == .system ? "system" : "clone"),
@@ -820,29 +837,40 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 }
                 ui(.pushToTalk(.playing(lang: target, voice: row.voice, source: row.backend, queued: queue.clauseCount)))
             case .played(let played):
-                if announcementClause == played.clause { announcementClause = nil }
+                playingOutput[played.clause] = nil
+                reportOutputActivity()
+                if announcementClause == played.clause { announcementClause = nil; announcementOutputJob = nil }
                 let members = renderMembers.removeValue(forKey: played.clause) ?? [played.clause]
                 for member in members { ledger.played(member, at: played.end); clauses[member] = nil }
                 await echo.recordPlayed(text: played.text, startHost: played.start, endHost: played.end)
                 if queue.clauseCount == 0, currentPress == nil { ui(.pushToTalk(.idle)) }
             case .cut(let id, let reason, let at):
+                if id == announcementClause { announcementOutputJob = nil }
+                playingOutput[id] = nil
+                reportOutputActivity()
                 if let job = clauses[id]?.ttsJob, previousClone?.job == job { previousClone = nil }
                 let members = renderMembers[id] ?? [id]
                 for member in members { ledger.cut(member, reason: reason, at: at) }
                 rollbackJobs(members.compactMap { clauses[$0]?.mtJob })
                 if reason == .passthroughCut { log.event("pt.clause_cut", at: at) }
             case .cancelJob(let job):
+                if announcementOutputJob == job { announcementOutputJob = nil }
+                playingOutput = playingOutput.filter { $0.value != job }
+                reportOutputActivity()
                 if previousClone?.job == job { previousClone = nil }
                 renderVoice[job] = nil; renderText[job] = nil
                 renders.removeValue(forKey: job)?.cancel()
                 if let e = renderEngines.removeValue(forKey: job) { await e.cancel(job) }
             case .rerender(let id, let job):
+                if playingOutput[id] == job { playingOutput[id] = nil; reportOutputActivity() }
                 if previousClone?.job == job { previousClone = nil }
-                if id == announcementClause { announcementClause = nil; requestAnnouncement(); continue }
+                if id == announcementClause { announcementClause = nil; announcementOutputJob = nil; requestAnnouncement(); continue }
                 let members = renderMembers.removeValue(forKey: id) ?? [id]
                 let resends = members.filter { ledger.resend($0, at: clock()) }
                 restoreOrder(resends)
             case .renderFailed(let id, let job, let reason):
+                if id == announcementClause, announcementOutputJob == job { announcementOutputJob = nil }
+                if playingOutput[id] == job { playingOutput[id] = nil; reportOutputActivity() }
                 if previousClone?.job == job { previousClone = nil }
                 let members = renderMembers.removeValue(forKey: id) ?? [id]
                 for member in members { ledger.renderFailed(member, job: job, reason: reason, at: clock()) }
@@ -1036,7 +1064,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
               let (_, handle, _) = announcementVoice(), cache.handle == handle,
               let text = announcementText else { prepareAnnouncement(); return }
         let id = jobs.next(), job = jobs.next()
-        announcementClause = id; wantsAnnouncement = false
+        announcementClause = id; announcementOutputJob = job; wantsAnnouncement = false
         queue.open(clause: id, job: job, epoch: epoch, text: text, lang: target,
                    wholeClause: true, gainDb: cache.gainDb, excludeFromMetrics: true)
         for var chunk in cache.chunks {
@@ -1146,13 +1174,15 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         let oldClauses = clauses, oldEngines = renderEngines
         let oldAnnouncementJob = announcementJob, oldAnnouncementEngine = announcementEngine
         announcementTask?.cancel(); announcementTask = nil; announcementJob = nil
-        wantsAnnouncement = false; announcementClause = nil
+        wantsAnnouncement = false; announcementClause = nil; announcementOutputJob = nil
         clauses.removeAll(); order.removeAll(); renderEngines.removeAll()
         renderMembers.removeAll(); renderVoice.removeAll(); renderText.removeAll()
         waitingForEngine = false
         _ = ledger.cancelAll(at: clock()); _ = ttsQueue.removeAll()
         history.cancelAll(session: session)
         _ = queue.hardInterrupt(newEpoch: epoch, at: clock())
+        playingOutput.removeAll()
+        reportOutputActivity()
         host.setFastPump(false)
         await preview?.stop()
         for row in oldClauses.values {

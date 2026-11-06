@@ -183,6 +183,8 @@ public struct SpeakTranscript: Sendable, Equatable {
 public enum SpeakUIEvent: Sendable, Equatable {
     case transcript(SpeakTranscript)
     case pushToTalk(HUDModel.PushToTalk)
+    /// Actual first-sample to end/cut playback, independent of simultaneous microphone input.
+    case outputActivity(Bool)
     case post(HUDModel.Warning)
     case clear(HUDModel.Warning)
     case pttAvailable(Bool)

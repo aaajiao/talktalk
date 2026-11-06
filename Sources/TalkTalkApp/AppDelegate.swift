@@ -76,6 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let meeting = MeetingController(state: state, panel: conversationPanel, hud: hud, privacy: privacy,
             engineProcess: { [bridge = engineHost.speakBridge] in bridge.process })
         self.meeting = meeting
+        hud.onEndSession = { [weak meeting, weak state, weak onboardingModel] in
+            if let state, state.meetingActive { meeting?.toggle(mode: state.meetingMode) }
+            else { onboardingModel?.endSpeakDemo(); onboardingModel?.demo.stop() }
+        }
         state.onToggleListening = { [weak meeting] mode in meeting?.toggle(mode: mode) }
         hud.onOpenSettings = { [weak settings, weak onboarding] destination in
             switch destination {
@@ -110,9 +114,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   case let .green(appID, _) = verdict else { return false }
             return appID == MeetingMode.phoneAppID
         }
-        hud.onPhoneSpeechModeChange = { [weak state] mode, inputConfirmed in
+        hud.onPhoneSpeechModeChange = { [weak state] mode, inputConfirmed, playing in
             state?.phoneSpeechMode = mode
             state?.phoneInputConfirmed = inputConfirmed
+            state?.phoneSpeechPlaying = playing
+            if mode == nil { state?.phoneStatusDetailsPresented = false }
         }
         settings.driver.systemInput = systemInput   // 组件 › 虚拟麦克风 / 完全卸载 (§8.4)
         settings.driver.isChannel1Busy = { output?.isChannel1Busy ?? false }
@@ -174,7 +180,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return (s.showsSwitchBack, s.showsRestoreNow, s.showsResumeFromRecord)
             },
             switchBackToMic: { [weak systemInput] in systemInput?.switchBack() },
-            restoreDefaultInput: { [weak systemInput] in systemInput?.restoreNow() }))
+            restoreDefaultInput: { [weak systemInput] in systemInput?.restoreNow() },
+            canRestoreSubtitleWindow: { [weak conversationPanel] in conversationPanel?.canRestoreWindow ?? false },
+            restoreSubtitleWindow: { [weak conversationPanel] in conversationPanel?.restoreWindow() }))
         statusItem = status
         meeting.onActiveChange = { [weak self] _ in self?.updateIcon() }
         meeting.onTranslationChange = { [weak self] in self?.updateIcon() }
@@ -265,7 +273,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                 speakTranslationDegraded: (speak?.degraded ?? false) && meeting?.cloud.box.speak != nil))
     }
 
-    /// A second launch or a Dock click: the unfinished onboarding, else settings.
+    /// A second launch or a Dock click restores a minimized subtitle window first; otherwise
+    /// it opens the unfinished onboarding or settings as before.
     private func showFront() {
         #if TALKTALK_DEV
         if isSmoke, CommandLine.arguments.contains("--preview") {
@@ -273,6 +282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         #endif
+        if conversationPanel.canRestoreWindow {
+            conversationPanel.restoreWindow()
+            return
+        }
         if let o = onboarding, o.model.needsOnboarding { o.show() } else { settings?.show() }
     }
 

@@ -14,7 +14,7 @@ final class AppState {
     enum RemoteLanguage: String, CaseIterable, Identifiable {
         case en, de
         var id: String { rawValue }
-        var title: String { self == .en ? "English" : "Deutsch" }
+        var title: String { self == .en ? String(localized: "英语") : String(localized: "德语") }
         /// BCP-47 locale for SpeechAnalyzer / Translation.
         var localeIdentifier: String { AppleSpeechASR.localeIdentifier(lang) }
         /// The engines' language (TalkTalkCore).
@@ -187,6 +187,8 @@ final class AppState {
     /// from opening Phone or preparing the local engine.
     var phoneSpeechMode: HUDModel.MeetingAudio?
     var phoneInputConfirmed = false
+    var phoneSpeechPlaying = false
+    var phoneStatusDetailsPresented = false
     @ObservationIgnored var onOpenPhone: (() -> Void)?
     @ObservationIgnored var onDialPhone: ((String) -> Void)?
     @ObservationIgnored var onToggleListening: ((MeetingMode) -> Void)?

@@ -39,12 +39,15 @@ public struct HUDLine: Sendable, Equatable {
 
 /// One stable status on the meeting surface; detailed activity is shown only on request.
 public struct HUDStatusPresentation: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable { case activity, notice, problem }
     public var summary: HUDLine
     public var details: [HUDLine]
+    public var kind: Kind
 
-    public init(summary: HUDLine, details: [HUDLine]) {
+    public init(summary: HUDLine, details: [HUDLine], kind: Kind = .activity) {
         self.summary = summary
         self.details = details
+        self.kind = kind
     }
 }
 
@@ -594,7 +597,9 @@ public struct HUDModel: Sendable, Equatable {
     /// every warning and supplemental line remains available in the deduplicated details.
     public func compactStatus(now: Double, extraLines: [HUDLine] = []) -> HUDStatusPresentation? {
         var details: [HUDLine] = []
-        func addDetail(_ line: HUDLine) {
+        func addDetail(_ value: HUDLine) {
+            var line = value
+            line.level = nil
             // Ignore meter differences and decorative symbols when merging the same explanation.
             guard !details.contains(where: {
                 $0.text == line.text && $0.style == line.style && $0.detail == line.detail
@@ -604,9 +609,9 @@ public struct HUDModel: Sendable, Equatable {
         }
         (lines(now: now) + extraLines).forEach(addDetail)
 
-        var selected: (priority: Int, line: HUDLine)?
-        func consider(_ line: HUDLine, priority: Int) {
-            if selected == nil || priority < selected!.priority { selected = (priority, line) }
+        var selected: (priority: Int, line: HUDLine, kind: HUDStatusPresentation.Kind)?
+        func consider(_ line: HUDLine, priority: Int, kind: HUDStatusPresentation.Kind = .activity) {
+            if selected == nil || priority < selected!.priority { selected = (priority, line, kind) }
         }
         let warnings = Array(conditions.values) + notices.filter { $0.until > now }.map(\.warning)
         for warning in warnings.sorted(by: {
@@ -618,7 +623,14 @@ public struct HUDModel: Sendable, Equatable {
             case .skipped: line.text = String(localized: "部分内容已跳过")
             default: break
             }
-            consider(line, priority: warning.compactPriority)
+            // Informational tips live in details. Confirmations briefly use the same compact
+            // slot as problems, with no dismiss button and no second banner.
+            let informational = warning == .passthroughTip || warning == .meetingSilent
+            if !informational {
+                let problem = warning.style == .yellow || warning.style == .red || warning.style == .redBanner
+                consider(line, priority: problem ? warning.compactPriority : 75,
+                         kind: problem ? .problem : .notice)
+            }
         }
         for line in extraLines {
             let priority: Int = switch line.style {
@@ -626,7 +638,7 @@ public struct HUDModel: Sendable, Equatable {
             case .yellow: 30
             case .normal, .secondary, .check: 90
             }
-            consider(line, priority: priority)
+            consider(line, priority: priority, kind: priority < 80 ? .problem : .notice)
         }
 
         if let audio = meetingAudio, meetingActive {
@@ -634,7 +646,7 @@ public struct HUDModel: Sendable, Equatable {
             if case .unavailable = audio {
                 line = HUDLine(String(localized: "音频暂不可用"), .yellow, detail: audio.text,
                                symbol: "exclamationmark.triangle")
-                consider(line, priority: 20)
+                consider(line, priority: 20, kind: .problem)
             } else {
                 line = HUDLine(audio.text, symbol: audio.modeBadge.symbol)
                 consider(line, priority: 80)
@@ -664,7 +676,7 @@ public struct HUDModel: Sendable, Equatable {
         guard var summary = selected?.line else { return nil }
         summary.level = nil
         summary.detail = nil
-        return HUDStatusPresentation(summary: summary, details: details)
+        return HUDStatusPresentation(summary: summary, details: details, kind: selected?.kind ?? .activity)
     }
 
     /// The HUD has something to draw (it is shown even while the subtitle panel is hidden).

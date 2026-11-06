@@ -22,6 +22,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         var systemInputItems: () -> (switchBack: Bool, restoreNow: Bool, resumeFromRecord: Bool) = { (false, false, false) }
         var switchBackToMic: () -> Void = {}
         var restoreDefaultInput: () -> Void = {}
+        var canRestoreSubtitleWindow: () -> Bool = { false }
+        var restoreSubtitleWindow: () -> Void = {}
     }
 
     /// §11 icon states from the current meeting and SPEAK session.
@@ -114,6 +116,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let headline = state.meetingActive && iconState != .listening
             ? String(localized: "\(mode) · \(statusDescription)") : statusDescription
         menu.addItem(statusLine(headline))
+        if actions.canRestoreSubtitleWindow() {
+            menu.addItem(item(String(localized: "恢复字幕窗口"), #selector(restoreSubtitleWindow), symbol: "macwindow"))
+        }
         menu.addItem(.separator())
 
         if state.meetingActive || state.meetingStarting || state.meetingStopping {
@@ -360,6 +365,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - actions
 
+    @objc private func restoreSubtitleWindow() { actions.restoreSubtitleWindow() }
     @objc private func toggleMeeting() { actions.toggleMeeting() }
     @objc private func openMeetingMode() {
         state.requestedScenario = .meeting

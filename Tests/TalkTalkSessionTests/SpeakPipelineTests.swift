@@ -1,7 +1,7 @@
 import Foundation
 import Synchronization
 import Testing
-import TalkTalkAudio
+@testable import TalkTalkAudio
 @testable import TalkTalkCore
 @testable import TalkTalkSession
 
@@ -442,9 +442,11 @@ struct SpeakPipelineTests {
     @Test func phoneInputLossClearsQueuedSpeechContextAndTranscriptBeforeNextReader() async throws {
         let mt = SpeakTestMT()
         let transcripts = Mutex<[SpeakTranscript]>([])
+        let output = Mutex<[Bool]>([])
         let (pipeline, mic, host, tts) = try fixture(mt: mt, clone: true, holdTTS: true, whileHeld: true,
             onUI: { event in
                 if case let .transcript(value) = event { transcripts.withLock { $0.append(value) } }
+                if case let .outputActivity(value) = event { output.withLock { $0.append(value) } }
             })
         let now = HostClock.now()
         await pipeline.handle(.began(at: now))
@@ -454,12 +456,14 @@ struct SpeakPipelineTests {
         tts.finish(first.job)
         #expect(await until { host.queue.drainEstimate().renderedMs > 0 })
         await pipeline.receive([.firstSamplePlayed(clause: first.clause, job: first.job, at: now + 500_000_000)])
+        #expect(output.withLock { $0 } == [true])
         mic.press.cc.yield(clip(at: now + 1_000_000_000))
         #expect(await until { tts.requests.withLock { $0.count == 2 } })
         let second = tts.requests.withLock { $0[1] }
         #expect(await mt.requests[1].history.count == 1)
         #expect(second.previousJob == first.job)
         await pipeline.phoneInputLost()
+        #expect(output.withLock { $0 } == [true, false])
         #expect(tts.cancellations.withLock { $0.contains(second.job) })
         #expect(host.queue.clauseCount == 0)
         let cleared = try #require(transcripts.withLock { $0.last })
@@ -467,6 +471,7 @@ struct SpeakPipelineTests {
         tts.finish(second.job) // Completion of a cancelled render cannot re-enter the queue.
         await pipeline.resume()
         await pipeline.receive([.firstSamplePlayed(clause: first.clause, job: first.job, at: now + 2_000_000_000)])
+        #expect(output.withLock { $0 } == [true, false])
         await pipeline.handle(.began(at: now + 3_000_000_000))
         mic.press.cc.yield(clip(at: now + 3_000_000_000))
         #expect(await until { tts.requests.withLock { $0.count == 3 } })
@@ -475,6 +480,61 @@ struct SpeakPipelineTests {
         #expect(await mt.requests[2].history.isEmpty)
         #expect(host.queue.clauseCount == 1)
         await pipeline.stop()
+    }
+
+    @Test func outputActivityTracksPlaybackIndependentlyOfCaptureAndQueuedWork() async throws {
+        let output = Mutex<[Bool]>([])
+        let (pipeline, mic, host, tts) = try fixture(holdTTS: true, whileHeld: true, onUI: { event in
+            if case let .outputActivity(value) = event { output.withLock { $0.append(value) } }
+        })
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        mic.press.cc.yield(clip(at: now, isFinal: false))
+        #expect(await until { tts.requests.withLock { $0.count == 1 } })
+        let first = try #require(tts.requests.withLock { $0.first })
+        mic.press.cc.yield(clip(at: now + 1_000_000_000, isFinal: false))
+        #expect(await until { tts.requests.withLock { $0.count == 2 } })
+        let second = try #require(tts.requests.withLock { $0.dropFirst().first })
+        #expect(output.withLock { $0.isEmpty }) // Rendering/queueing is not playback.
+        let began = ClauseQueue.Event.firstSamplePlayed(clause: first.clause, job: first.job, at: now + 2_000_000_000)
+        await pipeline.receive([began, began])
+        #expect(output.withLock { $0 } == [true])
+        // A fresh capture emits .holding but cannot overwrite the independent output state.
+        await pipeline.handle(.released(at: now + 2_100_000_000, reason: .keyUp))
+        await pipeline.handle(.began(at: now + 2_200_000_000))
+        #expect(output.withLock { $0 } == [true])
+        await pipeline.receive([.played(.init(clause: first.clause, text: first.text,
+                                             start: now + 2_000_000_000, end: now + 2_300_000_000, incomplete: false))])
+        #expect(host.queue.clauseCount > 0)
+        #expect(output.withLock { $0 } == [true, false])
+        let secondBegan = ClauseQueue.Event.firstSamplePlayed(clause: second.clause, job: second.job, at: now + 2_400_000_000)
+        await pipeline.receive([secondBegan, .cut(clause: second.clause, reason: .passthroughCut, at: now + 2_500_000_000)])
+        #expect(output.withLock { $0 } == [true, false, true, false])
+        await pipeline.receive([secondBegan]) // Late callbacks after a cut cannot relight output.
+        #expect(output.withLock { $0 } == [true, false, true, false])
+        await pipeline.stop()
+    }
+
+    @Test func outputActivityClearsOnSuspendAndStop() async throws {
+        for suspend in [true, false] {
+            let output = Mutex<[Bool]>([])
+            let (pipeline, mic, _, tts) = try fixture(holdTTS: true, whileHeld: true, onUI: { event in
+                if case let .outputActivity(value) = event { output.withLock { $0.append(value) } }
+            })
+            let now = HostClock.now()
+            await pipeline.handle(.began(at: now))
+            mic.press.cc.yield(clip(at: now, isFinal: false))
+            #expect(await until { tts.requests.withLock { !$0.isEmpty } })
+            let first = try #require(tts.requests.withLock { $0.first })
+            let began = ClauseQueue.Event.firstSamplePlayed(clause: first.clause, job: first.job, at: now + 500_000_000)
+            await pipeline.receive([began])
+            #expect(output.withLock { $0 } == [true])
+            if suspend { await pipeline.suspend(); await pipeline.resume() }
+            else { await pipeline.stop() }
+            await pipeline.receive([began])
+            #expect(output.withLock { $0 } == [true, false])
+            await pipeline.stop()
+        }
     }
 
     @Test func meetingCaptureStartsAtKeyDownAndBusyWaitsForCancellation() async throws {

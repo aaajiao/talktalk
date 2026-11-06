@@ -9,16 +9,23 @@ import TalkTalkSession
 final class SubtitlePanel {
     enum Presentation: String { case meeting, phone, video }
     private(set) var presentation: Presentation = .meeting
-    private let panel: NSPanel
+    private let panel: SubtitleWindow
     private let content = ConversationContentView()
     private let backgroundEffect = NSVisualEffectView()
     private let remoteColumns = ConversationColumnsView()
     private var speechView: NSView?
-    private let remoteHeading = ConversationLabel(wrappingLabelWithString: String(localized: "对方"))
-    private let speechHeading = ConversationLabel(wrappingLabelWithString: String(localized: "我的发言"))
     private let divider = NSBox()
-    private let phoneFooter = PhoneSubtitleFooterView()
+    private let titlebarActions = SubtitleTitlebarActionsView()
+    private let titlebarAccessory = NSTitlebarAccessoryViewController()
+    private let sceneAccessory = NSTitlebarAccessoryViewController()
+    private let sceneIcon = NSImageView(frame: NSRect(x: 0, y: 0, width: 24, height: 28))
+    private var sourceName: String?
+    private var titlebarAccessoryInstalled = false
     private var phoneContext: String?
+    private var phoneActionsEnabled = true
+    private var sessionActionsActive = false
+    private var sessionActionsEnabled = true
+    private var remoteLanguageTitle = String(localized: "英语")
     private var displayedLines = Array(repeating: "", count: 6)
     private var resetRemoteScroll = false
     private(set) var board = SubtitleBoard(maxCharactersPerSecond: 9, retention: .meeting)
@@ -47,6 +54,7 @@ final class SubtitlePanel {
     private var moveObserver: NSObjectProtocol?
     private var resizeObserver: NSObjectProtocol?
     private var accessibilityObserver: NSObjectProtocol?
+    private var restoreObserver: NSObjectProtocol?
     var analysisRecorder: SubtitleAnalysisRecorder?
     private var analysisConfiguration: UInt64 = 0
     private var presentedFinals: [SubtitleBoard.Line] = []
@@ -57,7 +65,10 @@ final class SubtitlePanel {
         presentation == .video ? NSSize(width: 960, height: 180) : NSSize(width: 760, height: 480)
     }
     private var minimumWidth: CGFloat { presentation == .video ? 640 : 480 }
-    private var showsPhoneFooter: Bool { presentation == .phone && phoneContext != nil }
+    private var showsPhoneActions: Bool { presentation == .phone && phoneContext != nil }
+    private var hasWindowContent: Bool {
+        subtitlesRequested || (presentation != .video && speechHeight > 0) || statusHeight > 0 || showsPhoneActions
+    }
     var contentWidth: CGFloat {
         let visible = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1440
         return min(max(minimumWidth, manualContentSize?.width ?? defaultContentSize.width), max(280, visible - 40))
@@ -65,7 +76,7 @@ final class SubtitlePanel {
 
     init() {
         panel = SubtitleWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 150),
-                               styleMask: [.titled, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
+                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
@@ -82,6 +93,8 @@ final class SubtitlePanel {
         panel.isMovable = true
         panel.isMovableByWindowBackground = true
         panel.isReleasedWhenClosed = false
+        panel.standardWindowButton(.closeButton)?.toolTip = String(localized: "隐藏字幕，同传继续")
+        panel.standardWindowButton(.miniaturizeButton)?.toolTip = String(localized: "最小化字幕，同传继续")
         panel.animationBehavior = .none
         backgroundEffect.material = .hudWindow
         backgroundEffect.blendingMode = .behindWindow
@@ -90,17 +103,18 @@ final class SubtitlePanel {
         content.addSubview(backgroundEffect)
 
         content.addSubview(remoteColumns)
-        for heading in [remoteHeading, speechHeading] {
-            heading.font = .systemFont(ofSize: 12, weight: .semibold)
-            heading.textColor = .secondaryLabelColor
-            content.addSubview(heading)
-        }
         divider.boxType = .separator
         content.addSubview(divider)
-        phoneFooter.isHidden = true
-        phoneFooter.openPhone = { [weak self] in self?.openPhone?() }
-        phoneFooter.endTranslation = { [weak self] in self?.endPhoneTranslation?() }
-        content.addSubview(phoneFooter)
+        titlebarActions.openPhone = { [weak self] in self?.openPhone?() }
+        titlebarAccessory.layoutAttribute = .trailing
+        titlebarAccessory.view = titlebarActions
+        sceneAccessory.layoutAttribute = .leading
+        sceneIcon.contentTintColor = .secondaryLabelColor
+        sceneIcon.imageScaling = .scaleNone
+        sceneAccessory.view = sceneIcon
+        panel.addTitlebarAccessoryViewController(sceneAccessory)
+        updateWindowTitle()
+        updateRemoteHeadings()
         panel.contentView = content
         remoteColumns.onDisplayedTextChange = { [weak self] in self?.recordPresentation() }
         if let screen = NSScreen.main ?? NSScreen.screens.first { loadSize(for: screen) }
@@ -113,6 +127,14 @@ final class SubtitlePanel {
         resizeObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: panel, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.userResized() }
         }
+        restoreObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didDeminiaturizeNotification, object: panel, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.panel.didRestoreFromDock()
+                    self.recordPresentation()
+                }
+            }
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateBackground() }
@@ -124,6 +146,7 @@ final class SubtitlePanel {
         if let moveObserver { NotificationCenter.default.removeObserver(moveObserver) }
         if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
         if let accessibilityObserver { NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver) }
+        if let restoreObserver { NotificationCenter.default.removeObserver(restoreObserver) }
     }
 
     func setPresentation(_ value: Presentation) {
@@ -131,15 +154,13 @@ final class SubtitlePanel {
         let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens.first
         if panel.isVisible { savePosition() }
         presentation = value
+        sourceName = nil
         if value != .phone { phoneContext = nil }
+        updateTitlebarActions()
         clear()
         board = SubtitleBoard(maxCharactersPerSecond: 9, retention: value == .video ? nil : .meeting)
-        switch value {
-        case .meeting: panel.title = String(localized: "TalkTalk · 会议同传")
-        case .phone: panel.title = String(localized: "TalkTalk · 电话同传")
-        case .video: panel.title = String(localized: "TalkTalk · 视频字幕")
-        }
-        remoteHeading.stringValue = value == .phone ? String(localized: "电话对方") : String(localized: "对方")
+        updateWindowTitle()
+        updateRemoteHeadings()
         remoteColumns.style = value == .video ? .subtitles : .columns
         if let screen { loadSize(for: screen) }
         else { manualContentSize = nil }
@@ -161,17 +182,78 @@ final class SubtitlePanel {
         updateBackground()
     }
 
-    /// Phone owns dialing and the actual call. This row describes only TalkTalk's translation
-    /// session; clearing it also removes the phone actions after that session ends.
+    /// Phone owns dialing and the actual call. The titlebar provides only the two
+    /// translation-session actions; explanatory context stays out of the reading area.
     func setPhoneContext(_ text: String?) {
         guard phoneContext != text else { return }
-        let wasVisible = showsPhoneFooter
         phoneContext = text
-        phoneFooter.setContext(text ?? "")
-        if wasVisible != showsPhoneFooter { layout(); updateWindowVisibility() }
+        updateTitlebarActions()
+        updateWindowVisibility()
     }
 
-    func setPhoneActionsEnabled(_ enabled: Bool) { phoneFooter.setActionsEnabled(enabled) }
+    func setPhoneActionsEnabled(_ enabled: Bool) {
+        phoneActionsEnabled = enabled
+        updateTitlebarActions()
+    }
+
+    /// The unified details button keeps its owner and action; native titlebar layout owns
+    /// its position so it cannot compete with a warning or shortcut in the status row.
+    func setDetailsAction(button: NSButton) {
+        titlebarActions.setDetailsButton(button)
+        updateTitlebarActions()
+    }
+
+    func setSessionActions(active: Bool, enabled: Bool = true) {
+        guard sessionActionsActive != active || sessionActionsEnabled != enabled else { return }
+        sessionActionsActive = active
+        sessionActionsEnabled = enabled
+        updateTitlebarActions()
+    }
+
+    func setSourceName(_ name: String?) {
+        guard sourceName != name else { return }
+        sourceName = name
+        updateWindowTitle()
+    }
+
+    private func updateWindowTitle() {
+        let title: String
+        let symbol: String
+        switch presentation {
+        case .meeting: title = String(localized: "会议同传"); symbol = "person.2"
+        case .phone: title = String(localized: "电话同传"); symbol = "phone"
+        case .video: title = String(localized: "视频字幕"); symbol = "captions.bubble"
+        }
+        let source = presentation == .phone ? "Phone" : sourceName
+        panel.title = source.map { String(localized: "\(title) · \($0)") } ?? title
+        sceneIcon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
+        sceneIcon.toolTip = title
+    }
+
+    func setRemoteLanguageTitle(_ title: String) {
+        guard remoteLanguageTitle != title else { return }
+        remoteLanguageTitle = title
+        updateRemoteHeadings()
+    }
+
+    private func updateRemoteHeadings() {
+        remoteColumns.setHeadings(source: String(localized: "对方 · \(remoteLanguageTitle)"),
+                                  sourceSymbol: "person", translation: String(localized: "中文"))
+    }
+
+    private func updateTitlebarActions() {
+        titlebarActions.configure(showPhone: showsPhoneActions,
+            enabled: phoneActionsEnabled && sessionActionsEnabled)
+        let wanted = titlebarActions.hasActions
+        guard wanted != titlebarAccessoryInstalled else { return }
+        if wanted {
+            panel.addTitlebarAccessoryViewController(titlebarAccessory)
+        } else if let index = panel.titlebarAccessoryViewControllers.firstIndex(where: { $0 === titlebarAccessory }) {
+            panel.removeTitlebarAccessoryViewController(at: index)
+        }
+        titlebarAccessoryInstalled = wanted
+    }
 
     private func updateBackground() {
         let opaque = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency || backgroundOpacity >= 1
@@ -287,7 +369,7 @@ final class SubtitlePanel {
             displayedLines = nextLines
             let source = NSMutableAttributedString(string: "")
             let translation = NSMutableAttributedString(string: "")
-            let sourceFont = NSFont.systemFont(ofSize: max(11, max(12, baseFontSize * 0.65) * textScale))
+            let sourceFont = NSFont.systemFont(ofSize: max(11, max(12, baseFontSize * 0.78) * textScale))
             let targetFont = NSFont.systemFont(ofSize: fontSize, weight: .medium)
             let draftFont = NSFont.systemFont(ofSize: max(12, max(14, baseFontSize * 0.88) * textScale))
             func append(_ text: String, to output: NSMutableAttributedString, font: NSFont, color: NSColor) {
@@ -353,13 +435,11 @@ final class SubtitlePanel {
         let titleHeight = panel.frame.height - panel.contentRect(forFrameRect: panel.frame).height
         let maxHeight = max(140, visible.height - titleHeight - 40)
         let hasSpeech = presentation != .video && speechHeight > 0
-        let hasRemoteHeading = presentation != .video && subtitlesRequested
         let hasReadingArea = subtitlesRequested || hasSpeech
-        let phoneFooterHeight: CGFloat = showsPhoneFooter ? PhoneSubtitleFooterView.height : 0
-        let footerContentHeight = statusHeight + phoneFooterHeight + (statusHeight > 0 && showsPhoneFooter ? 8 : 0)
+        let footerContentHeight = statusHeight
         let footerSpace = footerContentHeight > 0 ? footerContentHeight + (hasReadingArea ? 12 : 0) : 0
-        let sectionChrome: CGFloat = 24 + (hasRemoteHeading ? 24 : 0) + (hasSpeech ? 24 : 0)
-            + (subtitlesRequested && hasSpeech ? 22 : 0) + footerSpace
+        let rowGap: CGFloat = subtitlesRequested && hasSpeech ? 22 : 0
+        let sectionChrome: CGFloat = 24 + rowGap + footerSpace
         let minHeight: CGFloat = hasReadingArea
             ? min(maxHeight, max(140, sectionChrome + (subtitlesRequested && hasSpeech ? 80 : 48)))
             : max(24, footerContentHeight + 24)
@@ -371,30 +451,22 @@ final class SubtitlePanel {
             ? min(maxHeight, max(minHeight, manualContentSize?.height ?? defaultContentSize.height))
             : minHeight
         let budget = max(0, height - sectionChrome)
-        let remoteHeight = subtitlesRequested ? (hasSpeech ? budget * 0.55 : budget) : 0
+        let remoteHeight = subtitlesRequested ? (hasSpeech ? budget / 2 : budget) : 0
         let localHeight = hasSpeech ? budget - remoteHeight : 0
         var top: CGFloat = 12
-        remoteHeading.isHidden = !hasRemoteHeading
         remoteColumns.isHidden = !subtitlesRequested
-        speechHeading.isHidden = !hasSpeech
         speechView?.isHidden = !hasSpeech
         divider.isHidden = !subtitlesRequested || !hasSpeech
         if subtitlesRequested {
-            if hasRemoteHeading {
-                remoteHeading.frame = NSRect(x: 16, y: top, width: width - 32, height: 18)
-                top += 24
-            }
             remoteColumns.frame = NSRect(x: 16, y: top, width: width - 32, height: remoteHeight)
             remoteColumns.layoutSubtreeIfNeeded()
             top += remoteHeight
         }
         if hasSpeech {
             if subtitlesRequested {
-                divider.frame = NSRect(x: 16, y: top + 10, width: width - 32, height: 1)
-                top += 22
+                divider.frame = NSRect(x: 0, y: top + rowGap / 2, width: width, height: 1)
+                top += rowGap
             }
-            speechHeading.frame = NSRect(x: 16, y: top, width: width - 32, height: 18)
-            top += 24
             speechView?.frame = NSRect(x: 16, y: top, width: width - 32, height: localHeight)
             speechView?.layoutSubtreeIfNeeded()
         }
@@ -407,9 +479,6 @@ final class SubtitlePanel {
         backgroundEffect.frame = content.bounds
         statusView?.isHidden = statusHeight <= 0
         statusView?.frame = NSRect(x: 16, y: size.height - 12 - footerContentHeight, width: width - 32, height: statusHeight)
-        phoneFooter.isHidden = !showsPhoneFooter
-        phoneFooter.frame = NSRect(x: 16, y: size.height - 12 - phoneFooterHeight, width: width - 32, height: phoneFooterHeight)
-        phoneFooter.layoutSubtreeIfNeeded()
         // A content refresh must not fight an in-progress drag or overwrite a manual size.
         if sizeChanged {
             let x = min(max(visible.minX + 12, old.midX - width / 2), visible.maxX - width - 12)
@@ -438,14 +507,43 @@ final class SubtitlePanel {
         }
     }
     private func updateWindowVisibility() {
-        if subtitlesRequested || (presentation != .video && speechHeight > 0) || statusHeight > 0 || showsPhoneFooter {
+        if hasWindowContent {
+            // Minimized is a user-owned presentation state, independent of subtitles being
+            // enabled and of audio work. A status transition must never bring it back.
+            guard !isMiniaturized, !panel.userHidden else { return }
             if !panel.isVisible { panel.orderFrontRegardless() }
-        } else if panel.isVisible { panel.orderOut(nil) }
+        } else {
+            // Ending the last visible work removes its Dock thumbnail without flashing the
+            // window on screen. Reusing this retained panel later starts a fresh presentation.
+            if panel.isMiniaturized || panel.minimizationPending { panel.dismissMiniaturizedWindow() }
+            else if panel.isVisible { panel.orderOut(nil) }
+        }
     }
-    var isVisible: Bool { subtitlesRequested && panel.isVisible }
-    var isWindowVisible: Bool { panel.isVisible }
-    var speechIsVisible: Bool { presentation != .video && speechHeight > 0 && panel.isVisible }
-    var statusIsVisible: Bool { statusHeight > 0 && panel.isVisible }
+
+    var isMiniaturized: Bool { panel.userMinimized || panel.isMiniaturized || panel.minimizationPending }
+    var canRestoreWindow: Bool { hasWindowContent && (isMiniaturized || panel.userHidden || !panel.isVisible) }
+
+    /// A new session is an explicit start, unlike an ordinary update or a late failure notice.
+    func prepareForNewSession() {
+        if panel.isMiniaturized || panel.minimizationPending { panel.dismissMiniaturizedWindow() }
+        panel.clearUserPresentationState()
+        updateWindowVisibility()
+    }
+
+    /// Explicit user intent only: the menu and Dock can restore the existing reading views.
+    /// Do not toggle the subtitle preference, restart a timer, or rebuild the transcript.
+    func restoreWindow() {
+        guard hasWindowContent else { return }
+        if NSApp.isHidden { NSApp.unhideWithoutActivation() }
+        panel.deminiaturize(nil)
+        panel.orderFrontRegardless()
+        recordPresentation()
+    }
+
+    var isVisible: Bool { subtitlesRequested && isWindowVisible }
+    var isWindowVisible: Bool { panel.isVisible && !isMiniaturized && !panel.userHidden }
+    var speechIsVisible: Bool { presentation != .video && speechHeight > 0 && isWindowVisible }
+    var statusIsVisible: Bool { statusHeight > 0 && isWindowVisible }
 
     private func poll() {
         let now = HostClock.now()
@@ -457,7 +555,7 @@ final class SubtitlePanel {
     }
 
     private func userResized() {
-        guard !isLayingOut else { return }
+        guard !isLayingOut, !isMiniaturized else { return }
         let resized = panel.contentRect(forFrameRect: panel.frame).size
         let hasReadingArea = subtitlesRequested || (presentation != .video && speechHeight > 0)
         manualContentSize = NSSize(width: resized.width, height: hasReadingArea
@@ -510,7 +608,7 @@ final class SubtitlePanel {
         panel.setFrameOrigin(NSPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + 80))
     }
     private func savePosition() {
-        guard !isLayingOut, let screen = panel.screen else { return }
+        guard !isLayingOut, !isMiniaturized, let screen = panel.screen else { return }
         UserDefaults.standard.set(NSStringFromPoint(panel.frame.origin), forKey: key(for: screen))
     }
 
@@ -520,6 +618,8 @@ final class SubtitlePanel {
     var canBecomeKey: Bool { panel.canBecomeKey }
     var isMovable: Bool { panel.isMovable && panel.isMovableByWindowBackground }
     var isResizable: Bool { panel.styleMask.contains(.resizable) }
+    var isMiniaturizable: Bool { panel.styleMask.contains(.miniaturizable) }
+    var isClosable: Bool { panel.styleMask.contains(.closable) }
     var hasManualSize: Bool { manualContentSize != nil }
     var windowNumber: Int { panel.windowNumber }
     var shownLines: [String] { displayedLines }
@@ -534,67 +634,138 @@ final class SubtitlePanel {
     #endif
 }
 
-/// Shared by the live phone window and its static settings preview.
-final class PhoneSubtitleFooterView: NSView {
-    static let height: CGFloat = 28
+/// The status/details entry lives at the same native titlebar position in every scene.
+/// Phone contributes one opener; the unified footer owns ending a TalkTalk session.
+private final class SubtitleTitlebarActionsView: NSView {
     var openPhone: (() -> Void)?
-    var endTranslation: (() -> Void)?
-    private let contextLabel = NSTextField(labelWithString: "")
-    private let openButton = NSButton(title: String(localized: "打开 Phone"), target: nil, action: nil)
-    private let endButton = NSButton(title: String(localized: "结束同传"), target: nil, action: nil)
-    override var isFlipped: Bool { true }
+    private let openButton = NSButton()
+    private var detailsButton: NSButton?
+    var hasActions: Bool { !openButton.isHidden || detailsButton != nil }
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        contextLabel.font = .systemFont(ofSize: 11)
-        contextLabel.textColor = .secondaryLabelColor
-        contextLabel.lineBreakMode = .byTruncatingTail
-        contextLabel.maximumNumberOfLines = 1
-        addSubview(contextLabel)
-        for button in [openButton, endButton] {
-            button.controlSize = .small
-            button.bezelStyle = .rounded
-            button.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-            button.target = self
-            button.setButtonType(.momentaryPushIn)
-            addSubview(button)
-        }
-        openButton.action = #selector(openPhonePressed)
+    override init(frame frameRect: NSRect = .zero) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 0, height: 28))
+        configureButton(openButton)
+        openButton.target = self
+        openButton.isHidden = true
+        addSubview(openButton)
+        openButton.image = NSImage(systemSymbolName: "phone", accessibilityDescription: nil)
+        openButton.setAccessibilityLabel(String(localized: "打开 Phone"))
         openButton.toolTip = String(localized: "在 Phone 中拨号、接听或挂断电话。")
-        endButton.action = #selector(endTranslationPressed)
-        endButton.toolTip = String(localized: "结束 TalkTalk 同传并还原麦克风；电话仍由 Phone 管理。")
+        openButton.action = #selector(openPhonePressed)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func setContext(_ text: String) {
-        contextLabel.stringValue = text
-        contextLabel.toolTip = text
+    private func configureButton(_ button: NSButton) {
+        button.controlSize = .small
+        button.bezelStyle = .accessoryBarAction
+        button.imagePosition = .imageOnly
+        button.setButtonType(.momentaryPushIn)
     }
 
-    func setActionsEnabled(_ enabled: Bool) {
+    func setDetailsButton(_ button: NSButton) {
+        guard detailsButton !== button else { return }
+        detailsButton?.removeFromSuperview()
+        button.removeFromSuperview()
+        configureButton(button)
+        detailsButton = button
+        addSubview(button)
+        updateSize()
+    }
+
+    func configure(showPhone: Bool, enabled: Bool) {
+        openButton.isHidden = !showPhone
         openButton.isEnabled = enabled
-        endButton.isEnabled = enabled
+        updateSize()
+    }
+
+    private var visibleButtons: [NSButton] {
+        (openButton.isHidden ? [] : [openButton]) + (detailsButton.map { [$0] } ?? [])
+    }
+
+    private func updateSize() {
+        let count = visibleButtons.count
+        frame.size = NSSize(width: count > 0 ? CGFloat(count) * 30 + 6 : 0, height: 28)
+        needsLayout = true
+        layoutSubtreeIfNeeded()
     }
 
     override func layout() {
         super.layout()
-        let endWidth = max(78, endButton.fittingSize.width)
-        let openWidth = max(90, openButton.fittingSize.width)
-        let buttonHeight: CGFloat = 24
-        let y = max(0, (bounds.height - buttonHeight) / 2)
-        endButton.frame = NSRect(x: bounds.width - endWidth, y: y, width: endWidth, height: buttonHeight)
-        openButton.frame = NSRect(x: endButton.frame.minX - 8 - openWidth, y: y, width: openWidth, height: buttonHeight)
-        contextLabel.frame = NSRect(x: 0, y: max(0, (bounds.height - 16) / 2),
-                                    width: max(0, openButton.frame.minX - 12), height: 16)
+        for (index, button) in visibleButtons.enumerated() {
+            button.frame = NSRect(x: CGFloat(index) * 30, y: 2, width: 28, height: 24)
+        }
     }
 
     @objc private func openPhonePressed() { openPhone?() }
-    @objc private func endTranslationPressed() { endTranslation?() }
 }
 
 private final class SubtitleWindow: NSPanel {
+    private(set) var minimizationPending = false
+    private(set) var userMinimized = false
+    private(set) var userHidden = false
+    private var dismissingMiniwindow = false
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    /// Red close hides only the presentation. The owner still runs audio, translation and
+    /// shortcuts; only the independent footer stop action ends that work.
+    override func close() {
+        if dismissingMiniwindow { super.close(); return }
+        userHidden = true
+        minimizationPending = false
+        if isMiniaturized {
+            dismissingMiniwindow = true
+            super.close()
+            dismissingMiniwindow = false
+        } else { orderOut(nil) }
+        AppActivation.minimizedPanelRestored(self)
+    }
+
+    override func miniaturize(_ sender: Any?) {
+        guard !isMiniaturized, !minimizationPending else { return }
+        minimizationPending = true
+        userMinimized = true
+        let needsDock = NSApp.activationPolicy() != .regular
+        AppActivation.panelWillMiniaturize(self)
+        // Menu-bar apps need a Dock presence for a native miniwindow. Give the activation
+        // policy transition a main-runloop turn before asking AppKit to create it.
+        if needsDock {
+            DispatchQueue.main.async { [weak self] in self?.finishMiniaturizing() }
+        } else { finishMiniaturizing() }
+    }
+
+    private func finishMiniaturizing() {
+        guard minimizationPending else { return }
+        super.miniaturize(nil)
+        minimizationPending = false
+        if !isMiniaturized { AppActivation.minimizedPanelRestored(self) }
+    }
+
+    override func deminiaturize(_ sender: Any?) {
+        minimizationPending = false
+        if !dismissingMiniwindow { userMinimized = false; userHidden = false }
+        super.deminiaturize(sender)
+        AppActivation.minimizedPanelRestored(self)
+    }
+
+    func didRestoreFromDock() {
+        if !dismissingMiniwindow { userMinimized = false; userHidden = false }
+        minimizationPending = false
+        AppActivation.minimizedPanelRestored(self)
+    }
+
+    func clearUserPresentationState() { userMinimized = false; userHidden = false }
+
+    func dismissMiniaturizedWindow() {
+        minimizationPending = false
+        dismissingMiniwindow = true
+        close()
+        dismissingMiniwindow = false
+        // Keep the user's intent even after AppKit removes its miniwindow. Late notices
+        // must not revive the panel after the active session has finished.
+        userMinimized = true
+        AppActivation.minimizedPanelRestored(self)
+    }
 }
 final class ConversationContentView: NSView {
     override var isFlipped: Bool { true }

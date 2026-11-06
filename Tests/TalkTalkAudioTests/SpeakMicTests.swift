@@ -101,6 +101,32 @@ import TalkTalkCore
         press.cancel(); mic.stop(); await reader.value
     }
 
+    @Test func inputLevelUsesCaptureTimeWithoutRequiringASRAndClearsOnStop() async throws {
+        let rig = FakeMicRig()
+        let mic = try MicIngest(profile: profile, devices: { rig.devices }, makeCapture: { rig.make($0) }, watchHAL: false)
+        defer { mic.stop() }
+        let start: HostTime = 1_000_000_000
+        #expect(mic.inputLevel(at: start) == nil)
+        mic.setHot(true) // Original-audio capture: no press or recognition stream.
+        #expect(await eventuallyMic { mic.state.capture == .open })
+        #expect(mic.inputLevel(at: start) == nil)
+        let capture = try #require(rig.latest)
+        capture.feed(at: start, frame: 0, value: 0.25)
+        #expect(await eventuallyMic { mic.inputLevel(at: start + 20_000_000) == 0.25 })
+        #expect(mic.inputLevel(at: start + 19_000_000) == nil)
+        #expect(mic.inputLevel(at: start + 270_000_001) == nil)
+        capture.feed(at: start + 20_000_000, frame: 320, value: 0)
+        #expect(await eventuallyMic { mic.inputLevel(at: start + 40_000_000) == 0 })
+        mic.setHot(false)
+        #expect(await eventuallyMic { mic.state.capture == .closed })
+        #expect(mic.inputLevel(at: start + 40_000_000) == nil)
+        mic.setHot(true)
+        #expect(await eventuallyMic { mic.state.capture == .open })
+        #expect(mic.inputLevel(at: start + 40_000_000) == nil)
+        mic.stop()
+        #expect(mic.inputLevel(at: start + 40_000_000) == nil)
+    }
+
     @Test func rapidRestartSplitsReleasedTailWithoutOverlappingOrLosingNewAudio() async throws {
         let rig = FakeMicRig(), blocked = Mutex(false), proceed = DispatchSemaphore(value: 0)
         let start: HostTime = 1_000_000_000, nextStart: HostTime = 1_900_000_000

@@ -352,15 +352,32 @@ enum SFSpeechAuthorization {
     static var isAuthorized: Bool { SFSpeechRecognizer.authorizationStatus() == .authorized }
 }
 
-/// Back to a menu bar accessory only when no other app window is still open (settings and
-/// onboarding both make the app regular while they are visible). Call from `windowWillClose`.
+/// Settings, onboarding and native miniwindows need a Dock presence. A visible subtitle
+/// panel remains nonactivating and does not by itself make this a regular application.
 @MainActor
 enum AppActivation {
+    private static var minimizedPanels = Set<ObjectIdentifier>()
+
+    static func panelWillMiniaturize(_ panel: NSPanel) {
+        minimizedPanels.insert(ObjectIdentifier(panel))
+        NSApp.setActivationPolicy(.regular)
+    }
+
+    static func minimizedPanelRestored(_ panel: NSPanel) {
+        guard minimizedPanels.remove(ObjectIdentifier(panel)) != nil else { return }
+        updatePolicy(excluding: nil)
+    }
+
     static func windowWillClose(_ closing: NSWindow?) {
+        if let closing { minimizedPanels.remove(ObjectIdentifier(closing)) }
+        updatePolicy(excluding: closing)
+    }
+
+    private static func updatePolicy(excluding closing: NSWindow?) {
         let others = NSApp.windows.contains { w in
-            w !== closing && w.isVisible && !(w is NSPanel) && w.styleMask.contains(.titled)
+            w !== closing && (w.isVisible || w.isMiniaturized) && !(w is NSPanel) && w.styleMask.contains(.titled)
         }
-        if !others { NSApp.setActivationPolicy(.accessory) }
+        if !others && minimizedPanels.isEmpty { NSApp.setActivationPolicy(.accessory) }
     }
 }
 

@@ -140,27 +140,61 @@ struct PhoneSettingsView: View {
                 Text(state.meetingStopping
                      ? String(localized: "正在结束电话同传…")
                      : String(localized: "正在准备电话同传…"))
-                    .font(.headline)
+                    .font(.callout)
             }
             .padding(.vertical, 8)
         } else if let audio = state.phoneSpeechMode {
-            let presentation = audio.phonePresentation(inputConfirmed: state.phoneInputConfirmed)
+            let presentation = SpeechStatusPresentation(audio: audio, phoneInputConfirmed: state.phoneInputConfirmed,
+                                                        playing: state.phoneSpeechPlaying)
             let color = phoneModeColor(presentation.tone)
-            VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
                 Label(presentation.title, systemImage: presentation.symbol)
-                    .font(.title3.weight(.semibold)).foregroundStyle(color)
-                Label(presentation.action, systemImage: "option")
-                    .font(.callout.weight(.semibold))
-                Text(presentation.detail).font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .font(.callout.weight(.medium)).foregroundStyle(color)
+                Spacer(minLength: 8)
+                if let shortcut = presentation.shortcut {
+                    Text(shortcut).font(.callout).foregroundStyle(.secondary)
+                }
+                Button {
+                    state.phoneStatusDetailsPresented.toggle()
+                } label: {
+                    Image(systemName: presentation.tone == .unavailable ? "exclamationmark.circle" : "info.circle")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(color)
+                .accessibilityLabel(String(localized: "状态与提示"))
+                .help(String(localized: "状态与提示"))
+                .popover(isPresented: $state.phoneStatusDetailsPresented, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 12) {
+                            Text("状态与提示").font(.headline)
+                            Spacer()
+                            Button {
+                                state.phoneStatusDetailsPresented = false
+                            } label: {
+                                Image(systemName: "xmark")
+                            }
+                            .buttonStyle(.plain)
+                            .keyboardShortcut(.cancelAction)
+                            .accessibilityLabel(String(localized: "关闭详情"))
+                            .help(String(localized: "关闭详情"))
+                        }
+                        Label(presentation.title, systemImage: presentation.symbol)
+                            .font(.callout.weight(.medium)).foregroundStyle(color)
+                        Text(presentation.detail).font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if presentation.tone == .unavailable {
+                            Button("打开音频设置") {
+                                state.phoneStatusDetailsPresented = false
+                                navigation.selection = .audio
+                            }
+                        }
+                    }
+                    .padding(16)
+                    .frame(width: 320, alignment: .leading)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8).strokeBorder(color.opacity(0.35), lineWidth: 1)
-                    .allowsHitTesting(false)
-            }
+            .padding(.vertical, 8)
         }
     }
 

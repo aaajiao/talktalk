@@ -66,7 +66,7 @@ struct SubtitleSettingsView: View {
                 Section {
                     SubtitleLayoutPreview(presentation: presentation, fontSize: fontSize.wrappedValue)
                         .frame(maxWidth: .infinity)
-                        .frame(height: video ? 140 : phone ? 350 : 310)
+                        .frame(height: video ? 140 : 310)
                         .padding(12)
                         .background {
                             if reduceTransparency || opacity.wrappedValue >= 1 {
@@ -120,11 +120,12 @@ struct SubtitleSettingsView: View {
 
                 Section("移动与隐私") {
                     Label("拖动标题栏或文字区域移动；拖动边缘调整大小。", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                    Label("点击黄色按钮最小化，同传继续；从菜单栏选择“恢复字幕窗口”。", systemImage: "minus.circle")
                     Label("不抢键盘焦点，不出现在屏幕共享中。", systemImage: "rectangle.slash").foregroundStyle(.secondary)
-                    Text("底部一行显示运行状态；点击“详情”查看说明。关闭文字后仍保留必要状态。")
+                    Text("底部一行显示运行状态；点击“状态与提示”图标查看说明。关闭文字后仍保留必要状态。")
                         .font(.callout).foregroundStyle(.secondary)
                     if phone {
-                        Text("电话窗口底部可打开 Phone 或结束同传；拨号、接听和挂断在 Phone 中完成。")
+                        Text("电话窗口标题栏可打开 Phone 或结束同传；拨号、接听和挂断在 Phone 中完成。")
                             .font(.callout).foregroundStyle(.secondary)
                     }
                 }
@@ -136,9 +137,9 @@ struct SubtitleSettingsView: View {
     private var previewExplanation: String {
         switch presentation {
         case .meeting:
-            String(localized: "示例文字，不启动音频。上排是对方，下排是自己；左原文、右译文，鼠标所在的一格独立滚动。")
+            String(localized: "示例文字与音波，不启动音频。上排是对方，下排是自己；左原文、右译文，鼠标所在的一格独立滚动。")
         case .phone:
-            String(localized: "示例通话，不拨号、不启动音频。上排是电话对方，下排是自己；每格独立滚动，底部保留电话操作入口。")
+            String(localized: "示例通话与音波，不拨号、不启动音频。上排是电话对方，下排是自己；每格独立滚动，电话操作位于窗口标题栏。")
         case .video:
             String(localized: "示例文字，不启动音频。视频仅显示原文和中文；长原文不会挤走译文。")
         }

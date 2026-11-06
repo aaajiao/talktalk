@@ -24,6 +24,8 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.aaajiao.talktalk.speak-mic", qos: .userInteractive)
     private let lock = NSLock()
     private var reported = SpeakMicState(capture: .closed, physicalMicPassesRule2: false)
+    /// Audio-worker snapshot only; no extra consumer of the capture or preview streams.
+    private var inputActivity: (level: Float, end: HostTime)?
     private var numbers = Stats()
     private var reservation: UInt64?
     private var releasedReservation: UInt64?
@@ -77,6 +79,16 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     public var state: SpeakMicState { lock.withLock { reported } }
     public var stats: Stats { lock.withLock { numbers } }
 
+    /// Fresh, real microphone RMS for visual feedback in both original and translated speech.
+    /// Silence is zero. A closed, stopped or stale capture has no valid level.
+    public func inputLevel(at now: HostTime = HostClock.now()) -> Float? {
+        lock.withLock {
+            guard !stopped, reported.capture == .open, let inputActivity,
+                  now >= inputActivity.end, now - inputActivity.end <= 250_000_000 else { return nil }
+            return inputActivity.level
+        }
+    }
+
     /// HotMicPolicy's result. This alone never grants permission to send samples anywhere.
     public func setHot(_ on: Bool) { queue.async { [weak self] in self?.hot = on; self?.reconcile() } }
     /// Cold passthrough opens only after its hold/preparation requested capture; also uses 5 ms drains.
@@ -90,7 +102,7 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     }
     public func refreshDevices() { queue.async { [weak self] in self?.reconcile(checkDevice: true) } }
     public func stop() {
-        lock.withLock { stopped = true; reservation = nil; releasedReservation = nil; handoffEnds.removeAll() }
+        lock.withLock { stopped = true; inputActivity = nil; reservation = nil; releasedReservation = nil; handoffEnds.removeAll() }
         // A stopped owner may be released immediately; retain it until both streams are closed.
         queue.async { [self] in
             finishPress(cancelled: true); hot = false; passthrough = false
@@ -161,6 +173,7 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     }
     private func setState(_ state: SpeakMicState) {
         let changed = lock.withLock { () -> Bool in
+            if state.capture != .open { inputActivity = nil }
             guard reported != state else { return false }; reported = state; return true
         }
         if changed { onState(state) }
@@ -222,6 +235,7 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         closeCapture(); resetAnalysis()
     }
     private func resetAnalysis() {
+        lock.withLock { inputActivity = nil }
         ring.reset(); vad.reset(); converter = nil; outputFrames = 0; inputFrames = 0
         expectedRawFrame = nil; rawEnd = nil; history.removeAll()
     }
@@ -246,7 +260,13 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         inputFrames += UInt64(chunk.samples.count)
         let end = chunk.hostTime + UInt64(Double(chunk.samples.count) * 1e9 / rate)
         rawEnd = end
+        // This runs on the existing worker, never in the HAL real-time callback. Keep the
+        // hardware time: delayed queued audio must not look like a fresh microphone signal.
+        let inputLevel: Float? = if chunk.samples.isEmpty { nil } else {
+            Float(sqrt(chunk.samples.reduce(0.0) { $0 + Double($1) * Double($1) } / Double(chunk.samples.count)))
+        }
         lock.withLock {
+            inputActivity = inputLevel.flatMap { $0.isFinite ? (min(1, max(0, $0)), end) : nil }
             numbers.blocks += 1; numbers.audioSeconds += Double(chunk.samples.count) / rate
             if numbers.firstHost == 0 { numbers.firstHost = chunk.hostTime }; numbers.lastHost = end
         }

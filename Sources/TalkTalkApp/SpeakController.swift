@@ -248,6 +248,7 @@ final class SpeakController {
         owner = session; warming = true; onChange?()
         phoneBoundary.invalidate()
         sessionTarget = state.speakLanguage.lang
+        hud.setTargetLanguage(state.speakLanguage.lang)
         translationRefusal = nil
         output.monitor.setMeetingMode(true)
         onMonitorAvailabilityChange?()
@@ -503,6 +504,9 @@ final class SpeakController {
                     try? await Task.sleep(for: .milliseconds(100))
                     guard !Task.isCancelled, let self else { break }
                     confirmFeed(); refreshFacts()
+                    // Independent from ASR/text refreshes; original audio also needs immediate
+                    // visual capture feedback even though it does not create a transcript.
+                    hud.inputActivity(mic.inputLevel())
                     await updateFloorAndLoad(token: token)
                     if !restartQueued, sessionTarget != state.speakLanguage.lang {
                         restartQueued = true
@@ -723,6 +727,7 @@ final class SpeakController {
         guard owner != nil || demoActive else { return }
         switch event {
         case .transcript(let transcript): hud.transcript(transcript)
+        case .outputActivity(let playing): hud.setOutputPlaying(playing)
         case .pushToTalk(let p):
             hud.pushToTalk(p)
             if demoActive {
@@ -761,6 +766,7 @@ final class SpeakController {
             await owner.recordPassthrough(startHost: start, endHost: HostClock.now())
         }
         meterTask?.cancel(); meterTask = nil
+        hud.inputActivity(nil)
         watcher.stop(); watching = false; observedUIDs.removeAll(); meetingOutputUIDs = nil
         await pipeline?.stop()
         await owner?.setDraftsPaused(false)
