@@ -532,7 +532,7 @@ final class SubtitlePanel {
 
     func stopInputLevel() { dock.stopLevel() }
 
-    /// LISTEN's `meetingSilent`: the empty meeting timeline says "ⓘ 暂未听到对方声音".
+    /// LISTEN's `meetingSilent`: the empty meeting timeline says "[info.circle] 暂未听到对方声音".
     func setRemoteSilent(_ on: Bool) {
         guard remoteSilent != on else { return }
         remoteSilent = on
@@ -554,12 +554,17 @@ final class SubtitlePanel {
             return nil
         case .phone:
             return .init(primary: String(localized: "接通后在这里显示对方的字幕"),
-                         secondary: String(localized: "在 Phone 拨号或接听；挂断也在 Phone 里操作"), clickable: false)
+                         secondary: String(localized: "在 Phone 拨号或接听；挂断也在 Phone 里操作"), clickable: false,
+                         symbol: SubtitleTokens.SceneIcon.phone)
         case .meeting:
-            if remoteSilent { return .init(primary: String(localized: "ⓘ 暂未听到对方声音"), secondary: nil, clickable: true) }
+            if remoteSilent {
+                return .init(primary: String(localized: "暂未听到对方声音"), secondary: nil, clickable: true,
+                             symbol: SubtitleTokens.ConversationIcon.details, help: String(localized: "查看详情"),
+                             accessibilityLabel: String(localized: "暂未听到对方声音，查看详情"))
+            }
             let primary = titlebarContent.sourceTitle.map { String(localized: "正在听 \($0) 的会议声音…") }
                 ?? String(localized: "正在听会议声音…")
-            return .init(primary: primary, secondary: nil, clickable: false)
+            return .init(primary: primary, secondary: nil, clickable: false, symbol: SubtitleTokens.VoiceIcon.listening)
         }
     }
 

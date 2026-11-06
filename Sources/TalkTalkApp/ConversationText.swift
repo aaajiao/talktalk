@@ -82,7 +82,8 @@ struct ConversationText {
                                  text: SubtitleStyle.color(.warn, display: display),
                                  fill: SubtitleStyle.color(.warn, display: display)
                                     .withAlphaComponent(ConversationTextRules.unsentBadgeFillAlpha),
-                                 help: String(localized: "未发送"), attributes: attributes))
+                                 help: String(localized: "未发送：这段原文没有提交翻译，对方听不到"),
+                                 attributes: attributes))
         output.append(NSAttributedString(string: " " + text, attributes: attributes))
     }
 
@@ -108,7 +109,7 @@ struct ConversationText {
             fill = .clear
         }
         output.append(Self.badge(delivery.title, symbol: delivery.symbol, font: font, text: text, fill: fill,
-                                 help: delivery.title, baseFont: SubtitleStyle.font(role), attributes: base,
+                                 help: delivery.help, baseFont: SubtitleStyle.font(role), attributes: base,
                                  leadingSpace: true, minHeight: Self.deliveryHeight))
     }
 
@@ -139,15 +140,20 @@ struct ConversationText {
 
     /// The 10 pt "备用翻译" badge after an Apple-fallback final.
     private func fallbackBadge(role: ConversationTypography.Role, attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
-        Self.fallbackBadge(baseFont: SubtitleStyle.font(role), attributes: attributes)
+        Self.fallbackBadge(baseFont: SubtitleStyle.font(role), attributes: attributes, display: display)
     }
 
-    static func fallbackBadge(baseFont: NSFont, attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
-        badge(String(localized: "备用翻译"), symbol: nil,
-              font: .systemFont(ofSize: ControlTypography.fallbackBadge, weight: .medium),
-              text: SubtitleStyle.white(ConversationTextRules.fallbackBadgeTextAlpha),
-              fill: SubtitleStyle.white(ConversationTextRules.fallbackBadgeFillAlpha),
-              help: fallbackHelp, baseFont: baseFont, attributes: attributes, leadingSpace: true)
+    /// Increase Contrast raises the badge to white 92% on white 22%.
+    static func fallbackBadge(baseFont: NSFont, attributes: [NSAttributedString.Key: Any],
+                              display: SubtitleStyle.Display = .current) -> NSAttributedString {
+        let ic = display.increaseContrast
+        return badge(String(localized: "备用翻译"), symbol: nil,
+                     font: .systemFont(ofSize: ControlTypography.fallbackBadge, weight: .medium),
+                     text: SubtitleStyle.white(ic ? ConversationTextRules.fallbackBadgeTextAlphaIncreasedContrast
+                                                  : ConversationTextRules.fallbackBadgeTextAlpha),
+                     fill: SubtitleStyle.white(ic ? ConversationTextRules.fallbackBadgeFillAlphaIncreasedContrast
+                                                  : ConversationTextRules.fallbackBadgeFillAlpha),
+                     help: fallbackHelp, baseFont: baseFont, attributes: attributes, leadingSpace: true)
     }
 
     static var fallbackHelp: String { String(localized: "云端不可用，本句由 Apple 翻译") }
@@ -195,6 +201,29 @@ struct ConversationText {
         badgeAttributes[.talkTalkDraft] = nil
         result.append(NSAttributedString(string: "\u{FFFC}", attributes: badgeAttributes))
         return result
+    }
+
+    /// Tooltip rects of the inline badges in `label`, whose text is laid out in `frame`
+    /// (the label's frame in `owner`); existing tooltips of `owner` are not touched.
+    static func addBadgeToolTips(for label: NSTextField, frame: NSRect, to owner: NSView) {
+        let text = label.attributedStringValue
+        var badges: [(NSRange, String)] = []
+        text.enumerateAttribute(.talkTalkBadgeHelp, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            if let help = value as? String, !help.isEmpty { badges.append((range, help)) }
+        }
+        guard !badges.isEmpty, frame.width > 0 else { return }
+        let storage = NSTextStorage(attributedString: text)
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: frame.width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 2
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        manager.ensureLayout(for: container)
+        for (range, help) in badges {
+            let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            let rect = manager.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: frame.minX, dy: frame.minY)
+            owner.addToolTip(rect, owner: help as NSString, userData: nil)
+        }
     }
 
     /// VoiceOver text: badges read as their help text, carets are silent.

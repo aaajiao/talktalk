@@ -65,6 +65,16 @@ import Testing
         let unavailable = dock(.unavailable(reason: "x"))
         #expect(unavailable.label == "音频不可用" && unavailable.consequence == "未发送")
         #expect(unavailable.emphasis == .unavailable && unavailable.action == .details)
+        // 修复… keeps its word in the full dock; 详情 and the compact dock show only the icon,
+        // with the title as tooltip and VoiceOver label.
+        #expect(MicDockPresentation.Action.fix.symbol == SubtitleTokens.ConversationIcon.fix)
+        #expect(MicDockPresentation.Action.details.symbol == SubtitleTokens.ConversationIcon.details)
+        #expect(MicDockPresentation.Action.fix.showsTitle(compact: false))
+        #expect(!MicDockPresentation.Action.fix.showsTitle(compact: true))
+        #expect(!MicDockPresentation.Action.details.showsTitle(compact: false))
+        // The hidden consequence stays on hover.
+        #expect(risk.toolTip == "对方能听到原声 · 会议没有使用 TalkTalk Mic")
+        #expect(dock(.switching).toolTip == "松开 右⌥ 确认")
 
         // Phone separates local readiness, Phone input and the other person.
         #expect(dock(.phoneReady, scene: .phone).label == "电话同传已就绪")
@@ -115,6 +125,21 @@ import Testing
         #expect(abs(MicWaveSignal.reducedMotionAlpha(level: 1, wave: .solid) - 0.55) < 1e-9)
         #expect(abs(MicWaveSignal.reducedMotionAlpha(level: 1, wave: .outlined) - 0.33) < 1e-9)
         #expect(MicWaveSignal.reducedMotionAlpha(level: 0.5, wave: .dashed) > quiet)
+        // Increase Contrast raises the floor and the peak; flat still ignores the level.
+        let quietIC = MicWaveSignal.reducedMotionAlpha(level: 0, wave: .flat, increaseContrast: true)
+        #expect(abs(quietIC - 0.35) < 1e-9)
+        #expect(MicWaveSignal.reducedMotionAlpha(level: 1, wave: .flat, increaseContrast: true) == quietIC)
+        #expect(abs(MicWaveSignal.reducedMotionAlpha(level: 1, wave: .solid, increaseContrast: true) - 0.85) < 1e-9)
+        #expect(abs(MicWaveSignal.reducedMotionAlpha(level: 1, wave: .outlined, increaseContrast: true) - 0.51) < 1e-9)
+    }
+
+    @Test func increaseContrastStrengthensTheCurve() {
+        #expect(MicWaveSignal.colorAlpha(increaseContrast: false) == 0.55)
+        #expect(MicWaveSignal.colorAlpha(increaseContrast: true) == 0.85)
+        #expect(MicWaveSignal.lineWidth(.solid, increaseContrast: false) == 1.5)
+        #expect(MicWaveSignal.lineWidth(.flat, increaseContrast: true) == 2)
+        #expect(MicWaveSignal.lineWidth(.dashed, increaseContrast: false) == 1)
+        #expect(MicWaveSignal.lineWidth(.outlined, increaseContrast: true) == 1.5)
     }
 
     @Test func waveSignalFlattensQuietInputAndDisappearsWithoutInput() {

@@ -154,6 +154,15 @@ import TalkTalkCore
         #expect(ConversationTimeline.Delivery.phoneSent.symbol == SubtitleTokens.VoiceIcon.sentToPhone)
         #expect(ConversationTimeline.Delivery.phoneLocalOnly.symbol == SubtitleTokens.VoiceIcon.thisMac)
         #expect(ConversationTimeline.Delivery.aborted.symbol == SubtitleTokens.VoiceIcon.aborted)
+        #expect(ConversationTimeline.Delivery.sent.symbol == SubtitleTokens.ConversationIcon.delivered)
+        // Help starts with the visible word (VoiceOver reads help) and never claims the other
+        // side heard it.
+        let all: [ConversationTimeline.Delivery] = [.sent, .notSent, .phoneSent, .phoneLocalOnly, .aborted]
+        for delivery in all {
+            let word = delivery == .phoneLocalOnly ? "仅本机" : delivery.title
+            #expect(delivery.help.hasPrefix(word + "："))
+            #expect(!delivery.help.contains("对方已听到") || delivery.help.contains("不代表对方已听到"))
+        }
     }
 
     @Test func finishedTurnsAreNotRelabelledAndDemoTurnsAreNeverSent() {

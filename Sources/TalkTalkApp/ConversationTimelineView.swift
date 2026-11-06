@@ -18,7 +18,7 @@ struct ConversationStyle: Equatable {
 }
 
 /// Meeting/phone conversation (redesign §4): the column header once per window, one scroll
-/// view of pair rows that follow or freeze together, the "↓ N 条新字幕" pill and the empty
+/// view of pair rows that follow or freeze together, the "[arrow.down] N 条新字幕" pill and the empty
 /// state. The panel gives it a frame; nothing here resizes the window. Remote previews arrive
 /// at most every 500 ms and only rows whose content changed are rebuilt (normally the last).
 @MainActor
@@ -331,6 +331,7 @@ final class TimelineRowView: NSView, HoverClearing {
         }
         expandControl.isHidden = true
         expandControl.setAccessibilityLabel(String(localized: "展开原文"))
+        expandControl.toolTip = String(localized: "展开原文")
         expandControl.onClick = { [weak self] in self?.onExpand?() }
         for view in [background, hover, separator, track, mark, sourceLabel, translationLabel, draftBar, expandControl] as [NSView] {
             addSubview(view)
@@ -398,9 +399,13 @@ final class TimelineRowView: NSView, HoverClearing {
         hover.layer?.backgroundColor = SubtitleStyle.color(.pairHover, display: display).cgColor
         separator.layer?.backgroundColor = SubtitleStyle.color(.separator, display: display).cgColor
         track.color = speakerColor
-        let symbol = row.speaker == .me ? "mic.fill" : (style.scene == .phone ? "phone.fill" : "person.wave.2.fill")
+        // Not mic.fill for my rows: on this surface mic.fill means 原声 (the dock below).
+        let icons = SubtitleTokens.ConversationIcon.self
+        let symbol = row.speaker == .me ? icons.me : (style.scene == .phone ? icons.phoneRemote : icons.remote)
         mark.image = SubtitleStyle.symbol(symbol, size: 12, weight: .semibold)
         mark.contentTintColor = speakerColor
+        // The row's AX label already names the speaker; the mark stays out of VoiceOver.
+        mark.toolTip = Self.speakerTitle(row.speaker, scene: style.scene)
         draftBar.layer?.backgroundColor = SubtitleStyle.color(.voiceTranslate, display: display)
             .withAlphaComponent(ConversationTextRules.draftBarAlpha).cgColor
     }
@@ -462,13 +467,32 @@ final class TimelineRowView: NSView, HoverClearing {
         return rowHeight
     }
 
+    /// "…" plus an inline chevron.down.circle (0.8 × the source size) in voice.translate; the
+    /// word 展开原文 is the tooltip and the VoiceOver label of the control over it.
     private func expandToken(_ style: ConversationStyle) -> NSAttributedString {
         var attributes = style.text.attributes(style.typography.source, color: .voiceTranslate)
         attributes[.shadow] = nil
-        return NSAttributedString(string: String(localized: "…展开"), attributes: attributes)
+        let token = NSMutableAttributedString(string: ConversationTextRules.draftEllipsis, attributes: attributes)
+        let font = SubtitleStyle.font(style.typography.source)
+        let color = SubtitleStyle.color(.voiceTranslate, display: style.display)
+        guard let symbol = SubtitleStyle.symbol(SubtitleTokens.ConversationIcon.expand,
+                                                size: font.pointSize * 0.8, weight: .medium) else { return token }
+        let image = SubtitleStyle.tinted(symbol, color)
+        let help = String(localized: "展开原文")
+        image.accessibilityDescription = help
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = NSRect(x: 0, y: (font.capHeight - image.size.height) / 2,
+                                   width: image.size.width, height: image.size.height)
+        var chevron = attributes
+        chevron[.attachment] = attachment
+        chevron[.talkTalkBadgeHelp] = help
+        token.append(NSAttributedString(string: "\u{2009}", attributes: attributes))
+        token.append(NSAttributedString(string: "\u{FFFC}", attributes: chevron))
+        return token
     }
 
-    /// The longest prefix that, followed by "…展开", fits in `maxHeight`.
+    /// The longest prefix that, followed by the expand token, fits in `maxHeight`.
     private func truncated(_ full: NSAttributedString, width: CGFloat, maxHeight: CGFloat,
                            token: NSAttributedString) -> NSAttributedString {
         let string = full.string as NSString
@@ -512,28 +536,12 @@ final class TimelineRowView: NSView, HoverClearing {
         return manager.boundingRect(forGlyphRange: glyphs, in: container)
     }
 
-    /// Tooltips of inline badges ("备用翻译" → "云端不可用，本句由 Apple 翻译").
+    /// Tooltips of the inline badges in both columns ("备用翻译" → "云端不可用，本句由 Apple 翻译",
+    /// "未发送" and the delivery labels → their explanation).
     private func addBadgeToolTips() {
         removeAllToolTips()
-        let text = translationLabel.attributedStringValue
-        var badges: [(NSRange, String)] = []
-        text.enumerateAttribute(.talkTalkBadgeHelp, in: NSRange(location: 0, length: text.length)) { value, range, _ in
-            if let help = value as? String, !help.isEmpty { badges.append((range, help)) }
-        }
-        guard !badges.isEmpty else { return }
-        let storage = NSTextStorage(attributedString: text)
-        let manager = NSLayoutManager()
-        let container = NSTextContainer(size: NSSize(width: translationFrame.width, height: .greatestFiniteMagnitude))
-        container.lineFragmentPadding = 2
-        manager.addTextContainer(container)
-        storage.addLayoutManager(manager)
-        manager.ensureLayout(for: container)
-        for (range, help) in badges {
-            let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            let rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
-                .offsetBy(dx: translationFrame.minX, dy: translationFrame.minY)
-            addToolTip(rect, owner: help as NSString, userData: nil)
-        }
+        ConversationText.addBadgeToolTips(for: sourceLabel, frame: sourceFrame, to: self)
+        ConversationText.addBadgeToolTips(for: translationLabel, frame: translationFrame, to: self)
     }
 
     override func layout() {
@@ -614,11 +622,14 @@ final class TrackBarView: NSView {
 @MainActor
 final class InlineLinkControl: TitlebarControl {}
 
-/// "↓ N 条新字幕" (§4): 24 pt, radius 12, hudWindow, 1 pt white 18% outline, 12 pt medium.
+/// "[arrow.down] N 条新字幕" (§4): 24 pt, radius 12, hudWindow, 1 pt white 18% outline, 12 pt
+/// medium; an 11 pt semibold arrow.down 4 pt before the count, centred as one group.
 @MainActor
 final class JumpToLatestPill: TitlebarControl {
     private let material = NSVisualEffectView()
+    private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
+    private static let iconGap: CGFloat = 4
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
@@ -630,6 +641,11 @@ final class JumpToLatestPill: TitlebarControl {
         material.layer?.masksToBounds = true
         material.setAccessibilityElement(false)
         addSubview(material)
+        icon.image = SubtitleStyle.symbol(SubtitleTokens.ConversationIcon.jumpToLatest, size: 11, weight: .semibold)
+        icon.imageScaling = .scaleNone
+        icon.contentTintColor = SubtitleStyle.white(0.92)
+        icon.setAccessibilityElement(false)
+        addSubview(icon)
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.textColor = SubtitleStyle.white(0.92)
         label.alignment = .center
@@ -638,25 +654,34 @@ final class JumpToLatestPill: TitlebarControl {
         layer?.cornerRadius = CGFloat(SubtitleTokens.Size.jumpToLatestHeight) / 2
         layer?.borderWidth = 1
         layer?.borderColor = SubtitleStyle.white(0.18).cgColor
+        setAccessibilityRole(.button)
+        toolTip = String(localized: "回到最新字幕")
     }
 
     required init?(coder: NSCoder) { nil }
 
     func setCount(_ count: Int) {
-        let title = String(localized: "↓ \(count) 条新字幕")
+        let title = String(localized: "\(count) 条新字幕")
         guard label.stringValue != title else { return }
         label.stringValue = title
-        setAccessibilityLabel(title)
+        setAccessibilityLabel(String(localized: "\(count) 条新字幕，回到最新"))
         superview?.needsLayout = true
     }
 
-    var preferredWidth: CGFloat { ceil(label.intrinsicContentSize.width) + 24 }
+    private var iconWidth: CGFloat { ceil(icon.image?.size.width ?? 0) }
+    private var labelWidth: CGFloat { ceil(label.intrinsicContentSize.width) }
+
+    var preferredWidth: CGFloat { iconWidth + Self.iconGap + labelWidth + 24 }
 
     override func layout() {
         super.layout()
         material.frame = bounds
         let height = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: 0, y: (bounds.height - height) / 2, width: bounds.width, height: height)
+        let iconHeight = ceil(icon.image?.size.height ?? 0)
+        let x = ((bounds.width - (iconWidth + Self.iconGap + labelWidth)) / 2).rounded()
+        icon.frame = NSRect(x: x, y: ((bounds.height - iconHeight) / 2).rounded(), width: iconWidth, height: iconHeight)
+        label.frame = NSRect(x: x + iconWidth + Self.iconGap, y: (bounds.height - height) / 2,
+                             width: labelWidth + SubtitleStyle.labelSlack, height: height)
     }
 
     override func hoverChanged() {
@@ -664,23 +689,32 @@ final class JumpToLatestPill: TitlebarControl {
     }
 }
 
-/// Empty state (§4, §5): 13 pt white 45%, centred; "ⓘ 暂未听到对方声音" opens details.
+/// Empty state (§4, §5): 13 pt white 45%, centred, after an inline 13 pt symbol (ear while
+/// listening, info.circle when the meeting is silent, phone on Phone). The silent one opens
+/// details.
 @MainActor
 final class TimelinePlaceholder: TitlebarControl {
     struct Content: Equatable {
         var primary: String
         var secondary: String?
         var clickable: Bool
+        /// Leading SF Symbol of the primary line, in the text colour, 4 pt before it.
+        var symbol: String?
+        var help: String?
+        /// VoiceOver label; defaults to the text.
+        var accessibilityLabel: String?
     }
 
     private let primary = NSTextField(wrappingLabelWithString: "")
     private let secondary = NSTextField(wrappingLabelWithString: "")
+    private var content = Content(primary: "", secondary: nil, clickable: false)
     private var clickable = false
+    private static let font = NSFont.systemFont(ofSize: ControlTypography.placeholder)
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
         for label in [primary, secondary] {
-            label.font = .systemFont(ofSize: ControlTypography.placeholder)
+            label.font = Self.font
             label.textColor = SubtitleStyle.white(0.45)
             label.alignment = .center
             label.isSelectable = false
@@ -691,41 +725,70 @@ final class TimelinePlaceholder: TitlebarControl {
 
     required init?(coder: NSCoder) { nil }
 
-    func apply(_ content: Content) {
-        primary.stringValue = content.primary
-        secondary.stringValue = content.secondary ?? ""
-        secondary.isHidden = content.secondary == nil
-        clickable = content.clickable
-        setAccessibilityRole(content.clickable ? .button : .staticText)
-        setAccessibilityLabel(content.secondary.map { String(localized: "\(content.primary)；\($0)") } ?? content.primary)
+    func apply(_ next: Content) {
+        content = next
+        secondary.stringValue = next.secondary ?? ""
+        secondary.isHidden = next.secondary == nil
+        clickable = next.clickable
+        toolTip = next.help
+        setAccessibilityRole(next.clickable ? .button : .staticText)
+        let text = next.secondary.map { String(localized: "\(next.primary)；\($0)") } ?? next.primary
+        setAccessibilityLabel(next.accessibilityLabel ?? text)
+        hoverChanged()
         needsLayout = true
     }
 
-    func fittingSize(maxWidth: CGFloat) -> NSSize {
-        func size(_ label: NSTextField) -> NSSize {
-            guard !label.isHidden, !label.stringValue.isEmpty else { return .zero }
-            let bounds = (label.stringValue as NSString).boundingRect(
-                with: NSSize(width: maxWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: label.font as Any])
-            return NSSize(width: ceil(bounds.width) + 8, height: ceil(bounds.height) + 4)
+    /// The primary line with its leading symbol, both in white `alpha`.
+    private func primaryText(alpha: CGFloat) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let color = SubtitleStyle.white(alpha)
+        let attributes: [NSAttributedString.Key: Any] = [.font: Self.font, .foregroundColor: color, .paragraphStyle: paragraph]
+        let result = NSMutableAttributedString()
+        if !content.primary.isEmpty, let name = content.symbol,
+           let symbol = SubtitleStyle.symbol(name, size: Self.font.pointSize, weight: .regular) {
+            let gap: CGFloat = 4
+            let tinted = SubtitleStyle.tinted(symbol, color)
+            let image = NSImage(size: NSSize(width: tinted.size.width + gap, height: tinted.size.height), flipped: false) { _ in
+                tinted.draw(in: NSRect(origin: .zero, size: tinted.size))
+                return true
+            }
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            attachment.bounds = NSRect(x: 0, y: (Self.font.capHeight - image.size.height) / 2,
+                                       width: image.size.width, height: image.size.height)
+            var symbolAttributes = attributes
+            symbolAttributes[.attachment] = attachment
+            result.append(NSAttributedString(string: "\u{FFFC}", attributes: symbolAttributes))
         }
-        let first = size(primary), second = size(secondary)
+        result.append(NSAttributedString(string: content.primary, attributes: attributes))
+        return result
+    }
+
+    private func secondaryText() -> NSAttributedString {
+        NSAttributedString(string: secondary.stringValue, attributes: [.font: Self.font])
+    }
+
+    private static func size(_ text: NSAttributedString, maxWidth: CGFloat) -> NSSize {
+        guard text.length > 0 else { return .zero }
+        let bounds = text.boundingRect(with: NSSize(width: maxWidth, height: .greatestFiniteMagnitude),
+                                       options: [.usesLineFragmentOrigin, .usesFontLeading])
+        return NSSize(width: ceil(bounds.width) + 8, height: ceil(bounds.height) + 4)
+    }
+
+    func fittingSize(maxWidth: CGFloat) -> NSSize {
+        let first = content.primary.isEmpty ? .zero : Self.size(primaryText(alpha: 0.45), maxWidth: maxWidth)
+        let second = secondary.isHidden ? .zero : Self.size(secondaryText(), maxWidth: maxWidth)
         return NSSize(width: min(maxWidth, max(first.width, second.width)),
                       height: first.height + (second.height > 0 ? second.height + 4 : 0))
     }
 
     override func layout() {
         super.layout()
-        let first = primary.stringValue.isEmpty ? 0 : fittingHeight(primary)
+        let width = max(1, bounds.width - 8)
+        let first = content.primary.isEmpty ? 0 : Self.size(primaryText(alpha: 0.45), maxWidth: width).height
         primary.frame = NSRect(x: 0, y: 0, width: bounds.width, height: first)
         secondary.frame = NSRect(x: 0, y: first + 4, width: bounds.width, height: max(0, bounds.height - first - 4))
-    }
-
-    private func fittingHeight(_ label: NSTextField) -> CGFloat {
-        let bounds = (label.stringValue as NSString).boundingRect(
-            with: NSSize(width: max(1, self.bounds.width - 8), height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: label.font as Any])
-        return ceil(bounds.height) + 4
     }
 
     /// A plain empty state is window background: it drags the window like the rest.
@@ -737,6 +800,6 @@ final class TimelinePlaceholder: TitlebarControl {
 
     override func hoverChanged() {
         let alpha: CGFloat = clickable && isHovered ? 0.7 : 0.45
-        primary.textColor = SubtitleStyle.white(alpha)
+        primary.attributedStringValue = primaryText(alpha: alpha)
     }
 }

@@ -218,6 +218,24 @@ public enum SubtitleTokens {
         public static let more = "ellipsis.circle"
     }
 
+    /// Meeting/phone timeline and microphone dock glyphs (§4). `mic.fill` stays 原声 only.
+    public enum ConversationIcon {
+        /// My rows' speaker mark (not `mic.fill`, which means 原声 on this surface).
+        public static let me = "person.crop.circle.fill"
+        public static let remote = "person.wave.2.fill"
+        public static let phoneRemote = "phone.fill"
+        /// "已送出": translated audio was played into TalkTalk Mic.
+        public static let delivered = "checkmark.circle.fill"
+        /// "N 条新字幕": jump back to the latest row.
+        public static let jumpToLatest = "arrow.down"
+        /// Long-source disclosure ("展开原文").
+        public static let expand = "chevron.down.circle"
+        /// The dock's "详情" and the silent-meeting placeholder (the app's info glyph).
+        public static let details = "info.circle"
+        /// The dock's "修复…" in the risk state.
+        public static let fix = "wrench.and.screwdriver"
+    }
+
     /// Leading images of the details popover's command buttons.
     public enum ActionIcon {
         /// Buttons that open the Settings window, as the menu's "设置…".

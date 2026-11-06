@@ -2,7 +2,8 @@ import AppKit
 import TalkTalkCore
 
 /// The dock's curve band (redesign §4): one smooth up/down cycle whose amplitude (at most 10 pt)
-/// comes only from measured microphone RMS, coloured by the speaking mode at 55%. It shows
+/// comes only from measured microphone RMS, coloured by the speaking mode at 55%
+/// (85% and 0.5 pt wider with Increase Contrast). It shows
 /// local capture only, never delivery. Timer-free apart from the 250 ms stale check: it never
 /// moves by itself, and Reduce Motion draws a stationary line whose opacity carries the level.
 @MainActor
@@ -85,11 +86,12 @@ final class MicWaveView: NSView {
         super.draw(dirtyRect)
         guard style != .none, signal.state != .removed, isPreview || isOnScreen,
               bounds.width > 8, bounds.height > 4 else { return }
-        let alpha = CGFloat(MicWaveSignal.colorAlpha)
+        let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        let alpha = CGFloat(MicWaveSignal.colorAlpha(increaseContrast: increaseContrast))
         let midY = bounds.midY
         let path = NSBezierPath()
         path.lineCapStyle = .round
-        path.lineWidth = style == .solid || style == .flat ? CGFloat(MicWaveSignal.lineWidth) : CGFloat(MicWaveSignal.dashedLineWidth)
+        path.lineWidth = CGFloat(MicWaveSignal.lineWidth(style, increaseContrast: increaseContrast))
         if style == .dashed {
             var pattern: [CGFloat] = [3, 2.5]
             path.setLineDash(&pattern, count: 2, phase: 0)
@@ -98,7 +100,8 @@ final class MicWaveView: NSView {
         if case let .level(value) = signal.state { level = CGFloat(value) }
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             // Stationary geometry; the same real level shows as opacity.
-            color.withAlphaComponent(CGFloat(MicWaveSignal.reducedMotionAlpha(level: Double(level), wave: style))).setStroke()
+            color.withAlphaComponent(CGFloat(MicWaveSignal.reducedMotionAlpha(level: Double(level), wave: style,
+                                                                                increaseContrast: increaseContrast))).setStroke()
             path.move(to: NSPoint(x: bounds.minX, y: midY))
             path.line(to: NSPoint(x: bounds.maxX, y: midY))
             path.stroke()

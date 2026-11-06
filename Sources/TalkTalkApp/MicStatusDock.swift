@@ -5,7 +5,8 @@ import TalkTalkSession
 
 /// The microphone status dock under the meeting/phone timeline (redesign §4, §5): a 0.5 pt top
 /// separator, then icon 16 + state 13 pt semibold + consequence 12 pt white 60%, the flexible
-/// 24 pt curve band and the keycap (or "修复…" / "详情"). While I speak it expands and shows my
+/// 24 pt curve band and the keycap (or "[wrench] 修复…" / [info.circle]). The 28 pt compact dock has
+/// no keycap and keeps the fix/details action as a 20 × 20 icon. While I speak it expands and shows my
 /// live turn; the panel animates its height, never the window. Status and meter changes only
 /// touch the status row and the curve; the turn text is rebuilt only when the turn changes.
 @MainActor
@@ -117,7 +118,7 @@ final class MicStatusDock: NSView {
         if turn != renderedTurn || renderedTurnStyle != nextStyle { applyTurn(turn, style: nextStyle) }
         if let key = next.key { keycap.apply(key, showsAction: false, showsSymbol: false, display: nextStyle.display) }
         if let action = next.presentation.action {
-            actionButton.setTitle(action.title, tone: next.presentation.emphasis)
+            actionButton.setAction(action, tone: next.presentation.emphasis, iconOnly: !action.showsTitle(compact: nextCompact))
         }
         applyBackground(next, display: nextStyle.display)
         needsLayout = true
@@ -156,6 +157,8 @@ final class MicStatusDock: NSView {
         label.textColor = color
         consequence.stringValue = presentation.consequence ?? ""
         status.setAccessibilityLabel(presentation.accessibilityLabel)
+        // The compact or narrow dock drops the consequence; hovering still shows it.
+        status.toolTip = presentation.toolTip
         wave.setStyle(presentation.wave, color: color)
         if presentation.wave == .none { wave.stop() }
     }
@@ -233,16 +236,15 @@ final class MicStatusDock: NSView {
         let rowHeight = min(height, idleRow)
 
         // Trailing control: the keycap, or the button that replaces it for risk / unavailable.
+        // The compact dock has no keycap but keeps the fix/details action as an icon.
         var trailing: NSView?
         var trailingWidth: CGFloat = 0
-        if !compact {
-            if content.presentation.action != nil {
-                trailing = actionButton
-                trailingWidth = actionButton.preferredWidth
-            } else if let key = content.key {
-                trailing = keycap
-                trailingWidth = KeycapActionView.width(for: key, showsAction: false, showsSymbol: false)
-            }
+        if content.presentation.action != nil {
+            trailing = actionButton
+            trailingWidth = actionButton.preferredWidth
+        } else if !compact, let key = content.key {
+            trailing = keycap
+            trailingWidth = KeycapActionView.width(for: key, showsAction: false, showsSymbol: false)
         }
         keycap.isHidden = trailing !== keycap
         actionButton.isHidden = trailing !== actionButton
@@ -302,6 +304,7 @@ final class MicStatusDock: NSView {
 
         // My live turn below the status row, in the timeline's columns, newest lines kept.
         turnArea.isHidden = !expanded || content.turn == nil
+        turnArea.removeAllToolTips()
         guard expanded, content.turn != nil else { return }
         let area = NSRect(x: padding, y: rowHeight, width: max(0, width - 2 * padding),
                           height: max(0, height - rowHeight - bottomPadding))
@@ -331,6 +334,9 @@ final class MicStatusDock: NSView {
             translationLabel.frame = NSRect(x: columns.translationX, y: anchored(translationHeight, top: 0, bottom: area.height),
                                             width: translationWidth, height: translationHeight)
         }
+        // Badge tooltips ("未发送" and the like), in the turn area's coordinates.
+        ConversationText.addBadgeToolTips(for: sourceLabel, frame: sourceLabel.frame, to: turnArea)
+        ConversationText.addBadgeToolTips(for: translationLabel, frame: translationLabel.frame, to: turnArea)
         let draft = content.turn.map { !$0.isFinal && !$0.translation.isEmpty } ?? false
         draftBar.isHidden = !draft
         if draft {
@@ -370,40 +376,88 @@ private final class DockTurnView: NSView {
     required init?(coder: NSCoder) { nil }
 }
 
-/// "修复…" / "详情": 20 pt, radius 10, 11 pt semibold; it opens the details popover.
+/// "修复…" / "详情": 20 pt, radius 10; it opens the details popover. "修复…" is a 10 pt semibold
+/// wrench, 4 pt and the 11 pt semibold word in white on riskFill; icon-only (详情, or either in
+/// the compact dock) is a 20 × 20 circle with an 11 pt semibold glyph. The title is always the
+/// tooltip and the VoiceOver label.
 @MainActor
 final class DockActionButton: TitlebarControl {
+    private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
     private var emphasis: MicDockPresentation.Emphasis = .none
+    private var iconOnly = false
+    private var action: MicDockPresentation.Action?
+    private static let iconGap: CGFloat = 4
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
         layer?.cornerRadius = CGFloat(SubtitleTokens.Size.controlHeight) / 2
+        icon.imageScaling = .scaleNone
+        icon.setAccessibilityElement(false)
+        addSubview(icon)
         label.font = SubtitleStyle.controlFont(ControlTypography.capsule, weight: .semibold)
         label.alignment = .center
+        label.textColor = .white
         label.setAccessibilityElement(false)
         addSubview(label)
+        setAccessibilityHelp(String(localized: "打开详情查看原因和修复方法"))
         hoverChanged()
     }
 
     required init?(coder: NSCoder) { nil }
 
-    func setTitle(_ title: String, tone: MicDockPresentation.Emphasis) {
+    func setAction(_ next: MicDockPresentation.Action, tone: MicDockPresentation.Emphasis, iconOnly nextIconOnly: Bool) {
+        guard next != action || tone != emphasis || nextIconOnly != iconOnly else { return }
+        action = next
         emphasis = tone
-        label.stringValue = title
-        label.textColor = .white
-        setAccessibilityLabel(title)
-        setAccessibilityHelp(String(localized: "打开详情查看原因和修复方法"))
+        setIconOnly(nextIconOnly)
+        label.stringValue = next.title
+        toolTip = next.title
+        setAccessibilityLabel(next.title)
         hoverChanged()
         needsLayout = true
     }
 
-    var preferredWidth: CGFloat { ceil(label.intrinsicContentSize.width) + 20 }
+    /// Icon only: 20 × 20 with an 11 pt glyph; otherwise a 10 pt glyph before the title.
+    func setIconOnly(_ on: Bool) {
+        iconOnly = on
+        label.isHidden = on
+        updateIcon()
+        needsLayout = true
+    }
+
+    private func updateIcon() {
+        guard let action else { icon.image = nil; return }
+        icon.image = SubtitleStyle.symbol(action.symbol, size: iconOnly ? 11 : 10, weight: .semibold)
+        // White on the red risk fill; white 90% on the neutral white 16% fill.
+        icon.contentTintColor = emphasis == .risk ? .white : SubtitleStyle.white(0.9)
+    }
+
+    private var iconSize: NSSize {
+        let size = icon.image?.size ?? .zero
+        return NSSize(width: ceil(size.width), height: ceil(size.height))
+    }
+
+    var preferredWidth: CGFloat {
+        let height = CGFloat(SubtitleTokens.Size.controlHeight)
+        guard !iconOnly else { return height }
+        return iconSize.width + Self.iconGap + ceil(label.intrinsicContentSize.width) + 20
+    }
 
     override func layout() {
         super.layout()
+        let glyph = iconSize
+        if iconOnly {
+            icon.frame = NSRect(x: ((bounds.width - glyph.width) / 2).rounded(), y: ((bounds.height - glyph.height) / 2).rounded(),
+                                width: glyph.width, height: glyph.height)
+            return
+        }
+        let textWidth = ceil(label.intrinsicContentSize.width)
         let height = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: 0, y: (bounds.height - height) / 2, width: bounds.width, height: height)
+        let x = ((bounds.width - (glyph.width + Self.iconGap + textWidth)) / 2).rounded()
+        icon.frame = NSRect(x: x, y: ((bounds.height - glyph.height) / 2).rounded(), width: glyph.width, height: glyph.height)
+        label.frame = NSRect(x: x + glyph.width + Self.iconGap, y: (bounds.height - height) / 2,
+                             width: textWidth + SubtitleStyle.labelSlack, height: height)
     }
 
     override func hoverChanged() {

@@ -30,7 +30,8 @@ public struct MicDockPresentation: Sendable, Equatable {
         case unavailable
     }
 
-    /// The button that replaces the keycap; both open the details popover.
+    /// The button that replaces the keycap; both open the details popover. Its title is also
+    /// the tooltip and the VoiceOver label when only the icon shows.
     public enum Action: Sendable, Equatable {
         case fix, details
         public var title: String {
@@ -39,6 +40,17 @@ public struct MicDockPresentation: Sendable, Equatable {
             case .details: String(localized: "详情")
             }
         }
+
+        public var symbol: String {
+            switch self {
+            case .fix: SubtitleTokens.ConversationIcon.fix
+            case .details: SubtitleTokens.ConversationIcon.details
+            }
+        }
+
+        /// "修复…" keeps its word in the full dock (the risk call to action); "详情" is the
+        /// info glyph alone, and the 28 pt compact dock shows only icons.
+        public func showsTitle(compact: Bool) -> Bool { !compact && self == .fix }
     }
 
     public var kind: VoiceState.Kind
@@ -56,6 +68,11 @@ public struct MicDockPresentation: Sendable, Equatable {
 
     public var accessibilityLabel: String {
         consequence.map { String(localized: "麦克风：\(label)，\($0)") } ?? String(localized: "麦克风：\(label)")
+    }
+
+    /// Hover text of the status row: the consequence the compact or narrow dock hides.
+    public var toolTip: String {
+        consequence.map { String(localized: "\(label) · \($0)") } ?? label
     }
 
     public static var startHint: String { String(localized: "点按 右⌥ 开始翻译你的发言") }
@@ -180,6 +197,20 @@ public struct MicWaveSignal: Sendable, Equatable {
     public static let dashedLineWidth: Double = 1
     /// Curve colour: the voice-state colour at 55%.
     public static let colorAlpha: Double = 0.55
+    /// Increase Contrast strengthens the curve, the only graphic that tells capture apart
+    /// from processing/playing.
+    public static let increasedContrastColorAlpha: Double = 0.85
+
+    public static func colorAlpha(increaseContrast: Bool) -> Double {
+        increaseContrast ? increasedContrastColorAlpha : colorAlpha
+    }
+
+    /// Solid and flat curves use the full width; dashed and outlined ones the thin width.
+    /// Increase Contrast adds 0.5 pt to both.
+    public static func lineWidth(_ wave: MicDockPresentation.Wave, increaseContrast: Bool) -> Double {
+        let base = wave == .solid || wave == .flat ? lineWidth : dashedLineWidth
+        return increaseContrast ? base + 0.5 : base
+    }
 
     public enum State: Sendable, Equatable {
         case removed
@@ -245,8 +276,11 @@ public struct MicWaveSignal: Sendable, Equatable {
 
     /// Reduce Motion draws a stationary line whose opacity carries the level. A flat curve
     /// ("nothing is sent") ignores the level there too, exactly as its amplitude does.
-    public static func reducedMotionAlpha(level: Double, wave: MicDockPresentation.Wave) -> Double {
+    /// Increase Contrast raises the floor to 0.35 and the peak to 0.85.
+    public static func reducedMotionAlpha(level: Double, wave: MicDockPresentation.Wave,
+                                          increaseContrast: Bool = false) -> Double {
         let value = wave == .flat ? 0 : min(1, max(0, level))
-        return (0.15 + 0.4 * value) * (wave == .outlined ? 0.6 : 1)
+        let alpha = increaseContrast ? 0.35 + 0.5 * value : 0.15 + 0.4 * value
+        return alpha * (wave == .outlined ? 0.6 : 1)
     }
 }

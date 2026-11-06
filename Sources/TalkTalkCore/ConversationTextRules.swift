@@ -11,6 +11,9 @@ public enum ConversationTextRules {
     /// "备用翻译" badge: 10 pt medium, white 12% fill, white 70% text.
     public static let fallbackBadgeFillAlpha: Double = 0.12
     public static let fallbackBadgeTextAlpha: Double = 0.70
+    /// Increase Contrast: white 22% fill, white 92% text.
+    public static let fallbackBadgeFillAlphaIncreasedContrast: Double = 0.22
+    public static let fallbackBadgeTextAlphaIncreasedContrast: Double = 0.92
     /// "未发送" badge: warn 15% fill, warn text, at the source size.
     public static let unsentBadgeFillAlpha: Double = 0.15
     public static let unsentSymbol = "exclamationmark.bubble"
