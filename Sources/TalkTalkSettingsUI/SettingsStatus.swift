@@ -165,6 +165,50 @@ public struct StatusLabel: View {
     }
 }
 
+/// The one problem line under a page's main graphic (§2): only the most severe current problem,
+/// risk > failed > warn > waiting > pending, in its shortest words with the full reason as
+/// help. Draw it with `StatusLabel(problem.text, problem.status, help: problem.help)`.
+public struct SettingsProblem: Sendable, Equatable {
+    public let status: SettingsStatus
+    public let text: String
+    public let help: String?
+
+    public init(_ status: SettingsStatus, _ text: String, help: String? = nil) {
+        self.status = status
+        self.text = text
+        self.help = help
+    }
+
+    /// A problem reported as a full sentence ("Phone 的音频尚未就绪。请打开 Phone 后重新准备电话同
+    /// 传。"): its first clause is the line, the whole sentence the help.
+    public init(_ status: SettingsStatus, sentence: String) {
+        let head = sentence.split(whereSeparator: { "，。；".contains($0) }).first.map(String.init) ?? sentence // l10n-ignore
+        let text = head.trimmingCharacters(in: .whitespaces)
+        self.init(status, text.isEmpty ? sentence : text, help: text == sentence ? nil : sentence)
+    }
+
+    /// Ties keep the earlier candidate; `ok`, busy and recording are no problems.
+    public static func mostSevere(_ candidates: [SettingsProblem?]) -> SettingsProblem? {
+        var best: (problem: SettingsProblem, rank: Int)?
+        for case let problem? in candidates {
+            guard let rank = problem.rank else { continue }
+            if best == nil || rank < best!.rank { best = (problem, rank) }
+        }
+        return best?.problem
+    }
+
+    var rank: Int? {
+        switch status {
+        case .risk: 0
+        case .failed: 1
+        case .warn: 2
+        case .waiting: 3
+        case .pending: 4
+        case .ok, .busy, .recording: nil
+        }
+    }
+}
+
 extension View {
     /// `.help` only when there is something to say.
     @ViewBuilder func help(ifPresent text: String?) -> some View {

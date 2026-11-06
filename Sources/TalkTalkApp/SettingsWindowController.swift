@@ -89,12 +89,21 @@ final class SettingsNavigation {
             if !followingLink {
                 returnTarget = nil
                 pendingScrollRestore = nil
+                pendingAnchor = nil
             }
         }
     }
     @ObservationIgnored var onSelectionChange: ((SettingsSection) -> Void)?
     /// The flow diagrams' flash state (§3.3).
     let flow = FlowInteraction()
+    /// The section a flow link scrolls to on its target page (§6.3, §6.4), taken once by the
+    /// page when it appears.
+    @ObservationIgnored private var pendingAnchor: String?
+    /// 电话同传 › 首次连接: nil follows the default (open until a first successful prepare).
+    var phoneSetupExpanded: Bool?
+    /// That default as this visit of the phone scene first drew it; cleared when the visit ends,
+    /// so a prepare that succeeds while the page is shown does not collapse it on screen.
+    @ObservationIgnored var phoneSetupDefault: Bool?
 
     /// ReturnPill on a page reached through a flow link; nil after any other navigation.
     private(set) var returnTarget: SettingsReturnTarget?
@@ -136,7 +145,10 @@ final class SettingsNavigation {
 
     /// A flow link (§6.4): selects the page and its sub-page together and offers ReturnPill back
     /// to the current page, sub-page, scene (`scenario`, from 使用场景 and 字幕) and position.
-    func open(_ section: SettingsSection, _ subpage: SettingsSubpage? = nil, scenario: MeetingMode? = nil) {
+    /// `anchor`: the target page scrolls to that section and flashes it.
+    func open(_ section: SettingsSection, _ subpage: SettingsSubpage? = nil, scenario: MeetingMode? = nil,
+              anchor: String? = nil) {
+        pendingAnchor = anchor
         let origin = selection ?? .general
         let label = returnLabel(origin, scenario: scenario)
         let target = SettingsReturnTarget(section: origin, subpage: self.subpage(of: origin), scenario: scenario,
@@ -161,6 +173,12 @@ final class SettingsNavigation {
 
     func dismissReturn() {
         returnTarget = nil
+    }
+
+    /// The anchor the last flow link asked for, once.
+    func takeAnchor() -> String? {
+        defer { pendingAnchor = nil }
+        return pendingAnchor
     }
 
     /// Opens a model sub-page without a way back (the menu and the subtitle window's settings).
@@ -375,7 +393,7 @@ struct SettingsView: View {
         case .voice:
             MyVoiceSettingsView(model: voice)
         case .meeting:
-            MeetingSettingsView(state: state, navigation: navigation)
+            MeetingSettingsView(state: state, navigation: navigation, driver: driver)
         case .subtitles:
             SubtitleSettingsView(state: state, navigation: navigation)
         case .translation:
@@ -383,7 +401,7 @@ struct SettingsView: View {
         case .general:
             GeneralSettingsView(model: AppUIModels.shared.general, driver: driver)
         case .audio:
-            AudioSettingsView(model: AppUIModels.shared.audio, meetingActive: state.meetingActive)
+            AudioSettingsView(model: AppUIModels.shared.audio, meetingActive: state.meetingActive, navigation: navigation)
         case .components:
             ComponentsSettingsView(navigation: navigation, engine: AppUIModels.shared.engine, driver: driver)
         case .glossary:

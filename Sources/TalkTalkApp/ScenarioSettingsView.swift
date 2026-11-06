@@ -6,285 +6,98 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkSettingsUI
 
-/// Settings › 使用场景 (redesign §7). The scene cards sit in the window's fixed band
-/// (ScenarioCardHeader); switching cards scrolls back to the top. The bottom bar stays locked to
-/// the running scenario (§33) while another one is browsed, and a pinned banner says so.
+/// Settings › 使用场景 (settings visual system §7.1–§7.3). The scene cards sit in the window's
+/// fixed band (ScenarioCardHeader); switching cards scrolls back to the top. Each scene opens
+/// with its flow diagram, the one problem line and the safety facts; the bottom bar stays locked
+/// to the running session while another scene is browsed (§33), and the running card's dot and
+/// clock say which one runs (no banner).
 struct MeetingSettingsView: View {
     @Bindable var state: AppState
     @Bindable var navigation: SettingsNavigation
-    private var sessionBusy: Bool { state.meetingActive || state.meetingStarting || state.meetingStopping }
-
-    private var runState: ScenarioRunState {
-        ScenarioRunState(running: sessionBusy ? state.meetingMode : nil, browsing: state.requestedScenario)
-    }
+    let driver: DriverComponentsPage
 
     var body: some View {
         VStack(spacing: 0) {
-            if let banner = runState.banner, let running = runState.running {
-                runningBanner(banner.text, returnTitle: banner.returnTitle, running: running)
-            }
-            Form {
-                switch state.requestedScenario {
-                case .meeting:
-                    meetingScenario
-                    languageSettings
-                case .phone:
-                    PhoneSettingsView(state: state, navigation: navigation)
-                case .captions:
-                    videoScenario
-                    languageSettings
+            ScrollViewReader { proxy in
+                Form {
+                    switch state.requestedScenario {
+                    case .meeting:
+                        meetingScenario
+                    case .phone:
+                        PhoneSettingsView(state: state, navigation: navigation, driver: driver, links: links) { id in
+                            proxy.scrollTo(id, anchor: .top)
+                            navigation.flow.flash(id)
+                        }
+                    case .captions:
+                        videoScenario
+                    }
                 }
+                .formStyle(.grouped)
+                .labelStyle(.settingsRow)
+                .id(state.requestedScenario)
+                // Back from a flow link's page: the previous position; otherwise the top.
+                .settingsPageScroll(navigation, subpage: state.requestedScenario)
             }
-            .formStyle(.grouped)
-            .id(state.requestedScenario)
-            // Back from a flow link's page: the previous position; otherwise the top.
-            .settingsPageScroll(navigation, subpage: state.requestedScenario)
-            scenarioActionBar
+            ScenarioBottomBar(state: state)
         }
-        .onAppear { state.onRefreshSources?() }
-        .onChange(of: state.requestedScenario) { _, _ in state.onRefreshSources?() }
-    }
-
-    // MARK: banner
-
-    private func runningBanner(_ text: String, returnTitle: String, running: MeetingMode) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: running.sceneSymbol).foregroundStyle(.secondary).accessibilityHidden(true)
-            Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            Button(returnTitle) { state.requestedScenario = running }
+        .onAppear {
+            state.onRefreshSources?()
+            AppUIModels.shared.audio.reload()
+            driver.load()
         }
-        .padding(.horizontal, 20).padding(.vertical, 8)
-        .background(Color.secondary.opacity(0.08))
-        .accessibilityElement(children: .contain)
-    }
-
-    // MARK: scenarios
-
-    private var meetingScenario: some View {
-        Section {
-            sourceSelection(for: .meeting)
-            VStack(alignment: .leading, spacing: 12) {
-                Text("听对方").font(.subheadline.weight(.semibold))
-                SpeechFlow(steps: [(SubtitleTokens.SettingsIcon.remote, String(localized: "对方说英语／德语")),
-                                   ("character.bubble", String(localized: "识别与翻译")),
-                                   ("captions.bubble", String(localized: "原文＋中文字幕"))], links: [
-                    1: FlowLink(String(localized: "模型设置")) { open(.translation, .model(.recognition)) },
-                    2: FlowLink(String(localized: "字幕设置")) { open(.subtitles) }
-                ])
-                Divider()
-                SpeakingLanes(mode: .meeting, open: open)
-            }
-        } header: {
-            HStack {
-                Text("工作方式")
-                InfoButton(topic: String(localized: "会议同传"), lines: [
-                    String(localized: "在会议应用里选 TalkTalk Mic；需要静音时，使用会议应用的静音按钮。"),
-                    String(localized: "点按右⌥开始翻译，说中文，可夹英语；再点按结束，译音播完后回到原声。")
-                ])
-            }
-        }
-    }
-
-    private var videoScenario: some View {
-        Section {
-            sourceSelection(for: .captions)
-            SpeechFlow(steps: [(SubtitleTokens.SceneIcon.video, String(localized: "视频声音")),
-                               ("text.bubble", String(localized: "识别原文")),
-                               ("captions.bubble", String(localized: "中文字幕"))], links: [
-                1: FlowLink(String(localized: "识别设置")) { open(.translation, .model(.recognition)) },
-                2: FlowLink(String(localized: "字幕设置")) { open(.subtitles) }
-            ])
-        } header: {
-            HStack {
-                Text("工作方式")
-                InfoButton(topic: String(localized: "视频字幕"), lines: [
-                    String(localized: "只收听所选应用的声音，不启用麦克风或按键说话，也不更改系统默认麦克风。")
-                ])
-            }
-        }
-    }
-
-    private var languageSettings: some View {
-        Section {
-            Picker("原文语言", selection: $state.remoteLanguage) {
-                ForEach(AppState.RemoteLanguage.allCases) { Text($0.title).tag($0) }
-            }
-            LabeledContent("字幕翻译为", value: String(localized: "中文"))
-        } header: {
-            HStack {
-                Text("听译语言")
-                InfoButton(topic: String(localized: "听译语言"), lines: [String(localized: "英语或德语原文与中文译文同时显示。切换语言立即生效，也可从菜单直接切换。")])
-            }
+        // A visit of the phone scene ends: 首次连接 takes its default afresh next time.
+        .onDisappear { navigation.phoneSetupDefault = nil }
+        .onChange(of: state.requestedScenario) { _, _ in
+            navigation.phoneSetupDefault = nil
+            state.onRefreshSources?()
         }
     }
 
     /// A flow link: ReturnPill on the target page leads back to this scene and position.
-    private func open(_ section: SettingsSection, _ subpage: SettingsSubpage? = nil) {
-        navigation.open(section, subpage, scenario: state.requestedScenario)
+    private var links: ScenarioLinks {
+        ScenarioLinks { section, subpage, anchor in
+            navigation.open(section, subpage, scenario: state.requestedScenario, anchor: anchor)
+        }
     }
 
-    // MARK: source
+    // MARK: scenes
 
-    private var sourceChangesLocked: Bool { sessionBusy }
-
-    private func sourceBinding(for mode: MeetingMode) -> Binding<String> {
-        Binding(get: {
-            mode == .meeting ? state.meetingSourceID : state.videoSourceID
-        }, set: { id in
-            guard !sourceChangesLocked else { return }
-            if mode == .meeting { state.meetingSourceID = id } else { state.videoSourceID = id }
-        })
-    }
-
-    @ViewBuilder private func sourceSelection(for mode: MeetingMode) -> some View {
-        let source = sourceBinding(for: mode)
-        let selectedID = source.wrappedValue
-        let choices = state.availableSources
-        let missing = !selectedID.isEmpty && !choices.contains { $0.id == selectedID }
-        let selectedName = MeetingApp.named(selectedID)?.name ?? selectedID
-        HStack {
-            Picker(mode == .meeting ? String(localized: "会议应用") : String(localized: "视频声音来源"), selection: source) {
-                Text("自动选择").tag("")
-                if missing {
-                    Text("\(selectedName)（未就绪）").tag(selectedID)
-                }
-                ForEach(choices, id: \.id) { option in
-                    Text(verbatim: option.name).tag(option.id)
-                }
+    private var meetingScenario: some View {
+        let facts = ScenarioFacts(state: state, mode: .meeting)
+        return Section {
+            VStack(alignment: .leading, spacing: 10) {
+                FlowGrid.meeting(facts, driver: driver, links: links)
+                problemLine(facts)
+                if facts.browserSource { FactRow([browserTabs]) }
             }
-            .disabled(sourceChangesLocked)
-            Button { state.onRefreshSources?() } label: {
-                Label("刷新", systemImage: SubtitleTokens.SettingsIcon.refresh).labelStyle(.iconOnly)
+            .padding(.vertical, 4)
+        }
+    }
+
+    private var videoScenario: some View {
+        let facts = ScenarioFacts(state: state, mode: .captions)
+        return Section {
+            VStack(alignment: .leading, spacing: 10) {
+                FlowGrid.video(facts, links: links)
+                problemLine(facts)
+                FactRow([FactChip(String(localized: "不用麦克风"), symbol: SubtitleTokens.SettingsIcon.noMicrophone,
+                                  help: String(localized: "不启用按键说话，不改默认麦克风"))]
+                        + (facts.browserSource ? [browserTabs] : []))
             }
-            .buttonStyle(.borderless)
-            .help("刷新应用列表")
-            .accessibilityLabel(String(localized: "刷新应用列表"))
-            .disabled(state.onRefreshSources == nil)
-            InfoButton(topic: String(localized: "声音来源"), lines: [
-                mode == .meeting
-                    ? String(localized: "自动选择正在使用麦克风的会议应用；有多个候选时会请你选择。")
-                    : String(localized: "自动选择正在播放声音的应用；有多个候选时会请你选择。"),
-                String(localized: "这里只选择本场景要听的应用声音，与你说话用的麦克风分开。")
-            ])
-        }
-        if sourceChangesLocked {
-            Label("会话结束后可更换来源", systemImage: "lock")
-                .font(.caption).foregroundStyle(.secondary)
-        } else if missing {
-            StatusLabel(String(localized: "请先打开 \(selectedName)，或重新选择应用；不会自动改用其他声音来源。"), .warn)
-        }
-        if ScenarioSourceNote.showsBrowserNote(selectedID: selectedID) {
-            Label("选择浏览器会包含它的其他标签页。", systemImage: "rectangle.on.rectangle")
-                .font(.caption).foregroundStyle(.secondary)
+            .padding(.vertical, 4)
         }
     }
 
-    // MARK: action bar
-
-    private func modeTitle(_ mode: MeetingMode) -> String { mode.scene.title }
-
-    /// Browsing another scene during a session keeps the action attached to the running one.
-    private var actionMode: MeetingMode {
-        sourceChangesLocked ? state.meetingMode : state.requestedScenario
-    }
-
-    /// The same words as the menu's 结束<场景> and the titlebar's VoiceOver label.
-    private var stopTitle: String { state.meetingMode.scene.endAccessibilityLabel }
-
-    private var actionTitle: String {
-        if state.meetingStopping { return String(localized: "正在结束\(modeTitle(state.meetingMode))…") }
-        if state.meetingStarting { return String(localized: "正在准备\(modeTitle(state.meetingMode))…") }
-        if state.meetingActive { return stopTitle }
-        switch actionMode {
-        case .meeting: return String(localized: "开始会议同传")
-        case .phone: return String(localized: "准备电话同传")
-        case .captions: return String(localized: "开始视频字幕")
+    @ViewBuilder private func problemLine(_ facts: ScenarioFacts) -> some View {
+        if let problem = facts.problem {
+            StatusLabel(problem.text, problem.status, help: problem.help)
         }
     }
 
-    /// The action, not the scene (the card and title already name it): as the menu's quick start.
-    private var actionSymbol: String {
-        state.meetingActive ? "stop.fill" : MenuQuickStart.symbol
-    }
-
-    /// The running session's voice state, as the menu's dot: green only while the other party
-    /// hears the original voice. Video listens only (neutral).
-    private var runningVoice: VoiceState? {
-        switch state.meetingMode {
-        case .meeting: state.meetingVoice
-        case .phone: state.phoneVoice
-        case .captions: VoiceState.resolve(audio: nil, scene: .video)
-        }
-    }
-
-    /// While running, the button carries the end consequence (the meeting or call goes on), as
-    /// the titlebar's 结束 and the menu item.
-    private var actionHelp: String {
-        guard state.meetingActive, !state.meetingStopping else { return "" }
-        return state.meetingMode.scene.endHelp(systemInputSwitched: state.systemInputHeld)
-    }
-
-    private var scenarioActionBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 4) {
-                    if state.meetingActive, !state.meetingStopping,
-                       let line = runState.runningLine(source: state.meetingApp) {
-                        let voice = runningVoice
-                        HStack(spacing: 6) {
-                            if let voice {
-                                Circle().fill(Color(nsColor: SubtitleStyle.toneColor(voice.appearance.tone)))
-                                    .frame(width: 8, height: 8)
-                                    .accessibilityHidden(true)
-                            }
-                            Text(line).font(.callout.weight(.semibold))
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityValue(voice?.accessibilityLabel ?? "")
-                    } else {
-                        Text(modeTitle(actionMode)).font(.callout.weight(.semibold))
-                    }
-                    if !state.subtitlesVisible { subtitlesHiddenTag }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Button {
-                    state.onToggleListening?(actionMode)
-                } label: {
-                    HStack(spacing: 8) {
-                        if state.meetingStarting || state.meetingStopping {
-                            ProgressView().controlSize(.small)
-                            Text(actionTitle)
-                        } else {
-                            Label(actionTitle, systemImage: actionSymbol)
-                        }
-                    }
-                    .font(.body.weight(.semibold))
-                    .frame(minWidth: 180, minHeight: 28)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(state.meetingActive ? Color.red : Color.accentColor)
-                .controlSize(.large)
-                .help(actionHelp)
-                .disabled(state.meetingStarting || state.meetingStopping || state.onToggleListening == nil
-                          || (!state.meetingActive && !state.meetingAvailable))
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-        }
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    /// The global subtitle switch is off (§7): an orange tag with a one-click way back.
-    private var subtitlesHiddenTag: some View {
-        HStack(spacing: 6) {
-            Label("字幕已隐藏", systemImage: "eye.slash").foregroundStyle(.orange)
-            Button("显示") { state.subtitlesVisible = true }.buttonStyle(.link)
-        }
-        .font(.caption.weight(.medium))
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Capsule().fill(Color.orange.opacity(0.12)))
+    /// A browser source is one audio helper for all its tabs (§5.4).
+    private var browserTabs: FactChip {
+        FactChip(String(localized: "含其他标签页"), symbol: SubtitleTokens.SettingsIcon.browserTabs,
+                 help: String(localized: "浏览器的其他标签页也会被收听"))
     }
 }
 

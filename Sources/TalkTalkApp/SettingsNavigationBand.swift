@@ -89,15 +89,9 @@ struct SettingsNavigationBand: View {
 
     private func modelBadge(_ stage: ModelSettingsStage) -> CardBadge? {
         switch stage {
-        case .recognition:
-            return .mostSevere([
-                state.meetingActive && state.listenASRFallback ? .status(.warn, String(localized: "已转 Apple 备用")) : nil,
-                engine.record?.roles["asr"] == nil ? .status(.pending, String(localized: "识别模型未安装")) : nil
-            ])
-        case .translation:
-            return translationBadge
-        case .synthesis:
-            return engine.record?.roles["tts"] == nil ? .status(.pending, String(localized: "合成模型未安装")) : nil
+        case .recognition: engine.recognitionProblem(state).map { .status($0.status, $0.text) }
+        case .translation: translationBadge
+        case .synthesis: engine.synthesisProblem.map { .status($0.status, $0.text) }
         }
     }
 
@@ -144,19 +138,10 @@ struct SettingsNavigationBand: View {
         }
     }
 
-    /// Read once the page has built the driver model (its first appearance).
+    /// Read once a page has built the driver model (its first appearance); the flow nodes
+    /// read the same.
     private var driverBadge: CardBadge? {
-        guard let model = driver.model else { return nil }
-        switch model.state {
-        case .loaded: return nil
-        case .notInstalled:
-            return model.carriesDriver ? .status(.warn, String(localized: "未安装"))
-                : .status(.pending, String(localized: "此版本未带驱动"))
-        case .onDiskNotLoaded: return .status(.warn, String(localized: "需重启音频服务"))
-        case .outdated: return .status(.warn, String(localized: "可更新"))
-        case .selfTestFailed: return .status(.warn, String(localized: "自检未通过"))
-        case .damaged: return .status(.failed, String(localized: "有问题"))
-        }
+        driver.driverProblem.map { .status($0.status, $0.text) }
     }
 
     // MARK: 隐私与诊断

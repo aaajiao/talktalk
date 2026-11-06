@@ -1,6 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import SwiftUI
-import TalkTalkAudio
 import TalkTalkCore
 import TalkTalkSession
 import TalkTalkSettingsUI
@@ -21,27 +20,12 @@ struct ScenarioCardHeader: View {
     private func item(_ mode: MeetingMode) -> CardItem<MeetingMode> {
         let running = state.meetingActive && state.meetingMode == mode
         return CardItem(id: mode, title: mode.scene.title, symbol: mode.sceneSymbol, summary: mode.sceneSummary,
-                        badge: badge(mode, running: running),
+                        badge: badge(mode),
                         runningSince: running ? (state.meetingStartedAt ?? .now) : nil)
     }
 
-    private func badge(_ mode: MeetingMode, running: Bool) -> CardBadge? {
-        let voice = mode == .phone ? state.phoneVoice : state.meetingVoice
-        let risk: CardBadge? = running && voice?.appearance == .riskFill
-            ? .status(.risk, String(localized: "对方能听到原声")) : nil
-        switch mode {
-        case .meeting, .captions:
-            return .mostSevere([risk, missingSource(mode).map { .status(.warn, String(localized: "\($0) 未打开")) }])
-        case .phone:
-            // The short cause (as the HUD chip); the full sentence stays on the phone page.
-            return .mostSevere([risk, state.phoneProblem.map { _ in .status(.warn, String(localized: "电话需要检查")) }])
-        }
-    }
-
-    /// The scene's chosen app when it is not running now (no automatic switch to another source).
-    private func missingSource(_ mode: MeetingMode) -> String? {
-        let id = mode == .meeting ? state.meetingSourceID : state.videoSourceID
-        guard !id.isEmpty, !state.availableSources.contains(where: { $0.id == id }) else { return nil }
-        return MeetingApp.named(id)?.name ?? id
+    /// The page's problem line in the corner (one source with the page and the menu).
+    private func badge(_ mode: MeetingMode) -> CardBadge? {
+        ScenarioFacts(state: state, mode: mode).cardBadge
     }
 }

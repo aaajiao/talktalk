@@ -25,10 +25,12 @@ enum MeetingMicCheck: Equatable {
         }
     }
 
-    /// The other party hearing the raw microphone blocks speech: the red risk glyph.
+    /// The other party hearing the raw microphone blocks speech: the red risk glyph. No app
+    /// reading TalkTalk Mic during a session is orange, as the menu's line and the status item.
     var status: SettingsStatus {
         switch self {
-        case .notChecked, .nobodyReads: .pending
+        case .notChecked: .pending
+        case .nobodyReads: .warn
         case .green: .ok
         case .physicalMic: .risk
         }
@@ -90,6 +92,8 @@ final class AudioSettingsModel {
     let calibration: PassthroughCalibration
 
     var devices: [MicPolicy.Device] = []
+    /// The device list has been read once: before that an empty list says nothing.
+    private(set) var devicesLoaded = false
     var micUID: String? {
         didSet { defaults.set(micUID, forKey: UIPrefKey.micUID); refreshGain(); calibration.cancel() }
     }
@@ -131,6 +135,7 @@ final class AudioSettingsModel {
         devices = InputDeviceCatalog.inputDevices().map {
             MicPolicy.Device(uid: $0.uid, name: $0.name, transport: $0.transport, isAggregate: $0.isAggregate, isAlive: $0.isAlive)
         }
+        devicesLoaded = true
         let names = HeadphoneAnswers.names(defaults)
         headphones = HeadphoneAnswers.answers(defaults)
             .map { (uid: $0.key, name: names[$0.key] ?? $0.key, isHeadphone: $0.value) }
@@ -173,24 +178,38 @@ final class AudioSettingsModel {
 struct AudioSettingsView: View {
     @Bindable var model: AudioSettingsModel
     var meetingActive = false
+    /// A flow node's link lands here with the section to scroll to and flash (§6.3, §6.4).
+    var navigation: SettingsNavigation?
 
     var body: some View {
         ScrollViewReader { proxy in
             Form {
                 soundPaths(proxy)
-                microphone.id("audio.microphone")
+                microphone.id(SettingsAnchor.microphone)
                 calibration
-                defaultInput.id("audio.meetingInput")
+                defaultInput.id(SettingsAnchor.talkTalkMic)
                 meetingCheck
-                playback.id("audio.playback")
+                playback.id(SettingsAnchor.playback)
                 headphones
             }
             .formStyle(.grouped)
+            .onAppear {
+                guard let navigation, let anchor = navigation.takeAnchor() else { return }
+                // After the first layout: the section has to exist before it can be scrolled to.
+                DispatchQueue.main.async {
+                    proxy.scrollTo(anchor, anchor: .top)
+                    navigation.flow.flash(anchor)
+                }
+            }
         }
         .onAppear { model.reload(); model.launch.refresh() }
         .onDisappear { model.calibration.cancel() }
         .onChange(of: meetingActive) { _, on in if on { model.calibration.cancel() } }
     }
+
+    /// The flash state the anchors draw (a fresh one when the page is shown without navigation).
+    private var flow: FlowInteraction { navigation?.flow ?? Self.noFlow }
+    private static let noFlow = FlowInteraction()
 
     private func soundPaths(_ proxy: ScrollViewProxy) -> some View {
         Section {
@@ -200,8 +219,8 @@ struct AudioSettingsView: View {
                 (SubtitleTokens.SettingsIcon.talkTalkMic, "TalkTalk Mic"),
                 ("person.2.wave.2", String(localized: "会议应用"))
             ], links: [
-                0: .init(String(localized: "选择采音设备")) { proxy.scrollTo("audio.microphone", anchor: .top) },
-                2: .init(String(localized: "设置会议输入")) { proxy.scrollTo("audio.meetingInput", anchor: .top) }
+                0: .init(String(localized: "选择采音设备")) { proxy.scrollTo(SettingsAnchor.microphone, anchor: .top) },
+                2: .init(String(localized: "设置会议输入")) { proxy.scrollTo(SettingsAnchor.talkTalkMic, anchor: .top) }
             ])
             Label("TalkTalk 选实体麦收音；会议应用选 TalkTalk Mic 接收声音。", systemImage: "arrow.triangle.branch")
                 .font(.callout).foregroundStyle(.secondary)
@@ -209,7 +228,7 @@ struct AudioSettingsView: View {
                 ("speaker.wave.2", String(localized: "会议声音与可选译音")),
                 ("headphones", String(localized: "耳机播放"))
             ], links: [
-                1: .init(String(localized: "设置耳机播放")) { proxy.scrollTo("audio.playback", anchor: .top) }
+                1: .init(String(localized: "设置耳机播放")) { proxy.scrollTo(SettingsAnchor.playback, anchor: .top) }
             ])
         } header: {
             Text("声音如何流动")
@@ -241,6 +260,7 @@ struct AudioSettingsView: View {
                     String(localized: "自动选择时优先使用内建麦。这里只选实体设备，不受系统默认输入影响。换麦后可单独校准音量，不必重录声音档案。")
                 ])
             }
+            .flowFlash(SettingsAnchor.microphone, in: flow)
         }
     }
 
@@ -308,6 +328,7 @@ struct AudioSettingsView: View {
                     String(localized: "准备会议或电话同传时自动接入；停止同传或退出 TalkTalk 时自动还原。Phone 需选择“使用系统设置”；你手动更改过的输入会保留。")
                 ])
             }
+            .flowFlash(SettingsAnchor.talkTalkMic, in: flow)
         } footer: {
             Text("跟随系统默认输入的应用（听写、Siri、录音等）也会收到原声或译音。")
         }

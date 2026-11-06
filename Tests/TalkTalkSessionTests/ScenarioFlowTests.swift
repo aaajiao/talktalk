@@ -3,7 +3,7 @@ import Testing
 import TalkTalkCore
 @testable import TalkTalkSession
 
-/// Redesign §7: menu quick start, session header, scenario page rules and the phone checklist.
+/// Redesign §7: menu quick start, session header, scenario page rules and the phone StepTrack.
 @Suite struct ScenarioFlowTests {
     @Test func quickStartUsesTheLastScenarioAndItsSource() {
         let first = MenuQuickStart.make(last: nil, sourceName: nil, remoteLanguage: "英语")
@@ -39,15 +39,35 @@ import TalkTalkCore
         #expect(MenuSessionHeader.title(mode: .captions, source: nil, elapsed: 5) == "视频字幕 · 0:05")
     }
 
-    @Test func runningScenarioBannerOnlyWhileBrowsingAnother() {
-        let same = ScenarioRunState(running: .meeting, browsing: .meeting)
-        #expect(same.banner == nil)
-        #expect(same.runningLine(source: "Zoom") == "正在运行：会议同传 · Zoom")
-        let other = ScenarioRunState(running: .meeting, browsing: .captions)
-        #expect(other.banner?.text == "会议同传正在运行，结束后才能开始视频字幕")
-        #expect(other.banner?.returnTitle == "回到会议同传")
-        #expect(ScenarioRunState(running: nil, browsing: .phone).runningLine(source: nil) == nil)
-        #expect(ScenarioRunState(running: .phone, browsing: .phone).runningLine(source: nil) == "正在运行：电话同传 · Phone")
+    @Test func bottomBarFollowsTheRunningScene() {
+        let idle = ScenarioRunState(running: nil, phase: .idle, browsing: .phone)
+        #expect(idle.action == .start(.phone) && idle.title == "准备" && idle.accessibilityLabel == "准备电话同传")
+        #expect(idle.isEnabled && idle.help(systemInputSwitched: false) == nil && idle.runningSource(meetingApp: "Zoom") == nil)
+        let running = ScenarioRunState(running: .meeting, phase: .running, browsing: .meeting)
+        #expect(running.action == .end(.meeting) && running.title == "结束" && running.symbol == "stop.fill")
+        #expect(running.accessibilityLabel == "结束会议同传")
+        #expect(running.help(systemInputSwitched: false) == SubtitleScene.meeting.endHelp(systemInputSwitched: false))
+        #expect(running.runningSource(meetingApp: "Zoom") == "Zoom")
+        // Browsing another scene: no banner; the button is disabled and names what to end first.
+        let other = ScenarioRunState(running: .meeting, phase: .running, browsing: .captions)
+        #expect(other.action == .blocked(running: .meeting) && !other.isEnabled && other.title == "开始")
+        #expect(other.help(systemInputSwitched: true) == "先结束会议同传")
+        let stopping = ScenarioRunState(running: .phone, phase: .stopping, browsing: .meeting)
+        #expect(stopping.title == "结束中…" && stopping.symbol == nil && !stopping.isEnabled)
+        #expect(stopping.runningSource(meetingApp: nil) == nil)
+        #expect(ScenarioRunState(running: .phone, phase: .running, browsing: .phone).runningSource(meetingApp: nil) == "Phone")
+        #expect(ScenarioRunState(running: .captions, phase: .starting, browsing: .captions).title == "准备中…")
+    }
+
+    @Test func phoneDeliverySaysWhereMyVoiceGoes() {
+        #expect(PhoneDelivery(.translating) == .sentToPhone && PhoneDelivery(.original)?.text == "已送入 Phone")
+        #expect(PhoneDelivery(.phoneLocalOnly)?.text == "仅本机 · Phone 未接收")
+        #expect(PhoneDelivery(.phoneNotConnected)?.text == "接通后对方才能听到你")
+        #expect(PhoneDelivery(.notSent)?.text == "未发送" && PhoneDelivery(.unavailable) == .notSent)
+        #expect(PhoneDelivery(.original)?.symbol == SubtitleTokens.VoiceIcon.sentToPhone)
+        #expect(PhoneDelivery(.phoneLocalTrial)?.symbol == SubtitleTokens.VoiceIcon.thisMac)
+        // The risk capsule stands alone: no "仅本机" beside "对方能听到原声".
+        #expect(PhoneDelivery(.remoteHearsOriginal) == nil)
     }
 
     @Test func browserNoteOnlyForBrowsers() {

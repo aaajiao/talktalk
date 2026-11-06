@@ -208,7 +208,8 @@
   - 目标分两种：`.page(section, subpage)` 跨页跳转，显示 ReturnPill；`.anchor(id)` 页内滚动并闪烁。
 - **FlowSatellite**：节点下方的 22pt 胶囊，内容为 11pt 图标 + ≤6 字。用 1pt 点线连接到节点。虚线描边表示备用路径（备用 Apple、系统声音），实线描边表示当前生效或链接（链接时带 9pt chevron）。每个节点最多一个；有卫星时图高增加 32。
 - **LaneLabel（gutter）**：可放 VoiceCapsule 原声或译音（高 20，原声下方加 caption2“默认”）；或放 15pt 图标：`ear` 表示听对方，`person.crop.circle.fill` 表示我，`mic.slash` 表示不用麦克风。
-- **LoopRow**：位于原声泳道和译音泳道之间，高 22，`gridCellColumns` 横跨节点列 2–4。内容为 `arrow.uturn.backward` 11pt、Keycap“右⌥”、`stop.fill` 11pt、caption“播完回到原声”。
+- **LoopRow**：位于原声泳道和译音泳道之间，高 22，横跨节点列 2–4。内容为 `arrow.uturn.backward` 11pt、Keycap“右⌥”、`stop.fill` 11pt、caption“播完回到原声”。
+  - 实现裁决（第 3 次提交实测）：`gridCellColumns` 横跨（含 `gridCellUnsizedAxes(.horizontal)`）会让 `Grid` 放弃等分节点列，630 宽下节点只剩理想宽约 71pt。所以回环放在节点列 2，胶囊按自身宽度 `fixedSize`，向右画过该行空着的列 3–4。这是 FlowGrid 里唯一的 fixedSize，只用于这个叶子视图。
 - **无障碍**
   - 整图是一个容器，label 为图名（如“会议同传声音路径”）。
   - 每条泳道是一个 group，label 用 gutter 名（“听对方”“我说话 · 原声”“我说话 · 译音”）。
@@ -597,7 +598,7 @@
 | 泳道 | 列 1 | 列 2 | 列 3 | 列 4 |
 |---|---|---|---|---|
 | gutter `ear`（AX 听对方） | `[person.wave.2 对方]` ‹应用图标 Zoom ▾ \| 自动 ▾› ‹EN ▾›（会话中显示 lock.fill；应用未开时 warn） | `[character.bubble 识别与翻译]` ›模型·语音识别；Qwen 未装时 pending | `[captions.bubble 双语字幕]` ›字幕；字幕隐藏时 off | — |
-| gutter 胶囊 **原声** + “默认” | `[mic 麦克风]` ›音频#麦克风；没有麦克风时 failed | `[mic.circle TalkTalk Mic]` ›组件·虚拟麦克风；未装时 pending | `[<会议应用图标> Zoom]`（未知时为 app.dashed“会议应用”）›音频#TalkTalk Mic；角标 = 会议检查 ok/pending/risk；help:“静音请用会议应用的按钮” | `[person.wave.2 对方听到原声]`；会话中原声生效时为 live；risk 时红描边 + “对方能听到原声” |
+| gutter 胶囊 **原声** + “默认” | `[mic 麦克风]` ›音频#麦克风；没有麦克风时 failed | `[mic.circle TalkTalk Mic]` ›组件·虚拟麦克风；未装时 pending | `[<会议应用图标> Zoom]`（未知时为 app.dashed“会议应用”）›音频#TalkTalk Mic；角标 = 会议检查 ok/pending/warn/risk（会话中无应用读取为 warn，与问题行、菜单一致）；help:“静音请用会议应用的按钮” | `[person.wave.2 对方听到原声]`；会话中原声生效时为 live；risk 时红描边 + “对方能听到原声” |
 | LoopRow（横跨列 2–4） | | `arrow.uturn.backward` Keycap“右⌥” `stop.fill` “播完回到原声” | | |
 | gutter 胶囊 **译音** | `[person.crop.circle.fill 说中文]` 附件 Keycap“右⌥ 开始翻译”；help:“可夹英语” | `[character.bubble 识别与翻译]` ›模型·文本翻译 | `[waveform.and.person.filled 我的声音]` ›我的声音；未录制时 pending，卫星虚线 `[speaker.wave.2 系统声音]` | `[person.wave.2 对方听到译音]` ‹EN ▾›（我的译音） |
 
@@ -640,7 +641,7 @@
 1. **实时发声行**（只在准备好或会话中出现，作为首行）：VoiceCapsule + 12pt 送达图形（`phone.arrow.up.right` / `laptopcomputer` / `speaker.slash`）+ 最短后果，取其一：“已送入 Phone” / “仅本机 · Phone 未接收” / “未发送” / “接通后对方才能听到你”。尾部 22pt 状态按钮：平时是 ⓘ，warn 时是三角，risk 时是风险字形。点开弹出 320pt 弹层，无标题：胶囊、voice.detail 全句、按钮 `[mic.and.signal.meter 音频设置…]`。
 2. **FlowGrid**（与会议同构，列对齐）：
    - 听泳道：`[phone.fill 对方]` ‹EN ▾›（对方语言）→ `[识别与翻译]` → `[双语字幕]`
-   - 原声泳道：`[麦克风]` → `[TalkTalk Mic]` → `[Phone 应用图标 Phone]`（角标 = Phone 检查：读 TalkTalk Mic 为 ok；读实体麦为 risk；通话前为 pending）→ `[phone.fill 对方听到原声]`
+   - 原声泳道：`[麦克风]` → `[TalkTalk Mic]` → `[Phone 应用图标 Phone]`（角标 = Phone 检查：读 TalkTalk Mic 为 ok；读实体麦为 risk；通话前为 pending“通话前检查”；通话中无应用读取为 warn，问题行同源）→ `[phone.fill 对方听到原声]`
    - LoopRow
    - 译音泳道：`[说中文 Keycap]` → `[识别与翻译]` → `[我的声音]` → `[phone.fill 对方听到译音]` ‹EN ▾›
 3. **StepTrack**（第二张小图，单泳道，无 gutter，节点高 60）：`[①准备]`（有问题时 warn 角标，问题行显示 phoneProblem 短句）→ `[②拨号／接听]`（①未完成时 50%）→ `[③挂断后结束]`。下方 FactRow：`[stop.circle 结束同传不会挂断电话]`。
@@ -807,7 +808,7 @@ Section（无 header）：
 - Section `[mic.circle] TalkTalk Mic`：
   - Toggle `[mic.circle] 同传时设为系统默认输入` + ⓘ“停止同传或退出时自动还原；你手动改过的输入会保留。”
   - FactRow `[mic.circle 听写、Siri 等也会收到原声或译音]`。
-  - 状态行（会议检查）：ok“Zoom 正在用 TalkTalk Mic” / pending“未检查” / pending“尚无应用使用” / risk“对方能听到原声 · 在 Zoom 选 TalkTalk Mic”。
+  - 状态行（会议检查）：ok“Zoom 正在用 TalkTalk Mic” / pending“未检查” / warn“会议尚未使用 TalkTalk Mic”（与节点、问题行、菜单一致；第 3 次提交裁决） / risk“对方能听到原声 · 在 Zoom 选 TalkTalk Mic”。
   - 条件行（只在强烈建议时）：`[power] 登录时启动` + warn“建议开启”，链接“通用 ›”。
 - Section `[headphones] 耳机`：
   - Toggle `[headphones] 耳机译音`（与节点开关同步）。
@@ -815,7 +816,7 @@ Section（无 header）：
   - 已记住的设备（没有设备时不显示这些行，也不写标题）：每台一行 `[headphones|hifispeaker] <设备名>`，行尾是类型 Picker（耳机 / 扬声器，带图标）+ IconButton `minus.circle`（help“忘记此设备”）。
   - 首次连接弹窗：““<设备>”是耳机吗？”，正文“外放时停用耳机译音和会议原声，避免回声。”，按钮“是耳机”“是扬声器”。
 
-**保留可见中文**：原声 译音 麦克风 TalkTalk Mic 会议 · Phone 对方能听到原声 会议声音 耳机 / 麦克风 自动 · <设备> 通话音质 延迟约 125 ms 无可用麦克风 所选设备不在 · 暂用自动 / 原声音量 未校准 校准… 按平常音量读一句（约 6 秒） 不保存录音 取消 + 结果短句 / 同传时设为系统默认输入 听写、Siri 等也会收到原声或译音 <app> 正在用 TalkTalk Mic 未检查 尚无应用使用 登录时启动 建议开启 / 耳机译音 外放时自动停用 耳机 扬声器 / 弹窗文字。
+**保留可见中文**：原声 译音 麦克风 TalkTalk Mic 会议 · Phone 对方能听到原声 会议声音 耳机 / 麦克风 自动 · <设备> 通话音质 延迟约 125 ms 无可用麦克风 所选设备不在 · 暂用自动 / 原声音量 未校准 校准… 按平常音量读一句（约 6 秒） 不保存录音 取消 + 结果短句 / 同传时设为系统默认输入 听写、Siri 等也会收到原声或译音 <app> 正在用 TalkTalk Mic 未检查 会议尚未使用 TalkTalk Mic 登录时启动 建议开启 / 耳机译音 外放时自动停用 耳机 扬声器 / 弹窗文字。
 
 **删除**：
 - “声音如何流动”及其 footer“耳机负责播放…视频字幕只收听应用声音，不使用麦克风。”
@@ -1249,7 +1250,7 @@ FactRow：`[text.quote 仅文字]` `[mic.slash 不录音]` `[1.circle 仅本次]
 |---|---|---|---|---|
 | 1 | **共享 target + 令牌 + 状态词汇** | `Package.swift`（新增 `TalkTalkSettingsUI`；App、CloudUI、DriverSupport、Voice 依赖它）；新目录 `Sources/TalkTalkSettingsUI/`（迁入 VoiceCapsule、Keycap、InfoButton、SettingsStatus、风险字形绘制，并新增 StatusGlyph、StatusLabel、IconButton、IconMenuButton、FactChip、FactRow、SectionHeader、SettingsRowLabelStyle）；`SubtitleTokens.swift`（`SettingsIcon.Page.*`、§4 一义一形的令牌、Size 常量）；`SettingsFlowComponents.swift`（改为 import 新 target）；新测试 `TalkTalkCoreTests/SettingsSymbolTests.swift`（遍历 SettingsIcon、MenuIcon、VoiceIcon、SceneIcon 令牌，`NSImage(systemSymbolName:)` 非 nil；豁免 `VoiceIcon.originalRisk`，断言它的回退合成存在） | 无 | 构建通过；`check.sh --skip-stress`；侧栏图标更新；状态图形全窗口统一为 13pt；InfoButton 为 13pt，22×22 |
 | 2 | **导航统一** | 新增 `SettingsCard`/`CardRow`（SettingsUI）；`SettingsTabButton.swift` 删除或改为薄封装；`ModelSettingsView.swift`（删 `SettingsSubpagePicker`）、`ComponentsSettings.swift`、`DiagnosticsView.swift`、`ScenarioSettingsView.swift`（ScenarioCardHeader 改走 CardRow）、`SubtitleSettingsView.swift`（加 GlobalRow 和 VoiceOver KVO 模型）；`SettingsWindowController.swift`（Z0 ReturnPill 槽、Z1 导航带槽、`returnTarget` 扩展、`FlowInteraction`） | 1 | 五个页面都有卡片行，固定、不收起、不随滚动；模型页卡间有箭头；角标显示正确；字幕页 GlobalRow 在卡片上方；VoiceOver 关闭时不显示朗读开关；ReturnPill 返回时恢复子页和滚动位置 |
-| 3 | **流程组件 + 场景三页** | SettingsUI 新增 `FlowGrid`/`FlowNode`/`NodeChip`/`FlowSatellite`/`LoopRow`/`StepTrack`；`ScenarioSettingsView.swift`、`PhoneSettingsView.swift`（FlowGrid.meeting/phone/video 工厂、ScenarioBottomBar 改写、删除 runningBanner 与描述）；`SettingsFlowComponents.swift`（SpeechFlow/SpeakingLanes 先保留为薄封装） | 2 | 820 宽下节点不截断安全词；滚动和切卡不卡死（8c87ba7 回归）；chip 和开关可点，chevron 不误触；VoiceOver 读序为节点 → 控件 → 链接；会议检查 notChecked / green / physicalMic / nobodyReads 四种状态下，节点、问题行、菜单三处一致；电话“首次连接”在从未准备成功前自动展开 |
+| 3 | **流程组件 + 场景三页** | SettingsUI 新增 `FlowGrid`/`FlowNode`/`NodeChip`/`FlowSatellite`/`LoopRow`/`StepTrack`；`ScenarioSettingsView.swift`、`PhoneSettingsView.swift`（FlowGrid.meeting/phone/video 工厂、ScenarioBottomBar 改写、删除 runningBanner 与描述）；`SettingsFlowComponents.swift`（SpeechFlow/SpeakingLanes 先原样保留，不改成薄封装：引导、音频、我的声音、模型、诊断各在 4c/4d/4e/7 迁到 FlowGrid，第 5 次提交删除它们） | 2 | 820 宽下节点不截断安全词；滚动和切卡不卡死（8c87ba7 回归）；chip 和开关可点，chevron 不误触；VoiceOver 读序为节点 → 控件 → 链接；会议检查 notChecked / green / physicalMic / nobodyReads 四种状态下，节点、问题行、菜单三处一致；电话“首次连接”在从未准备成功前自动展开 |
 | 4a | **字幕页** | `SubtitleSettingsView.swift`、`SubtitleLayoutPreview.swift`（热点）、新增 `ThumbnailChoice` | 3（并行于 4b–4d） | 深色黑、浅色白；没有背景选择器；热点有 help 和 AX；视频的样式和排列为缩略图 |
 | 4b | **通用 + 术语表** | `GeneralSettings.swift`（PageHero、删除发言方式节，**先获用户确认**）、`GlossarySettings.swift`（改为 Form）；新增 `PageHero` | 1–2 | 每页 ⓘ 不超过上限；术语表边距与其他页一致 |
 | 4c | **音频 + 我的声音** | `AudioSettings.swift`（FlowGrid.audio，节点 anchor 复用现有 scrollTo）、`MyVoiceSettings.swift`、`Sources/TalkTalkVoice/EnrollmentView.swift`（StepTrack） | 3 | anchor 滚动和闪烁正常，减少动态效果下不闪；档案详情已移走（与 4e 协调） |

@@ -110,33 +110,147 @@ extension VoiceState.Appearance {
     }
 }
 
-/// What the scenario page says about a running session while the user browses (§7 使用场景页).
-/// The action bar stays locked to the running scenario (§33).
+/// The scenario page's bottom bar (settings visual system §3.15): its primary button for the
+/// browsed scene, locked to the session that is starting, running or stopping (§33). There is no
+/// running banner: the running scene's card and the bar's left side say which one runs.
 public struct ScenarioRunState: Sendable, Equatable {
-    /// nil when no session is starting, running or stopping.
+    public enum Phase: Sendable, Equatable { case idle, starting, running, stopping }
+
+    public enum Action: Sendable, Equatable {
+        /// 开始 (电话：准备) the browsed scene.
+        case start(MeetingMode)
+        /// 结束 the running scene, which is the browsed one.
+        case end(MeetingMode)
+        /// 准备中… or 结束中…, disabled.
+        case progress(MeetingMode, ending: Bool)
+        /// Another scene runs: disabled, "先结束<运行中场景>".
+        case blocked(running: MeetingMode)
+    }
+
+    /// The session's scene; ignored while idle.
     public var running: MeetingMode?
+    public var phase: Phase
     public var browsing: MeetingMode
 
-    public init(running: MeetingMode?, browsing: MeetingMode) {
-        self.running = running
+    public init(running: MeetingMode?, phase: Phase, browsing: MeetingMode) {
+        self.running = phase == .idle ? nil : running
+        self.phase = running == nil ? .idle : phase
         self.browsing = browsing
     }
 
-    /// The bottom bar's fixed left text: "正在运行：会议同传 · Zoom".
-    public func runningLine(source: String?) -> String? {
-        guard let running else { return nil }
-        let shown = running == .phone ? "Phone" : source
-        if let shown, !shown.isEmpty {
-            return String(localized: "正在运行：\(running.scene.title) · \(shown)")
+    public var action: Action {
+        guard let running else { return .start(browsing) }
+        switch phase {
+        case .idle: return .start(browsing)
+        case .starting: return .progress(running, ending: false)
+        case .stopping: return .progress(running, ending: true)
+        case .running: return running == browsing ? .end(running) : .blocked(running: running)
         }
-        return String(localized: "正在运行：\(running.scene.title)")
     }
 
-    /// The pinned banner when browsing a scenario that is not running.
-    public var banner: (text: String, returnTitle: String)? {
-        guard let running, running != browsing else { return nil }
-        return (String(localized: "\(running.scene.title)正在运行，结束后才能开始\(browsing.scene.title)"),
-                String(localized: "回到\(running.scene.title)"))
+    /// The button's short word (§5.5): 开始 / 准备 / 结束 / 准备中… / 结束中….
+    public var title: String {
+        switch action {
+        case let .start(mode): mode == .phone ? String(localized: "准备") : String(localized: "开始")
+        case .end: String(localized: "结束")
+        case let .progress(_, ending): ending ? String(localized: "结束中…") : String(localized: "准备中…")
+        case .blocked: browsing == .phone ? String(localized: "准备") : String(localized: "开始")
+        }
+    }
+
+    /// nil while in progress (a spinner instead).
+    public var symbol: String? {
+        switch action {
+        case .start, .blocked: MenuQuickStart.symbol
+        case .end: SubtitleTokens.SettingsIcon.stop
+        case .progress: nil
+        }
+    }
+
+    /// The full action for VoiceOver, as the menu and the titlebar name it.
+    public var accessibilityLabel: String {
+        switch action {
+        case let .start(mode): Self.startLabel(mode)
+        case .blocked: Self.startLabel(browsing)
+        case let .end(mode): mode.scene.endAccessibilityLabel
+        case let .progress(mode, ending):
+            ending ? String(localized: "正在结束\(mode.scene.title)…") : String(localized: "正在准备\(mode.scene.title)…")
+        }
+    }
+
+    /// 结束: what the meeting or call receives afterwards; blocked: which scene to end first.
+    public func help(systemInputSwitched: Bool) -> String? {
+        switch action {
+        case let .end(mode): mode.scene.endHelp(systemInputSwitched: systemInputSwitched)
+        case let .blocked(running): String(localized: "先结束\(running.scene.title)")
+        case .start, .progress: nil
+        }
+    }
+
+    public var isEnabled: Bool {
+        switch action {
+        case .start, .end: true
+        case .progress, .blocked: false
+        }
+    }
+
+    /// The bar's left side while a session runs: the source it listens to ("Phone" for the
+    /// phone scene); nil while idle, starting or stopping.
+    public func runningSource(meetingApp: String?) -> String? {
+        guard phase == .running, let running else { return nil }
+        if running == .phone { return "Phone" }
+        guard let meetingApp, !meetingApp.isEmpty else { return running.scene.title }
+        return meetingApp
+    }
+
+    private static func startLabel(_ mode: MeetingMode) -> String {
+        switch mode {
+        case .meeting: String(localized: "开始会议同传")
+        case .phone: String(localized: "准备电话同传")
+        case .captions: String(localized: "开始视频字幕")
+        }
+    }
+}
+
+/// Where my voice goes on a phone call now (§7.2 实时发声行): the delivery glyph and the
+/// shortest consequence, read from the titlebar's voice state. None while the other party
+/// hears the original voice: the red capsule (对方能听到原声) says it, and no delivery words
+/// may stand beside it that read as "it stays on this Mac".
+public enum PhoneDelivery: Sendable, Equatable {
+    /// 已送入 Phone: the original or translated voice reaches the call.
+    case sentToPhone
+    /// 仅本机 · Phone 未接收: plays on this Mac only.
+    case thisMacOnly
+    /// 接通后对方才能听到你.
+    case waitingForCall
+    /// 未发送.
+    case notSent
+
+    public init?(_ kind: VoiceState.Kind) {
+        switch kind {
+        case .remoteHearsOriginal: return nil
+        case .original, .translating, .processing, .playingTranslation, .switching: self = .sentToPhone
+        case .phoneLocalTrial, .phoneLocalOnly, .localPlayback: self = .thisMacOnly
+        case .phoneNotConnected: self = .waitingForCall
+        case .notSent, .restoring, .unavailable, .phoneReconnecting, .listening: self = .notSent
+        }
+    }
+
+    public var symbol: String {
+        switch self {
+        case .sentToPhone: SubtitleTokens.VoiceIcon.sentToPhone
+        case .thisMacOnly: SubtitleTokens.VoiceIcon.thisMac
+        case .waitingForCall, .notSent: SubtitleTokens.VoiceIcon.localOnly
+        }
+    }
+
+    public var text: String {
+        switch self {
+        case .sentToPhone: String(localized: "已送入 Phone")
+        case .thisMacOnly: String(localized: "仅本机 · Phone 未接收")
+        case .waitingForCall: String(localized: "接通后对方才能听到你")
+        case .notSent: String(localized: "未发送")
+        }
     }
 }
 
@@ -147,9 +261,9 @@ public enum ScenarioSourceNote {
     }
 }
 
-/// The phone page's three-step checklist (§7 电话页). ① prepares the session (the same action
-/// as the bottom bar), ② dials or answers in Phone and is dimmed until ① is ready, ③ explains
-/// ending after hanging up.
+/// The phone page's StepTrack (settings visual system §3.5, §7.2). ① is prepared by the bottom
+/// bar's 准备 (the step has no button of its own), ② dials or answers in Phone and is dimmed until
+/// ① is ready, ③ ends after hanging up.
 public struct PhoneChecklist: Sendable, Equatable {
     public enum Status: Sendable, Equatable { case pending, inProgress, done }
 

@@ -56,6 +56,7 @@ final class AppState {
         static let videoSubtitleLocked = "ui.videoSubtitleLocked"
         static let videoLongSilenceDim = "ui.videoLongSilenceDim"
         static let speakLanguage = "speak.targetLanguage"
+        static let phonePreparedOnce = "ui.phonePreparedOnce"
     }
 
     private let defaults: UserDefaults
@@ -237,7 +238,14 @@ final class AppState {
     var phoneNumber = ""
     var phoneStatus: String?
     var phoneProblem: String?
-    var phoneReadyToDial = false
+    var phoneReadyToDial = false {
+        didSet { if phoneReadyToDial, !phonePreparedOnce { phonePreparedOnce = true } }
+    }
+    /// A phone session has been ready to dial once (`ui.phonePreparedOnce`): 首次连接 is then
+    /// collapsed by default (§7.2).
+    private(set) var phonePreparedOnce: Bool {
+        didSet { if phonePreparedOnce != oldValue { defaults.set(phonePreparedOnce, forKey: Key.phonePreparedOnce) } }
+    }
     var phoneAudioActive = false
     var phoneDialing = false
     /// The subtitle titlebar's voice state (HUDModel.voiceState), from the real speech gate,
@@ -246,6 +254,7 @@ final class AppState {
     var phoneVoice: VoiceState?
     /// The same titlebar voice state for a meeting session (the scenario page's running dot).
     var meetingVoice: VoiceState?
+    /// The phone page's live row popover (closed by AppDelegate when the voice state goes).
     var phoneStatusDetailsPresented = false
     @ObservationIgnored var onOpenPhone: (() -> Void)?
     @ObservationIgnored var onDialPhone: ((String) -> Void)?
@@ -311,6 +320,7 @@ final class AppState {
         phoneSubtitleFontSize = phoneSize.isFinite ? min(36, max(16, phoneSize)) : 22
         let phoneOpacity = defaults.object(forKey: Key.phoneSubtitleBackgroundOpacity) as? Double ?? 0.85
         phoneSubtitleBackgroundOpacity = phoneOpacity.isFinite ? min(1, max(0.35, phoneOpacity)) : 0.85
+        phonePreparedOnce = defaults.bool(forKey: Key.phonePreparedOnce)
         voiceProfilePresent = voiceStore.hasProfile
     }
 

@@ -352,6 +352,33 @@ public enum SubtitleTokens {
         public static let flowArrow = "arrow.right"
         public static let back = "chevron.left"
 
+        // Flow diagrams and the scene pages (§3.3–§3.5, §3.15, §7.1–§7.3).
+        /// A node's link to another page or section: 9 pt semibold, always shown.
+        public static let link = "chevron.right"
+        /// The loop row between the two speaking lanes: back to the original voice.
+        public static let loopBack = "arrow.uturn.backward"
+        /// A meeting app not known yet (automatic choice before a session).
+        public static let unknownApp = "app.dashed"
+        /// A browser source also brings its other tabs.
+        public static let browserTabs = "rectangle.on.rectangle"
+        /// Video listens only: no microphone, no key to speak.
+        public static let noMicrophone = "mic.slash"
+        /// 首次连接: the iPhone, the same Apple account, the same network, and the call handoff
+        /// between iPhone and Mac.
+        public static let iPhone = "iphone"
+        public static let sameAccount = "person.crop.circle"
+        public static let sameNetwork = "wifi"
+        public static let handoff = "arrow.left.arrow.right"
+        /// The subtitle window is hidden for every scene (the bottom bar's tag).
+        public static let subtitlesHidden = "eye.slash"
+        /// The bottom bar's primary action: start or prepare, and end.
+        public static let start = "play.fill"
+        public static let stop = "stop.fill"
+        /// Hand the typed number to Phone.
+        public static let dial = VoiceIcon.sentToPhone
+        /// Ending the session does not hang up (the user's own end glyph).
+        public static let callContinues = VoiceIcon.end
+
         // Icon buttons (§3.10): one fixed glyph per action.
         public static let refresh = "arrow.clockwise"
         public static let reset = "arrow.counterclockwise"

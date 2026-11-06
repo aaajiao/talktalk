@@ -4,9 +4,9 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkSettingsUI
 
-// Shared pieces of the scenario pages and onboarding (redesign §7): flow node cards and the two
-// speaking lanes with the subtitle window's own capsule and keycap. The capsule, keycap, ⓘ,
-// ReturnPill and the status vocabulary live in TalkTalkSettingsUI.
+// The old flow pieces still drawn by onboarding, 音频, 我的声音, 模型 and 诊断 (redesign §7):
+// flow node cards and the two speaking lanes. The scene pages use TalkTalkSettingsUI's FlowGrid;
+// these go when the last page moves to it (settings visual system §9.1 commit 5).
 
 /// A link under a flow node ("模型设置 ›").
 struct FlowLink {
@@ -148,28 +148,5 @@ struct SpeakingLanes: View {
             VoiceCapsule(state: voice).accessibilityLabel(voice.title)
             Text(title).font(.callout.weight(.medium))
         }
-    }
-}
-
-/// The checklist's 24 pt status circle: the system's numbered circle, a progress ring, or a
-/// green check (§7 电话页). Both glyphs share one font size, so their weights match.
-struct ChecklistStatusCircle: View {
-    let number: Int
-    let status: PhoneChecklist.Status
-
-    var body: some View {
-        ZStack {
-            switch status {
-            case .pending:
-                Image(systemName: "\(number).circle").font(.system(size: 22)).foregroundStyle(.secondary)
-            case .inProgress:
-                ProgressView().controlSize(.small)
-            case .done:
-                Image(systemName: SubtitleTokens.SettingsIcon.statusOK).font(.system(size: 22))
-                    .symbolRenderingMode(.palette).foregroundStyle(.white, .green)
-            }
-        }
-        .frame(width: 24, height: 24)
-        .accessibilityHidden(true)
     }
 }
