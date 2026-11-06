@@ -354,7 +354,8 @@ import Testing
             model.post(risk, now: 0)
             let voice = try #require(model.voiceState)
             #expect(voice.kind == .remoteHearsOriginal && voice.appearance == .riskFill)
-            #expect(voice.title == "对方能听到原声" && voice.compactTitle == "风险")
+            // The narrowest title still says who hears what.
+            #expect(voice.title == "对方能听到原声" && voice.compactTitle == "对方听到原声")
             #expect(voice.symbol == "mic.badge.exclamationmark")
             #expect(model.titlebarKey == nil)
             let chip = try #require(model.issueSlot(now: 1)?.chip)
@@ -458,11 +459,13 @@ import Testing
         #expect(model.titlebarKey?.action == "开始翻译")
         model.pushToTalk = .holding(level: 0.2, preview: "草稿", committed: [], queued: 0)
         #expect(model.voiceState?.kind == .translating)
-        #expect(model.titlebarKey == TitlebarKey(action: "结束", style: .translating))
+        #expect(model.titlebarKey == TitlebarKey(action: "结束", symbol: "stop.fill", style: .translating))
         model.pushToTalk = .playing(lang: .en, voice: .system, source: .openAI, queued: 3)
         // No raw gate: playback is local only and never claims the other side hears it.
         let local = try #require(model.voiceState)
         #expect(local.kind == .localPlayback && local.title == "本机播放" && local.compactTitle == "本机")
+        // Audible on this Mac: never the muted-speaker glyph.
+        #expect(local.symbol == SubtitleTokens.VoiceIcon.thisMac)
         #expect(!local.consequence.contains("对方") && !local.accessibilityLabel.contains("对方"))
         #expect(MicDockPresentation.make(local, scene: .meeting).label == "译音只在本机播放")
         model.scene = .video

@@ -43,7 +43,11 @@ import Testing
         #expect(C.warn.rgba(lightSurface: true) == SubtitleTokens.RGBA(hex: 0xC93400))
         let pairs: [(C, Double, Double)] = [(.textPrimary, 0.92, 1.0), (.textSource, 0.72, 0.85),
                                             (.textSourceLive, 0.80, 0.92), (.textDraft, 0.60, 0.78),
-                                            (.separator, 0.08, 0.35)]
+                                            (.separator, 0.08, 0.35), (.noticeStroke, 0.28, 0.6),
+                                            (.controlStroke, 0.35, 0.7), (.controlDashed, 0.5, 0.8),
+                                            (.controlFill, 0.12, 0.22), (.keycapStroke, 0.3, 0.7),
+                                            (.controlSecondary, 0.7, 0.9), (.controlTertiary, 0.6, 0.9),
+                                            (.divider, 0.2, 0.5)]
         for (role, normal, contrast) in pairs {
             #expect(role.rgba().alpha == normal)
             #expect(role.rgba(increaseContrast: true).alpha == contrast)
@@ -91,6 +95,48 @@ import Testing
         #expect(switched.message.contains("仍会收到你的原声"))
         #expect(selected.message.contains("听不到你的声音"))
         #expect(SubtitleScene.video.endTitle == "结束" && SubtitleScene.meeting.endTitle == "结束同传")
+        // The end button's label and help name the session and what does not end.
+        #expect(SubtitleScene.meeting.endAccessibilityLabel == "结束会议同传")
+        #expect(SubtitleScene.phone.endAccessibilityLabel == "结束电话同传")
+        #expect(SubtitleScene.video.endAccessibilityLabel == "结束视频字幕")
+        #expect(SubtitleScene.phone.endAccessibilityHelp.contains("通话不会挂断"))
+        #expect(SubtitleScene.meeting.endAccessibilityHelp.contains("会议本身不会结束"))
+    }
+
+    @Test func oneGlyphCarriesOneMeaning() {
+        typealias I = SubtitleTokens.VoiceIcon
+        // Opening Phone is not delivery; local sound is not muted; a system abort is not the
+        // user's end action; reconnecting is not a Reload button.
+        #expect(I.openPhone == "arrow.up.forward.app" && I.openPhone != I.sentToPhone)
+        #expect(I.thisMac == "laptopcomputer" && I.thisMac != I.localOnly)
+        #expect(I.aborted == "xmark.octagon" && I.aborted != I.end)
+        #expect(I.reconnecting == "arrow.triangle.2.circlepath")
+        for kind in [VoiceState.Kind.phoneLocalTrial, .phoneLocalOnly, .localPlayback] {
+            #expect(VoiceState.make(kind, phone: true, risk: nil, reason: nil).symbol == I.thisMac, "\(kind)")
+        }
+        for kind in [VoiceState.Kind.notSent, .phoneNotConnected] {
+            #expect(VoiceState.make(kind, phone: true, risk: nil, reason: nil).symbol == I.localOnly, "\(kind)")
+        }
+        #expect(VoiceState.make(.phoneReconnecting, phone: true, risk: nil, reason: nil).symbol == I.reconnecting)
+        #expect(HUDChip.phoneNotReceiving.symbol == I.thisMac && HUDChip.phoneNotReceiving.label == "Phone 未接收")
+        typealias W = HUDModel.Warning
+        #expect(W.segmentNotSent.symbol == ConversationTextRules.unsentSymbol)
+        #expect(W.unsupportedTextNotSent.symbol == ConversationTextRules.unsentSymbol)
+        #expect(W.openAIUnreachable.symbol == "network.slash" && W.openAIKeyInvalid.symbol == "network.slash")
+        #expect(W.modelRetired.symbol == I.cloud)
+        #expect(W.meetingSilent.symbol == "waveform.slash" && W.meetingSeemsOver.symbol == "person.2.slash")
+        #expect(W.audioRestarting.symbol == I.reconnecting && W.tccUnconfirmed.symbol == "hand.raised")
+    }
+
+    @Test func keycapShowsStartAndEndAsGlyphsButKeepsLocalTrialAndReleaseAsText() {
+        let start = SpeechStatusPresentation(audio: .original)
+        #expect(start.keyAction == "开始翻译" && start.keySymbol == "translate")
+        let end = SpeechStatusPresentation(audio: .translating)
+        #expect(end.keyAction == "结束" && end.keySymbol == "stop.fill")
+        #expect(SpeechStatusPresentation(audio: .switching).keySymbol == nil)
+        let trial = SpeechStatusPresentation(audio: .original, phoneInputConfirmed: false)
+        #expect(trial.keyAction == "本机试说" && trial.keySymbol == nil)
+        #expect(SpeechStatusPresentation(audio: .draining).keySymbol == "translate")
     }
 
     @Test func sceneIconsAreUnified() {

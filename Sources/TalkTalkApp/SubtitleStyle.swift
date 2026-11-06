@@ -11,12 +11,15 @@ enum SubtitleStyle {
         var increaseContrast: Bool
         var reduceTransparency: Bool
         var reduceMotion: Bool
+        /// "Differentiate without colour": status that differs only by hue gets a shape too.
+        var differentiateWithoutColor = false
 
         static var current: Display {
             let workspace = NSWorkspace.shared
             return Display(increaseContrast: workspace.accessibilityDisplayShouldIncreaseContrast,
                            reduceTransparency: workspace.accessibilityDisplayShouldReduceTransparency,
-                           reduceMotion: workspace.accessibilityDisplayShouldReduceMotion)
+                           reduceMotion: workspace.accessibilityDisplayShouldReduceMotion,
+                           differentiateWithoutColor: workspace.accessibilityDisplayShouldDifferentiateWithoutColor)
         }
     }
 
@@ -80,8 +83,24 @@ enum SubtitleStyle {
         motion.duration(reduceMotion: display.reduceMotion)
     }
 
+    /// A template image filled with `color` (monochrome, so a symbol's cut-outs stay clear),
+    /// for drawing outside an NSImageView's contentTintColor.
+    static func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {
+        let tinted = NSImage(size: image.size, flipped: false) { rect in
+            image.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        tinted.accessibilityDescription = image.accessibilityDescription
+        return tinted
+    }
+
     /// SF Symbol image; `mic.badge.exclamationmark` falls back to mic.fill with an
-    /// exclamationmark.circle.fill badge where the system lacks it.
+    /// exclamationmark.circle.fill badge where the system lacks it. The badge sits in a
+    /// cleared 1.5 pt ring so that, tinted to one colour, it stays a separate shape and the
+    /// risk glyph never reads as plain mic.fill (原声). The result stays a template image, so
+    /// contentTintColor and Increase Contrast still apply.
     static func symbol(_ name: String, size: CGFloat, weight: NSFont.Weight = .semibold,
                        accessibilityDescription: String? = nil) -> NSImage? {
         let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: weight)
@@ -94,12 +113,21 @@ enum SubtitleStyle {
                                  accessibilityDescription: accessibilityDescription)?.withSymbolConfiguration(configuration),
               let badge = NSImage(systemSymbolName: SubtitleTokens.VoiceIcon.originalRiskFallbackBadge,
                                   accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: size * 0.6, weight: .bold)) else { return nil }
+                .withSymbolConfiguration(.init(pointSize: size * 0.72, weight: .bold)) else { return nil }
+        let ring: CGFloat = 1.5
         let size = NSSize(width: base.size.width + badge.size.width * 0.45, height: max(base.size.height, badge.size.height))
         let composed = NSImage(size: size, flipped: false) { _ in
             base.draw(in: NSRect(x: 0, y: 0, width: base.size.width, height: base.size.height))
-            badge.draw(in: NSRect(x: size.width - badge.size.width, y: size.height - badge.size.height,
-                                  width: badge.size.width, height: badge.size.height))
+            let badgeRect = NSRect(x: size.width - badge.size.width, y: size.height - badge.size.height,
+                                   width: badge.size.width, height: badge.size.height)
+            if let context = NSGraphicsContext.current {
+                context.saveGraphicsState()
+                context.compositingOperation = .destinationOut
+                NSColor.black.setFill()
+                NSBezierPath(ovalIn: badgeRect.insetBy(dx: -ring, dy: -ring)).fill()
+                context.restoreGraphicsState()
+            }
+            badge.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
             return true
         }
         composed.isTemplate = true

@@ -33,6 +33,8 @@ final class PTTHUD {
     private var shownKey: TitlebarKey?
     private var shownChips: [HUDChip] = []
     private var announcedGroup: Int?
+    /// The first issue chip as last considered for VoiceOver.
+    private var announcedChip: HUDChip?
     private var publishedPhoneVoice: VoiceState?
     private var publishedPhoneInput = false
     private var subtitlesVisible = true
@@ -384,7 +386,8 @@ final class PTTHUD {
         let dock = showSpeech ? dockContent(voice: voice, key: key, expanded: expanded) : nil
         let statusChanged = voice != shownVoice || issue != shownIssue || key != shownKey || chips != shownChips
         shownLines = (voice.map { [HUDLine($0.title)] } ?? []) + chips.map { HUDLine($0.label, detail: $0.detail) }
-        announce(voice)
+        let voiceAnnounced = announce(voice)
+        announce(chips.first, voiceAnnounced: voiceAnnounced)
         guard force || statusChanged || dock != shownDock || showSpeech != shownLocalSpeech else { return }
         shownVoice = voice
         shownIssue = issue
@@ -484,15 +487,37 @@ final class PTTHUD {
     }
 
     /// VoiceOver hears one short sentence when the speaking mode changes (§3).
-    private func announce(_ voice: VoiceState?) {
-        guard let voice else { announcedGroup = nil; return }
+    @discardableResult
+    private func announce(_ voice: VoiceState?) -> Bool {
+        guard let voice else { announcedGroup = nil; return false }
         let group = voice.announcementGroup
         defer { announcedGroup = group }
         guard let previous = announcedGroup, previous != group, let text = voice.announcement,
-              panel.isWindowVisible else { return }
+              panel.isWindowVisible else { return false }
         NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
             .announcement: text,
             .priority: NSAccessibilityPriorityLevel.high.rawValue,
+        ])
+        return true
+    }
+
+    /// A new first problem or notification chip is spoken once with its full sentence, so a
+    /// 4-second notice is not lost to VoiceOver. Information chips stay silent; a risk chip or
+    /// "Phone 未接收" that arrives with a capsule change the voice announcement already said.
+    private func announce(_ chip: HUDChip?, voiceAnnounced: Bool) {
+        let previous = announcedChip
+        announcedChip = chip
+        guard let chip, chip.tone != .info, panel.isWindowVisible,
+              previous?.label != chip.label || previous?.detail != chip.detail else { return }
+        if voiceAnnounced, chip.tone == .risk || chip == .phoneNotReceiving { return }
+        let priority: NSAccessibilityPriorityLevel = switch chip.tone {
+        case .risk: .high
+        case .warn: .medium
+        case .notice, .info: .low
+        }
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
+            .announcement: chip.detail,
+            .priority: priority.rawValue,
         ])
     }
 
@@ -563,11 +588,14 @@ final class PTTHUD {
         cancel.bezelStyle = .push
         cancel.keyEquivalent = "\u{1b}"
         cancel.sizeToFit()
-        confirm.frame = NSRect(x: width - 16 - confirm.frame.width, y: y, width: confirm.frame.width, height: 28)
-        cancel.frame = NSRect(x: confirm.frame.minX - 8 - cancel.frame.width, y: y, width: cancel.frame.width, height: 28)
+        // Native push-button heights; both share the taller one and sit on one baseline.
+        let buttonHeight = max(confirm.fittingSize.height, cancel.fittingSize.height)
+        confirm.frame = NSRect(x: width - 16 - confirm.frame.width, y: y, width: confirm.frame.width, height: buttonHeight)
+        cancel.frame = NSRect(x: confirm.frame.minX - 8 - cancel.frame.width, y: y, width: cancel.frame.width,
+                              height: buttonHeight)
         document.addSubview(cancel)
         document.addSubview(confirm)
-        y += 28 + 16
+        y += buttonHeight + 16
         document.frame = NSRect(x: 0, y: 0, width: width, height: y)
         let controller = NSViewController()
         controller.view = document
@@ -598,7 +626,7 @@ final class PTTHUD {
     private func updateDetails() {
         let now = clock()
         guard model.voiceState != nil || model.issueSlot(now: now) != nil else { return }
-        let previousScroll = (detailsPopover.contentViewController?.view.subviews.first as? NSScrollView)?
+        let previousScroll = (detailsPopover.contentViewController?.view as? NSScrollView)?
             .contentView.bounds.origin.y ?? 0
         let focusedControl = (detailsPopover.contentViewController?.view.window?.firstResponder as? NSButton)?.identifier
         popoverActions.removeAll()
@@ -631,13 +659,17 @@ final class PTTHUD {
             y += height + 8
             return height
         }
-        func button(_ title: String, action: @escaping () -> Void) {
+        func button(_ title: String, symbol: String? = nil, action: @escaping () -> Void) {
             let target = HUDButtonAction(action)
             popoverActions.append(target)
             let button = NSButton(title: title, target: target, action: #selector(HUDButtonAction.run))
             button.identifier = NSUserInterfaceItemIdentifier(title)
             button.bezelStyle = .rounded
             button.controlSize = .small
+            if let symbol {
+                button.image = SubtitleStyle.symbol(symbol, size: 11, weight: .medium)
+                button.imagePosition = .imageLeading
+            }
             button.sizeToFit()
             button.frame = NSRect(x: 16, y: y, width: min(detailWidth - 32, button.frame.width + 8), height: 26)
             document.addSubview(button)
@@ -677,10 +709,14 @@ final class PTTHUD {
             let keyWidth = KeycapActionView.keyWidth(key)
             keycap.frame = NSRect(x: 16, y: y, width: keyWidth, height: SubtitleTokens.Size.controlHeight)
             keycap.onClick = nil
+            // Not a control here: the row reads as one line of text.
+            keycap.setAccessibilityElement(false)
             document.addSubview(keycap)
             let arrow = NSTextField(labelWithString: "→ " + action)
             arrow.font = .systemFont(ofSize: 13, weight: .medium)
             arrow.textColor = SubtitleStyle.white(0.85)
+            arrow.setAccessibilityElement(true)
+            arrow.setAccessibilityLabel(String(localized: "右侧 Option 键：\(action)"))
             arrow.frame = NSRect(x: 16 + keyWidth + 8, y: y + 1, width: detailWidth - keyWidth - 40, height: 18)
             document.addSubview(arrow)
             y += SubtitleTokens.Size.controlHeight + 6
@@ -704,8 +740,10 @@ final class PTTHUD {
             button(String(localized: "本场只用 Apple 翻译听到的话")) { [weak self] in
                 reminder.apple(); self?.closeCloudReminder()
             }
-            button(String(localized: "复制聊天说明")) { reminder.copy() }
-            button(String(localized: "本场不再提示")) { [weak self] in self?.closeCloudReminder() }
+            button(String(localized: "复制聊天说明"), symbol: SubtitleTokens.ActionIcon.copy) { reminder.copy() }
+            button(String(localized: "本场不再提示"), symbol: SubtitleTokens.ActionIcon.dismissReminder) { [weak self] in
+                self?.closeCloudReminder()
+            }
         }
         var destinations: [HUDLine.SettingsDestination] = []
         if model.voiceState?.kind == .unavailable || model.voiceState?.kind == .remoteHearsOriginal {
@@ -716,15 +754,20 @@ final class PTTHUD {
         }
         if let onOpenSettings {
             if destinations.isEmpty, model.meetingActive {
-                button(String(localized: "打开设置")) { [weak self] in self?.detailsPopover.close(); onOpenSettings(.audio) }
+                button(String(localized: "打开设置…"), symbol: SubtitleTokens.ActionIcon.settings) { [weak self] in
+                    self?.detailsPopover.close(); onOpenSettings(.audio)
+                }
             }
             for destination in destinations {
+                // These open the Settings window: a trailing ellipsis (HIG) and the menu's gearshape.
                 let title = switch destination {
-                case .audio: String(localized: "音频设置")
-                case .translation: String(localized: "翻译设置")
-                case .permissions: String(localized: "权限设置")
+                case .audio: String(localized: "音频设置…")
+                case .translation: String(localized: "翻译设置…")
+                case .permissions: String(localized: "权限设置…")
                 }
-                button(title) { [weak self] in self?.detailsPopover.close(); onOpenSettings(destination) }
+                button(title, symbol: SubtitleTokens.ActionIcon.settings) { [weak self] in
+                    self?.detailsPopover.close(); onOpenSettings(destination)
+                }
             }
         }
         document.frame = NSRect(x: 0, y: 0, width: detailWidth, height: y + 6)
@@ -735,13 +778,9 @@ final class PTTHUD {
         viewport.autohidesScrollers = true
         viewport.documentView = document
         viewport.autoresizingMask = [.width, .height]
-        let material = NSVisualEffectView(frame: viewport.frame)
-        material.material = .hudWindow
-        material.blendingMode = .behindWindow
-        material.state = .active
-        material.addSubview(viewport)
+        // The popover's own darkAqua material, as the end confirmation: no nested hudWindow.
         let controller = NSViewController()
-        controller.view = material
+        controller.view = viewport
         detailsPopover.contentViewController = controller
         detailsPopover.contentSize = viewport.frame.size
         viewport.tile()

@@ -151,6 +151,9 @@ import TalkTalkCore
         #expect(phone.label(scene: .video, hasTranslation: true) == nil)
         #expect(ConversationTimeline.Delivery.phoneSent.title == "已送入 Phone")
         #expect(ConversationTimeline.Delivery.notSent.symbol == ConversationTextRules.unsentSymbol)
+        #expect(ConversationTimeline.Delivery.phoneSent.symbol == SubtitleTokens.VoiceIcon.sentToPhone)
+        #expect(ConversationTimeline.Delivery.phoneLocalOnly.symbol == SubtitleTokens.VoiceIcon.thisMac)
+        #expect(ConversationTimeline.Delivery.aborted.symbol == SubtitleTokens.VoiceIcon.aborted)
     }
 
     @Test func finishedTurnsAreNotRelabelledAndDemoTurnsAreNeverSent() {

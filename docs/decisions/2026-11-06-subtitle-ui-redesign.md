@@ -60,7 +60,9 @@
 
 **动效**（“减少动态效果”时全部直接切换）：状态带伸缩 180ms easeInOut；草稿→定稿颜色 150ms；视频翻页交叉淡化 120ms；视频标题栏淡入 200ms、离开 1.5 秒后淡出；芯片淡入 150ms；通知芯片 4 秒后 300ms 淡出；长静默变暗 300ms；占位提示淡出 120ms。波形不自行动画。
 
-**图标（三处入口统一）**：会议 `person.2.wave.2`，电话 `phone`，视频 `play.rectangle`。原声 `mic.fill`；原声风险 `mic.badge.exclamationmark`（无该符号时叠加 `exclamationmark.circle.fill`）；原声已关/不可用 `mic.slash`（只用于这两态）；翻译收音 `waveform`；播放译音 `speaker.wave.2.fill`；已送入 Phone `phone.arrow.up.right`；仅本机 `speaker.slash`；收听中 `ear`；锁定 `lock.fill`。
+**图标（三处入口统一）**：会议 `person.2.wave.2`，电话 `phone`，视频 `play.rectangle`。原声 `mic.fill`；原声风险 `mic.badge.exclamationmark`（无该符号时叠加 `exclamationmark.circle.fill`）；原声已关/不可用 `mic.slash`（只用于这两态）；翻译收音 `waveform`；播放译音 `speaker.wave.2.fill`；已送入 Phone `phone.arrow.up.right`（只用于这一送达事实）；打开 Phone `arrow.up.forward.app`；未发送／未接入 Phone／本机就绪 `speaker.slash`；声音只在本机（本机试说、仅本机、本机播放、“Phone 未接收”芯片与“仅本机 · Phone 未接收”标签）`laptopcomputer`；重新连接 Phone／音频系统重启 `arrow.triangle.2.circlepath`；已中止 `xmark.octagon`；结束 `stop.circle`（只用于用户自己的结束操作）；键帽动作 开始翻译 `translate`、结束 `stop.fill`；视频 `⋯` 菜单 `ellipsis.circle`；收听中 `ear`；锁定 `lock.fill`。问题芯片：云端不可用／key 异常 `network.slash`（`network` 只表示云端翻译已开启与模型更换），这段未发送与文字不支持 `exclamationmark.bubble`（与我的行“未发送”标签一致），未听到对方 `waveform.slash`，会议似乎已结束 `person.2.slash`，录音权限未确认 `hand.raised`。
+
+**标题栏控件颜色（括号内为增强对比度）**：controlStroke 白 35%（70%，“原声已关”描边）；controlDashed 白 50%（80%，“未发送”虚线）；controlFill 白 12%（22%，中性胶囊）；keycapStroke 白 30%（70%）；controlSecondary 白 70%（90%，结束、`⋯`、键帽动作）；controlTertiary 白 60%（90%，chevron、“ · 来源”、场景图标、信息芯片文字）；divider 白 20%（50%，结束前分隔线、信息芯片描边）；noticeStroke 白 28%（60%）。图标字重与旁边文字一致（芯片图标 medium）；仅图标的控件（窄窗结束、云端、`⋯`、仅图标芯片）统一 13pt medium。
 
 ## 3. 共享标题栏与发声状态（T1–T10、C6）
 
@@ -84,9 +86,9 @@
 
 **问题/通知芯片**：高 20、圆角 9、11pt medium、图标加 ≤10 个汉字、最大宽 180、150ms 淡入。问题为 warn/risk 描边，常显到事实消失。通知为白 28% 描边、≤8 字、4 秒后淡出（如“✓ 已恢复 TalkTalk Mic”）。`meetingSilent` 显示灰色“未听到对方”。云端隐私说明常驻 16pt `network` 图标加 6pt 蓝点，直到在浮层选“本场不再提示”或“只用 Apple”；会话开始时浮层以 transient 方式自动弹出一次，不抢焦点。所有芯片文字 ≤10 个汉字，完整句子进 detail；`show()` 不再按长度分流；`scripts/check-strings.sh` 增加标题栏短标签的长度检查。
 
-**键帽 + 动作**（会议、电话）：键帽 20 高、最小宽 30、圆角 5、11pt SF Mono、1pt 白 30% 边框；右侧 11pt 动作文字直接用 `SpeechStatusPresentation.keyAction`（开始翻译 / 结束 / 松开确认 / 本机试说）。translating 时键帽 voice.translate 实底白字；switching 显示按下态。窗口宽 < 560 只显示键帽。整组不可拖动窗口（cursor 为 arrow），点击打开详情浮层的按键说明。
+**键帽 + 动作**（会议、电话）：键帽 20 高、最小宽 30、圆角 5、11pt SF Mono、1pt 白 30% 边框；“开始翻译”“结束”在任何宽度都以键帽后的 11pt medium 图标显示（`translate`／`stop.fill`，白 70%，翻译中为 voice.translate），VoiceOver 与 tooltip 仍为“右⌥ 开始翻译”“右⌥ 结束”；“松开确认”“本机试说”保留 11pt 文字（`SpeechStatusPresentation.keyAction`），窗口宽 < 560 时只显示键帽。translating 时键帽 voice.translate 实底白字；switching 显示按下态。整组不可拖动窗口（cursor 为 arrow），点击打开详情浮层的按键说明。
 
-**Phone ↗**（仅电话）：accessoryBar 风格按钮，`phone.arrow.up.right` + “Phone”，约 64 宽。状态里不再出现 phone 图标。
+**Phone ↗**（仅电话）：accessoryBar 风格按钮，`arrow.up.forward.app` + “Phone”，约 64 宽；AX 标签“打开 Phone”，只留图标时 tooltip 为“打开 Phone：在 Phone 中拨号、接听或挂断电话。”。状态里不再出现 phone 图标；`phone.arrow.up.right` 只表示“已送入 Phone”。
 
 **结束**：11pt 文字按钮，默认白 70%，悬停 #FF453A；会议、电话写“结束同传”，视频“结束”。会议、电话点击后从按钮弹出 260 宽的 `NSPopover` 确认，不要求浮窗成为 key：
 
@@ -94,9 +96,9 @@
 - 会议：标题“结束会议同传？”，正文按当时状态填写，例如“会议仍会收到你的原声”或“会议将听不到你的声音”。
 - 视频：直接结束。
 
-**窄窗退让顺序**：来源名截断 → 键帽动作文字 → Phone 只留图标 → 结束只留 `stop.circle` → 芯片只留图标 → 胶囊缩成两字（原声 / 译音 / 风险 / 本机）。胶囊永远不隐藏。
+**窄窗退让顺序**：来源名截断 → 键帽动作文字 → Phone 只留图标 → 结束只留 `stop.circle` → 芯片只留图标 → 胶囊缩成两字（原声 / 译音 / 本机）；风险态最短为“对方听到原声”。胶囊永远不隐藏。
 
-**详情浮层**（宽 320，hudWindow）：顶部固定一行 24pt 大胶囊加一句后果（“对方听到的是你的原声”“对方听到的是译音”“现在什么都没有发出去”）；第二行“右⌥ → 开始翻译”；然后问题列表、云端说明与操作、打开设置。关闭按钮、点击外部关闭；输入电平变化不重建浮层。
+**详情浮层**（宽 320，NSPopover 原生 darkAqua 材质）：顶部固定一行 24pt 大胶囊加一句后果（“对方听到的是你的原声”“对方听到的是译音”“现在什么都没有发出去”）；第二行“右⌥ → 开始翻译”；然后问题列表、云端说明与操作、打开设置。关闭按钮、点击外部关闭；输入电平变化不重建浮层。
 
 **左侧**：原生红黄按钮、统一场景图标（设为非无障碍元素）、标题 13pt semibold“场景”+ 13pt regular 60% 白“ · 来源”。
 
@@ -225,7 +227,7 @@
   - 列头只描述远端语言。
   - 我的行按本轮首个非空原文排序，60 秒从提交时计；这是内存中的有界阅读窗口，取代旧规则“不建立发言历史”。
   - 字幕重置只清远端句对，会话结束和换场景全部清空。
-  - 未得到定稿的非原声轮次以草稿样式保留；“已中止”用 warn 色加 `stop.circle`。
+  - 未得到定稿的非原声轮次以草稿样式保留；“已中止”用 warn 色加 `xmark.octagon`。
   - “↓ N 条新字幕”只在冻结且 N > 0 时出现。
 - **断点**：最小内容高度降为按字号计算（F=22 约 101pt），使低于 140pt 的模式可达。低于 140pt 时状态带不展开，自己的实时发言作为最后一行显示。
 - **朗读新译文**：同一偏好覆盖远端定稿与视频中文定稿；自己的译文不播报。
@@ -246,4 +248,16 @@
   - 移除场景页旧的“当前用途／正在收听”区。
   - 收起后的分段控件不带运行圆点。
   - 视图状态放在 `SettingsNavigation` 中（CLT 工具链没有 `@State` 宏）；ⓘ 用 AppKit `NSPopover`。
+- **HIG 与图标优先（标题栏、胶囊、芯片、浮层）**：
+  - 图标一义一形：Phone 按钮改为 `arrow.up.forward.app`，`phone.arrow.up.right` 只表示已送入 Phone；本机试说、仅本机、本机播放与“Phone 未接收”用 `laptopcomputer`（本机能听到译音，`speaker.slash` 只留给什么都没发出去的状态）；“已中止”改为 `xmark.octagon`，`stop.circle` 只给用户的结束操作；重新连接与音频重启改为 `arrow.triangle.2.circlepath`（`arrow.clockwise` 读作“刷新”按钮）；芯片图标见 §2。
+  - 风险图标的 `exclamationmark.circle.fill` 角标放大到 0.72× 并在周围清出 1.5pt 空隙，单色着色时仍与 `mic.fill`（原声）形状不同。
+  - 风险胶囊最短为“对方听到原声”，不再缩成“风险”。
+  - 键帽动作“开始翻译／结束”改为图标（见 §3），窄窗不再丢失含义。
+  - 结束按钮的 AX 标签与 tooltip 按场景写“结束会议同传／结束电话同传／结束视频字幕”，help 说明会议或通话本身不会结束。
+  - 视频 `⋯` 改为 `ellipsis.circle`（与菜单栏“更多”一致），AX 标签“字幕窗口选项”。
+  - 标题栏控件颜色改用 §2 的 control 令牌，并随增强对比度刷新；自绘控件有按下态并向 VoiceOver 报告停用状态。
+  - “区分时不仅依赖颜色”开启时，视频色点改为 10pt 符号：warn `exclamationmark.triangle.fill`、risk `exclamationmark.octagon.fill`。
+  - 详情浮层使用 NSPopover 原生材质（darkAqua），不再嵌套 hudWindow；打开设置窗口的按钮加“…”和 `gearshape`，“复制聊天说明”“本场不再提示”带 `doc.on.doc`／`bell.slash`；按键说明行的键帽不再是 VoiceOver 按钮，整行读作“右侧 Option 键：动作”。
+  - 结束确认的两个按钮使用原生高度。
+  - 新的首个问题或通知芯片以完整句子向 VoiceOver 播报一次（risk high、warn medium、通知 low，信息不播报）；与胶囊同时变化的风险芯片和“Phone 未接收”不重复播报。
 - **未改动**：`ListenPipeline` 代码注释中仍提到“≈”。`PolicyProfileTests.defaultFileIsTheArchitectureBlock` 期望 ARCHITECTURE 含 §5.3 JSON 块，该块自 1.0.1 起不在文档中，本轮未恢复。

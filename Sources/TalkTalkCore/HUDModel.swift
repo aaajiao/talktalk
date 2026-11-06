@@ -163,15 +163,21 @@ public struct HUDModel: Sendable, Equatable {
             // mic.slash means "original off"; these mean the remote side may hear raw audio.
             case .meetingNotUsingMic, .remoteHearsYourVoice: SubtitleTokens.VoiceIcon.originalRisk
             case .speakerMode: "headphones"
-            case .audioRestarting: "arrow.clockwise"
-            case .meetingSilent, .meetingSeemsOver: "waveform"
-            case .tccUnconfirmed: "lock.shield"
+            case .audioRestarting: SubtitleTokens.VoiceIcon.reconnecting
+            // Absence states are slashed, never the active-capture waveform.
+            case .meetingSilent: "waveform.slash"
+            case .meetingSeemsOver: "person.2.slash"
+            case .tccUnconfirmed: "hand.raised"
             case .defaultInputChanged, .switchBackFailed, .defaultInputNotSwitched: "mic.badge.xmark"
             case .switchedBackAfterInsert, .defaultInputRestored, .defaultInputRestoredElsewhere: "checkmark.circle"
-            case .openAIUnreachable, .openAIKeyInvalid, .modelRetired: "network"
+            // network alone means "cloud translation is on"; a failed cloud is slashed.
+            case .openAIUnreachable, .openAIKeyInvalid: "network.slash"
+            case .modelRetired: SubtitleTokens.VoiceIcon.cloud
             case .floorPaused: "pause.circle"
             case .numberMaybeWrong, .sentenceMaybeIncomplete: "exclamationmark.triangle"
-            case .skipped, .segmentNotSent, .unsupportedTextNotSent: "nosign"
+            case .skipped: "nosign"
+            // The same glyph as the "未发送" tag on my row.
+            case .segmentNotSent, .unsupportedTextNotSent: ConversationTextRules.unsentSymbol
             case .passthroughTip: "keyboard"
             }
         }
@@ -352,12 +358,12 @@ public struct HUDModel: Sendable, Equatable {
         public var modeBadge: HUDLine {
             switch self {
             case .phoneReady: HUDLine(String(localized: "已就绪"), .check, symbol: SubtitleTokens.VoiceIcon.localOnly)
-            case .original: HUDLine(String(localized: "原声发送中"), .check, symbol: "mic.fill")
+            case .original: HUDLine(String(localized: "原声发送中"), .check, symbol: SubtitleTokens.VoiceIcon.original)
             case .switching: HUDLine(String(localized: "切换中"), .secondary, symbol: "arrow.left.arrow.right")
-            case .translating: HUDLine(String(localized: "翻译收音中"), symbol: "waveform")
-            case .draining: HUDLine(String(localized: "译音处理中"), .secondary, symbol: "speaker.wave.2.fill")
+            case .translating: HUDLine(String(localized: "翻译收音中"), symbol: SubtitleTokens.VoiceIcon.translating)
+            case .draining: HUDLine(String(localized: "译音处理中"), .secondary, symbol: SubtitleTokens.VoiceIcon.translating)
             case .restoringOriginal: HUDLine(String(localized: "恢复原声"), .secondary, symbol: SubtitleTokens.VoiceIcon.originalOff)
-            case .phoneReconnecting: HUDLine(String(localized: "重新连接 Phone"), .secondary, symbol: "arrow.clockwise")
+            case .phoneReconnecting: HUDLine(String(localized: "重新连接 Phone"), .secondary, symbol: SubtitleTokens.VoiceIcon.reconnecting)
             case .unavailable: HUDLine(String(localized: "待检查"), .yellow, symbol: "exclamationmark.triangle")
             }
         }
@@ -395,7 +401,7 @@ public struct HUDModel: Sendable, Equatable {
                 return .init(title: String(localized: "原声发送中"),
                              action: String(localized: "点按右⌥开始翻译"),
                              detail: String(localized: "Phone 已接入；你的原声正在送入 Phone。"),
-                             symbol: "mic.fill", tone: .original)
+                             symbol: SubtitleTokens.VoiceIcon.original, tone: .original)
             case .switching:
                 return .init(title: String(localized: "切换发言方式"),
                              action: String(localized: "松开右⌥确认切换"),
@@ -407,14 +413,15 @@ public struct HUDModel: Sendable, Equatable {
                              detail: inputConfirmed
                                 ? String(localized: "Phone 已接入；原声已关闭，正在收音并翻译。")
                                 : String(localized: "本机翻译收音中，原声已关闭；未确认 Phone 接入。"),
-                             symbol: "waveform", tone: .translation)
+                             symbol: SubtitleTokens.VoiceIcon.translating, tone: .translation)
             case .draining:
                 return .init(title: String(localized: "译音处理中"),
                              action: String(localized: "点按右⌥继续翻译"),
                              detail: inputConfirmed
                                 ? String(localized: "原声保持关闭；剩余译音播完后恢复原声。")
                                 : String(localized: "正在处理剩余本机译音；未确认 Phone 接入。"),
-                             symbol: "speaker.wave.2.fill", tone: .progress)
+                             // Not told whether audio plays: never claim playback.
+                             symbol: SubtitleTokens.VoiceIcon.translating, tone: .progress)
             case .restoringOriginal:
                 return .init(title: String(localized: "正在恢复原声"),
                              action: String(localized: "点按右⌥开始翻译"),
@@ -424,7 +431,7 @@ public struct HUDModel: Sendable, Equatable {
                 return .init(title: String(localized: "正在重新连接 Phone"),
                              action: String(localized: "请稍候"),
                              detail: String(localized: "Phone 的麦克风读取发生变化，当前发言已停止；完成清理后才能继续说话。"),
-                             symbol: "arrow.clockwise", tone: .progress)
+                             symbol: SubtitleTokens.VoiceIcon.reconnecting, tone: .progress)
             case let .unavailable(reason):
                 return .init(title: String(localized: "音频暂不可用"),
                              action: String(localized: "请先检查音频状态"), detail: reason,
@@ -722,10 +729,7 @@ public struct HUDModel: Sendable, Equatable {
             ranked.append((chip.isProblem ? warning.compactPriority : rank(chip), warning.slot, chip))
         }
         if voiceState?.kind == .phoneLocalOnly {
-            ranked.append((10, "phoneNotReceiving", HUDChip(titlebarLabel("Phone 未接收"),
-                symbol: SubtitleTokens.VoiceIcon.localOnly, tone: .warn,
-                detail: String(localized: "译音只在本机播放：Phone 没有读取 TalkTalk Mic。"),
-                settingsDestination: .audio)))
+            ranked.append((10, "phoneNotReceiving", .phoneNotReceiving))
         }
         for (key, chip) in externalIssues { ranked.append((rank(chip), "external." + key.rawValue, chip)) }
         if let message, message.until > now { ranked.append((rank(message.chip), "message", message.chip)) }

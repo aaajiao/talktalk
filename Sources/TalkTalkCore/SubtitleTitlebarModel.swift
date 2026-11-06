@@ -30,6 +30,25 @@ public enum SubtitleScene: String, Sendable, Equatable, CaseIterable {
 
     /// Meeting and phone confirm in a popover; video ends at once.
     public var endTitle: String { self == .video ? titlebarLabel("结束") : titlebarLabel("结束同传") }
+
+    /// The end button's VoiceOver label and tooltip, which also cover its narrow
+    /// `stop.circle` fallback: which session ends.
+    public var endAccessibilityLabel: String {
+        switch self {
+        case .meeting: String(localized: "结束会议同传")
+        case .phone: String(localized: "结束电话同传")
+        case .video: String(localized: "结束视频字幕")
+        }
+    }
+
+    /// What ending does not do: the meeting or call itself goes on.
+    public var endAccessibilityHelp: String {
+        switch self {
+        case .meeting: String(localized: "结束 TalkTalk 同传；会议本身不会结束")
+        case .phone: String(localized: "结束 TalkTalk 同传；通话不会挂断")
+        case .video: String(localized: "停止视频字幕")
+        }
+    }
 }
 
 /// What the voice capsule says (§3). It reads the current speaking mode directly and never
@@ -68,7 +87,7 @@ public struct VoiceState: Sendable, Equatable {
     public var kind: Kind
     public var appearance: Appearance
     public var title: String
-    /// Narrowest titlebar: 原声 / 译音 / 风险 / 本机.
+    /// Narrowest titlebar: 原声 / 译音 / 本机 / 收听; the risk keeps "对方听到原声".
     public var compactTitle: String
     public var symbol: String
     /// One sentence for the details popover's top row.
@@ -190,31 +209,32 @@ public struct VoiceState: Sendable, Equatable {
             short = String(localized: "接通后对方才能听到你")
             announcement = String(localized: "未接入 Phone")
         case .phoneLocalTrial:
-            title = titlebarLabel("本机试说"); compact = titlebarLabel("本机"); symbol = icon.localOnly
+            title = titlebarLabel("本机试说"); compact = titlebarLabel("本机"); symbol = icon.thisMac
             appearance = .dashed
             consequence = String(localized: "Phone 未接收，现在什么都没有发出去")
             short = String(localized: "Phone 未接收")
             announcement = String(localized: "本机试说，Phone 未接收")
         case .phoneLocalOnly:
-            title = titlebarLabel("仅本机"); compact = titlebarLabel("本机"); symbol = icon.localOnly
+            title = titlebarLabel("仅本机"); compact = titlebarLabel("本机"); symbol = icon.thisMac
             appearance = .warnStroke
             consequence = String(localized: "译音只在本机播放，Phone 没有读取 TalkTalk Mic")
             short = String(localized: "译音只在本机播放")
             announcement = String(localized: "仅本机播放，Phone 未接收")
         case .localPlayback:
-            title = titlebarLabel("本机播放"); compact = titlebarLabel("本机"); symbol = icon.localOnly
+            title = titlebarLabel("本机播放"); compact = titlebarLabel("本机"); symbol = icon.thisMac
             appearance = .dimStroke
             consequence = String(localized: "译音只在本机播放，没有发给任何人")
             short = String(localized: "译音只在本机播放")
             announcement = String(localized: "译音只在本机播放")
         case .phoneReconnecting:
             title = titlebarLabel("正在重新连接 Phone…"); compact = titlebarLabel("本机")
-            symbol = "arrow.clockwise"; appearance = .dimStroke
+            symbol = icon.reconnecting; appearance = .dimStroke
             consequence = String(localized: "当前发言已停止，等待 Phone")
             short = String(localized: "当前发言已停止")
             announcement = String(localized: "正在重新连接 Phone")
         case .remoteHearsOriginal:
-            title = titlebarLabel("对方能听到原声"); compact = titlebarLabel("风险"); symbol = icon.originalRisk
+            title = titlebarLabel("对方能听到原声"); compact = titlebarLabel("对方听到原声")
+            symbol = icon.originalRisk
             appearance = .riskFill
             consequence = risk == .meetingNotUsingMic
                 ? String(localized: "会议没有使用 TalkTalk Mic，对方能听到原声")
@@ -272,6 +292,13 @@ public struct HUDChip: Sendable, Equatable {
 
     public var isProblem: Bool { tone == .risk || tone == .warn }
     public var fades: Bool { tone == .notice }
+
+    /// Beside "仅本机": Phone has not read TalkTalk Mic, translated audio stays on this Mac.
+    public static var phoneNotReceiving: HUDChip {
+        HUDChip(titlebarLabel("Phone 未接收"), symbol: SubtitleTokens.VoiceIcon.thisMac, tone: .warn,
+                detail: String(localized: "译音只在本机播放：Phone 没有读取 TalkTalk Mic。"),
+                settingsDestination: .audio)
+    }
 }
 
 /// The single titlebar slot beside the capsule: problem > notification > cloud privacy.
@@ -288,10 +315,12 @@ public struct TitlebarKey: Sendable, Equatable {
     public enum Style: Sendable, Equatable { case idle, translating, pressed }
     public var key: String
     public var action: String?
+    /// Drawn after the keycap instead of `action` at every titlebar width; nil keeps the text.
+    public var symbol: String?
     public var style: Style
 
-    public init(key: String = String(localized: "右⌥"), action: String?, style: Style) {
-        self.key = key; self.action = action; self.style = style
+    public init(key: String = String(localized: "右⌥"), action: String?, symbol: String? = nil, style: Style) {
+        self.key = key; self.action = action; self.symbol = symbol; self.style = style
     }
 
     /// nil when no key action applies (video, unavailable, risk, reconnecting).
@@ -303,7 +332,7 @@ public struct TitlebarKey: Sendable, Equatable {
         case .translating: .translating
         default: .idle
         }
-        return TitlebarKey(action: action, style: style)
+        return TitlebarKey(action: action, symbol: presentation.keySymbol, style: style)
     }
 }
 

@@ -433,6 +433,7 @@ final class SubtitlePanel {
     }
 
     private func updateTitlebarActions() {
+        titleView.apply(display: .current)
         let content = titlebarContent
         let width = Double(contentWidth)
         let reserved = Double(SubtitleTitlebarView.windowChrome + titleView.minimumWidth)
@@ -1318,6 +1319,8 @@ final class SubtitlePanel {
         if let dot {
             statusDot.frame = dotFrame
             statusDot.color = SubtitleStyle.color(dot.color)
+            statusDot.dot = dot
+            statusDot.differentiateWithoutColor = SubtitleStyle.Display.current.differentiateWithoutColor
             let chip = titlebarIssue?.chip
             target.setAccessibilityLabel(chip?.label)
             target.setAccessibilityHelp(chip?.detail)
@@ -1593,6 +1596,10 @@ final class PassiveEffectView: NSVisualEffectView {
 final class VideoStatusDotView: NSView {
     static let boxSize: CGFloat = 16
     var color: NSColor = .systemOrange { didSet { if color != oldValue { needsDisplay = true } } }
+    var dot: VideoStatusDot = .warn { didSet { if dot != oldValue { needsDisplay = true } } }
+    /// "Differentiate without colour": warn and risk also differ by shape (Apple's caution
+    /// triangle and stop octagon) instead of being an 8 pt dot of a different hue.
+    var differentiateWithoutColor = false { didSet { if differentiateWithoutColor != oldValue { needsDisplay = true } } }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -1604,6 +1611,14 @@ final class VideoStatusDotView: NSView {
     required init?(coder: NSCoder) { nil }
 
     override func draw(_ dirtyRect: NSRect) {
+        if differentiateWithoutColor,
+           let image = SubtitleStyle.symbol(dot == .risk ? SubtitleTokens.VoiceIcon.statusRisk : SubtitleTokens.VoiceIcon.statusWarn,
+                                            size: 10, weight: .semibold).map({ SubtitleStyle.tinted($0, color) }) {
+            let size = image.size
+            image.draw(in: NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2,
+                                  width: size.width, height: size.height))
+            return
+        }
         let diameter = CGFloat(VideoStatusDot.diameter)
         color.setFill()
         NSBezierPath(ovalIn: NSRect(x: (bounds.width - diameter) / 2, y: (bounds.height - diameter) / 2,

@@ -63,7 +63,8 @@ final class SubtitleTitlebarView: NSView {
         phone.bezelStyle = .accessoryBarAction
         phone.controlSize = .small
         phone.font = SubtitleStyle.controlFont(ControlTypography.capsule, weight: .medium)
-        phone.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.sentToPhone, size: 11, weight: .medium)
+        // "Open the Phone app", never the 已送入 Phone delivery glyph.
+        phone.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.openPhone, size: 11, weight: .medium)
         phone.title = "Phone"
         phone.imagePosition = .imageLeading
         phone.setAccessibilityLabel(String(localized: "打开 Phone"))
@@ -71,7 +72,7 @@ final class SubtitleTitlebarView: NSView {
         phone.target = self
         phone.action = #selector(phonePressed)
         divider.wantsLayer = true
-        divider.layer?.backgroundColor = SubtitleStyle.white(0.2).cgColor
+        divider.layer?.backgroundColor = SubtitleStyle.color(.divider).cgColor
         divider.setAccessibilityElement(false)
         for view in [capsule, chip, cloud, keycap, phone, more, divider, end] as [NSView] {
             view.isHidden = true
@@ -134,10 +135,16 @@ final class SubtitleTitlebarView: NSView {
         phone.isHidden = !next.showsPhone
         phone.isEnabled = next.phoneEnabled
         phone.imagePosition = nextCompaction.showsPhoneText ? .imageLeading : .imageOnly
+        // Icon-only, the glyph alone does not say "Phone": the tooltip names it.
+        phone.toolTip = nextCompaction.showsPhoneText
+            ? String(localized: "在 Phone 中拨号、接听或挂断电话。")
+            : String(localized: "打开 Phone：在 Phone 中拨号、接听或挂断电话。")
         more.isHidden = !next.showsMore
+        more.apply(display: nextDisplay)
         end.isHidden = !next.showsEnd
         end.isEnabled = next.endEnabled
-        end.apply(title: next.scene.endTitle, showsText: nextCompaction.showsEndText)
+        end.apply(scene: next.scene, showsText: nextCompaction.showsEndText, display: nextDisplay)
+        divider.layer?.backgroundColor = SubtitleStyle.color(.divider, display: nextDisplay).cgColor
         relayout()
     }
 
@@ -244,13 +251,14 @@ final class SubtitleTitleView: NSView {
     private let label = NSTextField(labelWithString: "")
     private var scene: SubtitleScene = .meeting
     private var source: String?
+    private var display = SubtitleStyle.Display.current
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: NSRect(x: 0, y: 0, width: 120, height: SubtitleTokens.Size.titlebarHeight))
         icon.imageScaling = .scaleNone
-        icon.contentTintColor = SubtitleStyle.white(0.6)
+        icon.contentTintColor = SubtitleStyle.color(.controlTertiary, display: display)
         icon.setAccessibilityElement(false)
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
@@ -268,18 +276,26 @@ final class SubtitleTitleView: NSView {
         self.scene = scene
         self.source = source
         icon.image = SubtitleStyle.symbol(scene.symbol, size: 13, weight: .regular)
+        icon.contentTintColor = SubtitleStyle.color(.controlTertiary, display: display)
         let text = NSMutableAttributedString(string: scene.title, attributes: [
             .font: NSFont.systemFont(ofSize: ControlTypography.titleScene, weight: .semibold),
-            .foregroundColor: SubtitleStyle.white(0.92),
+            .foregroundColor: SubtitleStyle.color(.textPrimary, display: display),
         ])
         if let source, !source.isEmpty {
             text.append(NSAttributedString(string: " · " + source, attributes: [
                 .font: NSFont.systemFont(ofSize: ControlTypography.titleScene, weight: .regular),
-                .foregroundColor: SubtitleStyle.white(0.6),
+                .foregroundColor: SubtitleStyle.color(.controlTertiary, display: display),
             ]))
         }
         label.attributedStringValue = text
         label.toolTip = text.string
+    }
+
+    /// Increase Contrast changed: redraw the same title with the new token values.
+    func apply(display next: SubtitleStyle.Display) {
+        guard next != display else { return }
+        display = next
+        apply(scene: scene, source: source)
     }
 
     /// Icon plus the scene title without its source: the part that never yields.
@@ -311,8 +327,17 @@ final class SubtitleTitleView: NSView {
 @MainActor
 class TitlebarControl: NSView, HoverClearing {
     var onClick: (() -> Void)?
-    var isEnabled = true { didSet { alphaValue = isEnabled ? 1 : 0.45 } }
+    var isEnabled = true {
+        didSet {
+            alphaValue = isEnabled ? 1 : 0.45
+            setAccessibilityEnabled(isEnabled)
+            if !isEnabled { isPressed = false }
+        }
+    }
     private(set) var isHovered = false
+    /// Between mouse-down and mouse-up inside an enabled, clickable control (NSButton's
+    /// highlighted state); subclasses draw it as hover plus a little more.
+    private(set) var isPressed = false { didSet { if isPressed != oldValue { hoverChanged() } } }
     private var tracking: NSTrackingArea?
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
@@ -337,15 +362,23 @@ class TitlebarControl: NSView, HoverClearing {
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true; hoverChanged() }
-    override func mouseExited(with event: NSEvent) { isHovered = false; hoverChanged() }
-    func clearHover() {
-        guard isHovered else { return }
+    override func mouseExited(with event: NSEvent) {
         isHovered = false
+        isPressed = false
+        hoverChanged()
+    }
+    func clearHover() {
+        guard isHovered || isPressed else { return }
+        isHovered = false
+        isPressed = false
         hoverChanged()
     }
     override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
-    override func mouseDown(with event: NSEvent) {}
+    override func mouseDown(with event: NSEvent) {
+        if isEnabled, onClick != nil { isPressed = true }
+    }
     override func mouseUp(with event: NSEvent) {
+        isPressed = false
         guard isEnabled, onClick != nil, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onClick?()
     }
@@ -415,8 +448,10 @@ final class VoiceCapsuleView: TitlebarControl {
         label.stringValue = full ? next.title : next.compactTitle
         label.textColor = colors.text
         chevron.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.chevron, size: SubtitleTokens.Size.capsuleChevronSize,
-                                             weight: .bold)
-        chevron.contentTintColor = colors.text.withAlphaComponent(0.6)
+                                             weight: .semibold)
+        // The tertiary token's alpha (60%, Increase Contrast 90%) over the capsule's text colour.
+        let chevronAlpha = SubtitleTokens.Color.controlTertiary.rgba(increaseContrast: nextDisplay.increaseContrast).alpha
+        chevron.contentTintColor = colors.text.withAlphaComponent(chevronAlpha)
         chevron.isHidden = !showsChevron || !next.opensDetails
         setAccessibilityLabel(next.accessibilityLabel)
         setAccessibilityHelp(next.detail)
@@ -438,12 +473,12 @@ final class VoiceCapsuleView: TitlebarControl {
         case .originalFill: Colors(fill: token(.voiceOriginal), stroke: nil, dashed: false, text: dark)
         case .translateFill: Colors(fill: token(.voiceTranslate), stroke: nil, dashed: false, text: .white)
         case .translateStroke: Colors(fill: nil, stroke: token(.voiceTranslate), dashed: false, text: token(.voiceTranslate))
-        case .dimStroke: Colors(fill: nil, stroke: SubtitleStyle.white(0.35), dashed: false, text: SubtitleStyle.white(0.8))
-        case .dashed: Colors(fill: nil, stroke: SubtitleStyle.white(0.5), dashed: true, text: SubtitleStyle.white(0.8))
+        case .dimStroke: Colors(fill: nil, stroke: token(.controlStroke), dashed: false, text: SubtitleStyle.white(0.8))
+        case .dashed: Colors(fill: nil, stroke: token(.controlDashed), dashed: true, text: SubtitleStyle.white(0.8))
         case .warnStroke: Colors(fill: nil, stroke: token(.warn), dashed: false, text: token(.warn))
         case .riskFill: Colors(fill: token(.riskFill), stroke: nil, dashed: false, text: .white)
         case .warnFill: Colors(fill: token(.warn), stroke: nil, dashed: false, text: dark)
-        case .neutral: Colors(fill: SubtitleStyle.white(0.12), stroke: nil, dashed: false, text: SubtitleStyle.white(0.8))
+        case .neutral: Colors(fill: token(.controlFill), stroke: nil, dashed: false, text: SubtitleStyle.white(0.8))
         }
     }
 
@@ -451,8 +486,11 @@ final class VoiceCapsuleView: TitlebarControl {
         guard let state else { return }
         let colors = colors ?? Self.colors(state.appearance, display: display, lightSurface: lightSurface)
         var fill = colors.fill ?? .clear
-        if isHovered, state.opensDetails, showsChevron {
-            fill = colors.fill.map { $0.blended(withFraction: 0.08, of: .white) ?? $0 } ?? SubtitleStyle.white(0.08)
+        if isHovered || isPressed, state.opensDetails, showsChevron {
+            // Hover lightens 8%; pressed a little more, as NSButton's highlight.
+            let fraction: CGFloat = isPressed ? 0.16 : 0.08
+            fill = colors.fill.map { $0.blended(withFraction: fraction, of: .white) ?? $0 }
+                ?? SubtitleStyle.white(isPressed ? 0.14 : 0.08)
         }
         layer?.backgroundColor = fill.cgColor
         layer?.borderWidth = colors.stroke != nil && !colors.dashed ? 1 : 0
@@ -517,14 +555,17 @@ final class IssueChipView: TitlebarControl {
         case .risk: (SubtitleStyle.color(.riskStroke, display: display), SubtitleStyle.color(.riskStroke, display: display))
         case .warn: (SubtitleStyle.color(.warn, display: display), SubtitleStyle.color(.warn, display: display))
         case .notice: (SubtitleStyle.color(.noticeStroke, display: display), SubtitleStyle.white(0.85))
-        case .info: (SubtitleStyle.white(0.2), SubtitleStyle.white(0.6))
+        case .info: (SubtitleStyle.color(.divider, display: display), SubtitleStyle.color(.controlTertiary, display: display))
         }
     }
 
     func apply(_ chip: HUDChip, showsText nextShowsText: Bool, display: SubtitleStyle.Display = .current) {
         showsText = nextShowsText
         let colors = Self.color(chip.tone, display: display)
-        icon.image = SubtitleStyle.symbol(chip.symbol, size: 10, weight: .semibold)
+        // Beside its 11 pt medium label the icon is 10 pt medium; icon-only it takes the
+        // shared icon-only size.
+        icon.image = SubtitleStyle.symbol(chip.symbol, size: nextShowsText ? 10 : SubtitleTokens.Size.iconOnlySymbol,
+                                          weight: .medium)
         icon.contentTintColor = colors.text
         label.stringValue = chip.label
         label.textColor = colors.text
@@ -545,12 +586,13 @@ final class IssueChipView: TitlebarControl {
             label.frame = NSRect(x: 24, y: (height - labelHeight) / 2, width: max(0, bounds.width - 32) + SubtitleStyle.labelSlack,
                                  height: labelHeight)
         } else {
-            icon.frame = NSRect(x: (bounds.width - 12) / 2, y: (height - 12) / 2, width: 12, height: 12)
+            icon.frame = NSRect(x: (bounds.width - 16) / 2, y: (height - 16) / 2, width: 16, height: 16)
         }
     }
 
     override func hoverChanged() {
-        layer?.backgroundColor = isHovered ? SubtitleStyle.white(0.08).cgColor : nil
+        layer?.backgroundColor = isPressed ? SubtitleStyle.white(0.14).cgColor
+            : isHovered ? SubtitleStyle.white(0.08).cgColor : nil
     }
 }
 
@@ -565,7 +607,8 @@ final class CloudPrivacyView: TitlebarControl {
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
         icon.imageScaling = .scaleNone
-        icon.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.cloud, size: 13, weight: .regular)
+        icon.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.cloud, size: SubtitleTokens.Size.iconOnlySymbol,
+                                          weight: .medium)
         icon.contentTintColor = SubtitleStyle.white(0.75)
         icon.setAccessibilityElement(false)
         addSubview(icon)
@@ -588,22 +631,31 @@ final class CloudPrivacyView: TitlebarControl {
     }
 
     override func hoverChanged() {
-        layer?.backgroundColor = isHovered ? SubtitleStyle.white(0.08).cgColor : nil
+        layer?.backgroundColor = isPressed ? SubtitleStyle.white(0.14).cgColor
+            : isHovered ? SubtitleStyle.white(0.08).cgColor : nil
         layer?.cornerRadius = SubtitleTokens.Radius.chip
     }
 }
 
-/// 右⌥ keycap and its action text (§3): keycap 20 pt high, min 30 wide, radius 5, 11 pt SF Mono,
+/// 右⌥ keycap and its action (§3): keycap 20 pt high, min 30 wide, radius 5, 11 pt SF Mono,
 /// 1 pt white 30% border; translating fills voice.translate; switching shows a pressed key.
+/// Start and end show as a glyph after the key at every width (`TitlebarKey.symbol`);
+/// "松开确认" and "本机试说" stay text and yield below 560 pt.
 @MainActor
 final class KeycapActionView: TitlebarControl {
     private let keyBox = NSView()
     private let keyLabel = NSTextField(labelWithString: "")
     private let action = NSTextField(labelWithString: "")
+    private let actionIcon = NSImageView()
     private var key: TitlebarKey?
     private var showsAction = true
+    private var showsSymbol = true
     /// Settings in light mode: system label colours instead of the panel's whites.
     var lightSurface = false
+
+    /// Gap between the keycap and its action, and the action glyph's box.
+    private static let actionGap: CGFloat = 5
+    private static let symbolBox: CGFloat = 14
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
@@ -612,12 +664,14 @@ final class KeycapActionView: TitlebarControl {
         keyLabel.font = SubtitleStyle.keycapFont
         keyLabel.alignment = .center
         action.font = SubtitleStyle.controlFont(ControlTypography.keyAction, weight: .medium)
-        action.textColor = SubtitleStyle.white(0.7)
+        action.textColor = SubtitleStyle.color(.controlSecondary)
         action.lineBreakMode = .byTruncatingTail
+        actionIcon.imageScaling = .scaleNone
         keyBox.addSubview(keyLabel)
-        for view in [keyBox, keyLabel, action] as [NSView] { view.setAccessibilityElement(false) }
+        for view in [keyBox, keyLabel, action, actionIcon] as [NSView] { view.setAccessibilityElement(false) }
         addSubview(keyBox)
         addSubview(action)
+        addSubview(actionIcon)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -627,20 +681,32 @@ final class KeycapActionView: TitlebarControl {
         return max(SubtitleTokens.Size.keycapMinWidth, ceil(text) + 12)
     }
 
-    static func width(for key: TitlebarKey, showsAction: Bool) -> CGFloat {
+    /// `showsSymbol` false (the status band) draws the key alone.
+    static func width(for key: TitlebarKey, showsAction: Bool, showsSymbol: Bool = true) -> CGFloat {
+        if showsSymbol, key.symbol != nil { return keyWidth(key) + actionGap + symbolBox }
         guard showsAction, let action = key.action else { return keyWidth(key) }
         let text = (action as NSString).size(withAttributes: [
             .font: SubtitleStyle.controlFont(ControlTypography.keyAction, weight: .medium)]).width
-        return keyWidth(key) + 5 + ceil(text)
+        return keyWidth(key) + actionGap + ceil(text)
     }
 
-    func apply(_ next: TitlebarKey, showsAction nextShowsAction: Bool, display: SubtitleStyle.Display = .current) {
+    func apply(_ next: TitlebarKey, showsAction nextShowsAction: Bool, showsSymbol nextShowsSymbol: Bool = true,
+               display: SubtitleStyle.Display = .current) {
         key = next
         showsAction = nextShowsAction
+        showsSymbol = nextShowsSymbol
+        let symbol = nextShowsSymbol ? next.symbol : nil
         keyLabel.stringValue = next.key
         action.stringValue = next.action ?? ""
-        action.isHidden = !nextShowsAction || next.action == nil
-        action.textColor = lightSurface ? .secondaryLabelColor : SubtitleStyle.white(0.7)
+        action.isHidden = symbol != nil || !nextShowsAction || next.action == nil
+        let secondary = lightSurface ? NSColor.secondaryLabelColor : SubtitleStyle.color(.controlSecondary, display: display)
+        action.textColor = secondary
+        actionIcon.isHidden = symbol == nil
+        if let symbol {
+            actionIcon.image = SubtitleStyle.symbol(symbol, size: 11, weight: .medium)
+            actionIcon.contentTintColor = next.style == .translating
+                ? SubtitleStyle.color(.voiceTranslate, display: display, lightSurface: lightSurface) : secondary
+        }
         switch next.style {
         case .idle where lightSurface:
             keyBox.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
@@ -660,9 +726,10 @@ final class KeycapActionView: TitlebarControl {
         case .idle:
             keyBox.layer?.backgroundColor = SubtitleStyle.white(0.06).cgColor
             keyBox.layer?.borderWidth = 1
-            keyBox.layer?.borderColor = SubtitleStyle.white(0.3).cgColor
+            keyBox.layer?.borderColor = SubtitleStyle.color(.keycapStroke, display: display).cgColor
             keyLabel.textColor = SubtitleStyle.white(0.85)
         }
+        // The glyph replaces only the drawn text: VoiceOver and the tooltip keep the words.
         let spoken = [next.key, next.action].compactMap { $0 }.joined(separator: " ")
         setAccessibilityLabel(spoken)
         setAccessibilityHelp(String(localized: "点按右侧 Option 键开始或结束翻译；点此查看按键说明。"))
@@ -679,23 +746,29 @@ final class KeycapActionView: TitlebarControl {
         let labelHeight = ceil(keyLabel.intrinsicContentSize.height)
         keyLabel.frame = NSRect(x: 0, y: (keyBox.bounds.height - labelHeight) / 2, width: width, height: labelHeight)
         let actionHeight = ceil(action.intrinsicContentSize.height)
-        action.frame = NSRect(x: width + 5, y: (bounds.height - actionHeight) / 2,
-                              width: max(0, bounds.width - width - 5) + SubtitleStyle.labelSlack, height: actionHeight)
+        action.frame = NSRect(x: width + Self.actionGap, y: (bounds.height - actionHeight) / 2,
+                              width: max(0, bounds.width - width - Self.actionGap) + SubtitleStyle.labelSlack,
+                              height: actionHeight)
+        actionIcon.frame = NSRect(x: width + Self.actionGap, y: (bounds.height - Self.symbolBox) / 2,
+                                  width: Self.symbolBox, height: Self.symbolBox)
     }
 }
 
 /// "结束同传" / "结束": 11 pt text, white 70%, #FF453A on hover; `stop.circle` when narrow.
+/// The label and tooltip name the scene's session, and help says what does not end.
 @MainActor
 final class EndTextButton: TitlebarControl {
     private let label = NSTextField(labelWithString: "")
     private let icon = NSImageView()
     private var showsText = true
+    private var display = SubtitleStyle.Display.current
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
         label.font = SubtitleStyle.controlFont(ControlTypography.endButton, weight: .medium)
         icon.imageScaling = .scaleNone
-        icon.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.end, size: 13, weight: .regular)
+        icon.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.end, size: SubtitleTokens.Size.iconOnlySymbol,
+                                          weight: .medium)
         for view in [label, icon] as [NSView] { view.setAccessibilityElement(false); addSubview(view) }
         hoverChanged()
     }
@@ -709,18 +782,22 @@ final class EndTextButton: TitlebarControl {
         return ceil(text) + 4
     }
 
-    func apply(title: String, showsText nextShowsText: Bool) {
+    func apply(scene: SubtitleScene, showsText nextShowsText: Bool, display nextDisplay: SubtitleStyle.Display = .current) {
         showsText = nextShowsText
-        label.stringValue = title
+        display = nextDisplay
+        label.stringValue = scene.endTitle
         label.isHidden = !nextShowsText
         icon.isHidden = nextShowsText
-        setAccessibilityLabel(title)
-        toolTip = title
+        setAccessibilityLabel(scene.endAccessibilityLabel)
+        setAccessibilityHelp(scene.endAccessibilityHelp)
+        toolTip = scene.endAccessibilityLabel
+        hoverChanged()
         needsLayout = true
     }
 
     override func hoverChanged() {
-        let color = isHovered && isEnabled ? SubtitleStyle.color(.riskStroke) : SubtitleStyle.white(0.7)
+        let color = (isHovered || isPressed) && isEnabled
+            ? SubtitleStyle.color(.riskStroke, display: display) : SubtitleStyle.color(.controlSecondary, display: display)
         label.textColor = color
         icon.contentTintColor = color
     }
@@ -733,27 +810,39 @@ final class EndTextButton: TitlebarControl {
     }
 }
 
-/// "⋯" in the video hover bar: opens the window's options menu. White 70%, 92% on hover.
+/// The video hover bar's window options menu (`ellipsis.circle`, as the menu bar's "更多").
+/// White 70%, 92% on hover.
 @MainActor
 final class MoreMenuButton: TitlebarControl {
     static let width: CGFloat = 22
     private let icon = NSImageView()
+    private var display = SubtitleStyle.Display.current
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
         icon.imageScaling = .scaleNone
-        icon.image = SubtitleStyle.symbol("ellipsis", size: 13, weight: .semibold)
+        icon.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.more, size: SubtitleTokens.Size.iconOnlySymbol,
+                                          weight: .medium)
         icon.setAccessibilityElement(false)
         addSubview(icon)
-        setAccessibilityLabel(String(localized: "更多"))
-        toolTip = String(localized: "更多")
+        layer?.cornerRadius = SubtitleTokens.Radius.chip
+        setAccessibilityLabel(String(localized: "字幕窗口选项"))
+        toolTip = String(localized: "字幕窗口选项：锁定字幕位置")
         hoverChanged()
     }
 
     required init?(coder: NSCoder) { nil }
 
+    func apply(display next: SubtitleStyle.Display) {
+        guard next != display else { return }
+        display = next
+        hoverChanged()
+    }
+
     override func hoverChanged() {
-        icon.contentTintColor = SubtitleStyle.white(isHovered && isEnabled ? 0.92 : 0.7)
+        let active = (isHovered || isPressed) && isEnabled
+        icon.contentTintColor = SubtitleStyle.color(active ? .textPrimary : .controlSecondary, display: display)
+        layer?.backgroundColor = isPressed ? SubtitleStyle.white(0.14).cgColor : nil
     }
 
     override func layout() {

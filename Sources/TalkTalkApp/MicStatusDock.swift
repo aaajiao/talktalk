@@ -115,7 +115,7 @@ final class MicStatusDock: NSView {
         if next.presentation != renderedPresentation || modeChanged { applyStatus(next.presentation, display: nextStyle.display) }
         let turn = next.expanded ? next.turn : nil
         if turn != renderedTurn || renderedTurnStyle != nextStyle { applyTurn(turn, style: nextStyle) }
-        if let key = next.key { keycap.apply(key, showsAction: false, display: nextStyle.display) }
+        if let key = next.key { keycap.apply(key, showsAction: false, showsSymbol: false, display: nextStyle.display) }
         if let action = next.presentation.action {
             actionButton.setTitle(action.title, tone: next.presentation.emphasis)
         }
@@ -241,7 +241,7 @@ final class MicStatusDock: NSView {
                 trailingWidth = actionButton.preferredWidth
             } else if let key = content.key {
                 trailing = keycap
-                trailingWidth = KeycapActionView.width(for: key, showsAction: false)
+                trailingWidth = KeycapActionView.width(for: key, showsAction: false, showsSymbol: false)
             }
         }
         keycap.isHidden = trailing !== keycap

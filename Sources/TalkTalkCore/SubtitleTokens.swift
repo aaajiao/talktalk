@@ -29,6 +29,11 @@ public enum SubtitleTokens {
         case videoSource, separator, pairHover, meRow
         /// Titlebar notification chip outline.
         case noticeStroke
+        /// Titlebar chrome (§2 标题栏控件), each with an Increase Contrast value: the dim
+        /// outline ("原声已关"), the dashed outline ("未发送"), the neutral capsule fill, the
+        /// keycap border, secondary control text/icons (结束, ⋯, key action) at 70%, tertiary
+        /// ones (chevron, scene source, information chip) at 60%, and the divider before 结束.
+        case controlStroke, controlDashed, controlFill, keycapStroke, controlSecondary, controlTertiary, divider
 
         public func rgba(increaseContrast: Bool = false, lightSurface: Bool = false) -> RGBA {
             let ic = increaseContrast
@@ -49,7 +54,14 @@ public enum SubtitleTokens {
             case .separator: return .white(ic ? 0.35 : 0.08)
             case .pairHover: return .white(0.06)
             case .meRow: return RGBA(64 / 255, 156 / 255, 1, 0.08)
-            case .noticeStroke: return .white(0.28)
+            case .noticeStroke: return .white(ic ? 0.6 : 0.28)
+            case .controlStroke: return .white(ic ? 0.7 : 0.35)
+            case .controlDashed: return .white(ic ? 0.8 : 0.5)
+            case .controlFill: return .white(ic ? 0.22 : 0.12)
+            case .keycapStroke: return .white(ic ? 0.7 : 0.3)
+            case .controlSecondary: return .white(ic ? 0.9 : 0.7)
+            case .controlTertiary: return .white(ic ? 0.9 : 0.6)
+            case .divider: return .white(ic ? 0.5 : 0.2)
             }
         }
     }
@@ -96,6 +108,9 @@ public enum SubtitleTokens {
         public static let endConfirmationWidth: Double = 260
         public static let cloudIconSize: Double = 16
         public static let cloudDotSize: Double = 6
+        /// Icon-only titlebar controls (结束's narrow fallback, cloud, ⋯, an icon-only chip)
+        /// share one symbol size and weight (medium).
+        public static let iconOnlySymbol: Double = 13
         /// Below this window width only the keycap remains (no action text).
         public static let keyActionMinWindowWidth: Double = 560
     }
@@ -175,13 +190,41 @@ public enum SubtitleTokens {
         public static let originalOff = "mic.slash"
         public static let translating = "waveform"
         public static let playingTranslation = "speaker.wave.2.fill"
+        /// Only the confirmed "已送入 Phone" delivery tag.
         public static let sentToPhone = "phone.arrow.up.right"
+        /// The titlebar's Phone button: open the Phone app (not a delivery fact).
+        public static let openPhone = "arrow.up.forward.app"
+        /// Nothing comes out: 未发送, 未接入 Phone, 本机就绪.
         public static let localOnly = "speaker.slash"
+        /// Sound stays on this Mac: 本机试说, 仅本机, 本机播放, "Phone 未接收".
+        public static let thisMac = "laptopcomputer"
+        /// Reconnecting Phone or restarting audio: a process in progress, not a Reload action.
+        public static let reconnecting = "arrow.triangle.2.circlepath"
+        /// "已中止" (a Phone reader dropped mid-turn); stop.circle stays the user's end action.
+        public static let aborted = "xmark.octagon"
         public static let listening = "ear"
         public static let locked = "lock.fill"
         public static let chevron = "chevron.down"
+        /// The titlebar keycap's action glyphs (开始翻译 / 结束 this turn).
+        public static let startTranslation = "translate"
+        public static let stopTranslation = "stop.fill"
+        /// Only the user's own end-session action.
         public static let end = "stop.circle"
         public static let cloud = "network"
+        /// The video status dot's shapes with "Differentiate without colour" on.
+        public static let statusWarn = "exclamationmark.triangle.fill"
+        public static let statusRisk = "exclamationmark.octagon.fill"
+        /// The video hover bar's window options menu, as the menu bar's "更多".
+        public static let more = "ellipsis.circle"
+    }
+
+    /// Leading images of the details popover's command buttons.
+    public enum ActionIcon {
+        /// Buttons that open the Settings window, as the menu's "设置…".
+        public static let settings = "gearshape"
+        public static let copy = "doc.on.doc"
+        /// "本场不再提示".
+        public static let dismissReminder = "bell.slash"
     }
 }
 

@@ -46,8 +46,8 @@ public struct ConversationTimeline: Sendable, Equatable {
             case .sent: nil
             case .notSent: ConversationTextRules.unsentSymbol
             case .phoneSent: SubtitleTokens.VoiceIcon.sentToPhone
-            case .phoneLocalOnly: SubtitleTokens.VoiceIcon.localOnly
-            case .aborted: SubtitleTokens.VoiceIcon.end
+            case .phoneLocalOnly: SubtitleTokens.VoiceIcon.thisMac
+            case .aborted: SubtitleTokens.VoiceIcon.aborted
             }
         }
     }

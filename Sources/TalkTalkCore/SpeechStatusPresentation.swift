@@ -9,6 +9,10 @@ public struct SpeechStatusPresentation: Sendable, Equatable {
     public var shortcut: String?
     /// The titlebar keycap's action text: 开始翻译 / 结束 / 松开确认 / 本机试说.
     public var keyAction: String?
+    /// The glyph the titlebar keycap shows instead of `keyAction` at every width: start
+    /// (`translate`) or end (`stop.fill`). nil keeps the text: 松开确认 is a transient
+    /// instruction and 本机试说 carries local-only meaning.
+    public var keySymbol: String?
     public var detail: String
     public var tone: PhoneSpeechPresentation.Tone
 
@@ -35,12 +39,12 @@ public struct SpeechStatusPresentation: Sendable, Equatable {
             title = playing
                 ? (localOnly ? String(localized: "本机译音") : String(localized: "播放译音"))
                 : String(localized: "处理中")
-            symbol = playing ? SubtitleTokens.VoiceIcon.playingTranslation : "ellipsis.circle"
+            symbol = playing ? SubtitleTokens.VoiceIcon.playingTranslation : SubtitleTokens.VoiceIcon.translating
             tone = playing ? .translation : .progress
         case .restoringOriginal:
             title = String(localized: "恢复原声"); symbol = SubtitleTokens.VoiceIcon.originalOff; tone = .progress
         case .phoneReconnecting:
-            title = String(localized: "重新连接 Phone"); symbol = "arrow.clockwise"; tone = .progress
+            title = String(localized: "重新连接 Phone"); symbol = SubtitleTokens.VoiceIcon.reconnecting; tone = .progress
         case .unavailable:
             title = String(localized: "音频不可用"); symbol = SubtitleTokens.VoiceIcon.originalOff; tone = .unavailable
         case nil:
@@ -54,6 +58,12 @@ public struct SpeechStatusPresentation: Sendable, Equatable {
         case .phoneReconnecting, .unavailable, nil: nil
         }
         keyAction = action
+        keySymbol = switch audio {
+        case .phoneReady, .original, .restoringOriginal, .draining:
+            localOnly ? nil : SubtitleTokens.VoiceIcon.startTranslation
+        case .translating: SubtitleTokens.VoiceIcon.stopTranslation
+        case .switching, .phoneReconnecting, .unavailable, nil: nil
+        }
         shortcut = action.map { String(localized: "右⌥ \($0)") }
     }
 }
