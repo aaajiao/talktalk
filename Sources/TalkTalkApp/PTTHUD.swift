@@ -4,10 +4,11 @@ import TalkTalkAudio
 import TalkTalkCore
 import TalkTalkSession
 
-/// The local speech section of the shared conversation panel. Its state and refresh cadence
-/// remain independent of remote subtitles, but it never creates another floating window.
-/// The titlebar shows two independent facts (redesign §3): the voice capsule (`voiceState`)
-/// and one issue slot (`issueSlot`); neither replaces the other.
+/// My side of the shared conversation panel. Its state and refresh cadence remain independent
+/// of remote subtitles, but it never creates another floating window. The titlebar shows two
+/// independent facts (redesign §3): the voice capsule (`voiceState`) and one issue slot
+/// (`issueSlot`); neither replaces the other. The microphone dock (§4) reads the same voice
+/// state; while I speak it shows my live turn, which then becomes a row of the timeline.
 @MainActor
 final class PTTHUD {
     private(set) var model = HUDModel()
@@ -15,7 +16,6 @@ final class PTTHUD {
     private var redrawTimer: Timer?
     private var expiryTimer: Timer?
     private let panel: SubtitlePanel
-    private let transcriptColumns = ConversationColumnsView()
     var onOpenSettings: ((HUDLine.SettingsDestination) -> Void)?
     var onEndSession: (() -> Void)?
     var phoneInputIsConfirmed: (() -> Bool)?
@@ -39,8 +39,17 @@ final class PTTHUD {
     private var listenHint: HUDModel.Warning?
     private var cloudReminder: (apple: () -> Void, copy: () -> Void)?
     private var cloudPopoverShown = false
-    private var shownTranscript: SpeakTranscript?
-    private var shownSpeechArea = false
+    /// The current press: shown in the dock while it is live, then committed as "我的行".
+    private struct TurnTrack {
+        var turn: ConversationTimeline.Turn
+        var delivery = TurnDelivery()
+        var committed: ConversationTimeline.Turn?
+    }
+    private var track: TurnTrack?
+    private var speaking = SpeakingDockPhase()
+    private var speakingTimer: Timer?
+    private var shownDock: MicStatusDock.Content?
+    private var shownLocalSpeech = false
     /// Monotonic seconds; replaceable for a smoke run.
     var clock: () -> Double = { ProcessInfo.processInfo.systemUptime }
 
@@ -60,6 +69,8 @@ final class PTTHUD {
             guard let self else { return }
             render(force: true)
         }
+        panel.onDockAction = { [weak self] anchor in self?.toggleDetails(from: anchor) }
+        panel.onPlaceholderClick = { [weak self] anchor in self?.toggleDetails(from: anchor) }
         panel.onHintChange = { [weak self] message in
             guard let self else { return }
             let next = message.map {
@@ -68,7 +79,6 @@ final class PTTHUD {
             model.setExternalIssue(.subtitles, next)
             requestRedraw()
         }
-        setTargetLanguage(.en)
     }
 
     // MARK: inputs
@@ -77,12 +87,15 @@ final class PTTHUD {
         panel.prepareForNewSession()
         announcedGroup = nil
         cloudPopoverShown = false
+        resetTurn()
         change { $0.meetingStarted() }
     }
 
     func meetingEnded() {
         inputActivity(nil)
+        resetTurn()
         listenHint = nil
+        panel.setRemoteSilent(false)
         cloudReminder = nil
         detailsPopover.close()
         endPopover.close()
@@ -112,19 +125,15 @@ final class PTTHUD {
 
     func pushToTalk(_ p: HUDModel.PushToTalk) { change { $0.pushToTalk = p } }
 
-    /// Meter updates bypass the text/status limiter and never reconstruct a reading view.
+    /// Meter updates bypass the text/status limiter and never reconstruct a reading view; only
+    /// the dock curve redraws. nil means capture is closed or its last valid input is older than
+    /// 250 ms, so the curve goes at once.
     func inputActivity(_ level: Float?) {
-        transcriptColumns.setInputActivity(subtitlesVisible && model.meetingActive
-            && panel.presentation != .video ? level : nil)
-    }
-
-    func setTargetLanguage(_ language: Lang) {
-        let title: String = switch language {
-        case .zh: String(localized: "中文")
-        case .en: String(localized: "英语")
-        case .de: String(localized: "德语")
+        guard let level, subtitlesVisible, model.meetingActive, panel.presentation != .video else {
+            panel.stopInputLevel()
+            return
         }
-        transcriptColumns.setHeadings(source: String(localized: "我 · 中文"), sourceSymbol: "mic", translation: title)
+        panel.setInputLevel(level)
     }
 
     func transcript(_ value: SpeakTranscript) {
@@ -180,6 +189,7 @@ final class PTTHUD {
         let next = hint.map(Self.warning)
         guard listenHint != next else { return }
         listenHint = next
+        panel.setRemoteSilent(next == .meetingSilent)
         applyListenHint()
     }
 
@@ -306,8 +316,8 @@ final class PTTHUD {
     private func redraw() {
         let now = clock()
         limiter.didRender(now: now)
-        model.expireTranscript(at: now, reading: panel.speechIsVisible
-            && (transcriptColumns.isReadingHistory || panel.frame.contains(NSEvent.mouseLocation)))
+        // A finished turn is already a timeline row; the model's copy only feeds late results.
+        model.expireTranscript(at: now)
         render()
         scheduleExpiry(now: now)
     }
@@ -327,8 +337,8 @@ final class PTTHUD {
 
     private(set) var shownLines: [HUDLine] = []
 
-    /// Keep titlebar status and transcript independent. Meter ticks and queue changes must
-    /// never reconstruct a reading view or reset its scroll position.
+    /// Keep titlebar status, the dock and the timeline independent. Meter ticks and queue
+    /// changes must never reconstruct a reading view or reset its scroll position.
     private func render(force: Bool = false) {
         syncFacts()
         let now = clock()
@@ -336,8 +346,6 @@ final class PTTHUD {
         let issue = model.issueSlot(now: now)
         let key = model.titlebarKey
         let chips = model.issueChips(now: now)
-        let candidate = model.visibleTranscript(at: now)
-        let transcript = !subtitlesVisible || (model.meetingAudio == .original && candidate?.isFinal == false) ? nil : candidate
         let audio = model.meetingActive ? model.meetingAudio : nil
         let playing = model.outputPlaying
         let phoneAudio = panel.presentation == .phone ? audio : nil
@@ -347,59 +355,104 @@ final class PTTHUD {
             publishedPhoneMode = phoneAudio; publishedPhoneInput = phoneInput; publishedPhonePlaying = phonePlaying
             onPhoneSpeechModeChange?(phoneAudio, phoneInput, phonePlaying)
         }
-        let outputVisible = subtitlesVisible && model.meetingActive && panel.presentation != .video
-        let output = outputVisible ? outputActivity(voice: voice, playing: playing) : nil
-        transcriptColumns.setOutputActivity(symbol: output?.symbol, label: output?.label, tint: output?.tint)
-        let statusChanged = voice != shownVoice || issue != shownIssue || key != shownKey || chips != shownChips
-        let transcriptChanged = transcript != shownTranscript
         let showSpeech = subtitlesVisible && model.meetingActive && panel.presentation != .video
+        let expanded = updateTurn(voice: voice, now: now)
+        let dock = showSpeech ? dockContent(voice: voice, key: key, expanded: expanded) : nil
+        let statusChanged = voice != shownVoice || issue != shownIssue || key != shownKey || chips != shownChips
         shownLines = (voice.map { [HUDLine($0.title)] } ?? []) + chips.map { HUDLine($0.label, detail: $0.detail) }
         announce(voice)
-        guard force || statusChanged || transcriptChanged || showSpeech != shownSpeechArea else { return }
+        guard force || statusChanged || dock != shownDock || showSpeech != shownLocalSpeech else { return }
         shownVoice = voice
         shownIssue = issue
         shownKey = key
         shownChips = chips
-        shownSpeechArea = showSpeech
+        shownDock = dock
+        shownLocalSpeech = showSpeech
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         panel.setSessionActions(active: model.meetingActive)
         panel.setTitlebarStatus(voice: voice, issue: issue, key: key)
-
-        if force || transcriptChanged {
-            let newPress = transcript?.press != shownTranscript?.press
-            let finalized = !newPress && shownTranscript?.isFinal == false && transcript?.isFinal == true
-            shownTranscript = transcript
-            let text = transcriptText(transcript)
-            transcriptColumns.setText(source: text.source, translation: text.translation, resetScroll: newPress,
-                                      finalized: finalized)
-        }
-        panel.setSpeechContent(transcriptColumns, height: showSpeech ? 180 : 0, hasLocalSpeech: showSpeech)
-        if !showSpeech { inputActivity(nil) }
+        panel.setLocalSpeechVisible(showSpeech)
+        panel.setDock(dock)
+        if !showSpeech { panel.stopInputLevel() }
         if voice == nil, issue == nil { detailsPopover.close(); endPopover.close() }
         else if detailsPopover.isShown, statusChanged { updateDetails() }
         if !model.meetingActive { endPopover.close() }
         showCloudPopoverOnce(issue: issue)
     }
 
-    /// Phone delivery is strict (§5): playback is "已送入 Phone" only with a confirmed reader;
-    /// otherwise it is local only. Meeting playback stays "播放" until the timeline arrives.
-    private func outputActivity(voice: VoiceState?, playing: Bool) -> (symbol: String, label: String, tint: NSColor?)? {
-        if panel.presentation == .phone {
-            if voice?.kind == .phoneReconnecting {
-                return ("stop.circle", String(localized: "已中止"), SubtitleStyle.color(.warn))
-            }
-            if playing {
-                return model.phoneInputConfirmed
-                    ? (SubtitleTokens.VoiceIcon.sentToPhone, String(localized: "已送入 Phone"), SubtitleStyle.color(.voiceOriginal))
-                    : (SubtitleTokens.VoiceIcon.localOnly, String(localized: "仅本机 · Phone 未接收"), SubtitleStyle.color(.warn))
-            }
-        } else if playing {
-            return (SubtitleTokens.VoiceIcon.playingTranslation, String(localized: "播放"), nil)
+    /// The dock (§4, §5): the same voice state as the capsule, the keycap, and my live turn
+    /// while the dock is expanded.
+    private func dockContent(voice: VoiceState?, key: TitlebarKey?, expanded: Bool) -> MicStatusDock.Content? {
+        guard let voice else { return nil }
+        let presentation = MicDockPresentation.make(voice, scene: panel.scene)
+        let live = track.flatMap { $0.committed == nil ? $0.turn : nil }
+        return MicStatusDock.Content(presentation: presentation, key: key, turn: expanded ? live : nil,
+                                     expanded: expanded, showsStartHint: presentation.allowsStartHint && key != nil)
+    }
+
+    /// Follows my current press: the speaking phase (translation latch until pending work has
+    /// ended plus 3 s), what was actually delivered, and the commit into the timeline. Returns
+    /// whether the dock is expanded.
+    private func updateTurn(voice: VoiceState?, now: Double) -> Bool {
+        guard model.meetingActive, panel.presentation != .video else {
+            resetTurn()
+            return false
         }
-        return model.speechWorkPending ? ("ellipsis.circle", String(localized: "处理"), nil) : nil
+        let wasExpanded = speaking.isExpanded
+        let active = SpeakingDockPhase.isActive(audio: model.meetingAudio, pushToTalk: model.pushToTalk,
+                                                workPending: model.speechWorkPending, expanded: wasExpanded)
+        let expanded = speaking.update(active: active, now: now)
+        scheduleSpeakingChange(now: now)
+        // A new round of my own speech ends a frozen reading position at once.
+        if expanded, !wasExpanded { panel.followLatest() }
+
+        // Original mode hides drafts: a volatile turn it hides is discarded, never committed.
+        let candidate = model.visibleTranscript(at: now)
+        let transcript = model.meetingAudio == .original && candidate?.isFinal == false ? nil : candidate
+        if let transcript {
+            if track?.turn.press != transcript.press {
+                if let previous = track, previous.committed == nil { commit(previous) }
+                track = TurnTrack(turn: .init(transcript, startedAt: HostClock.now()))
+                panel.followLatest()
+            } else if let startedAt = track?.turn.startedAt {
+                track?.turn = .init(transcript, startedAt: startedAt)
+            }
+        } else if let current = track, current.committed == nil {
+            if current.turn.isFinal { commit(current) } else { track = nil }
+        }
+        guard var current = track else { return expanded }
+        current.delivery.observe(voice: voice?.kind, playing: model.outputPlaying,
+                                 hasTranslation: !current.turn.translation.isEmpty)
+        track = current
+        if current.committed != nil || !expanded {
+            // Collapsed: the turn is a row. A late final or delivery change updates that row.
+            commit(current)
+        }
+        return expanded
+    }
+
+    private func commit(_ value: TurnTrack) {
+        var turn = value.turn
+        turn.delivery = value.delivery.label(scene: panel.scene, hasTranslation: !turn.translation.isEmpty)
+        guard value.committed != turn else { return }
+        panel.commitMyTurn(turn)
+        if track?.turn.press == value.turn.press { track?.committed = turn }
+    }
+
+    private func resetTurn() {
+        track = nil
+        speaking.reset()
+        speakingTimer?.invalidate(); speakingTimer = nil
+    }
+
+    /// The 3 s linger ends by itself; nothing else may be pending then.
+    private func scheduleSpeakingChange(now: Double) {
+        speakingTimer?.invalidate(); speakingTimer = nil
+        guard let next = speaking.nextChange else { return }
+        speakingTimer = Self.commonModeTimer(after: max(0.01, next - now)) { [weak self] in self?.render() }
     }
 
     /// VoiceOver hears one short sentence when the speaking mode changes (§3).
@@ -663,21 +716,6 @@ final class PTTHUD {
         controller.view.window?.sharingType = .none
     }
 
-    private func transcriptText(_ value: SpeakTranscript?) -> (source: NSAttributedString, translation: NSAttributedString) {
-        guard let value else { return (NSAttributedString(string: ""), NSAttributedString(string: "")) }
-        // Same typography, colours, shadow and three states as the remote rows (§2, §4).
-        let typography = ConversationTypography(base: Double(panel.baseFontSize), width: Double(panel.contentWidth))
-        let text = ConversationText(typography: typography, opacity: panel.readingOpacity, paragraphSpacing: 10)
-        let source = NSMutableAttributedString(string: "")
-        text.appendSource(value.source, live: !value.isFinal, speaker: .me, to: source)
-        // Same size as the source; the warn badge marks the preview-only tail as not sent.
-        text.appendUnsent(value.unsubmittedSource, to: source)
-        let translation = NSMutableAttributedString(string: "")
-        text.appendTranslation(value.target, role: typography.myTranslation, isFinal: value.isFinal, fallback: false,
-                               to: translation)
-        return (source, translation)
-    }
-
     // smoke / tests
     var isVisible: Bool { panel.isWindowVisible && (shownVoice != nil || shownIssue != nil || panel.speechIsVisible) }
     var sharingTypeIsNone: Bool { panel.sharingTypeIsNone }
@@ -688,7 +726,8 @@ final class PTTHUD {
         redrawTimer?.invalidate(); redrawTimer = nil
         redraw()
     }
-    var transcriptSourceForSmoke: String? { shownTranscript?.source }
+    /// My live turn as handed to the dock (or, below 140 pt, to the timeline's last row).
+    var transcriptSourceForSmoke: String? { shownDock?.expanded == true ? shownDock?.turn?.source : nil }
     #endif
 }
 

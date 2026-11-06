@@ -3,8 +3,9 @@ import AppKit
 import TalkTalkCore
 import TalkTalkSession
 
-/// One non-activating window with independent text cells. Meeting and phone modes have two
-/// bilingual rows; video mode has a compact subtitle strip. The parent places fixed viewports.
+/// One non-activating window. Meeting and phone modes show one conversation timeline of pair
+/// rows above the microphone status dock (redesign §4, §5); video mode has a compact subtitle
+/// strip. Content and dock changes only split the fixed content area; they never resize it.
 @MainActor
 final class SubtitlePanel {
     enum Presentation: String { case meeting, phone, video }
@@ -12,7 +13,23 @@ final class SubtitlePanel {
     private let panel: SubtitleWindow
     private let content = ConversationContentView()
     private let backgroundEffect = NSVisualEffectView()
-    private let remoteColumns = ConversationColumnsView()
+    private let conversation = ConversationTimelineView()
+    private let dock = MicStatusDock()
+    /// Remote pairs and my turns in arrival order; memory only, cleared with the session.
+    private var timeline = ConversationTimeline()
+    private var dockContent: MicStatusDock.Content?
+    private var dockHeight: CGFloat = 0
+    private var dockAnimation: (from: CGFloat, to: CGFloat, start: TimeInterval)?
+    private var dockTimer: Timer?
+    private var conversationSize = NSSize(width: 760, height: 480)
+    private var localSpeechVisible = false
+    private var remoteSilent = false
+    /// "朗读新译文" (§4 无障碍), default off.
+    var announcesNewTranslations = false
+    private var announcedThrough: UInt64 = 0
+    /// Keycap, "修复…" / "详情" and the "暂未听到对方声音" placeholder open the details popover.
+    var onDockAction: ((NSView) -> Void)?
+    var onPlaceholderClick: ((NSView) -> Void)?
     private let videoCaptions = VideoSubtitleView()
     private var videoBoard = VideoSubtitleBoard()
     private var renderedVideoCue: VideoSubtitleBoard.Cue?
@@ -26,8 +43,6 @@ final class SubtitlePanel {
     var onVideoLagChange: ((Int?) -> Void)?
     /// "字幕落后约 N 秒" for the video hover bar.
     var videoLagNotice: String? { videoLag.map { String(localized: "字幕落后约 \($0) 秒") } }
-    private var speechView: NSView?
-    private let divider = NSBox()
     /// Shared titlebar controls (redesign §3); PTTHUD supplies voice, issue and key state.
     let titlebar = SubtitleTitlebarView()
     private let titleView = SubtitleTitleView()
@@ -44,7 +59,6 @@ final class SubtitlePanel {
     private var sessionActionsEnabled = true
     private var remoteLanguageTitle = String(localized: "英语")
     private var displayedLines = Array(repeating: "", count: 6)
-    private var resetRemoteScroll = false
     private(set) var board = SubtitleBoard(maxCharactersPerSecond: 9, retention: .meeting)
     private(set) var baseFontSize: CGFloat = 22
     /// Reading sizes come from the shared typography tokens (redesign §2).
@@ -61,8 +75,6 @@ final class SubtitlePanel {
     private var manualContentSize: NSSize?
     private var isLayingOut = false
     private var subtitlesRequested = false
-    private var speechHeight: CGFloat = 0
-    private var speechHasLocalContent = false
     private var statusVisible: Bool { titlebarVoice != nil || titlebarIssue != nil }
     var onPresentationChange: (() -> Void)?
     var onAppearanceChange: (() -> Void)?
@@ -79,8 +91,6 @@ final class SubtitlePanel {
     private var liveSource = ""
     private var renderedSource = ""
     private var renderedDraft: SubtitleBoard.Line?
-    private var presentedDraftSentence: UInt64?
-    private var renderedBadges: [Bool] = []
     private var lastPreviewRenderAt: HostTime = 0
     private static let previewInterval: HostTime = 500_000_000
     private var timer: Timer?
@@ -102,8 +112,10 @@ final class SubtitlePanel {
     }
     private var minimumWidth: CGFloat { presentation == .video ? 640 : 480 }
     private var showsPhoneActions: Bool { presentation == .phone && phoneContext != nil }
+    /// Meeting/phone conversation (timeline + dock): subtitles on, or my local speech shown.
+    private var hasConversation: Bool { presentation != .video && (subtitlesRequested || localSpeechVisible) }
     private var hasWindowContent: Bool {
-        subtitlesRequested || (presentation != .video && speechHeight > 0) || statusVisible || sessionActionsActive || showsPhoneActions
+        subtitlesRequested || hasConversation || statusVisible || sessionActionsActive || showsPhoneActions
     }
     var contentWidth: CGFloat {
         let visible = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1440
@@ -139,11 +151,14 @@ final class SubtitlePanel {
         backgroundEffect.autoresizingMask = [.width, .height]
         content.addSubview(backgroundEffect)
 
-        content.addSubview(remoteColumns)
+        content.addSubview(conversation)
+        content.addSubview(dock)
+        conversation.isHidden = true
+        dock.isHidden = true
+        dock.onAction = { [weak self] anchor in self?.onDockAction?(anchor) }
+        conversation.onPlaceholderClick = { [weak self] anchor in self?.onPlaceholderClick?(anchor) }
         content.addSubview(videoCaptions)
         videoCaptions.isHidden = true
-        divider.boxType = .separator
-        content.addSubview(divider)
         titlebar.onPhone = { [weak self] in self?.openPhone?() }
         titlebar.onLayoutChange = { [weak self] in self?.updateTitlebarActions() }
         titlebarAccessory.layoutAttribute = .trailing
@@ -154,7 +169,7 @@ final class SubtitlePanel {
         updateWindowTitle()
         updateRemoteHeadings()
         panel.contentView = content
-        remoteColumns.onDisplayedTextChange = { [weak self] in self?.recordPresentation() }
+        conversation.onDisplayedRowsChange = { [weak self] in self?.displayedRowsChanged() }
         videoCaptions.onDisplayedTextChange = { [weak self] in self?.recordPresentation() }
         if let screen = NSScreen.main ?? NSScreen.screens.first { loadSize(for: screen) }
         setFontSize(22)
@@ -190,6 +205,7 @@ final class SubtitlePanel {
 
     isolated deinit {
         timer?.invalidate()
+        dockTimer?.invalidate()
         if let moveObserver { NotificationCenter.default.removeObserver(moveObserver) }
         if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
         if let accessibilityObserver { NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver) }
@@ -204,11 +220,11 @@ final class SubtitlePanel {
         sourceName = nil
         if value != .phone { phoneContext = nil }
         updateTitlebarActions()
-        clear()
+        remoteSilent = false
+        clear(includingMyTurns: true)
         board = SubtitleBoard(maxCharactersPerSecond: 9, retention: value == .video ? nil : .meeting)
         updateWindowTitle()
         updateRemoteHeadings()
-        remoteColumns.style = value == .video ? .subtitles : .columns
         updateBackground()
         if let screen { loadSize(for: screen) }
         else { manualContentSize = nil }
@@ -299,6 +315,7 @@ final class SubtitlePanel {
         sourceName = name
         updateWindowTitle()
         if presentation == .video { videoCaptions.placeholder = videoPlaceholder }
+        else { conversation.setPlaceholder(conversationPlaceholder) }
     }
 
     private func updateWindowTitle() {
@@ -315,9 +332,11 @@ final class SubtitlePanel {
         updateRemoteHeadings()
     }
 
+    /// Column header (§4, §5): "原文 · 英语" / "译文 · 中文"; phone names the other side.
     private func updateRemoteHeadings() {
-        remoteColumns.setHeadings(source: String(localized: "对方 · \(remoteLanguageTitle)"),
-                                  sourceSymbol: "person", translation: String(localized: "中文"))
+        let source = presentation == .phone
+            ? String(localized: "通话对方 · \(remoteLanguageTitle)") : String(localized: "原文 · \(remoteLanguageTitle)")
+        conversation.setHeader(source: source, translation: String(localized: "译文 · 中文"))
         videoCaptions.setAccessibilityTitles(source: String(localized: "原文 · \(remoteLanguageTitle)"),
                                              translation: String(localized: "译文 · 中文"))
     }
@@ -379,21 +398,181 @@ final class SubtitlePanel {
         render(forceLayout: true)
     }
 
-    /// PTTHUD supplies only content; it never creates or orders another window.
-    func setSpeechContent(_ view: NSView, height: CGFloat, hasLocalSpeech: Bool = false) {
-        let changedView = speechView !== view
-        if changedView {
-            speechView?.removeFromSuperview()
-            speechView = view
-            content.addSubview(view)
-        }
-        let nextHeight = max(0, height)
-        guard changedView || abs(speechHeight - nextHeight) > 0.5 || speechHasLocalContent != hasLocalSpeech else { return }
-        let visibilityChanged = (speechHeight > 0) != (nextHeight > 0)
-        speechHasLocalContent = hasLocalSpeech
-        speechHeight = nextHeight
+    // MARK: conversation (PTTHUD supplies my side; it never creates or orders another window)
+
+    /// My speech is shown (session running, subtitles on, not video): the conversation stays
+    /// even before any remote subtitle.
+    func setLocalSpeechVisible(_ on: Bool) {
+        guard localSpeechVisible != on else { return }
+        localSpeechVisible = on
+        if !on { dock.stopLevel() }
         layout()
-        if visibilityChanged { updateWindowVisibility() }
+        updateWindowVisibility()
+    }
+
+    /// The dock's status, keycap and live turn. Status changes never rebuild the timeline.
+    func setDock(_ next: MicStatusDock.Content?) {
+        guard dockContent != next else { return }
+        let previous = dockContent
+        dockContent = next
+        applyDock()
+        let rules = conversationRules
+        // In the last-row-only window the live turn is the timeline's last row instead.
+        if rules.lastRowOnly, previous?.turn != next?.turn || previous?.expanded != next?.expanded {
+            updateConversation()
+        }
+        if (previous == nil) != (next == nil) || previous?.expanded != next?.expanded {
+            updateDockHeight(animated: previous != nil && next != nil)
+        }
+    }
+
+    /// My finished turn becomes (or updates) a "我的行" in the timeline.
+    func commitMyTurn(_ turn: ConversationTimeline.Turn) {
+        guard presentation != .video, timeline.commit(turn, at: HostClock.now()) else { return }
+        updateConversation()
+    }
+
+    /// A new own turn or a reset ends a frozen reading position at once.
+    func followLatest() { conversation.followLatest() }
+
+    /// Meter ticks: only the dock curve redraws.
+    func setInputLevel(_ level: Float?) {
+        guard hasConversation, isWindowVisible else { dock.stopLevel(); return }
+        dock.setLevel(level)
+    }
+
+    func stopInputLevel() { dock.stopLevel() }
+
+    /// LISTEN's `meetingSilent`: the empty meeting timeline says "ⓘ 暂未听到对方声音".
+    func setRemoteSilent(_ on: Bool) {
+        guard remoteSilent != on else { return }
+        remoteSilent = on
+        conversation.setPlaceholder(conversationPlaceholder)
+    }
+
+    private var conversationRules: ConversationLayout {
+        ConversationLayout(contentWidth: Double(conversationSize.width), contentHeight: Double(conversationSize.height))
+    }
+
+    private var conversationStyle: ConversationStyle {
+        ConversationStyle(typography: conversationTypography, opacity: readingOpacity, display: .current, scene: scene,
+                          stacked: conversationRules.stacked)
+    }
+
+    private var conversationPlaceholder: TimelinePlaceholder.Content? {
+        switch presentation {
+        case .video:
+            return nil
+        case .phone:
+            return .init(primary: String(localized: "接通后在这里显示对方的字幕"),
+                         secondary: String(localized: "在 Phone 拨号或接听；挂断也在 Phone 里操作"), clickable: false)
+        case .meeting:
+            if remoteSilent { return .init(primary: String(localized: "ⓘ 暂未听到对方声音"), secondary: nil, clickable: true) }
+            let primary = titlebarContent.sourceTitle.map { String(localized: "正在听 \($0) 的会议声音…") }
+                ?? String(localized: "正在听会议声音…")
+            return .init(primary: primary, secondary: nil, clickable: false)
+        }
+    }
+
+    /// Pushes the rows to the view. Only rows whose content changed are rebuilt.
+    private func updateConversation() {
+        guard presentation != .video else { return }
+        let rules = conversationRules
+        let live = rules.lastRowOnly && dockContent?.expanded == true ? dockContent?.turn : nil
+        conversation.setPlaceholder(conversationPlaceholder)
+        conversation.apply(rows: timeline.rows(including: live), style: conversationStyle,
+                           lastRowOnly: rules.lastRowOnly, showsHeader: rules.showsColumnHeader)
+        // The start hint belongs to the empty conversation only; size or style changes reach
+        // the dock too. Unchanged content returns at once.
+        applyDock()
+    }
+
+    private func applyDock() {
+        var content = dockContent
+        let rules = conversationRules
+        if var value = content {
+            value.showsStartHint = value.showsStartHint && conversation.isEmpty
+            // Too low to expand: the live turn is the timeline's last row instead.
+            if !rules.dockExpands { value.turn = nil }
+            content = value
+        }
+        dock.apply(content, style: conversationStyle, compact: rules.compactDock)
+        dock.isHidden = !hasConversation || content == nil
+        if dock.isHidden { dock.stopLevel() }
+    }
+
+    private var targetDockHeight: CGFloat {
+        guard let dockContent else { return 0 }
+        return CGFloat(conversationRules.dockHeight(speaking: dockContent.expanded))
+    }
+
+    /// 180 ms ease-in-out (§4 发言态); instant with Reduce Motion or while not on screen.
+    private func updateDockHeight(animated: Bool) {
+        let target = targetDockHeight
+        dockTimer?.invalidate(); dockTimer = nil
+        dockAnimation = nil
+        let duration = SubtitleStyle.duration(.statusBandResize)
+        guard animated, duration > 0, isWindowVisible, hasConversation, abs(target - dockHeight) > 0.5 else {
+            dockHeight = target
+            layoutConversation()
+            return
+        }
+        dockAnimation = (dockHeight, target, ProcessInfo.processInfo.systemUptime)
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stepDockAnimation(duration: duration) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        dockTimer = timer
+    }
+
+    private func stepDockAnimation(duration: TimeInterval) {
+        guard let animation = dockAnimation else { dockTimer?.invalidate(); dockTimer = nil; return }
+        let progress = min(1, max(0, (ProcessInfo.processInfo.systemUptime - animation.start) / duration))
+        let eased = progress < 0.5 ? 2 * progress * progress : 1 - pow(-2 * progress + 2, 2) / 2
+        dockHeight = animation.from + (animation.to - animation.from) * CGFloat(eased)
+        if progress >= 1 {
+            dockHeight = animation.to
+            dockAnimation = nil
+            dockTimer?.invalidate(); dockTimer = nil
+        }
+        layoutConversation()
+    }
+
+    /// Splits the fixed content area between the timeline and the dock.
+    private func layoutConversation() {
+        guard hasConversation else { return }
+        let width = conversationSize.width, height = conversationSize.height
+        if dockAnimation == nil { dockHeight = targetDockHeight }
+        let dockFrameHeight = min(height, dockHeight)
+        let padding = CGFloat(SubtitleTokens.Size.panelHorizontalPadding)
+        conversation.frame = NSRect(x: padding, y: 0, width: max(0, width - 2 * padding),
+                                    height: max(0, height - dockFrameHeight))
+        dock.frame = NSRect(x: 0, y: height - dockFrameHeight, width: width, height: dockFrameHeight)
+        conversation.layoutSubtreeIfNeeded()
+        dock.layoutSubtreeIfNeeded()
+    }
+
+    private func displayedRowsChanged() {
+        let rows = conversation.displayedRows
+        var lines: [String] = []
+        for row in rows { lines += [row.source, row.translation] }
+        while lines.count < 6 { lines.append("") }
+        displayedLines = lines
+        recordPresentation()
+    }
+
+    /// "朗读新译文": each new remote final, never a draft, at medium priority while visible.
+    private func announceFinals(_ finals: [(sentence: UInt64, text: String)]) {
+        let fresh = finals.filter { $0.sentence > announcedThrough }
+        guard let newest = fresh.map(\.sentence).max() else { return }
+        announcedThrough = newest
+        guard announcesNewTranslations, isVisible else { return }
+        for line in fresh where !line.text.isEmpty {
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
+                .announcement: line.text,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ])
+        }
     }
 
     func apply(_ update: SubtitleUpdate) {
@@ -405,6 +584,7 @@ final class SubtitlePanel {
         let previousPending = board.pendingFinalSentenceIDs
         let previousSource = liveSource
         if case .source(let text) = update { liveSource = text }
+        timeline.noteRemote(update, at: now)
         let changed = board.apply(update, at: now)
         switch update {
         case let .final(sentence, text, source, approx, numberWarning):
@@ -430,14 +610,19 @@ final class SubtitlePanel {
         board.setHint(hint)
         onHintChange?(hint)
     }
-    func clear() {
+    /// A subtitle reset (language/configuration switch): remote pairs go, my turns stay.
+    /// `includingMyTurns` (session end, scene change) empties the whole conversation.
+    func clear(includingMyTurns: Bool = false) {
         let hadHint = board.hint != nil
-        liveSource = ""; lastPreviewRenderAt = 0; board.clear()
+        liveSource = ""; renderedSource = ""; renderedDraft = nil; lastPreviewRenderAt = 0; board.clear()
         videoBoard.clear(); renderedVideoCue = nil
         videoCaptions.setCaption(source: NSAttributedString(string: ""), translation: NSAttributedString(string: ""),
                                  sentence: nil, isFinal: false, at: Double(HostClock.now()) / 1_000_000_000)
-        resetRemoteScroll = true
+        if includingMyTurns { timeline.clear() } else { timeline.clearRemote() }
+        announcedThrough = 0
+        conversation.followLatest()
         if hadHint { onHintChange?(nil) }
+        updateConversation()
         render()
         observe("subtitle_cleared", at: HostClock.now())
     }
@@ -445,7 +630,7 @@ final class SubtitlePanel {
     func setAnalysisConfiguration(_ id: UInt64) {
         guard analysisConfiguration != id else { return }
         analysisConfiguration = id
-        resetRemoteScroll = true
+        conversation.followLatest()
         presentedFinals = []; presentedDraft = nil
         presentedVideoIdentity = nil
         observe("configuration_reset", at: HostClock.now())
@@ -467,44 +652,11 @@ final class SubtitlePanel {
         }
         if liveSource.isEmpty { renderedSource = "" }
         if board.draft == nil { renderedDraft = nil }
-        let lines = board.finals
-        var nextLines: [String] = []
-        for index in 0..<max(2, lines.count) {
-            let line = index < lines.count ? lines[index] : nil
-            nextLines += [line?.source ?? "", line?.display ?? ""]
-        }
-        nextLines += [renderedSource, renderedDraft?.text ?? ""]
-        // A fallback final that the cloud later replaces with the same text still re-renders its badge.
-        let badges = lines.map(\.showsFallbackBadge)
-        let badgesChanged = badges != renderedBadges
-        renderedBadges = badges
-        if nextLines != displayedLines || badgesChanged || forceLayout || resetRemoteScroll {
-            displayedLines = nextLines
-            let source = NSMutableAttributedString(string: "")
-            let translation = NSMutableAttributedString(string: "")
-            let typography = conversationTypography
-            let text = ConversationText(typography: typography, opacity: Double(effectiveOpacity))
-            // Draft and final translations share size and weight; only the colour differs.
-            for line in lines {
-                text.appendSource(line.source, live: false, speaker: .remote, to: source)
-                text.appendTranslation(line.display, role: typography.remoteTranslation, isFinal: true,
-                                       fallback: line.showsFallbackBadge, to: translation)
-            }
-            text.appendSource(renderedSource, live: true, speaker: .remote, to: source)
-            if let renderedDraft {
-                text.appendTranslation(renderedDraft.text, role: typography.remoteTranslation, isFinal: false,
-                                       fallback: false, to: translation)
-            }
-            // A visible draft that became final in place fades its colour instead of switching.
-            let finalized = presentedDraftSentence.map { sentence in
-                renderedDraft?.sentence != sentence && lines.contains { $0.sentence == sentence }
-            } ?? false
-            presentedDraftSentence = renderedDraft?.sentence
-            remoteColumns.setText(source: source, translation: translation, resetScroll: resetRemoteScroll,
-                                  finalized: finalized)
-            resetRemoteScroll = false
-        }
-        // Text only reflows inside its own cells; it never determines the window or row heights.
+        // The timeline mirrors the paced board: finals at once, previews at the 500 ms cadence.
+        let changed = timeline.syncRemote(finals: board.finals, draft: renderedDraft, liveSource: renderedSource, at: now)
+        announceFinals(board.finals.map { ($0.sentence, $0.display) })
+        if changed || forceLayout { updateConversation() }
+        // Text only reflows inside its own rows; it never determines the window or dock heights.
         if forceLayout { layout() }
         recordPresentation()
     }
@@ -570,7 +722,7 @@ final class SubtitlePanel {
                                  sentence: cue?.line.sentence, isFinal: cue?.isFinal ?? false,
                                  fallback: cue?.line.showsFallbackBadge ?? false,
                                  at: Double(now) / 1_000_000_000)
-        resetRemoteScroll = false
+        if let cue, cue.isFinal { announceFinals([(cue.line.sentence, cue.line.display)]) }
         if forceLayout { layout() }
         recordPresentation()
     }
@@ -628,22 +780,26 @@ final class SubtitlePanel {
     private func recordPresentation() {
         guard subtitlesRequested, isWindowVisible else { return }
         if presentation == .video { recordVideoPresentation(); return }
-        guard !remoteColumns.hasPendingText else { return }
+        // A frozen timeline still shows its snapshot; newer rows are not on screen yet.
+        guard !conversation.isFrozen else { return }
         let now = HostClock.now()
+        let shown = Set(conversation.displayedRows.map(\.id))
+        let finals = board.finals.filter { shown.contains(.remote($0.sentence)) }
+        let draft = renderedDraft.flatMap { shown.contains(.remote($0.sentence)) ? $0 : nil }
         // Log actual label changes after board pacing, including revisions, not timer ticks or
         // font/layout refreshes. This is AppKit submission time, not a display hardware timestamp.
-        for line in board.finals where !presentedFinals.contains(line) {
+        for line in finals where !presentedFinals.contains(line) {
             observe("subtitle_displayed", at: now, line: line, kind: "final")
         }
-        for line in presentedFinals where !board.finals.contains(where: { $0.sentence == line.sentence }) {
+        for line in presentedFinals where !finals.contains(where: { $0.sentence == line.sentence }) {
             observe("subtitle_removed", at: now, line: line, kind: "final")
         }
-        if let draft = renderedDraft, draft != presentedDraft {
+        if let draft, draft != presentedDraft {
             observe("subtitle_displayed", at: now, line: draft, kind: "draft")
-        } else if renderedDraft == nil, let draft = presentedDraft {
-            observe("subtitle_removed", at: now, line: draft, kind: "draft")
+        } else if draft == nil, let old = presentedDraft {
+            observe("subtitle_removed", at: now, line: old, kind: "draft")
         }
-        presentedFinals = board.finals; presentedDraft = renderedDraft
+        presentedFinals = finals; presentedDraft = draft
     }
 
     private func observe(_ event: String, at time: HostTime, line: SubtitleBoard.Line? = nil, kind: String? = nil,
@@ -664,49 +820,39 @@ final class SubtitlePanel {
         let width = contentWidth
         let titleHeight = panel.frame.height - panel.contentRect(forFrameRect: panel.frame).height
         let maxHeight = max(140, visible.height - titleHeight - 40)
-        let hasSpeech = presentation != .video && speechHeight > 0
-        let hasReadingArea = subtitlesRequested || hasSpeech
-        let rowGap: CGFloat = subtitlesRequested && hasSpeech ? 22 : 0
-        let sectionChrome: CGFloat = 24 + rowGap
+        let hasReadingArea = presentation == .video ? subtitlesRequested : hasConversation
+        // Video: two Chinese lines, one source line and 24 pt already include its margins (§6).
+        // Meeting/phone: the 28 pt dock and one two-line pair, so the last-row-only window
+        // below 140 pt can still be reached (§4 断点).
         let minimumReading = presentation == .video
             ? VideoSubtitleView.minimumReadingHeight(sourceFont: videoSourceFont, translationFont: videoTranslationFont)
-            : (subtitlesRequested && hasSpeech ? 80 : 48)
-        // Video: two Chinese lines, one source line and 24 pt already include its margins (§6).
-        let minHeight: CGFloat = hasReadingArea
-            ? min(maxHeight, presentation == .video ? ceil(minimumReading) : max(140, sectionChrome + minimumReading))
-            : 0
+            : CGFloat(ConversationLayout.minimumContentHeight(translationSize: conversationTypography.remoteTranslation.size))
+        let minHeight: CGFloat = hasReadingArea ? min(maxHeight, ceil(minimumReading)) : 0
         panel.contentMinSize = NSSize(width: min(minimumWidth, width), height: minHeight)
         panel.contentMaxSize = NSSize(width: max(280, visible.width - 40), height: maxHeight)
         // Status-only mode collapses to the titlebar without changing saved reading sizes.
         let height = hasReadingArea
             ? min(maxHeight, max(minHeight, manualContentSize?.height ?? defaultContentSize.height))
             : minHeight
-        let budget = max(0, height - sectionChrome)
-        let remoteHeight = subtitlesRequested ? (hasSpeech ? budget / 2 : budget) : 0
-        let localHeight = hasSpeech ? budget - remoteHeight : 0
-        var top: CGFloat = 12
-        remoteColumns.isHidden = !subtitlesRequested || presentation == .video
         videoCaptions.isHidden = !subtitlesRequested || presentation != .video
-        speechView?.isHidden = !hasSpeech
-        divider.isHidden = !subtitlesRequested || !hasSpeech
-        if subtitlesRequested {
-            if presentation == .video {
-                // Block widths and bottom anchoring are measured from the whole content area.
-                videoCaptions.frame = NSRect(x: 0, y: 0, width: width, height: height)
-                videoCaptions.layoutSubtreeIfNeeded()
-            } else {
-                remoteColumns.frame = NSRect(x: 16, y: top, width: width - 32, height: remoteHeight)
-                remoteColumns.layoutSubtreeIfNeeded()
-            }
-            top += remoteHeight
+        conversation.isHidden = !hasConversation
+        dock.isHidden = !hasConversation || dockContent == nil
+        if dock.isHidden { dock.stopLevel() }
+        if subtitlesRequested, presentation == .video {
+            // Block widths and bottom anchoring are measured from the whole content area.
+            videoCaptions.frame = NSRect(x: 0, y: 0, width: width, height: height)
+            videoCaptions.layoutSubtreeIfNeeded()
         }
-        if hasSpeech {
-            if subtitlesRequested {
-                divider.frame = NSRect(x: 0, y: top + rowGap / 2, width: width, height: 1)
-                top += rowGap
+        if hasConversation {
+            let previous = conversationRules
+            conversationSize = NSSize(width: width, height: height)
+            let rules = conversationRules
+            if rules.stacked != previous.stacked || rules.compactDock != previous.compactDock
+                || rules.lastRowOnly != previous.lastRowOnly {
+                applyDock()
+                updateConversation()
             }
-            speechView?.frame = NSRect(x: 16, y: top, width: width - 32, height: localHeight)
-            speechView?.layoutSubtreeIfNeeded()
+            layoutConversation()
         }
         let size = NSSize(width: width, height: height)
         let old = panel.frame
@@ -787,7 +933,8 @@ final class SubtitlePanel {
 
     var isVisible: Bool { subtitlesRequested && isWindowVisible }
     var isWindowVisible: Bool { panel.isVisible && !isMiniaturized && !panel.userHidden }
-    var speechIsVisible: Bool { presentation != .video && speechHeight > 0 && isWindowVisible }
+    /// My side of the conversation (the dock) is on screen.
+    var speechIsVisible: Bool { presentation != .video && localSpeechVisible && isWindowVisible }
     var statusIsVisible: Bool { statusVisible && isWindowVisible }
 
     private func poll() {
@@ -821,7 +968,7 @@ final class SubtitlePanel {
     private func userResized() {
         guard !isLayingOut, !isMiniaturized else { return }
         let resized = panel.contentRect(forFrameRect: panel.frame).size
-        let hasReadingArea = subtitlesRequested || (presentation != .video && speechHeight > 0)
+        let hasReadingArea = presentation == .video ? subtitlesRequested : hasConversation
         manualContentSize = NSSize(width: resized.width, height: hasReadingArea
                                    ? resized.height : (manualContentSize?.height ?? defaultContentSize.height))
         render(forceLayout: true)

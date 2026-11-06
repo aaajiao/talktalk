@@ -127,6 +127,7 @@ final class MeetingController {
     private func applySubtitleAppearance() {
         panel.setRemoteLanguageTitle(state.remoteLanguage.title)
         panel.setSourceName(state.meetingMode == .phone ? "Phone" : state.meetingApp)
+        panel.announcesNewTranslations = state.announceNewTranslations
         switch panel.presentation {
         case .meeting:
             panel.setFontSize(state.subtitleFontSize)
@@ -594,7 +595,7 @@ final class MeetingController {
             hud?.setSceneIssue(nil)
             panel.setPhoneContext(nil)
             panel.setVisible(false)
-            panel.clear()
+            panel.clear(includingMyTurns: true)
             onActiveChange?(false)
         }
     }

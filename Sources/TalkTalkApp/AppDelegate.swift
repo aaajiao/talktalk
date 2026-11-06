@@ -412,7 +412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 hud.setSubtitlesVisible(state.subtitlesVisible)
                 #endif
                 panel.setVisible(false)
-                panel.clear()
+                panel.clear(includingMyTurns: true)
             }
             if let devices = settings?.voice.enrollment?.devices {
                 r["devices"] = devices.map { ["transport": $0.info.transport, "accepted": $0.verdict.isAccepted] as [String: Any] }

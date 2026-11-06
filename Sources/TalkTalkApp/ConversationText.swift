@@ -1,6 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import AppKit
 import TalkTalkCore
+import TalkTalkSession
 
 extension NSAttributedString.Key {
     /// Marks the open draft translation; its column draws the 2 pt draft bar beside it.
@@ -85,6 +86,34 @@ struct ConversationText {
         output.append(NSAttributedString(string: " " + text, attributes: attributes))
     }
 
+    /// Delivery label after my translation (§4 送达标签): 18 pt high, 11 pt medium. "未发送" sits on
+    /// a warn 15% fill at the source size; the others are coloured text with an optional icon.
+    func appendDelivery(_ delivery: ConversationTimeline.Delivery, role: ConversationTypography.Role,
+                        to output: NSMutableAttributedString) {
+        let base = attributes(role, color: .textPrimary)
+        let warn = SubtitleStyle.color(.warn, display: display)
+        let font: NSFont, text: NSColor, fill: NSColor
+        switch delivery {
+        case .notSent:
+            font = .systemFont(ofSize: typography.source.size, weight: .medium)
+            text = warn
+            fill = warn.withAlphaComponent(ConversationTextRules.unsentBadgeFillAlpha)
+        case .sent, .phoneSent:
+            font = .systemFont(ofSize: ControlTypography.chip, weight: .medium)
+            text = SubtitleStyle.color(.voiceOriginal, display: display)
+            fill = .clear
+        case .phoneLocalOnly, .aborted:
+            font = .systemFont(ofSize: ControlTypography.chip, weight: .medium)
+            text = warn
+            fill = .clear
+        }
+        output.append(Self.badge(delivery.title, symbol: delivery.symbol, font: font, text: text, fill: fill,
+                                 help: delivery.title, baseFont: SubtitleStyle.font(role), attributes: base,
+                                 leadingSpace: true, minHeight: Self.deliveryHeight))
+    }
+
+    static let deliveryHeight: CGFloat = 18
+
     /// A 2 × 0.7F static bar after live source; it never blinks.
     private func caret(speaker: Speaker, attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
         let height = CGFloat(ConversationTextRules.caretHeight(translationSize: typography.remoteTranslation.size))
@@ -126,13 +155,13 @@ struct ConversationText {
     /// An inline capsule drawn as an image attachment, vertically centred on the text.
     static func badge(_ title: String, symbol: String?, font: NSFont, text: NSColor, fill: NSColor, help: String,
                       baseFont: NSFont? = nil, attributes: [NSAttributedString.Key: Any],
-                      leadingSpace: Bool = false) -> NSAttributedString {
+                      leadingSpace: Bool = false, minHeight: CGFloat = 0) -> NSAttributedString {
         let titleAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: text]
         let titleSize = (title as NSString).size(withAttributes: titleAttributes)
         let icon = symbol.flatMap { SubtitleStyle.symbol($0, size: font.pointSize * 0.85, weight: .medium) }
         let iconWidth = icon.map { $0.size.width + 3 } ?? 0
         let horizontal: CGFloat = font.pointSize < 12 ? 5 : 6
-        let height = ceil(titleSize.height + 2)
+        let height = max(minHeight, ceil(titleSize.height + 2))
         let width = ceil(titleSize.width + iconWidth + 2 * horizontal)
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { rect in
             fill.setFill()

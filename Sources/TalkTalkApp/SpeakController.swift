@@ -248,7 +248,6 @@ final class SpeakController {
         owner = session; warming = true; onChange?()
         phoneBoundary.invalidate()
         sessionTarget = state.speakLanguage.lang
-        hud.setTargetLanguage(state.speakLanguage.lang)
         translationRefusal = nil
         output.monitor.setMeetingMode(true)
         onMonitorAvailabilityChange?()

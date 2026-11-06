@@ -52,6 +52,7 @@ final class AppState {
         static let videoCaptionArrangement = "ui.videoCaptionArrangement"
         static let phoneSubtitleFontSize = "ui.phoneSubtitleFontSize"
         static let phoneSubtitleBackgroundOpacity = "ui.phoneSubtitleBackgroundOpacity"
+        static let announceNewTranslations = "ui.announceNewTranslations"
         static let speakLanguage = "speak.targetLanguage"
     }
 
@@ -144,6 +145,15 @@ final class AppState {
         }
     }
     @ObservationIgnored var onSubtitleAppearanceChange: (() -> Void)?
+    /// "朗读新译文（VoiceOver）" (redesign §4 无障碍): off by default; each translation final is
+    /// announced at medium priority while the window is visible, drafts never.
+    var announceNewTranslations: Bool {
+        didSet {
+            guard announceNewTranslations != oldValue else { return }
+            defaults.set(announceNewTranslations, forKey: Key.announceNewTranslations)
+            onSubtitleAppearanceChange?()
+        }
+    }
 
     var phoneSubtitleFontSize: Double {
         didSet {
@@ -258,6 +268,7 @@ final class AppState {
         videoCaptionStyle = VideoCaptionStyle(rawValue: defaults.string(forKey: Key.videoCaptionStyle) ?? "") ?? .default
         videoCaptionArrangement = VideoCaptionArrangement(
             rawValue: defaults.string(forKey: Key.videoCaptionArrangement) ?? "") ?? .default
+        announceNewTranslations = defaults.object(forKey: Key.announceNewTranslations) as? Bool ?? false
         let phoneSize = defaults.object(forKey: Key.phoneSubtitleFontSize) as? Double ?? 22
         phoneSubtitleFontSize = phoneSize.isFinite ? min(36, max(16, phoneSize)) : 22
         let phoneOpacity = defaults.object(forKey: Key.phoneSubtitleBackgroundOpacity) as? Double ?? 0.85
