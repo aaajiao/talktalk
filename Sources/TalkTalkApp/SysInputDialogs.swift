@@ -57,7 +57,8 @@ enum SysInputDialogs {
     /// says it, with the §8.6 note (PTTHUD.sysInput).
     static func report(_ r: SystemInputSwitcher.EndResult, status: SystemInputSwitcher.Status, hud: PTTHUD?) {
         if let m = SysInputDialogPlan.reportMessage(outcome(r, status: status)) {
-            hud?.show(m.text, m.style, label: titlebarLabel("系统麦克风未还原"))
+            // The default-input chips' glyph (HUDModel.Warning.defaultInputChanged and kin).
+            hud?.show(m.text, m.style, label: titlebarLabel("系统麦克风未还原"), symbol: "mic.badge.xmark")
         }
     }
 }

@@ -13,6 +13,8 @@ struct SettingsTabButton: View {
     var running = false
     /// "运行中 · 12:03"; replaces the summary while running.
     var runningSubtitle: String?
+    /// One of several independent choices (onboarding's scenarios): VoiceOver announces a toggle.
+    var multiSelect = false
     let action: () -> Void
 
     private static let runningGreen = Color(nsColor: SubtitleStyle.color(.voiceOriginal))
@@ -58,7 +60,7 @@ struct SettingsTabButton: View {
         .accessibilityLabel(title)
         .accessibilityValue(accessibilityValue)
         .accessibilityHint(summary)
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityAddTraits(multiSelect ? .isToggle : (selected ? .isSelected : []))
     }
 
     private var accessibilityValue: String {
@@ -66,7 +68,7 @@ struct SettingsTabButton: View {
         case (true, true): String(localized: "已选择，\(runningSubtitle ?? String(localized: "运行中"))")
         case (true, false): String(localized: "已选择")
         case (false, true): runningSubtitle ?? String(localized: "运行中")
-        case (false, false): ""
+        case (false, false): multiSelect ? String(localized: "未选择") : ""
         }
     }
 }

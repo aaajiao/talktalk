@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 import TalkTalkCore
 @testable import TalkTalkAudio
@@ -41,7 +42,7 @@ import TalkTalkCore
                                                                        app: "Phone", device: "Built-in"))
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "Built-in"),
                                    translationDegraded: false, micGuard: physical, mode: .phone,
-                                   phonePrepared: true, speakerMode: nil) == .needsAttention)
+                                   phonePrepared: true, speakerMode: nil) == .remoteHearsOriginal)
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "Built-in"),
                                    translationDegraded: false, micGuard: .init(), mode: .phone,
                                    phonePrepared: true, speakerMode: nil) == .audioNeedsCheck)
@@ -81,7 +82,15 @@ import TalkTalkCore
                                     translationDegraded: false) == .audioNeedsCheck) // unknown mic facts
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .idle,
                                     translationDegraded: false,
-                                    micGuard: .init(verdict: .physicalMic(appID: "test.call", app: "Call", device: "Built-in"))) == .needsAttention)
+                                    micGuard: .init(verdict: .physicalMic(appID: "test.call", app: "Call", device: "Built-in"))) == .remoteHearsOriginal)
+        // The risk outranks the open microphone: the other party hears the raw mic either way.
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .idle, translationDegraded: false,
+                                    micGuard: .init(verdict: .physicalMic(appID: "test.call", app: "Call", device: "Built-in")),
+                                    passthroughOpen: true) == .remoteHearsOriginal)
+        // Video never speaks, so a physical-mic verdict there is not the remote-hears risk.
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .idle, translationDegraded: false,
+                                    micGuard: .init(verdict: .physicalMic(appID: "test.call", app: "Call", device: "Built-in")),
+                                    mode: .captions) == .listening)
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .idle,
                                     translationDegraded: true, micGuard: green, speaking: true) == .speaking)
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .idle,
@@ -115,6 +124,25 @@ import TalkTalkCore
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .switchBackFailed(current: "MacBook Pro 麦克风", retrying: true),
                                     translationDegraded: false, micGuard: green) == .degraded)
         #expect(MenuBarIcon.compute(meetingActive: false, systemInput: .idle, translationDegraded: true) == .standby)
+    }
+}
+
+/// Every status-item glyph exists on this system; the risk glyph's fallback parts exist where
+/// `mic.badge.exclamationmark` does not (a missing SF Symbol draws nothing).
+@Suite struct MenuBarIconSymbolTests {
+    @Test func everyStateHasADrawableGlyph() {
+        for icon in MenuBarIcon.allCases {
+            if icon.symbol == SubtitleTokens.VoiceIcon.originalRisk {
+                for part in [SubtitleTokens.VoiceIcon.original, SubtitleTokens.VoiceIcon.originalRiskFallbackBadge] {
+                    #expect(NSImage(systemSymbolName: part, accessibilityDescription: nil) != nil, "\(icon): \(part)")
+                }
+            } else {
+                #expect(NSImage(systemSymbolName: icon.symbol, accessibilityDescription: nil) != nil, "\(icon): \(icon.symbol)")
+            }
+        }
+        // Problems differ by shape, not only by colour.
+        #expect(Set([MenuBarIcon.audioNeedsCheck, .degraded, .needsAttention, .remoteHearsOriginal].map(\.symbol)).count == 4)
+        #expect(MenuQuickStart.symbol == SubtitleTokens.OnboardingIcon.quickStart)
     }
 }
 

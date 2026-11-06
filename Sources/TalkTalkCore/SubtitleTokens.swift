@@ -268,6 +268,41 @@ public enum SubtitleTokens {
         public static let statusWaiting = "clock"
     }
 
+    /// The menu bar status item and its menu. The status item keeps the captions bubble as its
+    /// identity; problems differ by shape (question, triangle, exclamation bubble), not only by
+    /// colour. Menu rows that open a settings page use that page's sidebar glyph.
+    public enum MenuIcon {
+        public static let standby = "captions.bubble"
+        public static let listening = "captions.bubble.fill"
+        public static let warming = "hourglass"
+        /// Audio not yet confirmed (the meeting app's input is unchecked or not TalkTalk Mic yet).
+        public static let audioUnconfirmed = "questionmark.bubble"
+        /// Part of the session runs on a fallback.
+        public static let degraded = "exclamationmark.triangle"
+        /// Repairs outside the risk itself (default-input leftovers).
+        public static let needsAttention = "exclamationmark.bubble"
+        /// "会议尚未使用 TalkTalk Mic" while a session runs: needs action, not a risk.
+        public static let micUnused = "exclamationmark.circle"
+        public static let subtitles = "captions.bubble"
+        public static let restoreWindow = "macwindow"
+        public static let restoreInput = "arrow.uturn.backward.circle"
+        public static let announcement = "megaphone"
+        public static let notifications = "bell"
+        public static let about = "info.circle"
+        /// The onboarding guide, as Settings › 通用 "重新运行引导…".
+        public static let onboarding = "arrow.clockwise.circle"
+    }
+
+    /// Onboarding's done page: how to start from the menu bar.
+    public enum OnboardingIcon {
+        /// The status item's own glyph.
+        public static let menuBar = MenuIcon.standby
+        /// The menu's quick start (MenuQuickStart.symbol).
+        public static let quickStart = "play.fill"
+        /// The three scenario entries.
+        public static let otherScenes = "rectangle.3.group"
+    }
+
     /// Leading images of the details popover's command buttons.
     public enum ActionIcon {
         /// Buttons that open the Settings window, as the menu's "设置…".

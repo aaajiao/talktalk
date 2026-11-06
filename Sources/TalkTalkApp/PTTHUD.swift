@@ -239,7 +239,7 @@ final class PTTHUD {
         case let .switchBackFailed(d): post(.switchBackFailed(current: d))
         case .noRestoreTarget:
             if let m = SysInputDialogPlan.message(.noRestoreTarget) {
-                show(m.text, m.style, label: titlebarLabel("系统麦克风未还原"))
+                show(m.text, m.style, label: titlebarLabel("系统麦克风未还原"), symbol: "mic.badge.xmark")
             }
         }
     }
@@ -292,15 +292,16 @@ final class PTTHUD {
 
     /// A message outside the §11 table (SysInputDialogPlan.message: restore failed, no restore
     /// target, waiting for the call): the short `label` sits in the titlebar for
-    /// `noticeSeconds`; the complete text is its detail, whatever its length.
-    func show(_ text: String, _ style: HUDLine.Style, label: String) {
+    /// `noticeSeconds`; the complete text is its detail, whatever its length. `symbol` names the
+    /// subject (e.g. the system microphone); nil uses the tone's generic glyph.
+    func show(_ text: String, _ style: HUDLine.Style, label: String, symbol: String? = nil) {
         let tone: HUDChip.Tone = switch style {
         case .red, .redBanner: .risk
         case .yellow: .warn
         case .normal, .secondary, .check: .notice
         }
-        let symbol = tone == .notice ? "info.circle" : "exclamationmark.triangle"
-        let chip = HUDChip(label, symbol: symbol, tone: tone, detail: text,
+        let glyph = symbol ?? (tone == .notice ? "info.circle" : "exclamationmark.triangle")
+        let chip = HUDChip(label, symbol: glyph, tone: tone, detail: text,
                            settingsDestination: tone == .notice ? nil : .audio)
         let now = clock()
         change { $0.show(chip, now: now) }

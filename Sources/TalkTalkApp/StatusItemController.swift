@@ -10,6 +10,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     struct Actions {
         var openSettings: (SettingsSection?) -> Void
         var toggleMeeting: () -> Void
+        /// The in-session "结束<场景>": the owner confirms meeting and phone as the titlebar does.
+        var endSession: () -> Void = {}
         var quit: () -> Void
         var stillInMeeting: () -> Void = {}
         var openOnboarding: () -> Void = {}
@@ -31,28 +33,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         var voiceState: () -> VoiceState? = { nil }
     }
 
-    /// §11 icon states from the current meeting and SPEAK session.
-    enum IconState {
-        case missing, standby, warming, listening, speaking, passthroughOpen, audioNeedsCheck, degraded, needsAttention
-
-        var symbol: String {
-            switch self {
-            case .missing: "captions.bubble"
-            case .standby: "captions.bubble"
-            case .warming: "hourglass"
-            case .listening: "captions.bubble.fill"
-            case .speaking: "waveform"
-            case .passthroughOpen: "mic.fill"
-            case .audioNeedsCheck, .degraded: "exclamationmark.triangle"
-            case .needsAttention: "exclamationmark.bubble"
-            }
-        }
-    }
-
     private let state: AppState
     private let actions: Actions
     private let item: NSStatusItem
-    private(set) var iconState: IconState = .standby
+    private(set) var iconState: MenuBarIcon = .standby
     /// The in-session header and its one-second clock while the menu is open.
     private weak var sessionHeader: NSMenuItem?
     /// The capsule's state line; refreshed with the header so a new risk shows while open.
@@ -71,35 +55,39 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false
         item.menu = menu
-        setIcon(IconState.standby)
+        setIcon(.standby)
     }
 
-    func setIcon(_ m: MenuBarIcon) {
-        switch m {
-        case .missing: setIcon(IconState.missing)
-        case .warming: setIcon(IconState.warming)
-        case .standby: setIcon(IconState.standby)
-        case .listening: setIcon(IconState.listening)
-        case .speaking: setIcon(IconState.speaking)
-        case .passthroughOpen: setIcon(IconState.passthroughOpen)
-        case .audioNeedsCheck: setIcon(IconState.audioNeedsCheck)
-        case .degraded: setIcon(IconState.degraded)
-        case .needsAttention: setIcon(IconState.needsAttention)
-        }
-    }
-
-    func setIcon(_ s: IconState) {
+    func setIcon(_ s: MenuBarIcon) {
         iconState = s
-        var image = NSImage(systemSymbolName: s.symbol, accessibilityDescription: statusDescription)
-        if s == .needsAttention || s == .degraded || s == .audioNeedsCheck {
-            image = image?.withSymbolConfiguration(.init(paletteColors: [s == .needsAttention ? .systemRed : .systemOrange]))
-        } else {
-            image?.isTemplate = true
-        }
-        item.button?.image = image
-        item.button?.appearsDisabled = false // the menu remains the way to inspect and repair setup
+        item.button?.image = iconImage(s, accessibilityDescription: statusDescription)
+        // Missing components dim the glyph (a shape difference from standby, not only words);
+        // appearsDisabled changes appearance only, so the menu still opens to repair setup.
+        item.button?.appearsDisabled = s == .missing
         let name = BuildFlavor.current == .dev ? "TalkTalk Dev" : "TalkTalk"
         item.button?.toolTip = "\(name) · \(statusDescription)"
+    }
+
+    /// The status item's image, also repeated on the menu's status line. Normal states are
+    /// template images; problems keep their colour: orange for unconfirmed or degraded audio,
+    /// red for repairs and for the titlebar's risk glyph (the other party hears the original).
+    private func iconImage(_ s: MenuBarIcon, accessibilityDescription: String?) -> NSImage? {
+        let size = NSFont.systemFontSize
+        switch s {
+        case .remoteHearsOriginal:
+            guard let risk = SubtitleStyle.symbol(s.symbol, size: size, weight: .regular,
+                                                  accessibilityDescription: accessibilityDescription) else { return nil }
+            return SubtitleStyle.tinted(risk, .systemRed)
+        case .needsAttention, .degraded, .audioNeedsCheck:
+            let color: NSColor = s == .needsAttention ? .systemRed : .systemOrange
+            return SubtitleStyle.symbol(s.symbol, size: size, weight: .regular,
+                                        accessibilityDescription: accessibilityDescription, palette: [color])
+        default:
+            let image = SubtitleStyle.symbol(s.symbol, size: size, weight: .regular,
+                                             accessibilityDescription: accessibilityDescription)
+            image?.isTemplate = true
+            return image
+        }
     }
 
     /// Normal microphone activity is not an error. Name the state as well as changing its
@@ -116,6 +104,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .audioNeedsCheck: return String(localized: "音频尚未就绪")
         case .degraded: return String(localized: "部分功能使用备用方案")
         case .needsAttention: return String(localized: "音频设备需要检查")
+        case .remoteHearsOriginal: return String(localized: "对方能听到原声")
         }
     }
 
@@ -179,20 +168,23 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 voiceItem = line
                 shownMenuVoice = voice
             }
-            if iconState != .listening { menu.addItem(statusLine(statusDescription)) }
+            if iconState != .listening { menu.addItem(iconStatusLine()) }
         } else if busy {
-            menu.addItem(statusLine(state.meetingStarting ? String(localized: "正在准备\(mode)…")
-                                                          : String(localized: "正在结束\(mode)…")))
+            let line = statusLine(state.meetingStarting ? String(localized: "正在准备\(mode)…")
+                                                        : String(localized: "正在结束\(mode)…"))
+            line.image = templateSymbol(MenuBarIcon.warming.symbol)
+            menu.addItem(line)
         } else {
             addQuickStart(to: menu)
         }
         if actions.canRestoreSubtitleWindow() {
-            menu.addItem(item(String(localized: "恢复字幕窗口"), #selector(restoreSubtitleWindow), symbol: "macwindow"))
+            menu.addItem(item(String(localized: "恢复字幕窗口"), #selector(restoreSubtitleWindow),
+                              symbol: SubtitleTokens.MenuIcon.restoreWindow))
         }
         menu.addItem(.separator())
 
         if busy {
-            let stop = item(String(localized: "结束\(mode)"), #selector(toggleMeeting), symbol: SubtitleTokens.VoiceIcon.end)
+            let stop = item(String(localized: "结束\(mode)"), #selector(endSession), symbol: SubtitleTokens.VoiceIcon.end)
             stop.isEnabled = !state.meetingStarting && !state.meetingStopping
             menu.addItem(stop)
         } else {
@@ -205,43 +197,54 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             let captions = item(String(localized: "视频字幕…"), #selector(openVideoMode), symbol: SubtitleTokens.SceneIcon.video)
             captions.isEnabled = state.meetingAvailable
             menu.addItem(captions)
-            if iconState != .standby { menu.addItem(statusLine(statusDescription)) }
+            if iconState != .standby { menu.addItem(iconStatusLine()) }
         }
         menu.addItem(.separator())
 
         if state.meetingMode == .phone, state.meetingActive || state.meetingStarting {
             if let status = state.phoneStatus { menu.addItem(statusLine(status)) }
-            menu.addItem(item(String(localized: "打开 Phone 拨号或接听"), #selector(openPhone)))
-            menu.addItem(item(String(localized: "电话同传设置…"), #selector(openPhoneMode)))
+            // The titlebar's Phone button glyph: this leaves TalkTalk for the Phone app.
+            menu.addItem(item(String(localized: "打开 Phone 拨号或接听"), #selector(openPhone),
+                              symbol: SubtitleTokens.VoiceIcon.openPhone))
+            menu.addItem(item(String(localized: "电话同传设置…"), #selector(openPhoneMode), symbol: SubtitleTokens.SceneIcon.phone))
             menu.addItem(.separator())
         }
 
         // Problems and recovery stay one click away, including leftovers outside a session.
         var attention: [NSMenuItem] = []
         if let hint = state.meetingHint {
-            attention.append(statusLine(hint))
+            attention.append(hintLine(hint))
             if hint == MeetingSession.Hint.meetingSeemsOver.rawValue ||
                 (state.meetingMode == .phone && state.meetingActive && state.meetingHint != nil) {
-                attention.append(item(String(localized: "继续收听，不自动停止"), #selector(stillInMeeting)))
+                attention.append(item(String(localized: "继续收听，不自动停止"), #selector(stillInMeeting),
+                                      symbol: SubtitleTokens.VoiceIcon.listening))
             }
         }
         if let apple = state.appleCheck {
             attention.append(detailItem(HUDLine(String(localized: "Apple 资源待配置"), .yellow,
                                                 detail: apple, symbol: "shippingbox"),
-                                        actionTitle: String(localized: "打开使用引导…"), action: #selector(openOnboarding)))
+                                        actionTitle: String(localized: "打开使用引导…"), action: #selector(openOnboarding),
+                                        actionSymbol: SubtitleTokens.MenuIcon.onboarding))
         }
         if let input = state.systemInputNotice {
-            attention.append(detailItem(input, actionTitle: String(localized: "查看音频设置…"), action: #selector(openAudio)))
+            attention.append(detailItem(input, actionTitle: String(localized: "查看音频设置…"), action: #selector(openAudio),
+                                        actionSymbol: SettingsSection.audio.symbol))
         }
         if state.meetingActive, state.meetingMode.supportsSpeaking {
-            attention.append(detailItem(meetingMicNotice, actionTitle: String(localized: "检查会议麦克风…"), action: #selector(openAudio)))
+            attention.append(detailItem(meetingMicNotice, actionTitle: String(localized: "检查会议麦克风…"), action: #selector(openAudio),
+                                        actionSymbol: SettingsSection.audio.symbol))
         }
         let si = actions.systemInputItems()
         if si.switchBack { attention.append(item(String(localized: "切回 TalkTalk Mic"), #selector(switchBackToMic))) }
         if si.resumeFromRecord, !state.meetingActive {
-            attention.append(item(String(localized: "开始会议同传（恢复输入设备记录）"), #selector(toggleMeeting)))
+            let resume = item(String(localized: "开始会议同传"), #selector(toggleMeeting), symbol: MenuQuickStart.symbol)
+            resume.subtitle = String(localized: "恢复输入设备记录")
+            attention.append(resume)
         }
-        if si.restoreNow { attention.append(item(String(localized: "现在还原默认输入"), #selector(restoreDefaultInput))) }
+        if si.restoreNow {
+            attention.append(item(String(localized: "现在还原默认输入"), #selector(restoreDefaultInput),
+                                  symbol: SubtitleTokens.MenuIcon.restoreInput))
+        }
         if !attention.isEmpty {
             attention.forEach { menu.addItem($0) }
             menu.addItem(.separator())
@@ -249,19 +252,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         let allApps = state.meetingActive && actions.usesGlobalListenFallback()
         if state.meetingActive {
-            let sourceName = state.meetingApp ?? String(localized: "正在确认应用")
-            let sourceTitle: String
-            if allApps { sourceTitle = String(localized: "正在收听：所有应用（备用）") }
-            else {
-                switch state.meetingMode {
-                case .meeting: sourceTitle = String(localized: "会议应用：\(sourceName)")
-                case .phone: sourceTitle = String(localized: "通话应用：Phone")
-                case .captions: sourceTitle = String(localized: "视频来源：\(sourceName)")
-                }
+            // The header already names the source; only the all-apps fallback and a source
+            // still being confirmed need their own line.
+            if allApps {
+                menu.addItem(statusLine(String(localized: "正在收听：所有应用（备用）")))
+            } else if (state.meetingApp ?? "").isEmpty, state.meetingMode != .phone {
+                menu.addItem(statusLine(String(localized: "正在确认应用")))
             }
-            menu.addItem(statusLine(sourceTitle))
-            menu.addItem(item(String(localized: "查看当前场景…"), #selector(openCurrentScene)))
-            let language = NSMenuItem(title: String(localized: "字幕：\(languageName(state.remoteLanguage)) → 中文"), action: nil, keyEquivalent: "")
+            menu.addItem(item(String(localized: "查看当前场景…"), #selector(openCurrentScene), symbol: state.meetingMode.sceneSymbol))
+            let language = item(String(localized: "字幕：\(languageName(state.remoteLanguage)) → 中文"), nil,
+                                symbol: SubtitleTokens.MenuIcon.subtitles)
             let languages = NSMenu()
             languages.autoenablesItems = false
             for lang in AppState.RemoteLanguage.allCases {
@@ -275,10 +275,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
             let videoOnly = state.meetingMode == .captions && (state.meetingActive || state.meetingStarting || state.meetingStopping)
             if !videoOnly {
-                let speak = NSMenuItem(title: String(localized: "我说话：中文 → \(languageName(state.speakLanguage))"), action: nil, keyEquivalent: "")
+                let speak = item(String(localized: "我说话：中文 → \(languageName(state.speakLanguage))"), nil,
+                                 symbol: SubtitleTokens.SettingsIcon.physicalMic)
+                speak.toolTip = String(localized: "中文可夹英语，译音统一为所选语言")
                 let targets = NSMenu()
                 targets.autoenablesItems = false
-                targets.addItem(statusLine(String(localized: "中文可夹英语，译音统一为所选语言")))
                 for lang in AppState.RemoteLanguage.allCases {
                     let choice = item(lang.title, #selector(chooseSpeakLanguage(_:)))
                     choice.representedObject = lang.rawValue
@@ -288,7 +289,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 speak.submenu = targets
                 menu.addItem(speak)
             }
-            let subtitles = item(String(localized: "显示字幕"), #selector(toggleSubtitles))
+            let subtitles = item(String(localized: "显示字幕"), #selector(toggleSubtitles), symbol: SubtitleTokens.MenuIcon.subtitles)
             subtitles.state = state.subtitlesVisible ? .on : .off
             menu.addItem(subtitles)
             // Video only (§6 鼠标穿透); the only place that unlocks a locked window.
@@ -300,11 +301,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 menu.addItem(lock)
             }
             if !videoOnly {
-                let monitor = item(String(localized: "在耳机中听到译音"), #selector(toggleMonitor))
+                let monitor = item(String(localized: "在耳机中听到译音"), #selector(toggleMonitor),
+                                   symbol: SubtitleTokens.SettingsIcon.headphones)
                 monitor.state = AppUIModels.shared.audio.monitor ? .on : .off
                 menu.addItem(monitor)
                 if actions.canPlayAnnouncement() {
-                    menu.addItem(item(String(localized: "现在播放告知语"), #selector(playAnnouncement)))
+                    menu.addItem(item(String(localized: "现在播放告知语"), #selector(playAnnouncement),
+                                      symbol: SubtitleTokens.MenuIcon.announcement))
                 }
             }
 
@@ -313,7 +316,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         var running: [NSMenuItem] = []
         if let asr = state.listenASRStatus {
             running.append(detailItem(HUDLine(String(localized: "语音识别"), detail: asr, symbol: "waveform"),
-                                      actionTitle: String(localized: "识别与模型设置…"), action: #selector(openModels)))
+                                      actionTitle: String(localized: "识别与模型设置…"), action: #selector(openModels),
+                                      actionSymbol: SettingsSection.translation.symbol))
         }
         if state.meetingActive, let translation = state.listenTranslation {
             let title: String
@@ -325,24 +329,26 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
             running.append(detailItem(HUDLine(title, style, detail: translation.menuText(offline: state.listenOffline),
                                               symbol: "character.bubble"),
-                                      actionTitle: String(localized: "翻译与模型设置…"), action: #selector(openModels)))
+                                      actionTitle: String(localized: "翻译与模型设置…"), action: #selector(openModels),
+                                      actionSymbol: SettingsSection.translation.symbol))
         }
         if !running.isEmpty {
             menu.addItem(.separator())
             running.forEach { menu.addItem($0) }
         }
         menu.addItem(.separator())
-        let settings = item(String(localized: "设置…"), #selector(openSettings), symbol: "gearshape")
+        let settings = item(String(localized: "设置…"), #selector(openSettings), symbol: SubtitleTokens.ActionIcon.settings)
         settings.keyEquivalent = ","
         menu.addItem(settings)
-        menu.addItem(item(String(localized: "隐私与诊断…"), #selector(openDiagnostics), symbol: "stethoscope"))
-        let more = item(String(localized: "更多"), nil, symbol: "ellipsis.circle")
+        menu.addItem(item(String(localized: "隐私与诊断…"), #selector(openDiagnostics), symbol: SettingsSection.privacy.symbol))
+        let more = item(String(localized: "更多"), nil, symbol: SubtitleTokens.VoiceIcon.more)
         let tools = NSMenu()
         tools.autoenablesItems = false
-        tools.addItem(item(String(localized: "我的声音…"), #selector(openVoice)))
-        tools.addItem(item(String(localized: "使用引导…"), #selector(openOnboarding)))
-        tools.addItem(item(String(localized: "通知设置…"), #selector(openGeneral)))
-        tools.addItem(item(String(localized: "关于 TalkTalk \(AppVersion.current.version)…"), #selector(openAbout)))
+        tools.addItem(item(String(localized: "我的声音…"), #selector(openVoice), symbol: SettingsSection.voice.symbol))
+        tools.addItem(item(String(localized: "使用引导…"), #selector(openOnboarding), symbol: SubtitleTokens.MenuIcon.onboarding))
+        tools.addItem(item(String(localized: "通知设置…"), #selector(openGeneral), symbol: SubtitleTokens.MenuIcon.notifications))
+        // The standard About item: no version (the panel shows it) and no ellipsis.
+        tools.addItem(item(String(localized: "关于 TalkTalk"), #selector(openAbout), symbol: SubtitleTokens.MenuIcon.about))
         tools.addItem(.separator())
         let globalListen = item(String(localized: "收听所有应用声音（备用）"), #selector(toggleGlobalListenFallback))
         globalListen.state = allApps ? .on : .off
@@ -356,7 +362,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(quit)
     }
 
-    /// Idle: the bold primary "开始会议同传 · Zoom" and the gray "上次：…" line.
+    /// Idle: the bold primary "开始会议同传 · Zoom" with the gray "上次：…" as its native subtitle.
     private func addQuickStart(to menu: NSMenu) {
         let last = state.lastScenario
         let mode = last ?? .meeting
@@ -371,11 +377,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
         start.representedObject = quick.mode.rawValue
         start.isEnabled = state.meetingAvailable
+        start.subtitle = quick.lastLine
         menu.addItem(start)
-        if let line = quick.lastLine { menu.addItem(statusLine(line)) }
     }
 
-    /// The capsule's state with a dot of the same colour (§7).
+    /// The capsule's state with its own glyph in the same colour (§7).
     private func voiceLine(_ voice: VoiceState) -> NSMenuItem {
         let line = statusLine(voice.accessibilityLabel)
         configureVoiceLine(line, voice)
@@ -384,11 +390,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func configureVoiceLine(_ line: NSMenuItem, _ voice: VoiceState) {
         line.title = voice.accessibilityLabel
-        let color = SubtitleStyle.toneColor(voice.appearance.tone)
-        line.image = NSImage(size: NSSize(width: 10, height: 10), flipped: false) { rect in
-            color.setFill()
-            NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
-            return true
+        // The capsule's glyph (the risk composite included), filled with its tone colour.
+        if let glyph = SubtitleStyle.symbol(voice.symbol, size: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular) {
+            line.image = SubtitleStyle.tinted(glyph, SubtitleStyle.toneColor(voice.appearance.tone))
+        } else {
+            line.image = nil
         }
         line.toolTip = voice.detail
     }
@@ -400,11 +406,41 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func item(_ title: String, _ action: Selector?, symbol: String? = nil) -> NSMenuItem {
         let mi = NSMenuItem(title: title, action: action, keyEquivalent: "")
         mi.target = self
-        if let symbol {
-            mi.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            mi.image?.isTemplate = true
-        }
+        if let symbol { mi.image = templateSymbol(symbol) }
         return mi
+    }
+
+    /// A menu-size template symbol; the risk glyph gets its fallback badge where needed.
+    private func templateSymbol(_ name: String) -> NSImage? {
+        let image = SubtitleStyle.symbol(name, size: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular)
+        image?.isTemplate = true
+        return image
+    }
+
+    /// The status description beside the same image as the menu bar button.
+    private func iconStatusLine() -> NSMenuItem {
+        let line = statusLine(statusDescription)
+        line.image = iconImage(iconState, accessibilityDescription: nil)
+        return line
+    }
+
+    /// A listening hint with its titlebar chip's glyph (one glyph per meaning); warnings are
+    /// orange, the neutral "no sound" and "seems over" notes stay template.
+    private func hintLine(_ hint: String) -> NSMenuItem {
+        let line = statusLine(hint)
+        // Phone rewrites only "seems over" into its own sentence (MeetingController).
+        let warning: HUDModel.Warning? = MeetingSession.Hint(rawValue: hint).map(PTTHUD.warning)
+            ?? (state.meetingMode == .phone ? .meetingSeemsOver : nil)
+        guard let warning else { return line }
+        switch warning.chip?.tone {
+        case .warn?, .risk?:
+            let color: NSColor = warning.chip?.tone == .risk ? .systemRed : .systemOrange
+            line.image = SubtitleStyle.symbol(warning.symbol, size: NSFont.menuFont(ofSize: 0).pointSize,
+                                              weight: .regular, palette: [color])
+        default:
+            line.image = templateSymbol(warning.symbol)
+        }
+        return line
     }
 
     private func statusLine(_ title: String) -> NSMenuItem {
@@ -421,16 +457,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             line.detail = check.text
             return line
         case .green:
-            return HUDLine(String(localized: "会议麦克风：TalkTalk Mic"), .check, detail: check.text, symbol: "checkmark.circle")
+            return HUDLine(String(localized: "会议麦克风：TalkTalk Mic"), .check, detail: check.text,
+                           symbol: SubtitleTokens.SettingsIcon.statusOK)
         case .notChecked:
-            return HUDLine(String(localized: "会议麦克风待确认"), .secondary, detail: check.text, symbol: "mic")
+            return HUDLine(String(localized: "会议麦克风待确认"), .secondary, detail: check.text,
+                           symbol: SubtitleTokens.SettingsIcon.statusPending)
         case .nobodyReads:
-            return HUDLine(String(localized: "会议尚未使用 TalkTalk Mic"), .secondary, detail: check.text, symbol: "mic")
+            // Orange like the status item's unconfirmed-audio glyph while the session runs.
+            return HUDLine(String(localized: "会议尚未使用 TalkTalk Mic"), .yellow, detail: check.text,
+                           symbol: SubtitleTokens.MenuIcon.micUnused)
         }
     }
 
     /// Only the short consequence sizes the parent menu. Full explanations wrap in its submenu.
-    private func detailItem(_ line: HUDLine, actionTitle: String, action: Selector) -> NSMenuItem {
+    /// The title keeps the system label colour (it inverts on highlight); the glyph carries the
+    /// state colour. `actionSymbol`: the destination page's own glyph.
+    private func detailItem(_ line: HUDLine, actionTitle: String, action: Selector, actionSymbol: String) -> NSMenuItem {
         let parent = item(line.text, nil, symbol: line.symbol)
         let color: NSColor? = switch line.style {
         case .red, .redBanner: .systemRed
@@ -438,16 +480,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .check: .systemGreen
         case .normal, .secondary: nil
         }
-        if let color {
-            parent.attributedTitle = NSAttributedString(string: line.text, attributes: [.foregroundColor: color])
-            parent.image?.isTemplate = false
-            parent.image = parent.image?.withSymbolConfiguration(.init(paletteColors: [color]))
+        if let color, let glyph = parent.image {
+            parent.image = SubtitleStyle.tinted(glyph, color)
         }
+        parent.toolTip = line.detail
         let submenu = NSMenu()
         submenu.autoenablesItems = false
         submenu.addItem(wrappedDetail(line.detail ?? line.text))
         submenu.addItem(.separator())
-        submenu.addItem(item(actionTitle, action, symbol: "arrow.up.forward.app"))
+        submenu.addItem(item(actionTitle, action, symbol: actionSymbol))
         parent.submenu = submenu
         return parent
     }
@@ -479,6 +520,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func restoreSubtitleWindow() { actions.restoreSubtitleWindow() }
     @objc private func toggleMeeting() { actions.toggleMeeting() }
+    @objc private func endSession() { actions.endSession() }
     @objc private func quickStart(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let mode = MeetingMode(rawValue: raw) else { return }
         actions.quickStart(mode)

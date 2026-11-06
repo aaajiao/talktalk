@@ -23,6 +23,20 @@ public enum OnboardingStep: String, CaseIterable, Codable, Sendable, Comparable 
 
     public static func < (a: Self, b: Self) -> Bool { a.number < b.number }
 
+    /// The step's glyph in the onboarding header and on its page title.
+    public var guideSymbol: String {
+        switch self {
+        case .permissions: "hand.raised"
+        case .speechAssets: "character.book.closed"
+        case .driver: "mic"
+        case .engine: "cpu"
+        case .openAI: "character.bubble"
+        case .voice: "person.wave.2"
+        case .meetingMic: "person.2.wave.2"
+        case .tryIt: "play.circle"
+        }
+    }
+
     /// The steps for the chosen scenarios (redesign §7 首次引导). Video alone needs only app
     /// audio and speech recognition, the speech assets and the try-out ("准备视频字幕").
     public static func path(for scenarios: Set<OnboardingScenario>) -> [OnboardingStep] {

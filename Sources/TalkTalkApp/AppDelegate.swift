@@ -73,6 +73,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding?.close()
             settings?.show(.meeting)
         }
+        onboardingModel.openDriverComponents = { [weak settings, weak onboarding] in
+            onboarding?.close()
+            settings?.navigation.componentsTab = .driver
+            settings?.show(.components)
+        }
         AppUIModels.shared.general.onRestartOnboarding = { [weak onboarding] in
             onboarding?.model.restart()
             onboarding?.show()
@@ -179,6 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let status = StatusItemController(state: state, actions: .init(
             openSettings: { [weak self] section in self?.settings?.show(section) },
             toggleMeeting: { [weak meeting] in meeting?.toggle() },
+            endSession: { [weak self] in self?.endSessionFromMenu() },
             quit: { NSApp.terminate(nil) },
             stillInMeeting: { [weak meeting] in meeting?.stillInMeeting() },
             openOnboarding: { [weak onboarding] in onboarding?.show() },
@@ -281,6 +287,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.followInstallation()
             }
         }
+    }
+
+    /// The menu's "结束<场景>" asks the same question as the titlebar's end popover (meeting and
+    /// phone; video ends at once): an alert with the destructive "结束同传" that Return does not
+    /// trigger, and "取消" on Esc.
+    private func endSessionFromMenu() {
+        guard state.meetingActive, let confirmation = hud.endConfirmation?(state.meetingMode.scene) else {
+            meeting?.toggle()
+            return
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = confirmation.title
+        alert.informativeText = confirmation.message
+        let confirm = alert.addButton(withTitle: confirmation.confirm)
+        confirm.hasDestructiveAction = true
+        confirm.keyEquivalent = ""
+        let cancel = alert.addButton(withTitle: confirmation.cancel)
+        cancel.keyEquivalent = "\u{1b}"
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn, state.meetingActive else { return }
+        meeting?.toggle()
     }
 
     /// §11 icon from the meeting, its translation and the system input's leftovers (§8.6).

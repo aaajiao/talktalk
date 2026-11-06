@@ -82,7 +82,7 @@ import TalkTalkCore
         let physical = MeetingMicGuardPlan.State(verdict: .physicalMic(appID: MeetingMode.phoneAppID,
                                                                        app: "Phone", device: "Built-in"))
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .idle, translationDegraded: false,
-                                   micGuard: physical, mode: .phone) == .needsAttention)
+                                   micGuard: physical, mode: .phone) == .remoteHearsOriginal)
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .idle, translationDegraded: false,
                                    micGuard: .init(verdict: .noReader), mode: .phone) == .audioNeedsCheck)
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .idle, translationDegraded: false,

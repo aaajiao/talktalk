@@ -133,9 +133,16 @@ struct SpeechFlow: View {
 /// with the loop note between them. Capsules and keycap are the subtitle window's components.
 struct SpeakingLanes: View {
     let mode: MeetingMode
-    /// Opens another settings page and offers "‹ 返回 <场景>" there.
-    let follow: (_ open: @escaping () -> Void) -> Void
-    let navigation: SettingsNavigation
+    /// Opens another settings page and offers "‹ 返回 <场景>" there. nil (onboarding): the
+    /// lanes show without links.
+    let follow: ((_ open: @escaping () -> Void) -> Void)?
+    let navigation: SettingsNavigation?
+
+    /// A flow link that opens `page` in settings; none without settings navigation.
+    private func link(_ title: String, _ page: @escaping (SettingsNavigation) -> Void) -> FlowLink? {
+        guard let follow, let navigation else { return nil }
+        return FlowLink(title) { follow { page(navigation) } }
+    }
 
     private var phone: Bool { mode == .phone }
     private var remoteSymbol: String {
@@ -149,7 +156,7 @@ struct SpeakingLanes: View {
                        title: String(localized: "默认 · 原声"))
             HStack(spacing: 8) {
                 FlowNodeCard(symbol: SubtitleTokens.SettingsIcon.physicalMic, title: String(localized: "麦克风"),
-                             link: FlowLink(String(localized: "麦克风设置")) { follow { navigation.selection = .audio } })
+                             link: link(String(localized: "麦克风设置")) { $0.selection = .audio })
                 FlowArrow()
                 FlowNodeCard(symbol: SubtitleTokens.SettingsIcon.talkTalkMic, title: "TalkTalk Mic")
                 FlowArrow()
@@ -166,10 +173,10 @@ struct SpeakingLanes: View {
                 }
                 FlowArrow()
                 FlowNodeCard(symbol: "character.bubble", title: String(localized: "识别与翻译"),
-                             link: FlowLink(String(localized: "翻译设置")) { follow { navigation.openModel(.translation) } })
+                             link: link(String(localized: "翻译设置")) { $0.openModel(.translation) })
                 FlowArrow()
                 FlowNodeCard(symbol: SubtitleTokens.SettingsIcon.myVoice, title: String(localized: "我的声音"),
-                             link: FlowLink(String(localized: "声音与试听")) { follow { navigation.selection = .voice } })
+                             link: link(String(localized: "声音与试听")) { $0.selection = .voice })
                 FlowArrow()
                 // The same audience as the original lane: the lane headers say what it hears.
                 FlowNodeCard(symbol: remoteSymbol, title: String(localized: "对方听英语／德语"))

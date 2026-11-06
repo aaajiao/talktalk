@@ -23,10 +23,15 @@ struct MeetingMicStep: View {
                     .padding(.top, 6)
                 }
             }
-            OnboardingCard(title: "当前检查结果", symbol: "checkmark.shield") {
-                Label(model.meetingMic.text, systemImage: checkSymbol)
-                    .foregroundStyle(model.meetingMic.color)
-                    .fixedSize(horizontal: false, vertical: true)
+            // A neutral heading: the result row carries the state glyph.
+            OnboardingCard(title: "当前检查结果", symbol: "magnifyingglass") {
+                Label {
+                    Text(verbatim: model.meetingMic.text)
+                } icon: {
+                    checkIcon
+                }
+                .foregroundStyle(model.meetingMic.color)
+                .fixedSize(horizontal: false, vertical: true)
                 SettingsNote("打开会议应用的麦克风测试后，这里会自动更新。")
             }
             OnboardingCard(title: "会议里的两个方向", symbol: "arrow.left.arrow.right") {
@@ -37,24 +42,26 @@ struct MeetingMicStep: View {
                     ("captions.bubble", String(localized: "原文＋中文字幕"))
                 ])
                 Divider()
-                Text("我说话").font(.subheadline.weight(.semibold))
-                SpeechFlow(steps: [
-                    ("mic", String(localized: "默认原声／按键翻译")),
-                    ("waveform", "TalkTalk Mic"),
-                    ("person.2.wave.2", String(localized: "会议里的对方"))
-                ])
-                SettingsNote("默认传原声；点按右⌥开始翻译，再点按结束发言，译音播完后恢复原声。")
+                // The scenario page's two lanes, with the titlebar's own capsules and keycap.
+                SpeakingLanes(mode: .meeting, follow: nil, navigation: nil)
             }
         }
         .onAppear { model.beginMeetingMicCheck() }
         .onDisappear { model.endMeetingMicCheck() }
     }
 
-    private var checkSymbol: String {
+    /// The physical-mic risk uses the titlebar's risk glyph (mic with a warning badge).
+    @ViewBuilder private var checkIcon: some View {
         switch model.meetingMic {
-        case .green: "checkmark.circle.fill"
-        case .physicalMic: "exclamationmark.triangle.fill"
-        case .notChecked, .nobodyReads: "circle.dashed"
+        case .green: Image(systemName: SubtitleTokens.SettingsIcon.statusOK)
+        case .physicalMic:
+            if let risk = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.originalRisk, size: NSFont.systemFontSize,
+                                               weight: .regular) {
+                Image(nsImage: SubtitleStyle.tinted(risk, .systemRed))
+            } else {
+                Image(systemName: SubtitleTokens.SettingsIcon.statusWarn)
+            }
+        case .notChecked, .nobodyReads: Image(systemName: SubtitleTokens.SettingsIcon.statusPending)
         }
     }
 }
@@ -92,7 +99,10 @@ struct TryItStep: View {
                 .disabled(demo.phase == .preparing || demo.phase == .playing)
                 if demo.phase == .preparing || demo.phase == .playing {
                     ProgressView().controlSize(.small)
-                    Button { demo.stop() } label: { Label("停止", systemImage: "stop.fill") }
+                    Button { demo.stop() } label: {
+                        Label("停止示例", systemImage: SubtitleTokens.VoiceIcon.stopTranslation).labelStyle(.iconOnly)
+                    }
+                    .help("停止示例")
                 }
             }
             listenStatus
@@ -117,7 +127,8 @@ struct TryItStep: View {
     @ViewBuilder private var listenStatus: some View {
         switch model.demo.phase {
         case .idle:
-            Label("尚未播放示例", systemImage: "play.circle").foregroundStyle(.secondary)
+            // The enabled "播放示例" already says it has not played.
+            EmptyView()
         case .preparing:
             Label("正在准备示例和字幕…", systemImage: "hourglass").foregroundStyle(.secondary)
         case .playing:
@@ -138,11 +149,20 @@ struct TryItStep: View {
         OnboardingCard(title: "说 · 点按右⌥试一句", symbol: "mic") {
             Label("先结束通话和其他 App 的麦克风测试，再戴耳机试说。", systemImage: "headphones")
                 .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            SpeechFlow(steps: [
-                ("mic", String(localized: "点按右⌥开始翻译")),
-                ("character.bubble", String(localized: "翻译与语音合成")),
-                ("headphones", String(localized: "在耳机里听译音"))
-            ])
+            // The titlebar's keycap starts the flow, as in the scenario page's translation lane.
+            HStack(spacing: 8) {
+                FlowNodeCard(symbol: nil, title: String(localized: "说中文，可夹英语")) {
+                    Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle))
+                }
+                FlowArrow()
+                FlowNodeCard(symbol: "character.bubble", title: String(localized: "翻译与语音合成"))
+                FlowArrow()
+                FlowNodeCard(symbol: SubtitleTokens.SettingsIcon.headphones, title: String(localized: "在耳机里听译音"))
+            }
+            .padding(.vertical, 4)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel([String(localized: "点按右⌥开始翻译"), String(localized: "翻译与语音合成"),
+                                 String(localized: "在耳机里听译音")].joined(separator: String(localized: "，然后")))
             SettingsNote("点按后说中文，可夹英语；说完再点按右⌥结束发言，等待译音播完。原文和译文在会议窗口的“我的发言”区显示。")
             HStack {
                 Button { model.beginSpeakDemo() } label: {
@@ -151,7 +171,10 @@ struct TryItStep: View {
                 .disabled(model.startSpeakDemo == nil || model.speakDemoState == .preparing || model.speakDemoState == .listening || model.speakDemoState == .played)
                 if model.speakDemoState == .preparing { ProgressView().controlSize(.small) }
                 if model.speakDemoState == .listening || model.speakDemoState == .played || model.speakDemoState == .preparing {
-                    Button { model.endSpeakDemo() } label: { Label("停止说话测试", systemImage: "stop.fill") }
+                    Button { model.endSpeakDemo() } label: {
+                        Label("停止说话测试", systemImage: SubtitleTokens.VoiceIcon.stopTranslation).labelStyle(.iconOnly)
+                    }
+                    .help("停止说话测试")
                 }
             }
             speakStatus
@@ -195,7 +218,7 @@ struct ScenarioChoiceStep: View {
                 ForEach(OnboardingScenario.allCases, id: \.self) { scenario in
                     let mode = OnboardingFlowModel.mode(scenario)
                     SettingsTabButton(title: mode.scene.title, symbol: mode.sceneSymbol, summary: summary(scenario),
-                                      selected: model.selectedScenarios.contains(scenario)) {
+                                      selected: model.selectedScenarios.contains(scenario), multiSelect: true) {
                         model.toggleScenario(scenario)
                     }
                 }
@@ -221,28 +244,29 @@ struct DoneStep: View {
         VStack(alignment: .leading, spacing: 16) {
             Label("引导完成", systemImage: "flag.checkered").font(.title2.bold())
             OnboardingCard(title: "从菜单开始使用", symbol: "menubar.rectangle") {
+                // The menu's own glyphs: the status item, its quick start, the scenario entries.
                 SpeechFlow(steps: [
-                    ("square.grid.3x1", String(localized: "先选使用场景")),
-                    ("app", String(localized: "在场景里选应用与语言")),
-                    ("play.circle", String(localized: "开始同传或字幕"))
+                    (SubtitleTokens.OnboardingIcon.menuBar, String(localized: "点菜单栏图标")),
+                    (SubtitleTokens.OnboardingIcon.quickStart, String(localized: "开始上次的场景")),
+                    (SubtitleTokens.OnboardingIcon.otherScenes, String(localized: "或选其他场景"))
                 ])
             }
-            OnboardingCard(title: "开会、打电话与看视频", symbol: SubtitleTokens.SceneIcon.meeting) {
-                scenarioRow(.meeting, title: String(localized: "开会：开始会议同传"),
-                            note: String(localized: "听对方看双语字幕；我说话默认传原声，点按右⌥开始翻译，再点按结束，译音播完后恢复原声。会议应用的输入选 TalkTalk Mic。"))
+            OnboardingCard(title: "开会、打电话与看视频", symbol: SubtitleTokens.OnboardingIcon.otherScenes) {
+                scenarioRow(.meeting, note: String(localized: "听对方看双语字幕；会议应用的输入选 TalkTalk Mic。"))
                 Divider()
-                scenarioRow(.phone, title: String(localized: "打电话：准备电话同传"),
+                scenarioRow(.phone,
                             note: String(localized: "固定使用 Mac 的 Phone 和你的 iPhone 号码。先准备同传，再拨号或接听；结束同传后恢复麦克风。"))
                 Divider()
-                scenarioRow(.captions, title: String(localized: "看视频：开始视频字幕"),
+                scenarioRow(.captions,
                             note: String(localized: "只收听应用声音，英语或德语原文与中文字幕成对显示，不使用麦克风。"))
             }
             SettingsNote("需要重新检查时，可从 设置 › 通用 重新运行引导。")
         }
     }
 
-    /// A clickable scenario row: opens settings at that scenario.
-    private func scenarioRow(_ mode: MeetingMode, title: String, note: String) -> some View {
+    /// A clickable scenario row: opens settings at that scenario. The scene icon and name
+    /// identify it, as in the titlebar and settings.
+    private func scenarioRow(_ mode: MeetingMode, note: String) -> some View {
         Button {
             model.openScenario?(mode)
         } label: {
@@ -250,7 +274,7 @@ struct DoneStep: View {
                 Image(systemName: mode.sceneSymbol).font(.headline).foregroundStyle(Color.accentColor)
                     .frame(width: 22).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.headline)
+                    Text(mode.scene.title).font(.headline)
                     Text(note).font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

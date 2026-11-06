@@ -87,7 +87,7 @@ struct ModelSettingsView: View {
     private var synthesis: some View {
         Form {
             Section {
-                SpeechFlow(steps: [("text.bubble", String(localized: "英语／德语译文")),
+                SpeechFlow(steps: [("character.bubble", String(localized: "英语／德语译文")),
                                    (SubtitleTokens.SettingsIcon.myVoice, String(localized: "合成译音")),
                                    (SubtitleTokens.SettingsIcon.talkTalkMic, "TalkTalk Mic")], links: [
                     1: .init(String(localized: "声音与试听")) { navigation.selection = .voice }

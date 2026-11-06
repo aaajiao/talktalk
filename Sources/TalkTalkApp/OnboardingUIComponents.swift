@@ -15,19 +15,6 @@ extension OnboardingStep {
         case .tryIt: String(localized: "试一试")
         }
     }
-
-    var guideSymbol: String {
-        switch self {
-        case .permissions: "hand.raised"
-        case .speechAssets: "character.book.closed"
-        case .driver: "mic"
-        case .engine: "cpu"
-        case .openAI: "character.bubble"
-        case .voice: "person.wave.2"
-        case .meetingMic: "person.2.wave.2"
-        case .tryIt: "play.circle"
-        }
-    }
 }
 
 struct StepTitle: View {

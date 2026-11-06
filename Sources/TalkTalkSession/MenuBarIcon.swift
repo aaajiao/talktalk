@@ -1,11 +1,33 @@
 import TalkTalkAudio
 import TalkTalkCore
 
-/// The menu bar icon (ARCHITECTURE.md §11 菜单栏图标状态) from what is true now. Pure. The system
-/// open microphone comes first, then conditions needing attention, speech, preparation and a
-/// meeting's degraded parts. Last-run default-input leftovers remain visible outside meetings.
-public enum MenuBarIcon: Sendable, Equatable {
+/// The menu bar icon (ARCHITECTURE.md §11 菜单栏图标状态) from what is true now. Pure. A meeting
+/// app that reads the physical microphone (the other party hears the original voice) comes
+/// first, as in the titlebar's risk capsule; then the open microphone, conditions needing
+/// attention, speech, preparation and a meeting's degraded parts. Last-run default-input
+/// leftovers remain visible outside meetings.
+public enum MenuBarIcon: Sendable, Equatable, CaseIterable {
     case missing, standby, warming, listening, speaking, passthroughOpen, audioNeedsCheck, degraded, needsAttention
+    /// The other party hears the original voice (micGuard: physical microphone).
+    case remoteHearsOriginal
+
+    /// The status item's glyph. `missing` shares the standby bubble and is drawn dimmed;
+    /// `remoteHearsOriginal` is the titlebar's risk glyph (drawn with its fallback badge where
+    /// the system lacks `mic.badge.exclamationmark`).
+    public var symbol: String {
+        typealias I = SubtitleTokens.MenuIcon
+        return switch self {
+        case .missing, .standby: I.standby
+        case .warming: I.warming
+        case .listening: I.listening
+        case .speaking: SubtitleTokens.VoiceIcon.translating
+        case .passthroughOpen: SubtitleTokens.VoiceIcon.original
+        case .audioNeedsCheck: I.audioUnconfirmed
+        case .degraded: I.degraded
+        case .needsAttention: I.needsAttention
+        case .remoteHearsOriginal: SubtitleTokens.VoiceIcon.originalRisk
+        }
+    }
 
     public static func compute(meetingActive: Bool, systemInput: SystemInputSwitcher.Status,
                                translationDegraded: Bool, micGuard: MeetingMicGuardPlan.State = .init(),
@@ -16,10 +38,12 @@ public enum MenuBarIcon: Sendable, Equatable {
                                warming: Bool = false, speaking: Bool = false, passthroughOpen: Bool = false,
                                speakerMode: Bool? = false, systemVoice: Bool = false,
                                speakTranslationDegraded: Bool = false) -> MenuBarIcon {
+        // The other party hearing the raw microphone outranks everything, the open microphone
+        // included: both draw a mic, so the open-mic fact stays visible.
+        if meetingActive, mode.supportsSpeaking, case .physicalMic = micGuard.verdict { return .remoteHearsOriginal }
         // The open microphone is the most immediate privacy fact, including while closing down.
         if passthroughOpen { return .passthroughOpen }
         if !meetingActive && talkTalkMicReadWhileInactive { return .needsAttention }
-        if meetingActive, mode.supportsSpeaking, case .physicalMic = micGuard.verdict { return .needsAttention }
         // A prepared Phone session deliberately waits without a microphone reader until
         // dialing or answering. Only that exact fact is expected; unknown/physical input is not.
         let waitingForPhone = mode == .phone && phonePrepared && micGuard.verdict == .noReader
