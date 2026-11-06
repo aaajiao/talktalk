@@ -1,5 +1,6 @@
 import SwiftUI
 import TalkTalkAudio
+import TalkTalkCore
 
 /// The "我的声音" recording UI (ARCHITECTURE.md §9.2). Embeds anywhere: the dev window of
 /// `--bench enroll`, the M1 onboarding and the M2 settings page. `onClose` is called by the
@@ -31,7 +32,8 @@ public struct EnrollmentView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 14) {
-            Image(systemName: "person.wave.2.fill").font(.system(size: 32))
+            // The 我的声音 glyph of settings and onboarding (person.wave.2 is the other party).
+            Image(systemName: SubtitleTokens.SettingsIcon.myVoice).font(.system(size: 32))
                 .foregroundStyle(.secondary).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
                 Text(controller.hasExistingProfile ? "重新录制我的声音" : "创建我的声音").font(.title2.bold())

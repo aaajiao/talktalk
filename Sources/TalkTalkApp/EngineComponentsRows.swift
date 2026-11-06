@@ -169,7 +169,7 @@ struct EngineComponentsRows: View {
             progress
             actions
             roleSummary("asr", title: String(localized: "语音识别"), symbol: "waveform", purpose: String(localized: "Qwen3-ASR · 把听到的声音转成原文"))
-            roleSummary("tts", title: String(localized: "语音合成"), symbol: "person.wave.2", purpose: String(localized: "Qwen3-TTS · 用你的声音朗读译文"))
+            roleSummary("tts", title: String(localized: "语音合成"), symbol: SubtitleTokens.SettingsIcon.myVoice, purpose: String(localized: "Qwen3-TTS · 用你的声音朗读译文"))
             DisclosureGroup(String(localized: "模型、版本与单独下载")) { models.padding(.top, 8) }
             if let m = model.lastMessage {
                 Text(m).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

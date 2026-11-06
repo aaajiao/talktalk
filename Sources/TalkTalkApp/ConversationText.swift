@@ -205,13 +205,16 @@ struct ConversationText {
 
     /// Tooltip rects of the inline badges in `label`, whose text is laid out in `frame`
     /// (the label's frame in `owner`); existing tooltips of `owner` are not touched.
-    static func addBadgeToolTips(for label: NSTextField, frame: NSRect, to owner: NSView) {
+    /// `addToolTip` does not retain its owner: the caller keeps the returned strings until it
+    /// removes these tooltips (`removeAllToolTips`), or hovering would read freed objects.
+    @discardableResult
+    static func addBadgeToolTips(for label: NSTextField, frame: NSRect, to owner: NSView) -> [NSString] {
         let text = label.attributedStringValue
-        var badges: [(NSRange, String)] = []
+        var badges: [(NSRange, NSString)] = []
         text.enumerateAttribute(.talkTalkBadgeHelp, in: NSRange(location: 0, length: text.length)) { value, range, _ in
-            if let help = value as? String, !help.isEmpty { badges.append((range, help)) }
+            if let help = value as? String, !help.isEmpty { badges.append((range, NSString(string: help))) }
         }
-        guard !badges.isEmpty, frame.width > 0 else { return }
+        guard !badges.isEmpty, frame.width > 0 else { return [] }
         let storage = NSTextStorage(attributedString: text)
         let manager = NSLayoutManager()
         let container = NSTextContainer(size: NSSize(width: frame.width, height: .greatestFiniteMagnitude))
@@ -222,8 +225,9 @@ struct ConversationText {
         for (range, help) in badges {
             let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
             let rect = manager.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: frame.minX, dy: frame.minY)
-            owner.addToolTip(rect, owner: help as NSString, userData: nil)
+            owner.addToolTip(rect, owner: help, userData: nil)
         }
+        return badges.map(\.1)
     }
 
     /// VoiceOver text: badges read as their help text, carets are silent.

@@ -305,6 +305,7 @@ final class MicStatusDock: NSView {
         // My live turn below the status row, in the timeline's columns, newest lines kept.
         turnArea.isHidden = !expanded || content.turn == nil
         turnArea.removeAllToolTips()
+        turnArea.badgeToolTipOwners = []
         guard expanded, content.turn != nil else { return }
         let area = NSRect(x: padding, y: rowHeight, width: max(0, width - 2 * padding),
                           height: max(0, height - rowHeight - bottomPadding))
@@ -335,8 +336,8 @@ final class MicStatusDock: NSView {
                                             width: translationWidth, height: translationHeight)
         }
         // Badge tooltips ("未发送" and the like), in the turn area's coordinates.
-        ConversationText.addBadgeToolTips(for: sourceLabel, frame: sourceLabel.frame, to: turnArea)
-        ConversationText.addBadgeToolTips(for: translationLabel, frame: translationLabel.frame, to: turnArea)
+        turnArea.badgeToolTipOwners = ConversationText.addBadgeToolTips(for: sourceLabel, frame: sourceLabel.frame, to: turnArea)
+            + ConversationText.addBadgeToolTips(for: translationLabel, frame: translationLabel.frame, to: turnArea)
         let draft = content.turn.map { !$0.isFinal && !$0.translation.isEmpty } ?? false
         draftBar.isHidden = !draft
         if draft {
@@ -365,6 +366,8 @@ private final class DockStatusGroup: NSView {
 /// My live turn as one VoiceOver element; its text is clipped to the dock.
 @MainActor
 private final class DockTurnView: NSView {
+    /// The badge tooltips' owners: `addToolTip` does not retain them.
+    var badgeToolTipOwners: [NSString] = []
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
     override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }

@@ -215,7 +215,7 @@ struct GeneralSettingsView: View {
             Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle))
             FlowArrow()
             VoiceCapsule(state: VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true))
-            Label("再点按结束", systemImage: "arrow.triangle.2.circlepath")
+            Label("再点按结束", systemImage: SubtitleTokens.VoiceIcon.stopTranslation)
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)

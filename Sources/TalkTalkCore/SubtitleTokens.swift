@@ -232,7 +232,8 @@ public enum SubtitleTokens {
         public static let jumpToLatest = "arrow.down"
         /// Long-source disclosure ("展开原文").
         public static let expand = "chevron.down.circle"
-        /// The dock's "详情" and the silent-meeting placeholder (the app's info glyph).
+        /// The dock's "详情" (the app's info glyph). The silent-meeting placeholder uses the
+        /// titlebar chip's `waveform.slash` instead: one glyph for "no sound from the other side".
         public static let details = "info.circle"
         /// The dock's "修复…" in the risk state.
         public static let fix = "wrench.and.screwdriver"

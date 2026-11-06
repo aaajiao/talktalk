@@ -923,7 +923,7 @@ private struct SpeechAssetsStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             StepTitle(number: OnboardingStep.speechAssets.number, title: "准备三种语言的语音资源")
-            OnboardingCard(title: "Apple 备用识别", symbol: "character.book.closed") {
+            OnboardingCard(title: "Apple 备用识别", symbol: SubtitleTokens.SettingsIcon.recognition) {
                 HStack(alignment: .top, spacing: 12) {
                     language(.zh, name: String(localized: "中文"), badge: String(localized: "中"))
                     language(.en, name: String(localized: "英语"), badge: "EN")
@@ -974,7 +974,7 @@ private struct EngineStep: View {
                 HStack(spacing: 20) {
                     SpeechFlow(steps: [("waveform", String(localized: "声音")), ("text.bubble", String(localized: "原文"))])
                     Divider()
-                    SpeechFlow(steps: [("character.bubble", String(localized: "译文")), ("person.wave.2", String(localized: "我的声音"))])
+                    SpeechFlow(steps: [("character.bubble", String(localized: "译文")), (SubtitleTokens.SettingsIcon.myVoice, String(localized: "我的声音"))])
                 }.fixedSize(horizontal: false, vertical: true)
                 SettingsNote("Qwen3-ASR 识别声音，Qwen3-TTS 合成译音。")
                 DisclosureGroup("文本翻译与下载说明") {

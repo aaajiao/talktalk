@@ -298,6 +298,8 @@ final class TimelineRowView: NSView, HoverClearing {
     private let sourceLabel = ConversationLabel(wrappingLabelWithString: "")
     private let translationLabel = ConversationLabel(wrappingLabelWithString: "")
     private let draftBar = NSView()
+    /// The badge tooltips' owners: `addToolTip` does not retain them.
+    private var badgeToolTipOwners: [NSString] = []
     private let expandControl = InlineLinkControl()
     private var sourceText = NSAttributedString()
     private var translationText = NSAttributedString()
@@ -540,8 +542,8 @@ final class TimelineRowView: NSView, HoverClearing {
     /// "未发送" and the delivery labels → their explanation).
     private func addBadgeToolTips() {
         removeAllToolTips()
-        ConversationText.addBadgeToolTips(for: sourceLabel, frame: sourceFrame, to: self)
-        ConversationText.addBadgeToolTips(for: translationLabel, frame: translationFrame, to: self)
+        badgeToolTipOwners = ConversationText.addBadgeToolTips(for: sourceLabel, frame: sourceFrame, to: self)
+            + ConversationText.addBadgeToolTips(for: translationLabel, frame: translationFrame, to: self)
     }
 
     override func layout() {

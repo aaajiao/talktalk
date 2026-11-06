@@ -50,20 +50,8 @@ struct MeetingMicStep: View {
         .onDisappear { model.endMeetingMicCheck() }
     }
 
-    /// The physical-mic risk uses the titlebar's risk glyph (mic with a warning badge).
-    @ViewBuilder private var checkIcon: some View {
-        switch model.meetingMic {
-        case .green: Image(systemName: SubtitleTokens.SettingsIcon.statusOK)
-        case .physicalMic:
-            if let risk = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.originalRisk, size: NSFont.systemFontSize,
-                                               weight: .regular) {
-                Image(nsImage: SubtitleStyle.tinted(risk, .systemRed))
-            } else {
-                Image(systemName: SubtitleTokens.SettingsIcon.statusWarn)
-            }
-        case .notChecked, .nobodyReads: Image(systemName: SubtitleTokens.SettingsIcon.statusPending)
-        }
-    }
+    /// Settings › 音频's status glyph: the physical-mic risk is the titlebar's risk glyph.
+    private var checkIcon: some View { model.meetingMic.status.icon }
 }
 
 struct TryItStep: View {

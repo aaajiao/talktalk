@@ -163,7 +163,8 @@ struct SpeakingLanes: View {
                 FlowNodeCard(symbol: remoteSymbol,
                              title: phone ? String(localized: "通话对方听到原声") : String(localized: "对方听到原声"))
             }
-            Label(String(localized: "再点按 右⌥ 结束 · 译音播完后回到原声"), systemImage: "arrow.triangle.2.circlepath")
+            // The keycap's own end glyph; arrow.triangle.2.circlepath means reconnecting/restarting.
+            Label(String(localized: "再点按 右⌥ 结束 · 译音播完后回到原声"), systemImage: SubtitleTokens.VoiceIcon.stopTranslation)
                 .font(.caption).foregroundStyle(.secondary)
             laneHeader(VoiceState.resolve(audio: .translating, scene: mode.scene, phoneInputConfirmed: true),
                        title: String(localized: "点按 右⌥ · 翻译"))
@@ -303,9 +304,20 @@ struct ChecklistStatusCircle: View {
 
 /// One status vocabulary across Settings (shape first, then colour, then words): passed, needs
 /// action, blocks speech (the other party hears the original voice), failed, a neutral note,
-/// not yet checked, and waiting.
+/// not yet checked, and waiting. `risk` draws the titlebar's risk glyph (mic with a warning
+/// badge, the menu bar and onboarding use it too); `symbol` is its plain fallback.
 enum SettingsStatus {
     case ok, warn, risk, failed, info, pending, waiting
+
+    /// The state's glyph in its colour, at the surrounding font size.
+    @MainActor @ViewBuilder var icon: some View {
+        if self == .risk, let risk = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.originalRisk,
+                                                          size: NSFont.systemFontSize, weight: .regular) {
+            Image(nsImage: SubtitleStyle.tinted(risk, .systemRed))
+        } else {
+            Image(systemName: symbol)
+        }
+    }
 
     var symbol: String {
         typealias I = SubtitleTokens.SettingsIcon
@@ -342,7 +354,7 @@ struct SettingsStatusLabel: View {
         Label {
             Text(verbatim: text)
         } icon: {
-            Image(systemName: status.symbol).accessibilityHidden(true)
+            status.icon.accessibilityHidden(true)
         }
         .foregroundStyle(status.color)
     }

@@ -279,3 +279,93 @@
   - 引导：完成页的流程改为“点菜单栏图标 → 开始上次的场景 → 或选其他场景”（原 `square.grid.3x1` 在系统中不存在，不绘制），场景行只写场景名；“我说话”复用场景页的两条泳道（无链接），虚拟麦步骤用原声／译音胶囊，组件页不可用时给“打开组件设置”按钮，安装中断声音的提醒为橙色警示；说话测试以键帽开头；会议麦克风风险用标题栏风险图标。权限行状态移到行尾（已允许绿勾、已拒绝红叉，系统录音被拒时可打开系统设置），输入监控用 `option`；步骤条去掉“第 X 步，共 Y 步”文字（改为 VoiceOver 值），当前步为强调色实心圆、略过为 `minus`、后续为 tertiary；“稍后设置”“关闭”响应 Esc；语音资源检查中为小号进度圈，区域代码移到 help；停止按钮只显示图标（带 help）。新增测试校验菜单栏、引导所用 SF Symbol 均存在。
   - “系统麦克风未还原”芯片改用 `mic.badge.xmark`。
 - **未改动**：`ListenPipeline` 代码注释中仍提到“≈”。`PolicyProfileTests.defaultFileIsTheArchitectureBlock` 期望 ARCHITECTURE 含 §5.3 JSON 块，该块自 1.0.1 起不在文档中，本轮未恢复。
+
+### 9.1 HIG 与图标优先专项（2026-11-06）
+
+用户为本轮定了两条原则：“1. 设计要符合苹果的标准  2. 能用图标表达的就不要写字（图形一定要起到足够的作用）”。按与用户确认的理解执行：
+
+- **P1 Apple HIG（macOS 26）**：优先使用原生控件与材质（NSPopover、分组 Form、分段控件、菜单）。SF Symbols 按场合选尺寸、字重和渲染模式（hierarchical／palette）。规格未定令牌时用系统色。菜单遵循惯例：打开窗口或需进一步输入的项加“…”，开关项用勾选，键盘等价由系统绘制。破坏性操作就地确认。支持键盘、VoiceOver、减少动态效果、增强对比度和减少透明度。
+- **P2 图标优先**：SF Symbol 能无歧义表达时，用它替代或缩短文字。状态差异要能从形状、颜色或符号看出，不只靠文字。每个只有图标的控件都保留本地化 tooltip（`.help`／`toolTip`）和 AX 标签（zh-Hans，见 `Resources/Localizable.xcstrings`）。
+- **硬例外（安全语义）**：项目规则为“本机就绪 ≠ Phone 读者已确认 ≠ 对方已听到”。凡是误读会让用户对错误对象说话的状态，都保留图标加最短文字，只允许加强旁边的图标。
+
+提交：`f95ef67`（标题栏、胶囊、芯片、浮层）、`6038ad3`（时间线与状态带）、`d762673`（视频窗口）、`34c0724`（设置窗口）、`6e0bceb`（菜单栏与引导），以及本轮总闸修正提交。
+
+**符号映射（一义一形）**。符号名均已在本机用 `NSImage(systemSymbolName:)` 核实存在；`mic.badge.exclamationmark` 在当前 SDK 中不存在，使用合成图标。
+
+| 含义 | SF Symbol | 使用位置 | tooltip／AX |
+|---|---|---|---|
+| 原声 | `mic.fill` | 胶囊、状态带、菜单栏原声态 | 胶囊 AX“发声：原声，对方可听到” |
+| 原声已关／音频不可用 | `mic.slash` | 胶囊、状态带 | 胶囊 AX 与 help |
+| 对方能听到原声（风险） | `mic.fill` + `exclamationmark.circle.fill` 角标（0.72×，1.5pt 空隙） | 标题栏胶囊、菜单栏图标与发声行、设置 › 音频会议麦克风行、引导第 7 步检查结果 | 文字始终保留“对方能听到原声”（最短“对方听到原声”）；菜单栏 tooltip“TalkTalk · 对方能听到原声” |
+| 译音、翻译收音或处理中 | `waveform` | 胶囊、状态带、菜单栏说话态 | 胶囊文字“译音” |
+| 播放译音 | `speaker.wave.2.fill` | 状态带 | 状态文字 |
+| 什么都没发出去 | `speaker.slash` | 未发送、未接入 Phone、本机就绪 | 状态文字 |
+| 声音只在本机 | `laptopcomputer` | 本机试说、仅本机、本机播放、“Phone 未接收”芯片、“仅本机”送达标签 | 文字保留 |
+| 已送入 Phone（送达事实） | `phone.arrow.up.right` | 仅用于送达标签 | “已送入 Phone：不代表对方已听到” |
+| 离开 TalkTalk、打开其他 App | `arrow.up.forward.app` | 标题栏 Phone 按钮、菜单“打开 Phone 拨号或接听”、引导“打开‘隐私与安全性’” | 窄窗只剩图标时为“打开 Phone：在 Phone 中拨号、接听或挂断电话。” |
+| 已送出 | `checkmark.circle.fill` | 我的行送达标签 | “已送出：译音已播放到 TalkTalk Mic” |
+| 未发送 | `exclamationmark.bubble` | 我的行、状态带标记、`segmentNotSent` 芯片 | “未发送：这句译音没有播放，对方听不到”／“未发送：这段原文没有提交翻译，对方听不到” |
+| 已中止 | `xmark.octagon` | 电话送达标签 | “已中止：Phone 连接变化，本句已停止” |
+| 重新连接 Phone、音频重启 | `arrow.triangle.2.circlepath` | 胶囊、状态带、芯片 | 状态文字；只用于进行中的过程，“再点按结束”改用 `stop.fill` |
+| 用户的结束操作 | `stop.circle` | 标题栏结束按钮（窄窗）、菜单“结束<场景>” | “结束会议同传／结束电话同传／结束视频字幕”，help 说明会议或通话不会结束 |
+| 键帽：开始翻译／结束本轮 | `translate`／`stop.fill` | 标题栏键帽后、引导与场景页流程、引导停止按钮 | VoiceOver 与 tooltip 读“右⌥ 开始翻译／结束”；停止按钮 help 为“停止示例”“停止说话测试” |
+| 收听中（视频） | `ear` | 视频标题栏（不画胶囊）、空状态、菜单“继续收听” | “收听中” |
+| 字幕落后 | `clock.badge.exclamationmark` | 视频芯片 | 文字不变 |
+| 视频警示 | `exclamationmark.triangle.fill`（warn）／`exclamationmark.octagon.fill`（risk），palette 白叹号 | 视频右上角 | 同芯片标签与详情 |
+| 字幕窗口选项 | `ellipsis.circle` | 视频悬停条、菜单“更多” | “字幕窗口选项”；tooltip“字幕窗口选项：锁定字幕位置” |
+| 云端翻译开启／失败 | `network`／`network.slash` | 标题栏、芯片 | “云端翻译已开启：会议文字会发送给 OpenAI。” |
+| 未听到对方声音 | `waveform.slash` | 标题栏芯片、菜单提示行、时间线空状态 | 空状态 tooltip“查看详情”，AX“暂未听到对方声音，查看详情” |
+| 会议似已结束／权限未确认 | `person.2.slash`／`hand.raised` | 芯片、菜单提示行 | 芯片文字 |
+| 默认输入未还原 | `mic.badge.xmark` | 芯片“系统麦克风未还原” | 详情完整句 |
+| 我／对方／电话对方（时间线） | `person.crop.circle.fill`／`person.wave.2.fill`／`phone.fill` | 时间线说话人标记 | 标记 tooltip 为说话人，行 AX 已含说话人 |
+| 对方（流程图） | `person.wave.2` | 场景页、引导流程 | 节点文字 |
+| 我的声音（合成） | `waveform.and.person.filled` | 设置侧栏与流程、引导第 6 步与引擎步骤、组件“语音合成”、声音录入页标题 | 节点文字 |
+| TalkTalk Mic／实体麦克风 | `mic.circle`／`mic` | 流程图、组件分类、引导第 3 步 | 节点文字 |
+| Apple 语音识别 | `waveform` | 设置 › 模型、引导第 2 步与权限行 | 文字；`character.book.closed` 只表示术语表 |
+| 回到最新字幕 | `arrow.down` | 冻结胶囊 | tooltip“回到最新字幕”，AX“N 条新字幕，回到最新” |
+| 展开原文 | `chevron.down.circle` | 截断原文末尾 | “展开原文” |
+| 详情／修复 | `info.circle`／`wrench.and.screwdriver` | 状态带按钮 | tooltip 与 AX 为“详情”／“修复…” |
+| 设置状态：通过、需处理、失败、说明、未检查、等待 | `checkmark.circle.fill`、`exclamationmark.triangle.fill`、`xmark.circle.fill`、`info.circle`、`circle.dashed`、`clock` | `SettingsStatusLabel`、引导权限行 | 文字不变；引导权限行尾的图标有 help 与 AX（“已允许”“已拒绝”） |
+| 菜单栏状态 | 待机 `captions.bubble`（组件缺失时变暗）、会中 `captions.bubble.fill`、准备 `hourglass`、音频未确认橙色 `questionmark.bubble`、备用方案橙色 `exclamationmark.triangle`、需修复红色 `exclamationmark.bubble` | 状态项与菜单状态行 | tooltip“TalkTalk · <状态>” |
+| 刷新／添加／忘记 | `arrow.clockwise`／`plus`／`minus.circle` | 场景页应用列表、延迟记录、术语表、耳机列表 | “刷新应用列表”“重新读取延迟记录”“添加术语”“忘记此设备”（AX“忘记 <设备>”） |
+| 打开设置／复制／本场不再提示 | `gearshape`／`doc.on.doc`／`bell.slash` | 详情浮层按钮（打开设置的按钮加“…”） | 按钮文字保留 |
+
+**各界面的主要变化**：
+
+- **标题栏与浮层**：详见上文“HIG 与图标优先（标题栏、胶囊、芯片、浮层）”。
+- **时间线与状态带**：详见同条中的时间线部分。
+- **视频窗口**：详见“HIG 与图标优先（视频窗口）”。
+- **菜单栏与引导**：详见“HIG 与图标优先（菜单栏与引导）”。
+- **设置窗口**：
+  - 侧栏改为原生 `Label`，图标一义一形（音频 `mic.and.signal.meter`、我的声音 `waveform.and.person.filled`、术语表 `character.book.closed`）；窗口标题只写当前页名。
+  - 模型、组件、隐私与诊断的子页切换改为原生分段控件（`SettingsSubpagePicker`）：每段为图标加名称，摘要放在下方说明行与各段 help 中。
+  - 分组 Form 的 section 标题去掉装饰图标，只留文字（HIG 分组表单惯例）；状态行统一为 `SettingsStatusLabel`（形状 → 颜色 → 文字）。
+  - 刷新、添加术语、忘记设备改为无边框图标按钮，并带 help 与 AX；“停止并删除本场录音…”先用 `confirmationDialog` 就地确认。
+  - ⓘ 的 tooltip 与 AX 按主题写作“<主题>说明”；字号滑块两端带 `textformat.size.smaller`／`larger`；“朗读新译文”用 `voiceover` 图标；电话清单编号用 `N.circle`。
+  - 场景页底栏运行圆点取当前发声状态色；“通用”页的发言方式改用标题栏自己的胶囊与键帽演示。
+  - 引导的场景卡片为多选（AX 特征为开关）。
+
+**本轮总闸的跨界面修正**：
+
+- **徽标 tooltip 的 owner 未被持有**：时间线与状态带的行内标记 tooltip 通过 `addToolTip(_:owner:userData:)` 注册，而 AppKit 不持有 owner（已用临时脚本确认：弱引用在调用后为 nil）。原代码只传一个临时桥接的 `NSString`，悬停时可能读到已释放的对象。`ConversationText.addBadgeToolTips` 改为返回 owner 字符串，由行视图与状态带的 turn 区持有到下次 `removeAllToolTips`。
+- **“我的声音”一形**：引导第 6 步、引擎步骤的“我的声音”节点、组件页“语音合成”和声音录入页标题原为 `person.wave.2`（对方），统一改为 `waveform.and.person.filled`。
+- **引导步骤与设置同形**：第 3 步（安装虚拟麦克风）由实体麦 `mic` 改为 TalkTalk Mic 的 `mic.circle`。第 2 步与“Apple 备用识别”卡片由术语表的 `character.book.closed` 改为语音识别的 `waveform`。
+- **风险图标一形**：设置 › 音频中的会议麦克风行在实体麦风险时原为红色三角，改为标题栏的风险合成图标。`SettingsStatus.icon` 由设置与引导第 7 步共用。
+- **`arrow.triangle.2.circlepath` 只表示重新连接**：场景页泳道与“通用”页的“再点按（右⌥）结束”改用键帽的结束图标 `stop.fill`。
+- **“暂未听到对方声音”**：空状态前置图标由 `info.circle` 改为标题栏芯片与菜单提示行同用的 `waveform.slash`。可点击性由 tooltip“查看详情”与 AX 表达。
+
+**刻意保留为文字（安全例外）**：
+
+- 胶囊标题“原声”“译音”“本机试说”“仅本机”“本机播放”“对方能听到原声”。风险态最短为“对方听到原声”，不缩成“风险”或只剩图标。
+- 芯片“Phone 未接收”，以及原因芯片“会议在用实体麦”“会议未用 TalkTalk Mic”。
+- 送达标签“已送出”“未发送”“已送入 Phone”“仅本机 · Phone 未接收”“已中止”。图标只加在文字前，tooltip 与 AX 以可见字开头。
+- 状态带的状态文字（如“原声 · 对方能听到你”“未发送 · 对方听不到你”），以及完整状态带中的“修复…”文字。
+- 键帽动作“松开确认”“本机试说”（瞬时指令与本机含义）。
+- 结束确认的标题、正文与按钮文字。菜单“结束<场景>”的警告框沿用同样文字。
+- 字幕正文，以及电话详情中“正在送入 Phone”等不声称对方已听到的措辞。
+
+**未做**：
+
+- 未删除不再使用的 `HUDModel.MeetingAudio.modeBadge`，删除前需用户确认。
+- `TalkTalkApp` 没有测试目标，也不允许启动应用，因此未加离屏渲染测试。
+- 分段控件中 `Label` 的图文绘制、菜单 Picker 中的图像、per-segment help，以及全部光学效果与 VoiceOver 实听，均未经实机验证。

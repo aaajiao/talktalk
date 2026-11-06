@@ -24,7 +24,7 @@ enum MeetingMicCheck: Equatable {
         }
     }
 
-    /// The other party hearing the raw microphone blocks speech: the red risk triangle.
+    /// The other party hearing the raw microphone blocks speech: the red risk glyph.
     var status: SettingsStatus {
         switch self {
         case .notChecked, .nobodyReads: .pending

@@ -573,7 +573,8 @@ final class SubtitlePanel {
         case .meeting:
             if remoteSilent {
                 return .init(primary: String(localized: "暂未听到对方声音"), secondary: nil, clickable: true,
-                             symbol: SubtitleTokens.ConversationIcon.details, help: String(localized: "查看详情"),
+                             // The titlebar chip's and menu line's glyph for the same fact.
+                             symbol: HUDModel.Warning.meetingSilent.symbol, help: String(localized: "查看详情"),
                              accessibilityLabel: String(localized: "暂未听到对方声音，查看详情"))
             }
             let primary = titlebarContent.sourceTitle.map { String(localized: "正在听 \($0) 的会议声音…") }

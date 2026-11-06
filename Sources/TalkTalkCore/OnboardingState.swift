@@ -23,15 +23,18 @@ public enum OnboardingStep: String, CaseIterable, Codable, Sendable, Comparable 
 
     public static func < (a: Self, b: Self) -> Bool { a.number < b.number }
 
-    /// The step's glyph in the onboarding header and on its page title.
+    /// The step's glyph in the onboarding header and on its page title. Steps that set up
+    /// something with a settings glyph reuse it: Apple speech recognition (`waveform`), the
+    /// TalkTalk Mic device (`mic.circle`, not the physical `mic`) and my voice (never the
+    /// other party's `person.wave.2`).
     public var guideSymbol: String {
         switch self {
         case .permissions: "hand.raised"
-        case .speechAssets: "character.book.closed"
-        case .driver: "mic"
+        case .speechAssets: SubtitleTokens.SettingsIcon.recognition
+        case .driver: SubtitleTokens.SettingsIcon.talkTalkMic
         case .engine: "cpu"
         case .openAI: "character.bubble"
-        case .voice: "person.wave.2"
+        case .voice: SubtitleTokens.SettingsIcon.myVoice
         case .meetingMic: "person.2.wave.2"
         case .tryIt: "play.circle"
         }
