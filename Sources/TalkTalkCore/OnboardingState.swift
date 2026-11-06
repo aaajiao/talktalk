@@ -22,6 +22,24 @@ public enum OnboardingStep: String, CaseIterable, Codable, Sendable, Comparable 
     }
 
     public static func < (a: Self, b: Self) -> Bool { a.number < b.number }
+
+    /// The steps for the chosen scenarios (redesign §7 首次引导). Video alone needs only app
+    /// audio and speech recognition, the speech assets and the try-out ("准备视频字幕").
+    public static func path(for scenarios: Set<OnboardingScenario>) -> [OnboardingStep] {
+        OnboardingScenario.isVideoOnly(scenarios) ? [.permissions, .speechAssets, .tryIt] : allCases
+    }
+}
+
+/// "你会用 TalkTalk 做什么？" — the page before step 1; several may be chosen.
+public enum OnboardingScenario: String, CaseIterable, Codable, Sendable, Comparable {
+    case meeting, phone, video
+
+    public static func < (a: Self, b: Self) -> Bool {
+        allCases.firstIndex(of: a)! < allCases.firstIndex(of: b)!
+    }
+
+    /// Only video: no microphone, no virtual microphone and no speaking practice.
+    public static func isVideoOnly(_ set: Set<Self>) -> Bool { set == [.video] }
 }
 
 /// The afplay probe's verdict (§3.1). nil wherever it appears: the probe has not run.
@@ -66,14 +84,18 @@ public struct OnboardingFacts: Sendable, Equatable {
     /// Step 1 is done when the three prompts are granted and the system-audio probe has run
     /// without an explicit denial. An inconclusive probe does not block: the first meeting checks
     /// again (§3.1, MeetingSession's tccDenied path). A probe that has not run blocks.
-    public var permissionsDone: Bool {
-        microphone == true && speechRecognition == true && inputMonitoring == true
-            && systemAudioProbe != nil && systemAudioProbe != .denied
+    public var permissionsDone: Bool { permissionsDone(videoOnly: false) }
+
+    /// Video alone needs app audio (the probe) and speech recognition, not the microphone or
+    /// Input Monitoring.
+    public func permissionsDone(videoOnly: Bool) -> Bool {
+        let listening = speechRecognition == true && systemAudioProbe != nil && systemAudioProbe != .denied
+        return videoOnly ? listening : listening && microphone == true && inputMonitoring == true
     }
 
-    public func satisfied(_ step: OnboardingStep) -> Bool {
+    public func satisfied(_ step: OnboardingStep, videoOnly: Bool = false) -> Bool {
         switch step {
-        case .permissions: permissionsDone
+        case .permissions: permissionsDone(videoOnly: videoOnly)
         case .speechAssets: speechAssets == true
         case .driver: driverInstalled == true
         case .engine: engineInstalled == true
@@ -99,13 +121,18 @@ public final class OnboardingState {
         public static let pendingRelaunch = "onboarding.v2.pendingRelaunch"
         /// Last afplay probe verdict; absent: never run. Survives the Input Monitoring relaunch.
         public static let systemAudioProbe = "onboarding.v2.systemAudioProbe"
+        /// The scenarios chosen on the first page; absent: not chosen yet.
+        public static let scenarios = "onboarding.v2.scenarios"
         static let legacyPrefix = "onboarding."
     }
 
     /// Why the app is about to be relaunched by the user (System Settings' "退出并重新打开").
     public enum Relaunch: String, Sendable { case inputMonitoring }
 
-    public let steps: [OnboardingStep]
+    /// The steps this build shows, before the scenario choice narrows them.
+    public let buildSteps: [OnboardingStep]
+    /// The steps of the chosen path, in order.
+    public private(set) var steps: [OnboardingStep]
     private let defaults: UserDefaults
 
     public private(set) var current: OnboardingStep? {
@@ -124,14 +151,31 @@ public final class OnboardingState {
     public private(set) var systemAudioProbe: OnboardingProbeVerdict? {
         didSet { defaults.set(systemAudioProbe?.rawValue, forKey: Key.systemAudioProbe) }
     }
+    /// nil: not chosen (a fresh start, a restart, or onboarding begun before the page existed,
+    /// which keeps the full path and its saved step).
+    public private(set) var scenarios: Set<OnboardingScenario>? {
+        didSet {
+            if let scenarios { defaults.set(scenarios.map(\.rawValue).sorted(), forKey: Key.scenarios) }
+            else { defaults.removeObject(forKey: Key.scenarios) }
+        }
+    }
+    /// The scenario page is on screen (before step 1, or after 上一步 from the first step).
+    public private(set) var choosingScenarios: Bool
+    public var videoOnly: Bool { scenarios.map(OnboardingScenario.isVideoOnly) ?? false }
 
     /// `steps`: the steps this build shows, in order (all eight by default).
     public init(defaults: UserDefaults = .standard, steps: [OnboardingStep] = OnboardingStep.allCases) {
         self.defaults = defaults
-        self.steps = steps.sorted()
+        buildSteps = steps.sorted()
         Self.removeLegacyKeys(defaults)
         let saved = OnboardingStep(rawValue: defaults.string(forKey: Key.step) ?? "")
         finished = defaults.bool(forKey: Key.finished)
+        let chosen = defaults.stringArray(forKey: Key.scenarios).map { Set($0.compactMap(OnboardingScenario.init(rawValue:))) }
+        let kept = chosen?.isEmpty == true ? nil : chosen
+        scenarios = kept
+        self.steps = Self.steps(buildSteps, for: kept)
+        // A fresh start shows the scenario page; a saved step continues where it was.
+        choosingScenarios = !finished && saved == nil && kept == nil
         skipped = Set((defaults.stringArray(forKey: Key.skipped) ?? []).compactMap(OnboardingStep.init(rawValue:)))
         pendingRelaunch = Relaunch(rawValue: defaults.string(forKey: Key.pendingRelaunch) ?? "")
         systemAudioProbe = OnboardingProbeVerdict(rawValue: defaults.string(forKey: Key.systemAudioProbe) ?? "")
@@ -148,6 +192,33 @@ public final class OnboardingState {
     }
 
     public var needsOnboarding: Bool { !finished }
+
+    /// 1-based position of `step` in the chosen path ("第 2 步，共 3 步").
+    public func position(of step: OnboardingStep) -> Int? { steps.firstIndex(of: step).map { $0 + 1 } }
+
+    private static func steps(_ build: [OnboardingStep], for scenarios: Set<OnboardingScenario>?) -> [OnboardingStep] {
+        guard let scenarios else { return build }
+        let path = Set(OnboardingStep.path(for: scenarios))
+        let narrowed = build.filter(path.contains)
+        return narrowed.isEmpty ? build : narrowed
+    }
+
+    /// The first page's 继续. A fresh choice starts the path at its first step; a step saved
+    /// before the page existed is kept when the new path still contains it (else the next one).
+    @discardableResult
+    public func chooseScenarios(_ chosen: Set<OnboardingScenario>) -> Bool {
+        guard !chosen.isEmpty, !finished else { return false }
+        let fresh = choosingScenarios
+        scenarios = chosen
+        steps = Self.steps(buildSteps, for: chosen)
+        choosingScenarios = false
+        if fresh || current == nil {
+            current = steps.first
+        } else if let c = current, !steps.contains(c) {
+            current = steps.first { $0 > c } ?? steps.first
+        }
+        return true
+    }
 
     static func removeLegacyKeys(_ d: UserDefaults) {
         for k in d.dictionaryRepresentation().keys where k.hasPrefix(Key.legacyPrefix) && !k.hasPrefix(Key.prefix) {
@@ -173,14 +244,14 @@ public final class OnboardingState {
         guard pendingRelaunch == .inputMonitoring else { return }
         guard facts.inputMonitoring == true else { return }   // not granted yet: stay, keep the flag
         pendingRelaunch = nil
-        if current == .permissions, facts.permissionsDone { advance(from: .permissions) }
+        if current == .permissions, facts.permissionsDone(videoOnly: videoOnly) { advance(from: .permissions) }
     }
 
     /// The user is about to quit for the Input Monitoring relaunch (or System Settings will do it).
     public func willRelaunch(for r: Relaunch) { pendingRelaunch = r }
 
     public func canContinue(_ step: OnboardingStep, _ facts: OnboardingFacts) -> Bool {
-        step.skippable || merged(facts).satisfied(step)
+        step.skippable || merged(facts).satisfied(step, videoOnly: videoOnly)
     }
 
     /// "继续": only when the step is satisfied (or skippable, which then counts as skipped when
@@ -189,7 +260,7 @@ public final class OnboardingState {
     public func complete(_ step: OnboardingStep, _ given: OnboardingFacts) -> Bool {
         let facts = merged(given)
         guard step == current, canContinue(step, facts) else { return false }
-        if facts.satisfied(step) { skipped.remove(step) } else { skipped.insert(step) }
+        if facts.satisfied(step, videoOnly: videoOnly) { skipped.remove(step) } else { skipped.insert(step) }
         advance(from: step)
         return true
     }
@@ -203,9 +274,10 @@ public final class OnboardingState {
         return true
     }
 
+    /// From the first step this returns to the scenario page.
     public func back() {
-        guard let c = current, let i = steps.firstIndex(of: c), i > 0 else { return }
-        current = steps[i - 1]
+        guard let c = current, let i = steps.firstIndex(of: c) else { return }
+        if i > 0 { current = steps[i - 1] } else if !finished { choosingScenarios = true }
     }
 
     /// Settings "重新运行引导".
@@ -214,10 +286,14 @@ public final class OnboardingState {
         skipped = []
         pendingRelaunch = nil
         systemAudioProbe = nil
+        scenarios = nil
+        steps = buildSteps
+        choosingScenarios = true
         current = steps.first
     }
 
     private func advance(from step: OnboardingStep) {
+        choosingScenarios = false
         if let next = steps.first(where: { $0 > step }) {
             current = next
         } else {

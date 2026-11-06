@@ -1,6 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import SwiftUI
 import TalkTalkCore
+import TalkTalkSession
 
 struct MeetingMicStep: View {
     let model: OnboardingFlowModel
@@ -63,9 +64,14 @@ struct TryItStep: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            StepTitle(number: OnboardingStep.tryIt.number, title: "试一次听与说")
-            listen
-            speak
+            if model.videoOnly {
+                StepTitle(number: OnboardingStep.tryIt.number, title: "试一次视频字幕")
+                listen
+            } else {
+                StepTitle(number: OnboardingStep.tryIt.number, title: "试一次听与说")
+                listen
+                speak
+            }
         }
         .onDisappear { model.stopActivities() }
     }
@@ -100,7 +106,7 @@ struct TryItStep: View {
             }
             DisclosureGroup(String(localized: "字幕和备用翻译说明")) {
                 VStack(alignment: .leading, spacing: 8) {
-                    SettingsNote("使用 Apple 备用翻译时，译文前带“≈”。")
+                    SettingsNote("云端不可用时由 Apple 翻译，句末显示“备用翻译”标记。")
                     SettingsNote("本页汇总示例原文和已收到的中文译文；逐句配对请看字幕面板。")
                 }
                 .padding(.top, 6)
@@ -176,7 +182,41 @@ struct TryItStep: View {
     }
 }
 
+/// "你会用 TalkTalk 做什么？" before step 1 (redesign §7): several may be chosen; video alone
+/// takes the reduced "准备视频字幕" path.
+struct ScenarioChoiceStep: View {
+    @Bindable var model: OnboardingFlowModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("你会用 TalkTalk 做什么？").font(.title2.bold())
+            SettingsNote("可以多选。只看视频时，引导只准备应用声音、语音识别和语音资源。")
+            HStack(spacing: 12) {
+                ForEach(OnboardingScenario.allCases, id: \.self) { scenario in
+                    let mode = OnboardingFlowModel.mode(scenario)
+                    SettingsTabButton(title: mode.scene.title, symbol: mode.sceneSymbol, summary: summary(scenario),
+                                      selected: model.selectedScenarios.contains(scenario)) {
+                        model.toggleScenario(scenario)
+                    }
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(String(localized: "使用场景，可多选"))
+        }
+    }
+
+    private func summary(_ scenario: OnboardingScenario) -> String {
+        switch scenario {
+        case .meeting: String(localized: "电脑会议 · 双向同传")
+        case .phone: String(localized: "自己的号码 · 双向同传")
+        case .video: String(localized: "观看视频 · 双语字幕")
+        }
+    }
+}
+
 struct DoneStep: View {
+    let model: OnboardingFlowModel
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("引导完成", systemImage: "flag.checkered").font(.title2.bold())
@@ -187,17 +227,40 @@ struct DoneStep: View {
                     ("play.circle", String(localized: "开始同传或字幕"))
                 ])
             }
-            OnboardingCard(title: "开会、打电话与看视频", symbol: "person.2.wave.2") {
-                Label("开会：开始会议同传", systemImage: "person.2.wave.2").font(.headline)
-                SettingsNote("听对方看双语字幕；我说话默认传原声，点按右⌥开始翻译，再点按结束，译音播完后恢复原声。会议应用的输入选 TalkTalk Mic。")
+            OnboardingCard(title: "开会、打电话与看视频", symbol: SubtitleTokens.SceneIcon.meeting) {
+                scenarioRow(.meeting, title: String(localized: "开会：开始会议同传"),
+                            note: String(localized: "听对方看双语字幕；我说话默认传原声，点按右⌥开始翻译，再点按结束，译音播完后恢复原声。会议应用的输入选 TalkTalk Mic。"))
                 Divider()
-                Label("打电话：准备电话同传", systemImage: "phone").font(.headline)
-                SettingsNote("固定使用 Mac 的 Phone 和你的 iPhone 号码。先准备同传，再拨号或接听；结束同传后恢复麦克风。")
+                scenarioRow(.phone, title: String(localized: "打电话：准备电话同传"),
+                            note: String(localized: "固定使用 Mac 的 Phone 和你的 iPhone 号码。先准备同传，再拨号或接听；结束同传后恢复麦克风。"))
                 Divider()
-                Label("看视频：开始视频字幕", systemImage: "play.rectangle").font(.headline)
-                SettingsNote("只收听应用声音，英语或德语原文与中文字幕成对显示，不使用麦克风。")
+                scenarioRow(.captions, title: String(localized: "看视频：开始视频字幕"),
+                            note: String(localized: "只收听应用声音，英语或德语原文与中文字幕成对显示，不使用麦克风。"))
             }
             SettingsNote("需要重新检查时，可从 设置 › 通用 重新运行引导。")
         }
+    }
+
+    /// A clickable scenario row: opens settings at that scenario.
+    private func scenarioRow(_ mode: MeetingMode, title: String, note: String) -> some View {
+        Button {
+            model.openScenario?(mode)
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: mode.sceneSymbol).font(.headline).foregroundStyle(Color.accentColor)
+                    .frame(width: 22).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline)
+                    Text(note).font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary).accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.openScenario == nil)
+        .accessibilityHint(String(localized: "打开设置中的这个场景"))
     }
 }

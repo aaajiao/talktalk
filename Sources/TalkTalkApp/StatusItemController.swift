@@ -24,6 +24,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         var restoreDefaultInput: () -> Void = {}
         var canRestoreSubtitleWindow: () -> Bool = { false }
         var restoreSubtitleWindow: () -> Void = {}
+        /// The idle menu's quick start (redesign §7): starts directly; opens the scenario page
+        /// only on failure or when a source must be chosen.
+        var quickStart: (MeetingMode) -> Void = { _ in }
+        /// The titlebar's voice capsule state (HUDModel.voiceState), for the in-session header.
+        var voiceState: () -> VoiceState? = { nil }
     }
 
     /// §11 icon states from the current meeting and SPEAK session.
@@ -48,6 +53,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let actions: Actions
     private let item: NSStatusItem
     private(set) var iconState: IconState = .standby
+    /// The in-session header and its one-second clock while the menu is open.
+    private weak var sessionHeader: NSMenuItem?
+    private var headerTimer: Timer?
 
     init(state: AppState, actions: Actions) {
         self.state = state
@@ -110,35 +118,71 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - NSMenuDelegate
 
+    func menuWillOpen(_ menu: NSMenu) {
+        headerTimer?.invalidate()
+        guard sessionHeader != nil else { return }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshSessionHeader() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        headerTimer = timer
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        headerTimer?.invalidate()
+        headerTimer = nil
+    }
+
+    private var sessionHeaderTitle: String {
+        MenuSessionHeader.title(mode: state.meetingMode, source: state.meetingApp,
+                                elapsed: state.meetingStartedAt.map { Date().timeIntervalSince($0) })
+    }
+
+    private func refreshSessionHeader() {
+        guard let sessionHeader, state.meetingActive else { return }
+        sessionHeader.attributedTitle = NSAttributedString(string: sessionHeaderTitle, attributes: [
+            .font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        sessionHeader = nil
         let mode = state.meetingMode.displayTitle
-        let headline = state.meetingActive && iconState != .listening
-            ? String(localized: "\(mode) · \(statusDescription)") : statusDescription
-        menu.addItem(statusLine(headline))
+        let busy = state.meetingActive || state.meetingStarting || state.meetingStopping
+        if state.meetingActive, !state.meetingStopping {
+            // §7: "会议同传 · Zoom · 12:03" and the capsule's state as a dot and text.
+            let header = statusLine(sessionHeaderTitle)
+            menu.addItem(header)
+            sessionHeader = header
+            refreshSessionHeader()
+            if let voice = actions.voiceState() { menu.addItem(voiceLine(voice)) }
+            if iconState != .listening { menu.addItem(statusLine(statusDescription)) }
+        } else if busy {
+            menu.addItem(statusLine(state.meetingStarting ? String(localized: "正在准备\(mode)…")
+                                                          : String(localized: "正在结束\(mode)…")))
+        } else {
+            addQuickStart(to: menu)
+        }
         if actions.canRestoreSubtitleWindow() {
             menu.addItem(item(String(localized: "恢复字幕窗口"), #selector(restoreSubtitleWindow), symbol: "macwindow"))
         }
         menu.addItem(.separator())
 
-        if state.meetingActive || state.meetingStarting || state.meetingStopping {
-            let title: String
-            if state.meetingStarting { title = String(localized: "正在准备\(mode)…") }
-            else if state.meetingStopping { title = String(localized: "正在停止\(mode)…") }
-            else { title = String(localized: "停止\(mode)") }
-            let stop = item(title, #selector(toggleMeeting), symbol: "stop.circle")
+        if busy {
+            let stop = item(String(localized: "结束\(mode)"), #selector(toggleMeeting), symbol: SubtitleTokens.VoiceIcon.end)
             stop.isEnabled = !state.meetingStarting && !state.meetingStopping
             menu.addItem(stop)
         } else {
-            let meeting = item(String(localized: "会议同传…"), #selector(openMeetingMode), symbol: "person.2.wave.2")
+            let meeting = item(String(localized: "会议同传…"), #selector(openMeetingMode), symbol: SubtitleTokens.SceneIcon.meeting)
             meeting.isEnabled = state.meetingAvailable
             menu.addItem(meeting)
-            let phone = item(String(localized: "电话同传…"), #selector(openPhoneMode), symbol: "phone")
+            let phone = item(String(localized: "电话同传…"), #selector(openPhoneMode), symbol: SubtitleTokens.SceneIcon.phone)
             phone.isEnabled = state.meetingAvailable
             menu.addItem(phone)
-            let captions = item(String(localized: "视频字幕…"), #selector(openVideoMode), symbol: "play.rectangle")
+            let captions = item(String(localized: "视频字幕…"), #selector(openVideoMode), symbol: SubtitleTokens.SceneIcon.video)
             captions.isEnabled = state.meetingAvailable
             menu.addItem(captions)
+            if iconState != .standby { menu.addItem(statusLine(statusDescription)) }
         }
         menu.addItem(.separator())
 
@@ -281,6 +325,54 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(quit)
     }
 
+    /// Idle: the bold primary "开始会议同传 · Zoom" and the gray "上次：…" line.
+    private func addQuickStart(to menu: NSMenu) {
+        let last = state.lastScenario
+        let mode = last ?? .meeting
+        let source: String? = switch mode {
+        case .meeting: MenuQuickStart.sourceName(state.meetingSourceID)
+        case .captions: MenuQuickStart.sourceName(state.videoSourceID)
+        case .phone: nil
+        }
+        let quick = MenuQuickStart.make(last: last, sourceName: source, remoteLanguage: languageName(state.remoteLanguage))
+        let start = item(quick.title, #selector(quickStart), symbol: MenuQuickStart.symbol)
+        start.attributedTitle = NSAttributedString(string: quick.title, attributes: [
+            .font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
+        start.representedObject = quick.mode.rawValue
+        start.isEnabled = state.meetingAvailable
+        menu.addItem(start)
+        if let line = quick.lastLine { menu.addItem(statusLine(line)) }
+    }
+
+    /// The capsule's state with a dot of the same colour (§7).
+    private func voiceLine(_ voice: VoiceState) -> NSMenuItem {
+        let line = statusLine(voice.accessibilityLabel)
+        let color = Self.dotColor(voice.appearance.tone)
+        line.image = NSImage(size: NSSize(width: 10, height: 10), flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+            return true
+        }
+        line.toolTip = voice.detail
+        return line
+    }
+
+    private static func dotColor(_ tone: VoiceTone) -> NSColor {
+        func token(_ role: SubtitleTokens.Color) -> NSColor {
+            NSColor(name: nil) { appearance in
+                let light = appearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
+                return SubtitleStyle.nsColor(role.rgba(lightSurface: light))
+            }
+        }
+        return switch tone {
+        case .original: token(.voiceOriginal)
+        case .translate: token(.voiceTranslate)
+        case .warn: token(.warn)
+        case .risk: token(.riskFill)
+        case .neutral: .tertiaryLabelColor
+        }
+    }
+
     private func languageName(_ language: AppState.RemoteLanguage) -> String {
         language == .en ? String(localized: "英语") : String(localized: "德语")
     }
@@ -367,6 +459,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func restoreSubtitleWindow() { actions.restoreSubtitleWindow() }
     @objc private func toggleMeeting() { actions.toggleMeeting() }
+    @objc private func quickStart(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let mode = MeetingMode(rawValue: raw) else { return }
+        actions.quickStart(mode)
+    }
     @objc private func openMeetingMode() {
         state.requestedScenario = .meeting
         actions.openSettings(.meeting)

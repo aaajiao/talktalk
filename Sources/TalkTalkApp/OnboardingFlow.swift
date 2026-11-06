@@ -27,6 +27,13 @@ final class OnboardingFlowModel {
     private(set) var facts = OnboardingFacts()
     private(set) var checking = false
     var onFinish: (() -> Void)?
+    /// The done page's "打开使用场景" and its scenario rows: open settings at that scenario.
+    @ObservationIgnored var openScenario: ((MeetingMode) -> Void)?
+    /// "你会用 TalkTalk 做什么？" (redesign §7): on screen, and the cards ticked there.
+    private(set) var choosingScenarios = false
+    var selectedScenarios: Set<OnboardingScenario> = []
+    /// The chosen path narrows the steps; mirrored here so the header observes it.
+    private(set) var steps: [OnboardingStep] = []
 
     // step 1
     private(set) var probeRunning = false
@@ -70,6 +77,9 @@ final class OnboardingFlowModel {
          translation: TranslationPage, bundleID: String? = Bundle.main.bundleIdentifier, autoProbe: Bool = true) {
         state = OnboardingState(defaults: defaults, steps: OnboardingStep.allCases)
         step = state.current
+        steps = state.steps
+        choosingScenarios = state.choosingScenarios
+        selectedScenarios = state.scenarios ?? []
         self.engine = engine
         self.translation = translation
         self.bundleID = bundleID
@@ -85,7 +95,39 @@ final class OnboardingFlowModel {
     }
 
     var needsOnboarding: Bool { state.needsOnboarding }
-    var steps: [OnboardingStep] { state.steps }
+    var videoOnly: Bool { state.videoOnly }
+
+    /// The header's title for the chosen path.
+    var pathTitle: String {
+        if choosingScenarios { return String(localized: "开始使用 TalkTalk") }
+        let chosen = state.scenarios ?? Set(OnboardingScenario.allCases)
+        if OnboardingScenario.isVideoOnly(chosen) { return String(localized: "准备视频字幕") }
+        if !chosen.contains(.meeting), chosen.contains(.phone) { return String(localized: "准备电话同传") }
+        return String(localized: "准备会议同传")
+    }
+
+    /// The scenario the done page opens first: the first one chosen.
+    var primaryScenario: MeetingMode {
+        (state.scenarios ?? []).sorted().first.map(Self.mode) ?? .meeting
+    }
+
+    static func mode(_ scenario: OnboardingScenario) -> MeetingMode {
+        switch scenario {
+        case .meeting: .meeting
+        case .phone: .phone
+        case .video: .captions
+        }
+    }
+
+    func toggleScenario(_ scenario: OnboardingScenario) {
+        if selectedScenarios.contains(scenario) { selectedScenarios.remove(scenario) }
+        else { selectedScenarios.insert(scenario) }
+    }
+
+    func confirmScenarios() {
+        guard state.chooseScenarios(selectedScenarios) else { return }
+        moved()
+    }
 
     var canContinue: Bool {
         guard let s = step else { return false }
@@ -126,7 +168,7 @@ final class OnboardingFlowModel {
             assets[l] = ok ? .installed : .missing
         }
         facts.speechAssets = Lang.allCases.allSatisfy { assets[$0] == .installed }
-        if autoProbe, step == .permissions, !autoProbed, state.systemAudioProbe != .granted {
+        if autoProbe, step == .permissions, !state.choosingScenarios, !autoProbed, state.systemAudioProbe != .granted {
             autoProbed = true
             await probe()
         } else if let t = probeTask {
@@ -134,6 +176,7 @@ final class OnboardingFlowModel {
         }
         state.resume(facts)
         step = state.current
+        choosingScenarios = state.choosingScenarios
     }
 
     func next() {
@@ -156,14 +199,17 @@ final class OnboardingFlowModel {
     func restart() {
         state.restart()
         autoProbed = false
+        selectedScenarios = []
         moved()
     }
 
+    /// Finishing the last step shows the done page ("打开使用场景"); it no longer closes itself.
     private func moved() {
         stopActivities()
         voice.endRecording()
         step = state.current
-        if step == nil { onFinish?() }
+        steps = state.steps
+        choosingScenarios = state.choosingScenarios
         Task { await refresh() }
     }
 
@@ -321,6 +367,7 @@ extension OnboardingFlowModel {
 
     @discardableResult
     func devAdvance(_ given: OnboardingFacts = OnboardingFlowModel.devAllFacts) -> OnboardingStep? {
+        if state.choosingScenarios { state.chooseScenarios(Set(OnboardingScenario.allCases)) }
         guard let s = state.current else { return nil }
         facts = given
         if !state.complete(s, given) { state.skip(s) }
@@ -620,7 +667,7 @@ struct OnboardingView: View {
                     .padding(24)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .id(model.step)
+            .id(model.choosingScenarios ? "scenarios" : model.step?.rawValue ?? "done")
             Divider()
             footer
         }
@@ -629,30 +676,32 @@ struct OnboardingView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("准备会议同传").font(.headline)
+                Text(model.pathTitle).font(.headline)
                 Spacer()
                 if model.checking { ProgressView().controlSize(.small) }
-                if let step = model.step {
-                    Text("第 \(step.number) 步，共 \(model.steps.count) 步")
+                if !model.choosingScenarios, let step = model.step, let position = model.state.position(of: step) {
+                    Text("第 \(position) 步，共 \(model.steps.count) 步")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }
-            HStack(alignment: .top, spacing: 6) {
-                ForEach(model.steps, id: \.self) { step in
-                    let status = stepStatus(step)
-                    VStack(spacing: 5) {
-                        Image(systemName: status.symbol ?? step.guideSymbol)
-                            .font(.system(size: 16, weight: .medium))
-                            .frame(width: 30, height: 30)
-                            .background(Circle().fill(status.color.opacity(0.12)))
-                            .foregroundStyle(status.color)
-                        Text(step.guideTitle).font(.caption)
-                            .foregroundStyle(step == model.step ? Color.primary : Color.secondary)
+            if !model.choosingScenarios, model.step != nil {
+                HStack(alignment: .top, spacing: 6) {
+                    ForEach(model.steps, id: \.self) { step in
+                        let status = stepStatus(step)
+                        VStack(spacing: 5) {
+                            Image(systemName: status.symbol ?? step.guideSymbol)
+                                .font(.system(size: 16, weight: .medium))
+                                .frame(width: 30, height: 30)
+                                .background(Circle().fill(status.color.opacity(0.12)))
+                                .foregroundStyle(status.color)
+                            Text(step.guideTitle).font(.caption)
+                                .foregroundStyle(step == model.step ? Color.primary : Color.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text("第 \(model.state.position(of: step) ?? step.number) 步，\(step.guideTitle)，\(status.text)"))
+                        .help(status.text)
                     }
-                    .frame(maxWidth: .infinity)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(Text("第 \(step.number) 步，\(step.guideTitle)，\(status.text)"))
-                    .help(status.text)
                 }
             }
         }
@@ -672,6 +721,14 @@ struct OnboardingView: View {
     }
 
     @ViewBuilder private var page: some View {
+        if model.choosingScenarios {
+            ScenarioChoiceStep(model: model)
+        } else {
+            stepPage
+        }
+    }
+
+    @ViewBuilder private var stepPage: some View {
         switch model.step {
         case .permissions?: PermissionsStep(model: model)
         case .speechAssets?: SpeechAssetsStep(model: model)
@@ -685,30 +742,47 @@ struct OnboardingView: View {
             }
         case .meetingMic?: MeetingMicStep(model: model)
         case .tryIt?: TryItStep(model: model)
-        case nil: DoneStep()
+        case nil: DoneStep(model: model)
         }
     }
 
     private var footer: some View {
         HStack {
-            if model.step != model.steps.first, model.step != nil { Button("上一步") { model.back() } }
-            if model.step == .permissions { Button("稍后设置") { model.onFinish?() } }
-            Spacer()
-            if let s = model.step, s.skippable, s != .openAI, s != .tryIt {
-                Button(s == .meetingMic ? String(localized: "稍后核验") : String(localized: "跳过")) { model.skip() }
-            }
-            if model.step == .tryIt {
-                Button("完成") { model.next() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-            } else if model.step != .openAI, model.step != nil {
-                Button("继续") { model.next() }
+            if model.choosingScenarios {
+                Button("稍后设置") { model.onFinish?() }
+                Spacer()
+                Button("继续") { model.confirmScenarios() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!model.canContinue)
-            } else if model.step == nil {
-                Button("关闭") { model.onFinish?() }.keyboardShortcut(.defaultAction)
+                    .disabled(model.selectedScenarios.isEmpty)
+            } else {
+                stepFooter
             }
         }
         .padding(.horizontal, 24).padding(.vertical, 12)
+    }
+
+    @ViewBuilder private var stepFooter: some View {
+        if model.step != nil { Button("上一步") { model.back() } }
+        if model.step == .permissions { Button("稍后设置") { model.onFinish?() } }
+        Spacer()
+        if let s = model.step, s.skippable, s != .openAI, s != .tryIt {
+            Button(s == .meetingMic ? String(localized: "稍后核验") : String(localized: "跳过")) { model.skip() }
+        }
+        if model.step == .tryIt {
+            Button("完成") { model.next() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+        } else if model.step != .openAI, model.step != nil {
+            Button("继续") { model.next() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!model.canContinue)
+        } else if model.step == nil {
+            Button("关闭") { model.onFinish?() }
+            Button("打开使用场景") { model.openScenario?(model.primaryScenario) }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.openScenario == nil)
+        }
     }
 }
 
@@ -745,7 +819,11 @@ private struct PermissionsStep: View {
     var body: some View {
         let f = model.facts
         VStack(alignment: .leading, spacing: 16) {
-            StepTitle(number: OnboardingStep.permissions.number, title: "允许需要的声音与按键访问")
+            if model.videoOnly {
+                StepTitle(number: OnboardingStep.permissions.number, title: "允许收听应用声音与语音识别")
+            } else {
+                StepTitle(number: OnboardingStep.permissions.number, title: "允许需要的声音与按键访问")
+            }
             OnboardingCard(title: "听对方 · 看视频字幕", symbol: "ear") {
                 GrantRow(symbol: "speaker.wave.2", title: "应用声音", note: "收听选中的会议应用或浏览器，生成原文与中文字幕。",
                          granted: model.systemAudioShown, action: model.runSystemAudioProbe, actionTitle: "检查", busy: model.probeRunning)
@@ -757,21 +835,28 @@ private struct PermissionsStep: View {
                     Text(note).font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            OnboardingCard(title: "我说话 · 原声与按键翻译", symbol: "mic") {
-                GrantRow(symbol: "mic", title: "麦克风", note: "会议中持续收音：默认传原声，点按右⌥开始翻译，再点按结束发言。视频字幕不用麦克风。", granted: f.microphone,
-                         action: model.requestMicrophone, actionTitle: "允许…")
-                Divider()
-                GrantRow(symbol: "keyboard", title: "右⌥快捷键", note: "需要输入监控权限。允许后，macOS 可能要求重开 TalkTalk。",
-                         granted: f.inputMonitoring, action: model.requestInputMonitoring, actionTitle: "允许…")
-            }
-            if f.microphone == false || f.speechRecognition == false {
-                Button("打开“隐私与安全性”") { model.openPrivacy(f.microphone == false ? "Privacy_Microphone" : "Privacy_SpeechRecognition") }
-            }
-            DisclosureGroup("只想看视频，或想了解权限用途？") {
-                VStack(alignment: .leading, spacing: 8) {
-                    SettingsNote("可以先点“稍后设置”关闭引导，从菜单开始视频字幕；系统录音权限会在开始时检查。会议发言需要麦克风和输入监控。")
-                    SettingsNote("快捷键只监听、不修改按键。权限由 macOS 管理，可在系统设置中调整。")
-                }.padding(.top, 8)
+            if model.videoOnly {
+                if f.speechRecognition == false {
+                    Button("打开“隐私与安全性”") { model.openPrivacy("Privacy_SpeechRecognition") }
+                }
+                SettingsNote("只看视频时不需要麦克风和输入监控；以后要开会或打电话，可从 设置 › 通用 重新运行引导。")
+            } else {
+                OnboardingCard(title: "我说话 · 原声与按键翻译", symbol: "mic") {
+                    GrantRow(symbol: "mic", title: "麦克风", note: "会议中持续收音：默认传原声，点按右⌥开始翻译，再点按结束发言。视频字幕不用麦克风。", granted: f.microphone,
+                             action: model.requestMicrophone, actionTitle: "允许…")
+                    Divider()
+                    GrantRow(symbol: "keyboard", title: "右⌥快捷键", note: "需要输入监控权限。允许后，macOS 可能要求重开 TalkTalk。",
+                             granted: f.inputMonitoring, action: model.requestInputMonitoring, actionTitle: "允许…")
+                }
+                if f.microphone == false || f.speechRecognition == false {
+                    Button("打开“隐私与安全性”") { model.openPrivacy(f.microphone == false ? "Privacy_Microphone" : "Privacy_SpeechRecognition") }
+                }
+                DisclosureGroup("只想看视频，或想了解权限用途？") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SettingsNote("可以先点“稍后设置”关闭引导，从菜单开始视频字幕；系统录音权限会在开始时检查。会议发言需要麦克风和输入监控。")
+                        SettingsNote("快捷键只监听、不修改按键。权限由 macOS 管理，可在系统设置中调整。")
+                    }.padding(.top, 8)
+                }
             }
         }
     }

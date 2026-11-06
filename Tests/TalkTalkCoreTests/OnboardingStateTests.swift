@@ -206,4 +206,53 @@ private let allGranted = OnboardingFacts(microphone: true, speechRecognition: tr
         let again = s.relaunch(steps: [.tryIt])
         #expect(again.current == nil && !again.needsOnboarding)
     }
+
+    // MARK: scenario page (redesign §7)
+
+    @Test func freshStartChoosesScenariosFirstAndRemembersThem() {
+        let s = DefaultsSuite()
+        let o = s.relaunch()
+        #expect(o.choosingScenarios && o.scenarios == nil)
+        #expect(!o.chooseScenarios([]))
+        #expect(o.chooseScenarios([.meeting, .video]))
+        #expect(!o.choosingScenarios && o.current == .permissions && o.steps == OnboardingStep.allCases)
+        let again = s.relaunch()
+        #expect(again.scenarios == [.meeting, .video] && !again.choosingScenarios)
+    }
+
+    @Test func videoOnlyTakesTheReducedPathWithoutMicrophoneGrants() {
+        let s = DefaultsSuite()
+        let o = s.relaunch()
+        o.chooseScenarios([.video])
+        #expect(o.steps == [.permissions, .speechAssets, .tryIt])
+        #expect(o.position(of: .tryIt) == 3 && o.position(of: .driver) == nil)
+        o.recordSystemAudioProbe(.granted)
+        #expect(o.complete(.permissions, .init(speechRecognition: true)))   // no mic, no Input Monitoring
+        #expect(o.complete(.speechAssets, .init(speechAssets: true)))
+        #expect(o.current == .tryIt)
+        #expect(s.relaunch().steps == [.permissions, .speechAssets, .tryIt])
+    }
+
+    @Test func backFromTheFirstStepReturnsToTheScenarioPage() {
+        let s = DefaultsSuite()
+        let o = s.relaunch()
+        o.chooseScenarios([.meeting])
+        o.back()
+        #expect(o.choosingScenarios && o.current == .permissions)
+        o.chooseScenarios([.video])
+        #expect(o.steps.count == 3 && !o.choosingScenarios)
+        o.restart()
+        #expect(o.choosingScenarios && o.scenarios == nil && o.steps == OnboardingStep.allCases)
+    }
+
+    @Test func onboardingBegunBeforeThePageKeepsItsSavedStep() {
+        let s = DefaultsSuite()
+        s.defaults.set(OnboardingStep.engine.rawValue, forKey: OnboardingState.Key.step)
+        let o = s.relaunch()
+        #expect(!o.choosingScenarios && o.current == .engine)
+        o.back(); o.back(); o.back(); o.back()
+        #expect(o.choosingScenarios)
+        o.chooseScenarios([.phone])
+        #expect(o.current == .permissions)
+    }
 }
