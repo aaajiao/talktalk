@@ -147,6 +147,8 @@ public struct VoiceState: Sendable, Equatable {
             switch audio {
             case let .unavailable(r): kind = .unavailable; reason = r
             case .phoneReconnecting: kind = .phoneReconnecting
+            // Start-up wait: the gate is closed and nothing reaches TalkTalk Mic yet.
+            case .preparing: kind = .notSent
             case .phoneReady: kind = phone ? .phoneNotConnected : .notSent
             case .original: kind = unconfirmed ? .phoneLocalTrial : .original
             case .switching: kind = .switching
@@ -329,16 +331,24 @@ public enum IssueSlot: Sendable, Equatable {
 public struct TitlebarKey: Sendable, Equatable {
     public enum Style: Sendable, Equatable { case idle, translating, pressed }
     public var key: String
+    /// The action's words: always the tooltip and VoiceOver label ("右⌥ 本机试说").
     public var action: String?
     /// Drawn after the keycap instead of `action` at every titlebar width; nil keeps the text.
     public var symbol: String?
+    /// false: the capsule beside it already shows the same words, so the titlebar draws the
+    /// keycap alone (one fact once); `action` stays for the tooltip and VoiceOver.
+    public var drawsAction: Bool
     public var style: Style
 
-    public init(key: String = String(localized: "右⌥"), action: String?, symbol: String? = nil, style: Style) {
-        self.key = key; self.action = action; self.symbol = symbol; self.style = style
+    public init(key: String = String(localized: "右⌥"), action: String?, symbol: String? = nil,
+                drawsAction: Bool = true, style: Style) {
+        self.key = key; self.action = action; self.symbol = symbol; self.drawsAction = drawsAction; self.style = style
     }
 
-    /// nil when no key action applies (video, unavailable, risk, reconnecting).
+    /// nil when no key action applies (video, unavailable, preparing, risk, reconnecting).
+    /// When the capsule already reads the action (switching "松开确认", Phone's local trial
+    /// "本机试说"), the key does not repeat it: switching draws the pressed keycap alone, the
+    /// local trial its start glyph.
     public static func make(_ presentation: SpeechStatusPresentation, voice: VoiceState) -> TitlebarKey? {
         guard voice.kind != .remoteHearsOriginal, voice.kind != .listening,
               let action = presentation.keyAction else { return nil }
@@ -347,7 +357,9 @@ public struct TitlebarKey: Sendable, Equatable {
         case .translating: .translating
         default: .idle
         }
-        return TitlebarKey(action: action, symbol: presentation.keySymbol, style: style)
+        var symbol = presentation.keySymbol
+        if symbol == nil, voice.kind == .phoneLocalTrial { symbol = SubtitleTokens.VoiceIcon.startTranslation }
+        return TitlebarKey(action: action, symbol: symbol, drawsAction: voice.title != action, style: style)
     }
 }
 

@@ -155,6 +155,10 @@ import TalkTalkCore
         #expect(ConversationTimeline.Delivery.phoneLocalOnly.symbol == SubtitleTokens.VoiceIcon.thisMac)
         #expect(ConversationTimeline.Delivery.aborted.symbol == SubtitleTokens.VoiceIcon.aborted)
         #expect(ConversationTimeline.Delivery.sent.symbol == SubtitleTokens.ConversationIcon.delivered)
+        // Meeting success is glyph-only; Phone and problem labels keep their (safety) words.
+        #expect(!ConversationTimeline.Delivery.sent.drawsTitle)
+        let worded: [ConversationTimeline.Delivery] = [.notSent, .phoneSent, .phoneLocalOnly, .aborted]
+        for delivery in worded { #expect(delivery.drawsTitle, "\(delivery)") }
         // Help starts with the visible word (VoiceOver reads help) and never claims the other
         // side heard it.
         let all: [ConversationTimeline.Delivery] = [.sent, .notSent, .phoneSent, .phoneLocalOnly, .aborted]

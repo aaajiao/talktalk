@@ -323,9 +323,6 @@ final class VideoSubtitleView: NSView {
 
     private var sourceFont: NSFont { Self.font(in: source, fallback: 17) }
     private var translationFont: NSFont { Self.font(in: translation, fallback: 26) }
-    private var markerWidth: CGFloat {
-        ceil((VideoCaptionLayout.continuationMarker as NSString).size(withAttributes: [.font: translationFont]).width) + 2
-    }
 
     override func layout() {
         super.layout()
@@ -343,8 +340,7 @@ final class VideoSubtitleView: NSView {
         let sourceAnchor = isDisplayingFinal ? min(previousSourceAnchor, sourceCorrectionAnchor ?? previousSourceAnchor) : previousSourceAnchor
         let targetAnchor = isDisplayingFinal ? min(previousTargetAnchor, translationCorrectionAnchor ?? previousTargetAnchor) : previousTargetAnchor
         sourcePages = paginate(source, lineWidth: sourceWidth, maxLines: key.sourceLines)
-        // Reserve room for the continuation marker on every Chinese line.
-        translationPages = paginate(translation, lineWidth: max(1, translationWidth - markerWidth),
+        translationPages = paginate(translation, lineWidth: max(1, translationWidth),
                                     maxLines: VideoCaptionLayout.maxLinesPerPage)
         pageCount = max(sourcePages.count, translationPages.count)
         layoutReady = (!hasCaption || pageCount > 0)
@@ -522,16 +518,10 @@ final class VideoSubtitleView: NSView {
         if notice != nil { sourceVisual = NSAttributedString(string: "") }
         let translationVisual = NSMutableAttributedString(attributedString:
             targetPageValue.map { visual(for: $0, in: translation) } ?? NSAttributedString(string: ""))
-        if translationVisual.length > 0 {
+        // More pages are shown by the page dots alone (no "›" on the line as well).
+        if translationVisual.length > 0, fallback, isDisplayingFinal, isLastTranslationPage {
             let attributes = translationVisual.attributes(at: translationVisual.length - 1, effectiveRange: nil)
-            if hasNextPage {
-                var marker = attributes
-                marker[.foregroundColor] = SubtitleStyle.white(CGFloat(VideoCaptionLayout.continuationAlpha(increaseContrast: contrast)))
-                marker[.strokeWidth] = nil
-                translationVisual.append(NSAttributedString(string: VideoCaptionLayout.continuationMarker, attributes: marker))
-            } else if fallback, isDisplayingFinal, isLastTranslationPage {
-                translationVisual.append(ConversationText.fallbackBadge(baseFont: translationFont, attributes: attributes))
-            }
+            translationVisual.append(ConversationText.fallbackBadge(baseFont: translationFont, attributes: attributes))
         }
 
         let plateAlpha = plateBaseAlpha
@@ -546,7 +536,7 @@ final class VideoSubtitleView: NSView {
         translationView.setCaption(translationVisual)
         noticeView.setCaption(notice ?? NSAttributedString(string: ""))
         sourceView.setAccessibilityValue(displayedSource)
-        // VoiceOver hears that more pages follow, which the dots and "›" only show.
+        // VoiceOver hears that more pages follow, which the dots only show.
         translationView.setAccessibilityValue(layoutReady && pageCount > 1 && !displayedTranslation.isEmpty
             ? String(localized: "\(displayedTranslation)，第 \(currentPageIndex + 1) 页，共 \(pageCount) 页")
             : displayedTranslation)

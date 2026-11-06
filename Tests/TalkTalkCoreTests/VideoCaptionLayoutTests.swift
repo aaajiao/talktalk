@@ -18,10 +18,10 @@ import Testing
     @Test func metaAlphasStrengthenWithIncreaseContrast() {
         let pairs: [(Bool) -> Double] = [
             VideoCaptionLayout.pageDotOtherAlpha, VideoCaptionLayout.pageDotCurrentAlpha,
-            VideoCaptionLayout.continuationAlpha, VideoCaptionLayout.skippedNoticeAlpha, VideoCaptionLayout.placeholderAlpha,
+            VideoCaptionLayout.skippedNoticeAlpha, VideoCaptionLayout.placeholderAlpha,
         ]
-        #expect(pairs.map { $0(false) } == [0.30, 0.90, 0.45, 0.5, 0.6])
-        #expect(pairs.map { $0(true) } == [0.5, 1.0, 0.7, 0.75, 0.8])
+        #expect(pairs.map { $0(false) } == [0.30, 0.90, 0.5, 0.6])
+        #expect(pairs.map { $0(true) } == [0.5, 1.0, 0.75, 0.8])
     }
 
     @Test func captionStylesResolveReduceTransparencyAndShadows() {

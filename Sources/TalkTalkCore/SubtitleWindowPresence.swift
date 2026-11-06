@@ -19,8 +19,9 @@ public struct SubtitleWindowPresence: Sendable, Equatable {
         return sessionOpen
     }
 
-    public func hasContent(subtitles: Bool, conversation: Bool, status: Bool,
-                           sessionActions: Bool, phoneActions: Bool) -> Bool {
-        sessionOpen && (subtitles || conversation || status || sessionActions || phoneActions)
+    /// Phone's preparation context alone never shows the window: it is first ordered front by
+    /// the running session, already at its final size (no bare titlebar strip while preparing).
+    public func hasContent(subtitles: Bool, conversation: Bool, status: Bool, sessionActions: Bool) -> Bool {
+        sessionOpen && (subtitles || conversation || status || sessionActions)
     }
 }

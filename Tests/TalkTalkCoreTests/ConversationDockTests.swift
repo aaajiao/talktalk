@@ -52,7 +52,7 @@ import Testing
         #expect(original.tone == .original && original.wave == .solid && original.allowsStartHint)
         #expect(original.accessibilityLabel == "麦克风：原声，对方能听到你")
         #expect(dock(.translating).label == "翻译中" && dock(.translating).wave == .solid)
-        #expect(dock(.switching).label == "松开 右⌥ 确认" && dock(.switching).wave == .outlined)
+        #expect(dock(.switching).label == "松开右⌥确认" && dock(.switching).wave == .outlined)
         #expect(dock(.draining, playing: true).label == "译音播放中" && dock(.draining, playing: true).wave == .dashed)
         // Draining before any Feed playback is processing, not playback.
         #expect(dock(.draining).label == "译音处理中")
@@ -74,10 +74,12 @@ import Testing
         #expect(!MicDockPresentation.Action.details.showsTitle(compact: false))
         // The hidden consequence stays on hover.
         #expect(risk.toolTip == "对方能听到原声 · 会议没有使用 TalkTalk Mic")
-        #expect(dock(.switching).toolTip == "松开 右⌥ 确认")
+        #expect(dock(.switching).toolTip == "松开右⌥确认")
 
         // Phone separates local readiness, Phone input and the other person.
-        #expect(dock(.phoneReady, scene: .phone).label == "电话同传已就绪")
+        // The capsule's own words: the dock reads the same VoiceState.
+        #expect(dock(.phoneReady, scene: .phone).label == "未接入 Phone")
+        #expect(MicDockPresentation.startHint == "点按右⌥翻译你的发言")
         #expect(dock(.phoneReady, scene: .phone).consequence == "接通后对方才能听到你")
         #expect(dock(.original, scene: .phone, confirmed: true).consequence == "正在送入 Phone")
         #expect(dock(.original, scene: .phone).label == "本机试说")

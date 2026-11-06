@@ -46,12 +46,10 @@ import Testing
         var model = HUDModel()
         model.meetingStarted()
         model.meetingAudio = .translating
-        model.post(.passthroughTip, now: 0)
         model.post(.meetingSilent, now: 0)
         let chip = try #require(model.issueSlot(now: 1)?.chip)
         #expect(chip.tone == .info && chip.label == "未听到对方")
         #expect(model.voiceState?.kind == .translating)
-        #expect(model.activityDetails(now: 1).contains { $0.text == HUDModel.Warning.passthroughTip.line.text })
         #expect(chip.detail == HUDModel.Warning.meetingSilent.text)
     }
 
@@ -71,7 +69,7 @@ import Testing
     }
 
     @Test func micSlashOnlyMeansOriginalOffOrUnavailable() {
-        let all: [HUDModel.MeetingAudio] = [.phoneReady, .original, .switching, .translating, .draining,
+        let all: [HUDModel.MeetingAudio] = [.preparing, .phoneReady, .original, .switching, .translating, .draining,
                                             .restoringOriginal, .phoneReconnecting, .unavailable(reason: "x")]
         for audio in all {
             for confirmed: Bool? in [nil, false, true] {

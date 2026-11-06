@@ -79,10 +79,15 @@ final class PTTHUD {
         // Video captions more than 5 s behind: a warning chip in the hover bar, yellow dot (§6).
         panel.onVideoLagChange = { [weak self] lag in
             guard let self else { return }
-            model.setExternalIssue(.videoLag, lag.map(VideoStatusDot.lagChip(seconds:)))
+            model.setExternalIssue(.videoLag, lag ? VideoStatusDot.lagChip : nil)
             requestRedraw()
         }
         panel.onPlaceholderClick = { [weak self] anchor in self?.toggleDetails(from: anchor) }
+        // The empty timeline's "暂未听到对方声音" replaces the gray chip; a first row brings it back.
+        // Deferred: the panel reports this from inside its own layout.
+        panel.onTimelineSilenceChange = { [weak self] in
+            DispatchQueue.main.async { self?.requestRedraw() }
+        }
         panel.onTitlebarShown = { [weak self] in
             guard let self else { return }
             showCloudPopoverOnce(issue: model.issueSlot(now: clock()))
@@ -368,7 +373,7 @@ final class PTTHUD {
         syncFacts()
         let now = clock()
         let voice = model.voiceState
-        let issue = model.issueSlot(now: now)
+        let issue = model.issueSlot(now: now, silenceInTimeline: panel.timelineShowsSilence)
         let key = model.titlebarKey
         let chips = model.issueChips(now: now)
         let audio = model.meetingActive ? model.meetingAudio : nil
@@ -414,15 +419,21 @@ final class PTTHUD {
         showCloudPopoverOnce(issue: issue)
     }
 
-    /// The dock (§4, §5): the same voice state as the capsule, the keycap, and my live turn
-    /// while the dock is expanded.
+    /// The dock (§4, §5): the same voice state as the capsule and my live turn while the dock
+    /// is expanded. The keycap is the titlebar's alone.
     private func dockContent(voice: VoiceState?, key: TitlebarKey?, expanded: Bool) -> MicStatusDock.Content? {
         guard let voice else { return nil }
         let presentation = MicDockPresentation.make(voice, scene: panel.scene)
         let live = track.flatMap { $0.committed == nil ? $0.turn : nil }
-        return MicStatusDock.Content(presentation: presentation, key: key, turn: expanded ? live : nil,
-                                     expanded: expanded, showsStartHint: presentation.allowsStartHint && key != nil)
+        // The start hint teaches the key once: it goes for good after the first own turn.
+        let hint = presentation.allowsStartHint && key != nil && !Self.startHintDone
+        return MicStatusDock.Content(presentation: presentation, turn: expanded ? live : nil,
+                                     expanded: expanded, showsStartHint: hint)
     }
+
+    /// Set by the first committed own turn ever (practice included, which teaches the same key).
+    private static let startHintKey = "ui.dockStartHintDone"
+    private static var startHintDone: Bool { UserDefaults.standard.bool(forKey: startHintKey) }
 
     /// Follows my current press: the speaking phase (translation latch until pending work has
     /// ended plus 3 s), what was actually delivered, and the commit into the timeline. Returns
@@ -473,6 +484,7 @@ final class PTTHUD {
         var turn = value.turn
         turn.delivery = value.delivery.label(scene: panel.scene, hasTranslation: !turn.translation.isEmpty)
         guard value.committed != turn else { return }
+        if !Self.startHintDone { UserDefaults.standard.set(true, forKey: Self.startHintKey) }
         panel.commitMyTurn(turn)
         if track?.turn.press == value.turn.press { track?.committed = turn }
     }
@@ -640,9 +652,11 @@ final class PTTHUD {
             capsule.frame = NSRect(x: 16, y: y, width: capsuleWidth, height: SubtitleTokens.Size.detailsCapsuleHeight)
             document.addSubview(capsule)
             y += SubtitleTokens.Size.detailsCapsuleHeight + 8
-            text(voice.consequence, font: .systemFont(ofSize: 13, weight: .medium), color: SubtitleStyle.white(0.92))
+            text(voice.consequence, font: .systemFont(ofSize: ControlTypography.popoverBody, weight: .medium),
+                 color: SubtitleStyle.white(0.92))
             if voice.detail != voice.consequence {
-                text(voice.detail, font: .systemFont(ofSize: 12), color: SubtitleStyle.white(0.6))
+                text(voice.detail, font: .systemFont(ofSize: ControlTypography.popoverSecondary),
+                     color: SubtitleStyle.white(0.6))
             }
         }
         // Second row: 右⌥ → action.
@@ -656,29 +670,35 @@ final class PTTHUD {
             keycap.setAccessibilityElement(false)
             document.addSubview(keycap)
             let arrow = NSTextField(labelWithString: "→ " + action)
-            arrow.font = .systemFont(ofSize: 13, weight: .medium)
+            arrow.font = .systemFont(ofSize: ControlTypography.popoverBody, weight: .medium)
             arrow.textColor = SubtitleStyle.white(0.85)
             arrow.setAccessibilityElement(true)
             arrow.setAccessibilityLabel(String(localized: "右侧 Option 键：\(action)"))
             arrow.frame = NSRect(x: 16 + keyWidth + 8, y: y + 1, width: detailWidth - keyWidth - 40, height: 18)
             document.addSubview(arrow)
             y += SubtitleTokens.Size.controlHeight + 6
-            text(String(localized: "点按右侧 Option 键开始翻译，再点按结束；译音播完后回到原声。"),
-                 font: .systemFont(ofSize: 12), color: SubtitleStyle.white(0.6))
+            // The row above says how to start; an idle key adds only how it ends.
+            let idleKinds: [VoiceState.Kind] = [.original, .notSent, .phoneNotConnected]
+            if key.style == .idle, let kind = model.voiceState?.kind, idleKinds.contains(kind) {
+                text(String(localized: "再点按一次结束；译音播完后回到原声。"),
+                     font: .systemFont(ofSize: ControlTypography.popoverSecondary), color: SubtitleStyle.white(0.6))
+            }
         }
-        // Problems and notifications, complete sentences.
+        // Problems and notifications, complete sentences; a fact the top row states is not repeated.
         let chips = model.issueChips(now: now)
-        for chip in chips {
+        for chip in model.detailChips(now: now) {
             let colors = IssueChipView.color(chip.tone, display: .current)
-            text(chip.detail, font: .systemFont(ofSize: 13),
+            text(chip.detail, font: .systemFont(ofSize: ControlTypography.popoverBody),
                  color: chip.isProblem ? colors.text : SubtitleStyle.white(0.85),
                  symbol: chip.symbol, symbolColor: colors.text)
         }
         for line in model.activityDetails(now: now) {
-            text(line.detail ?? line.text, font: .systemFont(ofSize: 12), color: SubtitleStyle.white(0.6))
+            text(line.detail ?? line.text, font: .systemFont(ofSize: ControlTypography.popoverSecondary),
+                 color: SubtitleStyle.white(0.6))
         }
         if let reminder = cloudReminder {
-            text(String(localized: "云端翻译已开启：会议文字会发送给 OpenAI。"), font: .systemFont(ofSize: 13),
+            text(String(localized: "云端翻译已开启：会议文字会发送给 OpenAI。"),
+                 font: .systemFont(ofSize: ControlTypography.popoverBody),
                  symbol: SubtitleTokens.VoiceIcon.cloud, symbolColor: SubtitleStyle.color(.voiceTranslate))
             button(String(localized: "本场只用 Apple 翻译听到的话")) { [weak self] in
                 reminder.apple(); self?.closeCloudReminder()
@@ -695,12 +715,8 @@ final class PTTHUD {
         for destination in chips.compactMap(\.settingsDestination) where !destinations.contains(destination) {
             destinations.append(destination)
         }
+        // Only problems add a settings button; Settings itself stays in the menu bar.
         if let onOpenSettings {
-            if destinations.isEmpty, model.meetingActive {
-                button(String(localized: "打开设置…"), symbol: SubtitleTokens.ActionIcon.settings) { [weak self] in
-                    self?.detailsPopover.close(); onOpenSettings(.audio)
-                }
-            }
             for destination in destinations {
                 // These open the Settings window: a trailing ellipsis (HIG) and the menu's gearshape.
                 let title = switch destination {
@@ -721,7 +737,7 @@ final class PTTHUD {
         viewport.autohidesScrollers = true
         viewport.documentView = document
         viewport.autoresizingMask = [.width, .height]
-        // The popover's own darkAqua material, as the end confirmation: no nested hudWindow.
+        // The popover's own darkAqua material: no nested hudWindow.
         let controller = NSViewController()
         controller.view = viewport
         detailsPopover.contentViewController = controller

@@ -63,7 +63,11 @@ public enum MeetingAutoEndNotification {
         let center = UNUserNotificationCenter.current()
         guard await authorization() == .allowed, isEnabled(), !Task.isCancelled else { return }
         let content = UNMutableNotificationContent()
-        content.title = mode == .phone ? "电话同传即将结束" : "会议似乎已结束"
+        content.title = switch mode {
+        case .phone: "电话同传即将结束"
+        case .captions: "视频字幕即将结束"
+        case .meeting: "会议似乎已结束"
+        }
         content.body = mode == .phone
             ? "Phone 已长时间没有音频。若还在等待电话，请在 TalkTalk 菜单中选择“继续收听，不自动停止”；60 秒后将结束同传并还原麦克风。"
             : "若还要继续收听，请在 TalkTalk 菜单中选择“继续收听，不自动停止”；60 秒后将结束当前收听。"

@@ -89,6 +89,8 @@ struct ConversationText {
 
     /// Delivery label after my translation (§4 送达标签): 18 pt high, 11 pt medium. "未发送" sits on
     /// a warn 15% fill at the source size; the others are coloured text with an optional icon.
+    /// Success in a meeting ("已送出") is the normal case: its glyph alone, the words stay in the
+    /// tooltip and VoiceOver. Phone and problem labels keep their words.
     func appendDelivery(_ delivery: ConversationTimeline.Delivery, role: ConversationTypography.Role,
                         to output: NSMutableAttributedString) {
         let base = attributes(role, color: .textPrimary)
@@ -108,7 +110,8 @@ struct ConversationText {
             text = warn
             fill = .clear
         }
-        output.append(Self.badge(delivery.title, symbol: delivery.symbol, font: font, text: text, fill: fill,
+        let title = delivery.drawsTitle ? delivery.title : ""
+        output.append(Self.badge(title, symbol: delivery.symbol, font: font, text: text, fill: fill,
                                  help: delivery.help, baseFont: SubtitleStyle.font(role), attributes: base,
                                  leadingSpace: true, minHeight: Self.deliveryHeight))
     }
@@ -165,8 +168,10 @@ struct ConversationText {
         let titleAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: text]
         let titleSize = (title as NSString).size(withAttributes: titleAttributes)
         let icon = symbol.flatMap { SubtitleStyle.symbol($0, size: font.pointSize * 0.85, weight: .medium) }
-        let iconWidth = icon.map { $0.size.width + 3 } ?? 0
-        let horizontal: CGFloat = font.pointSize < 12 ? 5 : 6
+        // A glyph-only badge has no icon-to-text gap and a symmetric, narrow inset.
+        let iconOnly = title.isEmpty && icon != nil
+        let iconWidth = icon.map { $0.size.width + (iconOnly ? 0 : 3) } ?? 0
+        let horizontal: CGFloat = iconOnly ? 2 : font.pointSize < 12 ? 5 : 6
         let height = max(minHeight, ceil(titleSize.height + 2))
         let width = ceil(titleSize.width + iconWidth + 2 * horizontal)
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { rect in

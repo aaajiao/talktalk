@@ -75,7 +75,6 @@ import Testing
         (.openAIUnreachable, "OpenAI 暂时连不上，改用 Apple 翻译", .yellow),
         (.openAIKeyInvalid, "OpenAI key 无效或额度用完，已改用 Apple 翻译", .yellow),
         (.modelRetired, "所选模型已下线，已换回 gpt-6-luna", .yellow),
-        (.passthroughTip, "会议默认传原声；点按右⌥开始翻译，再按结束，译音播完后恢复原声", .normal),
         (.defaultInputRestoredElsewhere(to: "MacBook Pro 麦克风", original: "Tuwa Mic", originalMissing: false),
          "默认输入已还原为 MacBook Pro 麦克风（原来的 Tuwa Mic 是虚拟设备，不还原到它）", .normal),
         (.defaultInputRestoredElsewhere(to: "MacBook Pro 麦克风", original: "ear4", originalMissing: true),
@@ -371,9 +370,6 @@ import Testing
         model.meetingStarted(); model.meetingAudio = .original
         model.cloudPrivacyPending = true
         #expect(model.issueSlot(now: 0) == .cloudPrivacy)
-        model.post(.passthroughTip, now: 0)
-        #expect(model.issueSlot(now: 0) == .cloudPrivacy)
-        #expect(model.activityDetails(now: 0).contains(HUDModel.Warning.passthroughTip.line))
         model.post(.meetingSilent, now: 0)
         let silent = try #require(model.issueSlot(now: 0)?.chip)
         #expect(silent.tone == .info && silent.label == "未听到对方")
@@ -397,6 +393,7 @@ import Testing
 
     @Test func oneOffMessagesKeepAShortLabelAndTheCompleteDetail() throws {
         var model = HUDModel()
+        model.meetingStarted()
         let long = String(repeating: "没能还原系统默认输入，请在“系统设置 › 声音 › 输入”里改回。", count: 4)
         model.show(HUDChip("系统麦克风未还原", symbol: "exclamationmark.triangle", tone: .risk, detail: long), now: 0)
         let chip = try #require(model.issueSlot(now: 1)?.chip)
@@ -493,13 +490,12 @@ import Testing
         #expect(skipped.detail == "已跳过 3 段")
     }
 
-    @Test func everyWarningExceptTheTipHasAChipWithItsCompleteText() {
-        for (warning, text, _) in Self.warnings where warning != .passthroughTip {
+    @Test func everyWarningHasAChipWithItsCompleteText() {
+        for (warning, text, _) in Self.warnings {
             let chip = warning.chip
             #expect(chip?.detail == text, "\(warning)")
             #expect((chip?.label.count ?? 0) <= 24, "\(warning)")
         }
-        #expect(HUDModel.Warning.passthroughTip.chip == nil)
         #expect(HUDModel.Warning.switchedBackAfterInsert(device: "X").chip?.tone == .notice)
         #expect(HUDModel.Warning.meetingSilent.chip?.tone == .info)
     }
@@ -594,10 +590,130 @@ import Testing
                                        .defaultInputRestored(to: "X"),
                                        .defaultInputRestoredElsewhere(to: "X", original: "Y", originalMissing: true),
                                        .defaultInputNotSwitched(.writeFailed), .switchBackFailed(current: "X")]
-        let others: [HUDModel.Warning] = [.segmentNotSent, .meetingNotUsingMic, .passthroughTip, .openAIKeyInvalid]
+        let others: [HUDModel.Warning] = [.segmentNotSent, .meetingNotUsingMic, .openAIKeyInvalid]
         let sysFlags = sys.map { $0.isSysInput }, otherFlags = others.map { $0.isSysInput }
         #expect(sysFlags == [true, true, true, true, true, true])
-        #expect(otherFlags == [false, false, false, false])
+        #expect(otherFlags == [false, false, false])
+    }
+
+    /// The window leaves in one step: after the end, a restore notice or a one-off message hands
+    /// the panel no status, so no titlebar strip can appear. The stored notice still shows once
+    /// the next session is active, within its 4 s.
+    @Test func noStatusIsHandedToThePanelOutsideASession() {
+        var model = HUDModel()
+        model.meetingStarted()
+        model.show(HUDChip("说话链路未能启动", symbol: "exclamationmark.triangle", tone: .warn), now: 0)
+        model.meetingEnded()
+        model.post(.defaultInputRestored(to: "MacBook Pro 麦克风"), now: 1)
+        model.show(HUDChip("系统麦克风未还原", symbol: "mic.badge.xmark", tone: .warn), now: 1)
+        model.cloudPrivacyPending = true
+        #expect(model.issueSlot(now: 2) == nil)
+        #expect(model.issueChips(now: 2).isEmpty && model.detailChips(now: 2).isEmpty)
+
+        var next = HUDModel()
+        next.meetingStarted()
+        next.meetingEnded()
+        next.post(.defaultInputNotSwitched(.micNotSelectable), now: 0)
+        #expect(next.issueSlot(now: 0) == nil)
+        next.meetingStarted()
+        #expect(next.issueSlot(now: 1)?.chip?.label == "TalkTalk Mic 暂不可选")
+        #expect(next.issueSlot(now: HUDModel.noticeSeconds + 1) == nil)
+    }
+
+    /// An ended session's one-off message does not come back with the next session.
+    @Test func meetingEndedDropsTheOneOffMessage() {
+        var model = HUDModel()
+        model.meetingStarted()
+        model.show(HUDChip("说话链路未能启动", symbol: "exclamationmark.triangle", tone: .warn), now: 0)
+        model.meetingEnded()
+        model.meetingStarted()
+        #expect(model.issueSlot(now: 1) == nil)
+    }
+
+    /// Video has neither people nor a meeting: its silence chips name the app's sound.
+    @Test func videoSilenceChipsTalkAboutTheAppNotTheMeeting() throws {
+        var model = HUDModel()
+        model.meetingStarted(); model.scene = .video
+        model.post(.meetingSilent, now: 0)
+        let silent = try #require(model.issueSlot(now: 0)?.chip)
+        #expect(silent.label == "暂无声音" && silent.detail == "所选应用当前没有声音")
+        #expect(silent.symbol == "waveform.slash" && silent.tone == .info)
+        model.clear(.meetingSilent); model.post(.meetingSeemsOver, now: 0)
+        let over = try #require(model.issueSlot(now: 0)?.chip)
+        #expect(over.label == "长时间没有声音" && over.symbol == "waveform.slash")
+        #expect(over.detail.contains("视频字幕即将自动结束") && over.detail.contains("继续收听，不自动停止"))
+        #expect(!over.detail.contains("会议") && !over.label.contains("对方"))
+        // Meeting keeps its own wording.
+        model.scene = .meeting
+        #expect(model.issueSlot(now: 0)?.chip?.label == "会议似乎已结束")
+    }
+
+    /// The empty meeting timeline already says "暂未听到对方声音": the gray chip yields to the
+    /// next chip or the cloud note, and stays in the details popover.
+    @Test func timelineSilenceReplacesTheSilenceChip() {
+        var model = HUDModel()
+        model.meetingStarted(); model.meetingAudio = .original
+        model.post(.meetingSilent, now: 0)
+        #expect(model.issueSlot(now: 0)?.chip?.label == "未听到对方")
+        #expect(model.issueSlot(now: 0, silenceInTimeline: true) == nil)
+        model.cloudPrivacyPending = true
+        #expect(model.issueSlot(now: 0, silenceInTimeline: true) == .cloudPrivacy)
+        model.post(.segmentNotSent, now: 0)
+        #expect(model.issueSlot(now: 0, silenceInTimeline: true)?.chip?.label == "这段未发送")
+        #expect(model.detailChips(now: 0).contains { $0.label == "未听到对方" })
+    }
+
+    /// The details popover states each fact once: the top row's consequence is not repeated by a
+    /// chip row. A physical-mic risk keeps its chip, which adds the cause.
+    @Test func detailChipsSkipWhatTheTopRowAlreadySays() {
+        var phone = HUDModel()
+        phone.meetingStarted(); phone.scene = .phone; phone.meetingAudio = .draining; phone.outputPlaying = true
+        #expect(phone.voiceState?.kind == .phoneLocalOnly)
+        #expect(phone.issueChips(now: 0).contains(.phoneNotReceiving))
+        #expect(!phone.detailChips(now: 0).contains(.phoneNotReceiving))
+
+        var meeting = HUDModel()
+        meeting.meetingStarted(); meeting.meetingAudio = .original
+        meeting.post(.meetingNotUsingMic, now: 0)
+        #expect(meeting.voiceRisk == .meetingNotUsingMic)
+        #expect(meeting.issueChips(now: 0).contains { $0.label == "会议未用 TalkTalk Mic" })
+        #expect(meeting.detailChips(now: 0).isEmpty)
+        // The settings destination still comes from the full chip list.
+        #expect(meeting.issueChips(now: 0).compactMap(\.settingsDestination) == [.audio])
+        meeting.post(.remoteHearsYourVoice, now: 0)
+        #expect(meeting.detailChips(now: 0).map(\.label) == ["会议在用实体麦", "会议未用 TalkTalk Mic"])
+    }
+
+    /// The start-up wait is normal progress: "未发送" with no key action, never the warn-filled
+    /// "音频不可用", until ready or 3 s; any loss after ready is unavailable at once.
+    @Test func startupWaitReadsNotSentUntilReadyOrTheGraceEnds() {
+        var wait = SpeakStartupWait()
+        let reason = "正在等待音频就绪"
+        #expect(wait.waiting(reason: reason, now: 0) == .unavailable(reason: reason))
+        wait.begin(at: 10)
+        #expect(wait.waiting(reason: reason, now: 11) == .preparing)
+        #expect(wait.escalatesAt == 10 + SpeakStartupWait.graceSeconds)
+        #expect(wait.waiting(reason: reason, now: 13) == .unavailable(reason: reason))
+        wait.observe(.original)
+        #expect(wait.reachedReady && wait.escalatesAt == nil)
+        wait.begin(at: 20)
+        wait.observe(.phoneReady)
+        #expect(wait.waiting(reason: reason, now: 20.5) == .unavailable(reason: reason))
+
+        for scene in [SubtitleScene.meeting, .phone] {
+            var model = HUDModel()
+            model.meetingStarted(); model.scene = scene; model.pushToTalkAvailable = true
+            model.meetingAudio = .preparing
+            let voice = model.voiceState
+            #expect(voice?.kind == .notSent && voice?.title == "未发送")
+            #expect(model.titlebarKey == nil)
+            let dock = MicDockPresentation.make(voice!, scene: scene)
+            #expect(dock.label == "未发送" && dock.emphasis == .none && dock.action == nil)
+            #expect(!SpeakingDockPhase.isActive(audio: .preparing, pushToTalk: .idle, workPending: false, expanded: false))
+        }
+        #expect(HUDModel.MeetingAudio.preparing.operationHint == nil)
+        let presentation = SpeechStatusPresentation(audio: .preparing)
+        #expect(presentation.keyAction == nil && presentation.keySymbol == nil)
     }
 }
 

@@ -70,6 +70,9 @@ final class SpeakController {
     private var closed = false
     private var sessionTarget: Lang?
     private var translationRefusal: String?
+    /// Start-up waits read "未发送", not "音频不可用", until ready or 3 s (SpeakStartupWait).
+    private var startupWait = SpeakStartupWait()
+    private var startupTimer: Timer?
     private var announcementEnabled: Bool?
     private var restartQueued = false
     private var demoActive = false
@@ -246,6 +249,7 @@ final class SpeakController {
         let transcript = demo ? nil : privacy.map { TranscriptWriter(directory: $0.transcriptsDirectory) }
         self.transcript = transcript
         owner = session; warming = true; onChange?()
+        if !demo { beginStartupWait() }
         phoneBoundary.invalidate()
         sessionTarget = state.speakLanguage.lang
         translationRefusal = nil
@@ -682,48 +686,69 @@ final class SpeakController {
         onChange?()
     }
 
+    /// A start that never becomes ready escalates by itself: the gate reports only on events.
+    private func beginStartupWait() {
+        let now = ProcessInfo.processInfo.systemUptime
+        startupWait.begin(at: now)
+        startupTimer?.invalidate()
+        guard let at = startupWait.escalatesAt else { return }
+        let timer = Timer(timeInterval: max(0.01, at - now + 0.05), repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.startupTimer = nil
+                self?.refreshMeetingAudio()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        startupTimer = timer
+    }
+
     private func refreshMeetingAudio() {
         guard !demoActive, let owner, let keys else { hud.meetingAudio(nil); return }
+        let now = ProcessInfo.processInfo.systemUptime
+        func report(_ audio: HUDModel.MeetingAudio) {
+            startupWait.observe(audio)
+            hud.meetingAudio(audio)
+        }
         guard case .running = owner.state else {
-            hud.meetingAudio(.unavailable(reason: String(localized: "音频已暂停"))); return
+            report(.unavailable(reason: String(localized: "音频已暂停"))); return
         }
         // A Phone reader change cancels current speech; its cleanup barrier is not a fault.
         if owner.mode == .phone, phoneBoundary.resetPending {
-            hud.meetingAudio(.phoneReconnecting); return
+            report(.phoneReconnecting); return
         }
         // Key handling closes raw audio synchronously, while UI callbacks arrive later. Read
         // the key, work and gate facts together instead of mixing two sides of a transition.
         let audio = keys.meetingAudioSnapshot()
         if audio.held == false { translationRefusal = nil }
         guard output.isFeedAttached, feedConfirmed, mic?.state.capture == .open else {
-            hud.meetingAudio(.unavailable(reason: String(localized: "正在等待音频就绪"))); return
+            report(startupWait.waiting(reason: String(localized: "正在等待音频就绪"), now: now)); return
         }
         guard audio.hardwarePollFresh, audio.held != nil else {
-            hud.meetingAudio(.unavailable(reason: String(localized: "正在等待按键监听恢复"))); return
+            report(startupWait.waiting(reason: String(localized: "正在等待按键监听恢复"), now: now)); return
         }
         if case let .unavailable(reason) = audio.translationReadiness {
-            hud.meetingAudio(.unavailable(reason: reason.hudText ?? String(localized: "正在等待音频就绪")))
+            report(.unavailable(reason: reason.hudText ?? String(localized: "正在等待音频就绪")))
         } else if let reason = translationRefusal, audio.held == true {
-            hud.meetingAudio(.unavailable(reason: reason))
+            report(.unavailable(reason: reason))
         } else if audio.originalOpen {
-            hud.meetingAudio(.original)
+            report(.original)
         } else if audio.recordingActive {
-            hud.meetingAudio(.translating)
+            report(.translating)
         } else if audio.held == true {
-            hud.meetingAudio(.switching)
+            report(.switching)
         } else if audio.busy {
-            hud.meetingAudio(.draining)
+            report(.draining)
         } else if owner.mode == .phone, state.phoneReadyToDial,
                   systemInput.micGuard.state.verdict == .noReader {
-            hud.meetingAudio(.phoneReady)
+            report(.phoneReady)
         } else if audio.canRestoreOriginal {
             // Healthy and drained, but the next hardware poll still owns opening the gate.
             // This is normal progress, never a claim that raw audio is already flowing.
-            hud.meetingAudio(.restoringOriginal)
+            report(.restoringOriginal)
         } else if case let .unavailable(reason) = audio.originalReadiness {
-            hud.meetingAudio(.unavailable(reason: reason.hudText ?? String(localized: "正在等待音频就绪")))
+            report(.unavailable(reason: reason.hudText ?? String(localized: "正在等待音频就绪")))
         } else {
-            hud.meetingAudio(.unavailable(reason: String(localized: "正在等待音频就绪")))
+            report(.unavailable(reason: String(localized: "正在等待音频就绪")))
         }
     }
 
@@ -806,6 +831,7 @@ final class SpeakController {
         sessionTarget = nil; restartQueued = false; announcementEnabled = nil
         speaking = false; passthroughOpen = false; degraded = false; warming = false
         translationRefusal = nil; hud.meetingAudio(nil)
+        startupWait.reset(); startupTimer?.invalidate(); startupTimer = nil
         hud.setPushToTalkAvailable(false); onChange?()
         if wasDemo, !state.meetingActive { hud.meetingEnded() }
     }

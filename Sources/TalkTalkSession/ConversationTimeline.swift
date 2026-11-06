@@ -53,6 +53,10 @@ public struct ConversationTimeline: Sendable, Equatable {
             }
         }
 
+        /// Success in a meeting is the quiet, normal case: its glyph alone, with `help` as the
+        /// tooltip and VoiceOver text. Phone and problem labels keep their words.
+        public var drawsTitle: Bool { self != .sent }
+
         public var symbol: String? {
             switch self {
             case .sent: SubtitleTokens.ConversationIcon.delivered

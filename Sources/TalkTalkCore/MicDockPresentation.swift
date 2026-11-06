@@ -30,7 +30,7 @@ public struct MicDockPresentation: Sendable, Equatable {
         case unavailable
     }
 
-    /// The button that replaces the keycap; both open the details popover. Its title is also
+    /// The fix/details button for risk / unavailable audio; it opens the details popover. Its title is also
     /// the tooltip and the VoiceOver label when only the icon shows.
     public enum Action: Sendable, Equatable {
         case fix, details
@@ -63,7 +63,8 @@ public struct MicDockPresentation: Sendable, Equatable {
     public var wave: Wave
     public var emphasis: Emphasis
     public var action: Action?
-    /// Idle states may add the "点按 右⌥ 开始翻译你的发言" hint while the timeline is empty.
+    /// Idle states may add the "点按右⌥翻译你的发言" hint while the timeline is empty; the
+    /// window shows it only until the first own turn ever (PTTHUD).
     public var allowsStartHint: Bool
 
     public var accessibilityLabel: String {
@@ -75,7 +76,7 @@ public struct MicDockPresentation: Sendable, Equatable {
         consequence.map { String(localized: "\(label) · \($0)") } ?? label
     }
 
-    public static var startHint: String { String(localized: "点按 右⌥ 开始翻译你的发言") }
+    public static var startHint: String { String(localized: "点按右⌥翻译你的发言") }
 
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     public static func make(_ voice: VoiceState, scene: SubtitleScene) -> MicDockPresentation {
@@ -105,13 +106,14 @@ public struct MicDockPresentation: Sendable, Equatable {
             consequence = String(localized: "原声已关")
             tone = .translate; wave = .dashed
         case .switching:
-            label = String(localized: "松开 右⌥ 确认"); tone = .translate; wave = .outlined
+            label = String(localized: "松开右⌥确认"); tone = .translate; wave = .outlined
         case .restoring:
             label = String(localized: "正在恢复原声…"); wave = .flat; hint = true
         case .notSent:
             label = String(localized: "未发送"); consequence = String(localized: "对方听不到你"); hint = true
         case .phoneNotConnected:
-            label = String(localized: "电话同传已就绪"); consequence = String(localized: "接通后对方才能听到你"); hint = true
+            // The capsule's own words: the dock reads the same VoiceState.
+            label = String(localized: "未接入 Phone"); consequence = String(localized: "接通后对方才能听到你"); hint = true
         case .phoneLocalTrial:
             label = String(localized: "本机试说"); consequence = String(localized: "Phone 未接收"); wave = .solid
         case .phoneLocalOnly:

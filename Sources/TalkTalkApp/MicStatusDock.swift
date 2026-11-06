@@ -5,15 +5,15 @@ import TalkTalkSession
 
 /// The microphone status dock under the meeting/phone timeline (redesign §4, §5): a 0.5 pt top
 /// separator, then icon 16 + state 13 pt semibold + consequence 12 pt white 60%, the flexible
-/// 24 pt curve band and the keycap (or "[wrench] 修复…" / [info.circle]). The 28 pt compact dock has
-/// no keycap and keeps the fix/details action as a 20 × 20 icon. While I speak it expands and shows my
+/// 24 pt curve band and, for risk / unavailable audio, "[wrench] 修复…" / [info.circle]. It does
+/// not repeat the titlebar's keycap; the 28 pt compact dock keeps the fix/details action as a
+/// 20 × 20 icon. While I speak it expands and shows my
 /// live turn; the panel animates its height, never the window. Status and meter changes only
 /// touch the status row and the curve; the turn text is rebuilt only when the turn changes.
 @MainActor
 final class MicStatusDock: NSView {
     struct Content: Equatable {
         var presentation: MicDockPresentation
-        var key: TitlebarKey?
         /// My live turn; drawn only while `expanded`.
         var turn: ConversationTimeline.Turn?
         var expanded: Bool
@@ -24,7 +24,7 @@ final class MicStatusDock: NSView {
     static let compactWaveHeight: CGFloat = 16
     static let compactWaveMaxWidth: CGFloat = 96
 
-    /// Keycap, "修复…" and "详情" all open the details popover anchored here.
+    /// "修复…" and "详情" open the details popover anchored here.
     var onAction: ((NSView) -> Void)?
     private(set) var content: Content?
     private var style: ConversationStyle?
@@ -40,7 +40,6 @@ final class MicStatusDock: NSView {
     private let consequence = NSTextField(labelWithString: "")
     private let hint = NSTextField(labelWithString: "")
     private let wave = MicWaveView()
-    private let keycap = KeycapActionView()
     private let actionButton = DockActionButton()
     private let turnArea = DockTurnView()
     private let sourceLabel = ConversationLabel(wrappingLabelWithString: "")
@@ -61,12 +60,12 @@ final class MicStatusDock: NSView {
             view.setAccessibilityElement(false)
         }
         icon.imageScaling = .scaleNone
-        label.font = .systemFont(ofSize: 13, weight: .semibold)
-        dot.font = .systemFont(ofSize: 12)
+        label.font = .systemFont(ofSize: ControlTypography.dockLabel, weight: .semibold)
+        dot.font = .systemFont(ofSize: ControlTypography.dockConsequence)
         dot.textColor = SubtitleStyle.white(0.45)
-        consequence.font = .systemFont(ofSize: 12)
+        consequence.font = .systemFont(ofSize: ControlTypography.dockConsequence)
         consequence.textColor = SubtitleStyle.white(0.6)
-        hint.font = .systemFont(ofSize: 12)
+        hint.font = .systemFont(ofSize: ControlTypography.dockConsequence)
         hint.textColor = SubtitleStyle.white(0.45)
         hint.stringValue = MicDockPresentation.startHint
         for field in [label, dot, consequence, hint] {
@@ -76,10 +75,6 @@ final class MicStatusDock: NSView {
         }
         icon.setAccessibilityElement(false)
         for view in [icon, label, dot, consequence, hint] as [NSView] { status.addSubview(view) }
-        keycap.onClick = { [weak self] in
-            guard let self else { return }
-            onAction?(keycap)
-        }
         actionButton.onClick = { [weak self] in
             guard let self else { return }
             onAction?(actionButton)
@@ -96,7 +91,7 @@ final class MicStatusDock: NSView {
         turnArea.wantsLayer = true
         turnArea.layer?.masksToBounds = true
         turnArea.isHidden = true
-        for view in [fill, bar, separator, status, wave, keycap, actionButton, turnArea] as [NSView] { addSubview(view) }
+        for view in [fill, bar, separator, status, wave, actionButton, turnArea] as [NSView] { addSubview(view) }
         setAccessibilityElement(false)
     }
 
@@ -116,7 +111,6 @@ final class MicStatusDock: NSView {
         if next.presentation != renderedPresentation || modeChanged { applyStatus(next.presentation, display: nextStyle.display) }
         let turn = next.expanded ? next.turn : nil
         if turn != renderedTurn || renderedTurnStyle != nextStyle { applyTurn(turn, style: nextStyle) }
-        if let key = next.key { keycap.apply(key, showsAction: false, showsSymbol: false, display: nextStyle.display) }
         if let action = next.presentation.action {
             actionButton.setAction(action, tone: next.presentation.emphasis, iconOnly: !action.showsTitle(compact: nextCompact))
         }
@@ -235,18 +229,14 @@ final class MicStatusDock: NSView {
         let expanded = content.expanded && height > idleRow + bottomPadding
         let rowHeight = min(height, idleRow)
 
-        // Trailing control: the keycap, or the button that replaces it for risk / unavailable.
-        // The compact dock has no keycap but keeps the fix/details action as an icon.
+        // Trailing control: only the fix/details button for risk / unavailable audio (an icon in
+        // the compact dock). The keycap lives in the titlebar alone; the curve takes its width.
         var trailing: NSView?
         var trailingWidth: CGFloat = 0
         if content.presentation.action != nil {
             trailing = actionButton
             trailingWidth = actionButton.preferredWidth
-        } else if !compact, let key = content.key {
-            trailing = keycap
-            trailingWidth = KeycapActionView.width(for: key, showsAction: false, showsSymbol: false)
         }
-        keycap.isHidden = trailing !== keycap
         actionButton.isHidden = trailing !== actionButton
         let controlHeight = CGFloat(SubtitleTokens.Size.controlHeight)
         if let trailing {
@@ -295,7 +285,7 @@ final class MicStatusDock: NSView {
             x += 12 + hintWidth
         }
 
-        // The curve takes the flexible middle; it never overlaps text or the keycap.
+        // The curve takes the flexible middle; it never overlaps text or the action button.
         let waveHeight = compact ? Self.compactWaveHeight : CGFloat(SubtitleTokens.Size.waveformBandHeight)
         var waveWidth = max(0, limit - x - padding)
         if compact { waveWidth = min(waveWidth, Self.compactWaveMaxWidth) }

@@ -385,4 +385,12 @@ public enum ControlTypography {
     /// The video hover bar's source name, shown after the scene icon instead of "视频字幕 · ".
     public static let titleVideoSource: Double = 12
     public static let endButton: Double = 11
+    /// The microphone dock (§4): state label (semibold), consequence, separator dot and hint.
+    public static let dockLabel: Double = 13
+    public static let dockConsequence: Double = 12
+    /// The details popover: sentences, and secondary explanations.
+    public static let popoverBody: Double = 13
+    public static let popoverSecondary: Double = 12
+    /// The window's one-line hint (WindowHintView), medium.
+    public static let windowHint: Double = 12
 }

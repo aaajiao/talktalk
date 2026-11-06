@@ -728,7 +728,7 @@ final class KeycapActionView: TitlebarControl {
     /// `showsSymbol` false (the status band) draws the key alone.
     static func width(for key: TitlebarKey, showsAction: Bool, showsSymbol: Bool = true) -> CGFloat {
         if showsSymbol, key.symbol != nil { return keyWidth(key) + actionGap + symbolBox }
-        guard showsAction, let action = key.action else { return keyWidth(key) }
+        guard showsAction, key.drawsAction, let action = key.action else { return keyWidth(key) }
         let text = (action as NSString).size(withAttributes: [
             .font: SubtitleStyle.controlFont(ControlTypography.keyAction, weight: .medium)]).width
         return keyWidth(key) + actionGap + ceil(text)
@@ -742,7 +742,8 @@ final class KeycapActionView: TitlebarControl {
         let symbol = nextShowsSymbol ? next.symbol : nil
         keyLabel.stringValue = next.key
         action.stringValue = next.action ?? ""
-        action.isHidden = symbol != nil || !nextShowsAction || next.action == nil
+        // The capsule already says the same words (松开确认): only the keycap is drawn.
+        action.isHidden = symbol != nil || !nextShowsAction || next.action == nil || !next.drawsAction
         let secondary = lightSurface ? NSColor.secondaryLabelColor : SubtitleStyle.color(.controlSecondary, display: display)
         action.textColor = secondary
         actionIcon.isHidden = symbol == nil

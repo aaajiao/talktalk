@@ -103,10 +103,12 @@ public enum VideoStatusDot: Sendable, Equatable {
     /// Apple's caution triangle for a warning, the stop octagon for a risk.
     public var symbol: String { self == .risk ? SubtitleTokens.VoiceIcon.statusRisk : SubtitleTokens.VoiceIcon.statusWarn }
 
-    /// "字幕落后约 N 秒" (§6 视觉反馈): a warning chip in the hover bar, which turns the dot yellow.
-    public static func lagChip(seconds: Int) -> HUDChip {
-        HUDChip(titlebarLabel("字幕落后约 \(seconds) 秒"), symbol: SubtitleTokens.VoiceIcon.captionLag, tone: .warn,
-                detail: String(localized: "字幕落后声音约 \(seconds) 秒：先加快翻页追赶，追不上时跳过较旧的句子。"))
+    /// "字幕落后" (§6 视觉反馈): a warning chip in the hover bar, which turns the dot yellow. It is
+    /// constant while the lag lasts, so the bar does not change width and VoiceOver hears it once;
+    /// skipped sentences already show in the captions as "已跳过 N 句".
+    public static var lagChip: HUDChip {
+        HUDChip(titlebarLabel("字幕落后"), symbol: SubtitleTokens.VoiceIcon.captionLag, tone: .warn,
+                detail: String(localized: "字幕落后于声音，正在加快翻页追赶"))
     }
 }
 

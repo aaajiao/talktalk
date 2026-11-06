@@ -69,8 +69,6 @@ public enum VideoCaptionLayout {
 
     // Page feedback.
     // Meta alphas take stronger values with Increase Contrast (§2).
-    public static let continuationMarker = "›"
-    public static func continuationAlpha(increaseContrast: Bool) -> Double { increaseContrast ? 0.7 : 0.45 }
     public static let pageDotDiameter: Double = 3
     public static let pageDotSpacing: Double = 4
     public static let pageDotGap: Double = 4

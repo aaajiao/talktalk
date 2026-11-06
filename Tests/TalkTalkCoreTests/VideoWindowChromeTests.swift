@@ -66,9 +66,9 @@ import Testing
         // Severity differs by shape too: caution triangle vs stop octagon.
         #expect(VideoStatusDot.warn.symbol == "exclamationmark.triangle.fill")
         #expect(VideoStatusDot.risk.symbol == "exclamationmark.octagon.fill")
-        // Captions 7 s behind: a warning chip that turns the dot yellow.
-        let chip = VideoStatusDot.lagChip(seconds: 7)
-        #expect(chip.label == "字幕落后约 7 秒" && chip.tone == .warn)
+        // Captions behind: a constant warning chip that turns the dot yellow.
+        let chip = VideoStatusDot.lagChip
+        #expect(chip.label == "字幕落后" && chip.tone == .warn && chip.detail == "字幕落后于声音，正在加快翻页追赶")
         #expect(chip.symbol == SubtitleTokens.VoiceIcon.captionLag && chip.symbol == "clock.badge.exclamationmark")
         var model = HUDModel()
         model.meetingStarted()

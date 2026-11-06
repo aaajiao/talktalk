@@ -402,7 +402,7 @@ final class MeetingController {
         state.lastEndProblem = nil
         defer {
             state.meetingStarting = false
-            // A failed or abandoned start closes the window it may have opened (phone context).
+            // A failed or abandoned start leaves no window behind (idempotent).
             if !state.meetingActive { panel.endSession() }
             if mode == .phone {
                 if !state.meetingActive { state.phoneStatus = String(localized: "电话同传尚未开始，请准备后再拨号或接听。") }
@@ -410,9 +410,9 @@ final class MeetingController {
             }
         }
         panel.setPresentation(mode == .phone ? .phone : mode == .captions ? .video : .meeting)
-        // Only phone shows a window before it starts (its preparing context); the others open
-        // theirs at `.started`, so a leftover notice never shows as a strip while starting.
-        if mode == .phone { panel.beginSession() }
+        // Every scene opens its window at `.started`, already at its final size: phone's
+        // preparation stays in the menu (phoneStatus), never a bare titlebar strip, and a
+        // leftover notice never shows as a strip while starting.
         if mode == .phone {
             state.phoneProblem = nil; phoneReadinessDetail = nil
             state.phoneReadyToDial = false; state.phoneAudioActive = false

@@ -145,6 +145,30 @@ import Testing
         #expect(SpeechStatusPresentation(audio: .draining).keySymbol == "translate")
     }
 
+    /// The key does not repeat the capsule beside it: switching draws the pressed keycap alone,
+    /// Phone's local trial its start glyph. The words stay the tooltip and VoiceOver label.
+    @Test func titlebarKeyDoesNotRepeatTheCapsuleWords() throws {
+        func key(_ audio: HUDModel.MeetingAudio, confirmed: Bool? = nil) throws -> TitlebarKey {
+            let voice = VoiceState.resolve(audio: audio, scene: confirmed == nil ? .meeting : .phone,
+                                           phoneInputConfirmed: confirmed ?? false)
+            return try #require(TitlebarKey.make(SpeechStatusPresentation(audio: audio, phoneInputConfirmed: confirmed),
+                                                 voice: voice))
+        }
+        let switching = try key(.switching)
+        #expect(switching.style == .pressed && switching.symbol == nil && !switching.drawsAction)
+        #expect(switching.action == "松开确认")
+        let trial = try key(.original, confirmed: false)
+        #expect(trial.symbol == SubtitleTokens.VoiceIcon.startTranslation && !trial.drawsAction)
+        #expect(trial.action == "本机试说")
+        // "未接入 Phone": a press is only a local trial, a separate fact that keeps its words.
+        let notConnected = try key(.phoneReady, confirmed: false)
+        #expect(notConnected.symbol == nil && notConnected.drawsAction && notConnected.action == "本机试说")
+        let start = try key(.original)
+        #expect(start.drawsAction && start.symbol == "translate")
+        #expect(TitlebarKey.make(SpeechStatusPresentation(audio: .preparing),
+                                 voice: VoiceState.resolve(audio: .preparing, scene: .meeting)) == nil)
+    }
+
     @Test func sceneIconsAreUnified() {
         #expect(SubtitleScene.meeting.symbol == "person.2.wave.2")
         #expect(SubtitleScene.phone.symbol == "phone")

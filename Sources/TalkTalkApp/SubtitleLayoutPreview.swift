@@ -208,7 +208,7 @@ final class SubtitlePreviewCanvas: NSView {
                            translation: String(localized: "译文 · 中文"))
         timeline.apply(rows: Self.sampleRows(phone: phone), style: style,
                        lastRowOnly: rules.lastRowOnly, showsHeader: rules.showsColumnHeader)
-        dock.apply(.init(presentation: MicDockPresentation.make(voice, scene: scene), key: key, turn: nil,
+        dock.apply(.init(presentation: MicDockPresentation.make(voice, scene: scene), turn: nil,
                          expanded: false, showsStartHint: false), style: style, compact: rules.compactDock)
         let dockHeight = CGFloat(rules.dockHeight(speaking: false))
         let padding = CGFloat(SubtitleTokens.Size.panelHorizontalPadding)

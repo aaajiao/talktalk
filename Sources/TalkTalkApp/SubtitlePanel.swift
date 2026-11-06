@@ -40,11 +40,12 @@ final class SubtitlePanel {
     private(set) var videoCaptionStyle: VideoCaptionStyle = .default
     private(set) var videoCaptionArrangement: VideoCaptionArrangement = .default
     private var seenSkippedCount = 0
-    /// Whole seconds the video captions trail the audio once over 5 s; nil while on time.
-    /// The titlebar/hover dot turns yellow from this (§6 视觉反馈).
-    private(set) var videoLag: Int?
-    /// PTTHUD turns this into the "字幕落后约 N 秒" warning chip (`VideoStatusDot.lagChip`).
-    var onVideoLagChange: ((Int?) -> Void)?
+    /// The video captions trail the audio by more than 5 s. The titlebar/hover dot turns yellow
+    /// from this (§6 视觉反馈).
+    private(set) var videoLagging = false
+    /// PTTHUD turns this into the "字幕落后" warning chip (`VideoStatusDot.lagChip`). Called only
+    /// when lagging starts or ends, never for each new second.
+    var onVideoLagChange: ((Bool) -> Void)?
     // Video window chrome (§6 窗口 / 鼠标穿透): hover-only bar, status dot, lock and hints.
     private var hoverBar = VideoHoverBar()
     private var hoverTimer: Timer?
@@ -156,7 +157,7 @@ final class SubtitlePanel {
     private var hasConversation: Bool { presentation != .video && (subtitlesRequested || localSpeechVisible) }
     private var hasWindowContent: Bool {
         presence.hasContent(subtitles: subtitlesRequested, conversation: hasConversation, status: statusVisible,
-                            sessionActions: sessionActionsActive, phoneActions: showsPhoneActions)
+                            sessionActions: sessionActionsActive)
     }
     var contentWidth: CGFloat {
         let visible = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1440
@@ -171,7 +172,6 @@ final class SubtitlePanel {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.sharingType = .none
         panel.hidesOnDeactivate = false
-        panel.title = String(localized: "TalkTalk · 会议同传")
         panel.identifier = NSUserInterfaceItemIdentifier("TalkTalkConversation")
         // TalkTalk is an accessory app, inactive during a meeting: 结束's consequence lives in its
         // tooltip, which AppKit otherwise shows only in the active app.
@@ -562,11 +562,28 @@ final class SubtitlePanel {
 
     func stopInputLevel() { dock.stopLevel() }
 
-    /// LISTEN's `meetingSilent`: the empty meeting timeline says "[info.circle] 暂未听到对方声音".
+    /// LISTEN's `meetingSilent`: the empty meeting timeline says "[waveform.slash] 暂未听到对方声音".
     func setRemoteSilent(_ on: Bool) {
         guard remoteSilent != on else { return }
         remoteSilent = on
         conversation.setPlaceholder(conversationPlaceholder)
+        reportTimelineSilence()
+    }
+
+    /// The empty meeting timeline itself says "暂未听到对方声音", so the titlebar's gray silence
+    /// chip yields (HUDModel.issueSlot). It returns once rows exist or subtitles are off.
+    var timelineShowsSilence: Bool {
+        presentation == .meeting && hasConversation && remoteSilent && conversation.isEmpty
+    }
+    /// `timelineShowsSilence` flipped (a first row, subtitles on/off): PTTHUD redraws the slot.
+    var onTimelineSilenceChange: (() -> Void)?
+    private var reportedTimelineSilence = false
+
+    private func reportTimelineSilence() {
+        let silence = timelineShowsSilence
+        guard silence != reportedTimelineSilence else { return }
+        reportedTimelineSilence = silence
+        onTimelineSilenceChange?()
     }
 
     private var conversationRules: ConversationLayout {
@@ -583,8 +600,8 @@ final class SubtitlePanel {
         case .video:
             return nil
         case .phone:
-            return .init(primary: String(localized: "接通后在这里显示对方的字幕"),
-                         secondary: String(localized: "在 Phone 拨号或接听；挂断也在 Phone 里操作"), clickable: false,
+            // Dialing and hang-up belong to the Phone button's help, the ready state to the capsule.
+            return .init(primary: String(localized: "接通后显示对方字幕"), secondary: nil, clickable: false,
                          symbol: SubtitleTokens.SceneIcon.phone)
         case .meeting:
             if remoteSilent {
@@ -593,8 +610,9 @@ final class SubtitlePanel {
                              symbol: HUDModel.Warning.meetingSilent.symbol, help: String(localized: "查看详情"),
                              accessibilityLabel: String(localized: "暂未听到对方声音，查看详情"))
             }
-            let primary = titlebarContent.sourceTitle.map { String(localized: "正在听 \($0) 的会议声音…") }
-                ?? String(localized: "正在听会议声音…")
+            // The titlebar already names the scene: the same short form as video.
+            let primary = titlebarContent.sourceTitle.map { String(localized: "正在听 \($0)…") }
+                ?? String(localized: "正在听…")
             return .init(primary: primary, secondary: nil, clickable: false, symbol: SubtitleTokens.VoiceIcon.listening)
         }
     }
@@ -607,6 +625,7 @@ final class SubtitlePanel {
         conversation.setPlaceholder(conversationPlaceholder)
         conversation.apply(rows: timeline.rows(including: live), style: conversationStyle,
                            lastRowOnly: rules.lastRowOnly, showsHeader: rules.showsColumnHeader)
+        reportTimelineSilence()
         // The start hint belongs to the empty conversation only; size or style changes reach
         // the dock too. Unchanged content returns at once.
         applyDock()
@@ -746,7 +765,7 @@ final class SubtitlePanel {
                                  sentence: nil, isFinal: false, at: Double(HostClock.now()) / 1_000_000_000)
         if includingMyTurns { timeline.clear() } else { timeline.clearRemote() }
         restoreFromQuietDim()
-        if videoLag != nil { videoLag = nil; onVideoLagChange?(nil) }
+        if videoLagging { videoLagging = false; onVideoLagChange?(false) }
         announcedThrough = 0
         conversation.followLatest()
         if hadHint { onHintChange?(nil) }
@@ -1036,6 +1055,7 @@ final class SubtitlePanel {
         }
     }
     private func updateWindowVisibility() {
+        reportTimelineSilence()
         if hasWindowContent {
             // Minimized is a user-owned presentation state, independent of subtitles being
             // enabled and of audio work. A status transition must never bring it back.
@@ -1158,14 +1178,14 @@ final class SubtitlePanel {
     private func pauseVideoLag(at now: HostTime) {
         guard presentation == .video else { return }
         if videoHiddenSince == nil { videoHiddenSince = now }
-        if videoLag != nil { videoLag = nil; onVideoLagChange?(nil) }
+        if videoLagging { videoLagging = false; onVideoLagChange?(false) }
     }
 
     private func updateVideoLag(at now: HostTime) {
-        let lag = presentation == .video ? videoBoard.lag(at: now) : nil
-        guard lag != videoLag else { return }
-        videoLag = lag
-        onVideoLagChange?(lag)
+        let lagging = presentation == .video && videoBoard.lag(at: now) != nil
+        guard lagging != videoLagging else { return }
+        videoLagging = lagging
+        onVideoLagChange?(lagging)
     }
 
     private func liveResizeStarted() {
@@ -1747,7 +1767,7 @@ final class WindowHintView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor(white: 0, alpha: 0.6).cgColor
         layer?.cornerRadius = CGFloat(SubtitleTokens.Radius.chip)
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.font = .systemFont(ofSize: ControlTypography.windowHint, weight: .medium)
         label.textColor = SubtitleStyle.white(0.9)
         addSubview(label)
     }
