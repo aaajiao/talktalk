@@ -178,7 +178,6 @@ struct AudioSettingsView: View {
             Form {
                 soundPaths(proxy)
                 microphone.id("audio.microphone")
-                capture
                 calibration
                 defaultInput.id("audio.meetingInput")
                 meetingCheck
@@ -213,8 +212,6 @@ struct AudioSettingsView: View {
             ])
         } header: {
             Text("声音如何流动")
-        } footer: {
-            Text("耳机负责播放，采音可以使用内建麦克风。视频字幕只收听应用声音，不使用麦克风。")
         }
     }
 
@@ -254,25 +251,13 @@ struct AudioSettingsView: View {
         }
     }
 
-    private var capture: some View {
-        Section {
-            LabeledContent("收音方式", value: String(localized: "按场景启用麦克风"))
-            Label("需要静音时，使用会议应用或 Phone 的静音按钮。", systemImage: "mic.slash")
-                .font(.callout)
-        } header: {
-            Text("会议与电话收音")
-        } footer: {
-            Text("会议和电话同传准备好后即可收音；电话不必等接通，点按右⌥就能开始翻译，再点按结束发言。电话接收状态另行检查，不影响拨号前试说。默认不保存录音；视频字幕不使用麦克风。")
-        }
-    }
-
     private var playback: some View {
         Section {
             Toggle("在耳机中听到译音", isOn: $model.monitor)
         } header: {
             Text("耳机 · 播放声音")
         } footer: {
-            Text("开启后，你也能听到译音。外放时停用耳机译音和 TalkTalk 的原声通路，避免回声；不更改系统默认输出。")
+            Text("外放时停用耳机译音和 TalkTalk 的原声通路，避免回声；不更改系统默认输出。")
         }
     }
 
@@ -295,12 +280,15 @@ struct AudioSettingsView: View {
                     ProgressView().controlSize(.small)
                     Button("取消") { model.calibration.cancel() }
                 }
+                if meetingActive {
+                    Text("结束会话后可校准").font(.callout).foregroundStyle(.secondary)
+                }
             }
             if let message = model.calibration.message { Text(verbatim: message).font(.callout).foregroundStyle(.secondary) }
         } header: {
             Text("原声音量")
         } footer: {
-            Text("只测电平，不保存录音。请先停止会议同传或视频字幕再校准。")
+            Text("只测电平，不保存录音。")
         }
     }
 

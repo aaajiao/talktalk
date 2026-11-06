@@ -287,7 +287,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    private func syncEndHelp() { conversationPanel.setEndInputSwitched(systemInputSwitched) }
+    private func syncEndHelp() {
+        conversationPanel.setEndInputSwitched(systemInputSwitched)
+        state.systemInputHeld = systemInputSwitched
+    }
 
     /// §11 icon from the meeting, its translation and the system input's leftovers (§8.6).
     private func updateIcon() {

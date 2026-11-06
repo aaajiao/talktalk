@@ -189,8 +189,8 @@ struct MeetingSettingsView: View {
             ])
         }
         if sourceChangesLocked {
-            Text("来源在本次会话中保持不变。请先结束当前同传或视频字幕，再更换应用。")
-                .font(.callout).foregroundStyle(.secondary)
+            Label("会话结束后可更换来源", systemImage: "lock")
+                .font(.caption).foregroundStyle(.secondary)
         } else if missing {
             SettingsStatusLabel(String(localized: "请先打开 \(selectedName)，或重新选择应用；不会自动改用其他声音来源。"), .warn)
                 .font(.callout)
@@ -210,13 +210,8 @@ struct MeetingSettingsView: View {
         sourceChangesLocked ? state.meetingMode : state.requestedScenario
     }
 
-    private var stopTitle: String {
-        switch state.meetingMode {
-        case .meeting: String(localized: "停止会议同传")
-        case .phone: String(localized: "结束电话同传")
-        case .captions: String(localized: "停止视频字幕")
-        }
-    }
+    /// The same words as the menu's 结束<场景> and the titlebar's VoiceOver label.
+    private var stopTitle: String { state.meetingMode.scene.endAccessibilityLabel }
 
     private var actionTitle: String {
         if state.meetingStopping { return String(localized: "正在结束\(modeTitle(state.meetingMode))…") }
@@ -244,15 +239,11 @@ struct MeetingSettingsView: View {
         }
     }
 
-    private var actionDescription: String? {
-        // While ending, the button's spinner says it once; the end help is on the button.
-        if state.meetingStopping || state.meetingActive { return nil }
-        if state.meetingStarting { return String(localized: "正在准备识别、翻译与音频，请稍候。") }
-        switch actionMode {
-        case .meeting: return String(localized: "按本场景的应用与语言设置开始双向同传。")
-        case .phone: return String(localized: "先准备同传，再到 Phone 拨号或接听。")
-        case .captions: return String(localized: "收听所选应用并显示字幕，不启用麦克风。")
-        }
+    /// While running, the button carries the end consequence (the meeting or call goes on), as
+    /// the titlebar's 结束 and the menu item.
+    private var actionHelp: String {
+        guard state.meetingActive, !state.meetingStopping else { return "" }
+        return state.meetingMode.scene.endHelp(systemInputSwitched: state.systemInputHeld)
     }
 
     private var scenarioActionBar: some View {
@@ -276,10 +267,6 @@ struct MeetingSettingsView: View {
                     } else {
                         Text(modeTitle(actionMode)).font(.callout.weight(.semibold))
                     }
-                    if let actionDescription {
-                        Text(actionDescription).font(.caption).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
                     if !state.subtitlesVisible { subtitlesHiddenTag }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -300,6 +287,7 @@ struct MeetingSettingsView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(state.meetingActive ? Color.red : Color.accentColor)
                 .controlSize(.large)
+                .help(actionHelp)
                 .disabled(state.meetingStarting || state.meetingStopping || state.onToggleListening == nil
                           || (!state.meetingActive && !state.meetingAvailable))
             }

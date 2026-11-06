@@ -234,9 +234,6 @@ struct EngineComponentsRows: View {
                 .fixedSize()
             }
             .disabled(busy)
-            DisclosureGroup(String(localized: "下载与安装说明")) {
-                SettingsNote("这里只安装语音识别与语音合成模型。max / standard 档约 4.9 GB，compact-24 约 3.8 GB，compact-16 约 2.8 GB（含运行时，估）。下载可以取消，下次继续。")
-            }
         }
     }
 

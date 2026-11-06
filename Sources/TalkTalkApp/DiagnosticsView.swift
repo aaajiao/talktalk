@@ -54,13 +54,9 @@ struct DiagnosticsView: View {
                                            ("doc.text.magnifyingglass", String(localized: "查看本地记录"))], links: [
                             0: .init(String(localized: "选择使用场景")) { navigation.selection = .meeting }
                         ])
-                        note(String(localized: "检查本次原文、译文和字幕节奏。只在你开启后记录文字，不录音；会话结束后自动停止。"))
                     }
                     Section { subtitleAnalysis } header: { Text("本次分析") }
                 case .troubleshooting:
-                    Section {
-                        note(String(localized: "下面的检查与导出都由你手动开始。打开此页不会启动录音或发送测试请求。"))
-                    }
                     Section { selfTests } header: { Text("运行自检") }
                     Section { selfTestResults } header: { Text("检查结果") }
                     Section { bundle } header: { Text("导出诊断包") }
@@ -126,7 +122,7 @@ struct DiagnosticsView: View {
     private var selfTests: some View {
         let status = model.diagnosticsStatus
         return VStack(alignment: .leading, spacing: 12) {
-            note(String(localized: "自检只在点击后运行。引擎自检先停止当前引擎；请先结束会议、说话测试、录音和试听。"))
+            note(String(localized: "引擎自检会先停止当前引擎；请先结束会议、说话测试、录音和试听。"))
             HStack {
                 Button { status.runEngine() } label: { Label("检查本地引擎", systemImage: "cpu") }
                     .disabled(!status.audioSelfTestAvailable || model.recorder.meetingRunning)
@@ -156,7 +152,6 @@ struct DiagnosticsView: View {
                 Button("复制直通自检命令") { status.copyCommand("--passthrough") }
             }
             note(String(localized: "直通自检仅适用于离线独占；会议中的驱动隔离检查从“组件”页运行。"))
-            note(String(localized: "共载自检：已跳过（按你的决定，不做负载测试）。"))
         }
     }
 
@@ -228,8 +223,6 @@ struct DiagnosticsView: View {
                 Text(verbatim: "\(ratio(status.rtfPercentile(0.5))) / \(ratio(status.rtfPercentile(0.9)))")
             }
             LabeledContent("最近首声记录的累计欠载") { Text(verbatim: status.latestUnderrunsTotal.map { String($0) } ?? "—") }
-            LabeledContent("EVS") { Text(verbatim: "—") }
-            note(String(localized: "EVS 尚无可靠的原声结束时间，暂不计算。"))
             note(String(localized: "时延是原始记录，尚未扣除队列、直通或告知语时间；结束翻译前已出声或强制结束的发言不计入结束翻译到首声。累计欠载来自最近首声时的本场快照，不是每段欠载率。"))
             note(String(localized: "缺少记录的指标显示 —，不会由其他时延推算。"))
             if status.snapshot.rows.isEmpty {
@@ -264,10 +257,9 @@ struct DiagnosticsView: View {
     private var subtitleAnalysis: some View {
         let analysis = model.subtitleAnalysis
         return VStack(alignment: .leading, spacing: 8) {
-            LabeledContent("收听状态", value: model.recorder.meetingRunning ? String(localized: "会话进行中") : String(localized: "尚未开始收听"))
             Label(analysis.status, systemImage: analysis.isRecording ? "record.circle" : "info.circle")
                 .font(.callout).foregroundStyle(analysis.isRecording || analysis.isStarting ? Color.orange : Color.secondary)
-            note(String(localized: "分析文件包含本次原文和译文，仅保存在这台 Mac；24 小时后清理，不进入诊断包。"))
+            note(String(localized: "只在开启后记录本次原文和译文，不录音；会话结束自动停止。仅存本机，24 小时后清理，不进诊断包。"))
             HStack {
                 if analysis.isRecording || analysis.isStarting {
                     Button("停止字幕分析") { analysis.stop() }
@@ -278,7 +270,7 @@ struct DiagnosticsView: View {
                 if analysis.isStarting { ProgressView().controlSize(.small) }
             }
             if !model.recorder.meetingRunning {
-                note(String(localized: "请先开始会议同传或视频字幕，再开启本次分析。"))
+                note(String(localized: "先开始会议同传或视频字幕。"))
             }
             if let file = analysis.fileURL {
                 Text("已接收 \(analysis.recordCount) 行").font(.callout).foregroundStyle(.secondary)

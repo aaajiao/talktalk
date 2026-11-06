@@ -67,10 +67,6 @@ struct PhoneSettingsView: View {
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if anotherSceneIsRunning {
-                Text("请先结束当前同传或视频字幕，再准备电话同传。")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
             Picker("对方语言", selection: $state.remoteLanguage) {
                 ForEach(AppState.RemoteLanguage.allCases) { Text($0.title).tag($0) }
             }
@@ -87,7 +83,7 @@ struct PhoneSettingsView: View {
             checklistRow(1, status: checklist.prepare, title: String(localized: "准备电话同传")) { prepareStep }
             checklistRow(2, status: checklist.dial, title: String(localized: "拨号或接听")) { dialStep }
             checklistRow(3, status: checklist.finish, title: String(localized: "挂断后结束同传")) {
-                Text("先在 Phone 挂断，再结束同传。结束同传会还原麦克风，不会挂断电话。")
+                Text("在 Phone 中挂断后，点“结束电话同传”还原麦克风；结束同传不会挂断电话。")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

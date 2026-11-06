@@ -44,7 +44,7 @@ struct ComponentsSettingsView: View {
                     Section {
                         EngineComponentsRows(model: engine, refreshOnAppear: false)
                     } footer: {
-                        Text("本页管理本地安装；模型选择在“模型”中设置。")
+                        Text("模型选择在“模型”中设置。")
                     }
                 case .driver:
                     Section {

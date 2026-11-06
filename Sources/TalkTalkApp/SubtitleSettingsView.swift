@@ -185,6 +185,7 @@ struct SubtitleSettingsView: View {
                     .frame(minWidth: 150).disabled(!opacityControl.enabled)
                     .accessibilityLabel(String(localized: "背景不透明度"))
                     .accessibilityValue(Text(verbatim: "\(percent)%"))
+                    .help("默认 85%；只调背景，文字不变淡")
                     Text(verbatim: "\(percent)%")
                         .monospacedDigit().frame(width: 54, alignment: .trailing)
                         .foregroundStyle(opacityControl.enabled ? .primary : .secondary)
@@ -193,8 +194,8 @@ struct SubtitleSettingsView: View {
             switch opacityControl.note {
             case .reduceTransparency?:
                 Label(video
-                      ? String(localized: "系统已开启“降低透明度”，视频字幕改用实底样式。关闭后会恢复这里保存的偏好。")
-                      : String(localized: "系统已开启“降低透明度”，字幕背景保持不透明。关闭后会恢复这里保存的偏好。"),
+                      ? String(localized: "系统已开启“降低透明度”，改用实底")
+                      : String(localized: "系统已开启“降低透明度”，背景不透明"),
                       systemImage: "accessibility")
                     .font(.callout).foregroundStyle(.secondary)
             case .strokeHasNoBackground?:
@@ -205,19 +206,15 @@ struct SubtitleSettingsView: View {
             }
         } header: {
             Text("窗口背景")
-        } footer: {
-            Text(video
-                 ? String(localized: "使用 macOS 原生毛玻璃，默认 85%。只调整背景，文字不随之变淡；低于 75% 时文字加阴影。")
-                 : String(localized: "使用 macOS 原生毛玻璃背景，默认 85%。只调整背景，文字和按钮不随之变淡；低于 75% 时文字加阴影。"))
         }
     }
 
     private var videoCaptionSettings: some View {
         Section {
             Picker("字幕样式", selection: $state.videoCaptionStyle) {
-                Text("贴合玻璃").tag(VideoCaptionStyle.fittedGlass)
-                Text("描边").tag(VideoCaptionStyle.stroke)
-                Text("实底").tag(VideoCaptionStyle.plate)
+                Text("贴合玻璃").help("只在文字后面铺毛玻璃").tag(VideoCaptionStyle.fittedGlass)
+                Text("描边").help("不铺背景，文字加描边和阴影").tag(VideoCaptionStyle.stroke)
+                Text("实底").help("每行文字后垫深色底块").tag(VideoCaptionStyle.plate)
             }
             .pickerStyle(.segmented)
             Picker("排列", selection: $state.videoCaptionArrangement) {
@@ -226,19 +223,9 @@ struct SubtitleSettingsView: View {
             }
             .pickerStyle(.segmented)
             Toggle("长静默时变暗", isOn: $state.videoLongSilenceDim)
+                .help("最后一页读完 8 秒后无新内容时，文字降到 35%")
         } header: {
             Text("视频字幕")
-        } footer: {
-            Text(videoStyleExplanation + " "
-                 + String(localized: "长静默时变暗：最后一页读完 8 秒后仍没有新内容，文字降到 35%；新内容到达立即恢复。"))
-        }
-    }
-
-    private var videoStyleExplanation: String {
-        switch state.videoCaptionStyle {
-        case .fittedGlass: String(localized: "贴合玻璃：只在文字后面铺毛玻璃，其余区域完全透明。")
-        case .stroke: String(localized: "描边：不铺背景，文字加黑色描边和阴影。")
-        case .plate: String(localized: "实底：每行文字后垫深色底块。")
         }
     }
 }

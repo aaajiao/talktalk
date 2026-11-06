@@ -161,18 +161,18 @@ struct GeneralSettingsView: View {
                         Label("打开系统通知设置", systemImage: "gearshape")
                     }
                 }
-                SettingsNote("关闭通知不会改变自动结束会议的规则；视频字幕同样适用。")
             } header: { Text("通知")
             } footer: {
-                Text("提醒你会议似乎已结束。")
+                Text("会议似乎已结束时提醒你；关闭通知不影响自动结束。")
             }
             Section {
                 Toggle(isOn: $model.announcementEnabled) {
                     Label("第一次按键翻译时播放告知语", systemImage: "megaphone")
                 }
-                SettingsNote("向对方说明你正在使用机器同传和合成声音。")
-                SettingsNote("也可以从菜单选择“现在播放告知语”。")
-            } header: { Text("告知对方") }
+            } header: { Text("告知对方")
+            } footer: {
+                Text("向对方说明你正在使用机器同传和合成声音。")
+            }
             Section {
                 Button { model.onRestartOnboarding?() } label: {
                     Label("重新运行引导…", systemImage: "arrow.clockwise.circle")

@@ -273,6 +273,9 @@ final class AppState {
     var systemInput: String?
     /// Compact menu presentation, derived from the same typed switcher status.
     var systemInputNotice: HUDLine?
+    /// TalkTalk holds the system default input, so ending returns the physical microphone to an
+    /// app that follows it: the settings 结束 button's help, as the titlebar and menu.
+    var systemInputHeld = false
 
     /// Whether `voice/profile.json` exists; refreshed when the settings page saves or deletes.
     private(set) var voiceProfilePresent: Bool
