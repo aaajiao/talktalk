@@ -72,7 +72,19 @@ final class SettingsNavigation {
     /// The scenario page's current scroll offset, and the one to restore when coming back.
     @ObservationIgnored var sceneScrollOffset: Double = 0
     /// Scenario page view state (no @State: the CLT toolchain has no SwiftUIMacros plugin).
-    var sceneScroll = ScrollPosition(edge: .top)
+    /// The scroll position is not observed: SwiftUI writes it back on every scroll commit, and
+    /// an observed write re-renders the page, which commits and writes again — an endless
+    /// layout loop that froze the settings window. Programmatic scrolls go through
+    /// `scrollScene(_:)`, whose observed token makes the page apply the new position once.
+    @ObservationIgnored private var sceneScrollStorage = ScrollPosition(edge: .top)
+    private(set) var sceneScrollRequest = 0
+    var sceneScrollBinding: Binding<ScrollPosition> {
+        Binding(get: { self.sceneScrollStorage }, set: { self.sceneScrollStorage = $0 })
+    }
+    func scrollScene(_ change: (inout ScrollPosition) -> Void) {
+        change(&sceneScrollStorage)
+        sceneScrollRequest &+= 1
+    }
     var sceneHeaderCollapsed = false
     @ObservationIgnored private var savedSceneScrollOffset: Double?
 

@@ -22,6 +22,8 @@ struct MeetingSettingsView: View {
     }
 
     var body: some View {
+        // Read the token so a programmatic scroll re-renders and the Form applies it.
+        let _ = navigation.sceneScrollRequest
         VStack(spacing: 0) {
             scenarioHeader
             if let banner = runState.banner, let running = runState.running {
@@ -41,7 +43,7 @@ struct MeetingSettingsView: View {
             }
             .formStyle(.grouped)
             .id(state.requestedScenario)
-            .scrollPosition($navigation.sceneScroll)
+            .scrollPosition(navigation.sceneScrollBinding)
             .onScrollGeometryChange(for: Double.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { _, offset in
                 navigation.sceneScrollOffset = offset
                 let collapsed = navigation.sceneHeaderCollapsed
@@ -56,15 +58,15 @@ struct MeetingSettingsView: View {
             state.onRefreshSources?()
             // Back from a flow link's page: the previous position; otherwise the top.
             if let offset = navigation.takeSceneScrollRestore() {
-                DispatchQueue.main.async { navigation.sceneScroll.scrollTo(y: offset) }
+                DispatchQueue.main.async { navigation.scrollScene { $0.scrollTo(y: offset) } }
             } else {
-                navigation.sceneScroll.scrollTo(edge: .top)
+                navigation.scrollScene { $0.scrollTo(edge: .top) }
                 navigation.sceneHeaderCollapsed = false
             }
         }
         .onChange(of: state.requestedScenario) { _, _ in
             state.onRefreshSources?()
-            navigation.sceneScroll.scrollTo(edge: .top)
+            navigation.scrollScene { $0.scrollTo(edge: .top) }
             navigation.sceneHeaderCollapsed = false
         }
     }
