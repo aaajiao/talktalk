@@ -222,7 +222,7 @@ final class SpeakController {
         case .audioServiceRestarted(let at):
             output.audioServiceRestarted(observedAt: at)
             mic?.refreshDevices(); feedConfirmed = false; refreshFacts()
-        case .state, .hint, .translation: break
+        case .state, .hint, .translation, .stopping: break
         }
     }
 
@@ -821,6 +821,8 @@ final class SpeakController {
         try await withCheckedThrowingContinuation { lifecycleEvents.yield(.startDemo($0)) }
     }
     func endOnboardingDemo() {
+        // The demo window leaves in one step; its teardown continues in the background.
+        if demoActive, !state.meetingActive { meeting.panel.endSession() }
         if demoActive { keys?.systemEvent(.meetingModeEnded, at: HostClock.now()) }
         lifecycleEvents?.yield(.endDemo)
     }
@@ -945,6 +947,7 @@ final class SpeakController {
 
     private func stopDemo(reason: String) {
         guard demoActive, !demoStopRequested else { return }
+        if !state.meetingActive { meeting.panel.endSession() }
         demoReady = false; demoStopRequested = true; demoFailure = reason
         keys?.systemEvent(.meetingModeEnded, at: HostClock.now())
         lifecycleEvents?.yield(.endDemo)

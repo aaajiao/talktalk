@@ -86,9 +86,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let meeting = MeetingController(state: state, panel: conversationPanel, hud: hud, privacy: privacy,
             engineProcess: { [bridge = engineHost.speakBridge] in bridge.process })
         self.meeting = meeting
-        hud.onEndSession = { [weak meeting, weak state, weak onboardingModel] in
+        hud.onEndSession = { [weak meeting, weak state, weak onboardingModel, weak conversationPanel] in
             if let state, state.meetingActive { meeting?.toggle(mode: state.meetingMode) }
-            else { onboardingModel?.endSpeakDemo(); onboardingModel?.demo.stop() }
+            else {
+                // Only the onboarding demo has 结束 without a session: it leaves in one step too.
+                conversationPanel?.endSession()
+                onboardingModel?.endSpeakDemo(); onboardingModel?.demo.stop()
+            }
         }
         state.onToggleListening = { [weak meeting] mode in meeting?.toggle(mode: mode) }
         hud.onOpenSettings = { [weak settings, weak onboarding] destination in
@@ -123,12 +127,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   let verdict = systemInput.micGuard.state.verdict,
                   case let .green(appID, _) = verdict else { return false }
             return appID == MeetingMode.phoneAppID
-        }
-        hud.endConfirmation = { [weak state, weak systemInput] scene in
-            guard state?.meetingActive == true else { return nil }
-            var switched = false
-            if case .holding = systemInput?.switcher.status { switched = true }
-            return SessionEndConfirmation.make(scene: scene, systemInputSwitched: switched)
         }
         hud.onMeetingVoiceChange = { [weak state] voice in state?.meetingVoice = voice }
         hud.onPhoneVoiceChange = { [weak state] voice in
@@ -179,11 +177,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onboardingModel.voice.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
             settings.driver.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
         }
-        meeting.beforeUserEnd = { [weak systemInput] in systemInput?.confirmUserEnd() ?? true }
+        meeting.beforeUserEnd = { [weak systemInput] in systemInput?.confirmUserEnd() }
         let status = StatusItemController(state: state, actions: .init(
             openSettings: { [weak self] section in self?.settings?.show(section) },
             toggleMeeting: { [weak meeting] in meeting?.toggle() },
-            endSession: { [weak self] in self?.endSessionFromMenu() },
+            endSession: { [weak meeting] in meeting?.toggle() },
             quit: { NSApp.terminate(nil) },
             stillInMeeting: { [weak meeting] in meeting?.stillInMeeting() },
             openOnboarding: { [weak onboarding] in onboarding?.show() },
@@ -205,11 +203,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.settings?.show(.meeting)
                 }
             },
-            voiceState: { [weak hud] in hud?.model.voiceState }))
+            voiceState: { [weak hud] in hud?.model.voiceState },
+            systemInputSwitched: { [weak self] in self?.systemInputSwitched ?? false }))
         statusItem = status
         meeting.onActiveChange = { [weak self] _ in self?.updateIcon() }
         meeting.onTranslationChange = { [weak self] in self?.updateIcon() }
-        systemInput?.onStatusChange = { [weak self] in self?.updateIcon() }
+        systemInput?.onStatusChange = { [weak self] in
+            self?.updateIcon()
+            self?.syncEndHelp()
+        }
+        syncEndHelp()
 
         DistributedNotificationCenter.default().addObserver(
             forName: SingleInstance.reopenNotification, object: nil, queue: .main) { [weak self] _ in
@@ -277,27 +280,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The menu's "结束<场景>" asks the same question as the titlebar's end popover (meeting and
-    /// phone; video ends at once): an alert with the destructive "结束同传" that Return does not
-    /// trigger, and "取消" on Esc.
-    private func endSessionFromMenu() {
-        guard state.meetingActive, let confirmation = hud.endConfirmation?(state.meetingMode.scene) else {
-            meeting?.toggle()
-            return
-        }
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = confirmation.title
-        alert.informativeText = confirmation.message
-        let confirm = alert.addButton(withTitle: confirmation.confirm)
-        confirm.hasDestructiveAction = true
-        confirm.keyEquivalent = ""
-        let cancel = alert.addButton(withTitle: confirmation.cancel)
-        cancel.keyEquivalent = "\u{1b}"
-        NSApp.activate()
-        guard alert.runModal() == .alertFirstButtonReturn, state.meetingActive else { return }
-        meeting?.toggle()
+    /// TalkTalk holds the system default input, so ending gives an app that follows it the
+    /// physical microphone back (the 结束 help, titlebar and menu).
+    private var systemInputSwitched: Bool {
+        if case .holding = systemInput?.switcher.status { return true }
+        return false
     }
+
+    private func syncEndHelp() { conversationPanel.setEndInputSwitched(systemInputSwitched) }
 
     /// §11 icon from the meeting, its translation and the system input's leftovers (§8.6).
     private func updateIcon() {
@@ -338,6 +328,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Only a restore failure needs an actionable notice; normal exit has no choice dialog.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitting { return .terminateLater }
+        // quit() never cancels termination, so the window may leave first, in one step.
+        conversationPanel.endSession()
         let reply = systemInput?.quit() ?? .terminateNow
         guard reply == .terminateNow else { return reply }
         quitting = true
@@ -385,6 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 panel.apply(.source("so the budget for next year"))
                 panel.apply(.final(sentence: 1, text: "明年的预算", source: "the budget for next year", approx: true, numberWarning: false))
                 panel.apply(.draft(sentence: 2, text: "草稿"))
+                panel.beginSession()
                 panel.setVisible(true)
                 let cb = panel.collectionBehavior
                 r["subtitle_panel"] = [
@@ -450,7 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 hud.meetingEnded()
                 hud.setSubtitlesVisible(state.subtitlesVisible)
                 #endif
-                panel.setVisible(false)
+                panel.endSession()
                 panel.clear(includingMyTurns: true)
             }
             if let devices = settings?.voice.enrollment?.devices {

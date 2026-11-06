@@ -28,7 +28,7 @@ public enum SubtitleScene: String, Sendable, Equatable, CaseIterable {
         }
     }
 
-    /// Meeting and phone confirm in a popover; video ends at once.
+    /// Every scene ends at once, with no confirmation; the consequence is the button's help.
     public var endTitle: String { self == .video ? titlebarLabel("结束") : titlebarLabel("结束同传") }
 
     /// The end button's VoiceOver label and tooltip, which also cover its narrow
@@ -41,18 +41,24 @@ public enum SubtitleScene: String, Sendable, Equatable, CaseIterable {
         }
     }
 
-    /// What ending does not do: the meeting or call itself goes on. Video ends at once with
-    /// no confirmation, so its help (also the tooltip) says what stops.
-    public var endAccessibilityHelp: String {
+    /// The end button's tooltip and VoiceOver help, also the menu item's tooltip: which session
+    /// ends and what the meeting or call receives afterwards. `systemInputSwitched`: TalkTalk
+    /// holds the system default input, so an app following it gets the physical microphone back
+    /// when the input is restored at the end. Whether the app follows it cannot be observed;
+    /// this is the approximate reading (§8.6).
+    public func endHelp(systemInputSwitched: Bool) -> String {
         switch self {
-        case .meeting: String(localized: "结束 TalkTalk 同传；会议本身不会结束")
-        case .phone: String(localized: "结束 TalkTalk 同传；通话不会挂断")
+        case .meeting:
+            systemInputSwitched
+                ? String(localized: "结束会议同传：会议不会结束；系统麦克风还原后，会议会收到你的原声")
+                : String(localized: "结束会议同传：会议不会结束；之后会议听不到你的声音")
+        case .phone:
+            systemInputSwitched
+                ? String(localized: "结束电话同传：通话不会挂断；系统麦克风还原后，对方会听到你的原声")
+                : String(localized: "结束电话同传：通话不会挂断；之后对方听不到你的声音")
         case .video: String(localized: "结束视频字幕：停止收听和翻译")
         }
     }
-
-    /// The end button's tooltip: video, which has no confirmation step, explains the effect.
-    public var endToolTip: String { self == .video ? endAccessibilityHelp : endAccessibilityLabel }
 }
 
 /// What the voice capsule says (§3). It reads the current speaking mode directly and never
@@ -357,15 +363,18 @@ public struct SubtitleTitlebarContent: Sendable, Equatable {
     public var phoneEnabled: Bool
     public var showsEnd: Bool
     public var endEnabled: Bool
+    /// TalkTalk holds the system default input: the end help names the raw-voice consequence.
+    public var endInputSwitched: Bool
     /// The video hover bar's "⋯" menu (§6), just before the end button.
     public var showsMore: Bool
 
     public init(scene: SubtitleScene, source: String? = nil, voice: VoiceState? = nil, issue: IssueSlot? = nil,
                 key: TitlebarKey? = nil, showsPhone: Bool = false, phoneEnabled: Bool = true,
-                showsEnd: Bool = false, endEnabled: Bool = true, showsMore: Bool = false) {
+                showsEnd: Bool = false, endEnabled: Bool = true, endInputSwitched: Bool = false,
+                showsMore: Bool = false) {
         self.scene = scene; self.source = source; self.voice = voice; self.issue = issue; self.key = key
         self.showsPhone = showsPhone; self.phoneEnabled = phoneEnabled
-        self.showsEnd = showsEnd; self.endEnabled = endEnabled
+        self.showsEnd = showsEnd; self.endEnabled = endEnabled; self.endInputSwitched = endInputSwitched
         self.showsMore = showsMore
     }
 
@@ -402,33 +411,5 @@ public struct TitlebarCompaction: Sendable, Equatable {
             if reservedLeading + measure(candidate) <= windowWidth { return candidate }
         }
         return TitlebarCompaction(level: maxLevel, windowWidth: windowWidth)
-    }
-}
-
-/// The end button's confirmation (§3). Meeting and phone confirm in a popover; video ends at
-/// once. The meeting text states what the meeting app receives after TalkTalk stops.
-public struct SessionEndConfirmation: Sendable, Equatable {
-    public var title: String
-    public var message: String
-    public var confirm: String
-    public var cancel: String
-
-    /// `systemInputSwitched`: TalkTalk switched the system default input to TalkTalk Mic, so a
-    /// meeting app following the default goes back to the physical microphone when it ends.
-    public static func make(scene: SubtitleScene, systemInputSwitched: Bool) -> SessionEndConfirmation? {
-        switch scene {
-        case .video:
-            return nil
-        case .phone:
-            return .init(title: String(localized: "结束电话同传？"),
-                         message: String(localized: "通话不会挂断；结束后对方将听不到你的声音。"),
-                         confirm: String(localized: "结束同传"), cancel: String(localized: "取消"))
-        case .meeting:
-            return .init(title: String(localized: "结束会议同传？"),
-                         message: systemInputSwitched
-                            ? String(localized: "会议不会结束；系统麦克风还原后，会议仍会收到你的原声。")
-                            : String(localized: "会议不会结束；结束后会议将听不到你的声音。"),
-                         confirm: String(localized: "结束同传"), cancel: String(localized: "取消"))
-        }
     }
 }

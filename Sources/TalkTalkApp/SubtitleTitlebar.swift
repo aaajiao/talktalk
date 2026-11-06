@@ -143,7 +143,8 @@ final class SubtitleTitlebarView: NSView {
         more.apply(display: nextDisplay)
         end.isHidden = !next.showsEnd
         end.isEnabled = next.endEnabled
-        end.apply(scene: next.scene, showsText: nextCompaction.showsEndText, display: nextDisplay)
+        end.apply(scene: next.scene, showsText: nextCompaction.showsEndText, inputSwitched: next.endInputSwitched,
+                  display: nextDisplay)
         divider.layer?.backgroundColor = SubtitleStyle.color(.divider, display: nextDisplay).cgColor
         relayout()
     }
@@ -825,15 +826,18 @@ final class EndTextButton: TitlebarControl {
         return ceil(text) + 4
     }
 
-    func apply(scene: SubtitleScene, showsText nextShowsText: Bool, display nextDisplay: SubtitleStyle.Display = .current) {
+    func apply(scene: SubtitleScene, showsText nextShowsText: Bool, inputSwitched: Bool,
+               display nextDisplay: SubtitleStyle.Display = .current) {
         showsText = nextShowsText
         display = nextDisplay
         label.stringValue = scene.endTitle
         label.isHidden = !nextShowsText
         icon.isHidden = nextShowsText
         setAccessibilityLabel(scene.endAccessibilityLabel)
-        setAccessibilityHelp(scene.endAccessibilityHelp)
-        toolTip = scene.endToolTip
+        // 结束 ends at once: its help and tooltip carry the consequence (redesign §3).
+        let help = scene.endHelp(systemInputSwitched: inputSwitched)
+        setAccessibilityHelp(help)
+        toolTip = help
         hoverChanged()
         needsLayout = true
     }

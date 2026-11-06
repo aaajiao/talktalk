@@ -6,8 +6,8 @@ import TalkTalkCore
 /// Automatic input restoration for meeting end and app quit; no normal choice dialog.
 @MainActor
 enum SysInputDialogs {
-    /// Keep the existing before-end callback contract: restoration failure is reported and its
-    /// record remains recoverable, but does not prevent the user's request to stop the session.
+    /// Restoration failure is reported and its record remains recoverable; it never prevents the
+    /// session from ending.
     @discardableResult
     static func endMeeting(switcher: SystemInputSwitcher, context: SysInputDialogPlan.Context = .endMeeting,
                            hud: PTTHUD?) -> Bool {

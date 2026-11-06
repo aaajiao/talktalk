@@ -83,28 +83,22 @@ import Testing
         #expect(!TitlebarCompaction(level: 0, windowWidth: 559).showsKeyAction)
     }
 
-    @Test func endConfirmationMatchesTheScene() throws {
-        #expect(SessionEndConfirmation.make(scene: .video, systemInputSwitched: true) == nil)
-        let phone = try #require(SessionEndConfirmation.make(scene: .phone, systemInputSwitched: false))
-        #expect(phone.title == "结束电话同传？")
-        #expect(phone.message == "通话不会挂断；结束后对方将听不到你的声音。")
-        #expect(phone.confirm == "结束同传" && phone.cancel == "取消")
-        let switched = try #require(SessionEndConfirmation.make(scene: .meeting, systemInputSwitched: true))
-        let selected = try #require(SessionEndConfirmation.make(scene: .meeting, systemInputSwitched: false))
-        #expect(switched.title == "结束会议同传？")
-        #expect(switched.message.contains("仍会收到你的原声"))
-        #expect(selected.message.contains("听不到你的声音"))
+    @Test func endButtonMatchesTheScene() {
         #expect(SubtitleScene.video.endTitle == "结束" && SubtitleScene.meeting.endTitle == "结束同传")
-        // The end button's label and help name the session and what does not end.
+        // The end button's label names the session; its help (also the tooltip) names what the
+        // meeting or call receives afterwards, since 结束 ends with no confirmation.
         #expect(SubtitleScene.meeting.endAccessibilityLabel == "结束会议同传")
         #expect(SubtitleScene.phone.endAccessibilityLabel == "结束电话同传")
         #expect(SubtitleScene.video.endAccessibilityLabel == "结束视频字幕")
-        #expect(SubtitleScene.phone.endAccessibilityHelp.contains("通话不会挂断"))
-        #expect(SubtitleScene.meeting.endAccessibilityHelp.contains("会议本身不会结束"))
-        // Video ends with no confirmation: its tooltip says what stops.
-        #expect(SubtitleScene.video.endAccessibilityHelp == "结束视频字幕：停止收听和翻译")
-        #expect(SubtitleScene.video.endToolTip == SubtitleScene.video.endAccessibilityHelp)
-        #expect(SubtitleScene.meeting.endToolTip == "结束会议同传")
+        #expect(SubtitleScene.meeting.endHelp(systemInputSwitched: true)
+            == "结束会议同传：会议不会结束；系统麦克风还原后，会议会收到你的原声")
+        #expect(SubtitleScene.meeting.endHelp(systemInputSwitched: false)
+            == "结束会议同传：会议不会结束；之后会议听不到你的声音")
+        #expect(SubtitleScene.phone.endHelp(systemInputSwitched: true)
+            == "结束电话同传：通话不会挂断；系统麦克风还原后，对方会听到你的原声")
+        #expect(SubtitleScene.phone.endHelp(systemInputSwitched: false)
+            == "结束电话同传：通话不会挂断；之后对方听不到你的声音")
+        #expect(SubtitleScene.video.endHelp(systemInputSwitched: true) == "结束视频字幕：停止收听和翻译")
     }
 
     @Test func oneGlyphCarriesOneMeaning() {

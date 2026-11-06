@@ -41,6 +41,7 @@ import Testing
     @Test func stateAndHintAreNotLifecycle() {
         #expect(!MeetingEvent.state(.idle).isLifecycle)
         #expect(!MeetingEvent.hint(nil).isLifecycle)
+        #expect(!MeetingEvent.stopping(.user).isLifecycle)
         #expect(MeetingEvent.ended(.afterSleep).isLifecycle)
     }
 }

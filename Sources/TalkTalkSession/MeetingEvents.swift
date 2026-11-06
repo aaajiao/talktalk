@@ -38,11 +38,13 @@ public enum MeetingEvent: Sendable, Equatable {
     case hint(MeetingSession.Hint?)
     /// Where the finals come from now (OpenAI, Apple fallback and why, Apple only); changes only.
     case translation(ListenTranslation)
+    /// A stop has begun (any reason), before teardown: the window leaves now (UI only, once).
+    case stopping(MeetingSession.EndReason)
 
     /// The lifecycle events only (start, end, sleep / lock / switch, wake, coreaudiod restart).
     public var isLifecycle: Bool {
         switch self {
-        case .state, .hint, .translation: false
+        case .state, .hint, .translation, .stopping: false
         default: true
         }
     }

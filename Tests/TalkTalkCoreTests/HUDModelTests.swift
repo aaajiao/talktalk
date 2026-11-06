@@ -568,7 +568,8 @@ import Testing
     }
 
     /// The restore notice may arrive just before or after meetingEnded (listen's order): it stays
-    /// its 4 s either way, and so does an entry result posted around meetingStarted.
+    /// in the model its 4 s either way, and so does an entry result posted around meetingStarted.
+    /// Once the session window has ended it is not shown (SubtitleWindowPresence).
     @Test func sysInputNoticesOutliveMeetingStartAndEnd() {
         let restored = HUDModel.Warning.defaultInputRestored(to: "MacBook Pro 麦克风").line
         var before = HUDModel()

@@ -87,7 +87,7 @@ struct PhoneSettingsView: View {
             checklistRow(1, status: checklist.prepare, title: String(localized: "准备电话同传")) { prepareStep }
             checklistRow(2, status: checklist.dial, title: String(localized: "拨号或接听")) { dialStep }
             checklistRow(3, status: checklist.finish, title: String(localized: "挂断后结束同传")) {
-                Text("在 Phone 中静音或挂断。挂断后点“结束电话同传”，TalkTalk 会结束翻译并还原麦克风；结束同传不会替你挂断电话。")
+                Text("先在 Phone 挂断，再结束同传。结束同传会还原麦克风，不会挂断电话。")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -145,8 +145,12 @@ struct PhoneSettingsView: View {
         case .done:
             Label("已就绪，可拨号", systemImage: "checkmark").font(.callout).foregroundStyle(.green)
         case .inProgress:
-            Text(state.phoneStatus ?? String(localized: "正在准备电话同传…"))
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            // While ending, step ③ and the bottom-bar spinner carry the state; the last ready
+            // sentence would be stale.
+            if !state.meetingStopping {
+                Text(state.phoneStatus ?? String(localized: "正在准备电话同传…"))
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         case .pending:
             Button {
                 state.onToggleListening?(.phone)
@@ -201,13 +205,13 @@ struct PhoneSettingsView: View {
 
     /// The live voice capsule, the same component and vocabulary as the subtitle window (§5).
     @ViewBuilder private var phoneSpeechStatus: some View {
-        if state.meetingStarting || state.meetingStopping {
+        if state.meetingStopping {
+            // The bottom bar's spinner is the one ending indicator; the voice is already gone.
+            EmptyView()
+        } else if state.meetingStarting {
             HStack(spacing: 10) {
                 ProgressView().controlSize(.small)
-                Text(state.meetingStopping
-                     ? String(localized: "正在结束电话同传…")
-                     : String(localized: "正在准备电话同传…"))
-                    .font(.callout)
+                Text("正在准备电话同传…").font(.callout)
             }
             .padding(.vertical, 8)
         } else if let voice = state.phoneVoice {

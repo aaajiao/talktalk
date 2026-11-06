@@ -105,7 +105,6 @@ public enum SubtitleTokens {
         public static let phoneButtonWidth: Double = 64
         public static let detailsPopoverWidth: Double = 320
         public static let detailsCapsuleHeight: Double = 24
-        public static let endConfirmationWidth: Double = 260
         public static let cloudIconSize: Double = 16
         public static let cloudDotSize: Double = 6
         /// Icon-only titlebar controls (结束's narrow fallback, cloud, ⋯, an icon-only chip)

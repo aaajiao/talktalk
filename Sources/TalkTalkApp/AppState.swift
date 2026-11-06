@@ -257,6 +257,8 @@ final class AppState {
     var meetingHint: String?
     var meetingStarting = false
     var meetingStopping = false
+    /// The last session ended on a failure (menu attention line); cleared at the next start.
+    var lastEndProblem: MeetingMode?
     /// §7.5 item 6 summary when something Apple-side is missing (nil = all fine or not checked).
     var appleCheck: String?
     /// Where the running meeting's finals come from (nil: no meeting) and whether the network is

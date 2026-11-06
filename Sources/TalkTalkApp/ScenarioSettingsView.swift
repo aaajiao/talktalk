@@ -245,15 +245,9 @@ struct MeetingSettingsView: View {
     }
 
     private var actionDescription: String? {
-        if state.meetingStopping {
-            return actionMode.supportsSpeaking
-                ? String(localized: "正在结束翻译并还原麦克风。")
-                : String(localized: "正在停止字幕与声音采集。")
-        }
+        // While ending, the button's spinner says it once; the end help is on the button.
+        if state.meetingStopping || state.meetingActive { return nil }
         if state.meetingStarting { return String(localized: "正在准备识别、翻译与音频，请稍候。") }
-        if state.meetingActive {
-            return state.meetingMode == .phone ? String(localized: "结束同传会还原麦克风；挂断请使用 Phone。") : nil
-        }
         switch actionMode {
         case .meeting: return String(localized: "按本场景的应用与语言设置开始双向同传。")
         case .phone: return String(localized: "先准备同传，再到 Phone 拨号或接听。")

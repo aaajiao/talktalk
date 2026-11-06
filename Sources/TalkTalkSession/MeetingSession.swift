@@ -470,6 +470,8 @@ public final class MeetingSession: SpeakEchoSink {
         listenTask?.cancel(); ingest.detach()
         let t = Task { await self.performStop(reason) }
         stopTask = t
+        // After the hand-over: a subscriber re-entering stop() only waits on `t`.
+        events.emit(.stopping(reason))
         await t.value
         stopTask = nil
     }

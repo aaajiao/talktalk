@@ -114,7 +114,7 @@ final class ListenCloud {
             box.setActive(false)
             if let mt = box.mt { Task { await mt.stopKeepWarm() } }
             box.set(nil)
-        case .suspended, .audioServiceRestarted, .state, .hint, .translation:
+        case .suspended, .audioServiceRestarted, .state, .hint, .translation, .stopping:
             break
         }
     }

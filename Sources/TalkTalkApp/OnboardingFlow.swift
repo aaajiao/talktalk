@@ -483,7 +483,7 @@ final class ListenDemo {
         player?.stop()
         player = nil
         if showingPanel {
-            panel?.setVisible(false)
+            panel?.endSession()
             panel?.clear()
             showingPanel = false
         }
@@ -528,6 +528,7 @@ final class ListenDemo {
             panel.setPresentation(.video)
             panel.clear()
             showingPanel = true
+            panel.beginSession()
             panel.setVisible(true)
             phase = .playing
             player.play()

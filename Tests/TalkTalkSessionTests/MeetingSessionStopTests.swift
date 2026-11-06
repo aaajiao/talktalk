@@ -12,10 +12,15 @@ import Testing
         let events = MeetingEvents()
         var ended: [MeetingSession.EndReason] = []
         var states: [MeetingSession.State] = []
+        // The order of `.stopping` (the window leaves at once) and the final `.state(.ended)`.
+        var order: [String] = []
         let sub = events.subscribe { e in
             switch e {
             case let .ended(r): ended.append(r)
-            case let .state(s): states.append(s)
+            case .stopping: order.append("stopping")
+            case let .state(s):
+                states.append(s)
+                if case .ended = s { order.append("ended") }
             default: break
             }
         }
@@ -33,6 +38,7 @@ import Testing
         await s.stop(.failed)                         // after the end: nothing
 
         #expect(ended.count == 1)
+        #expect(order == ["stopping", "ended"])
         #expect(states.filter { if case .ended = $0 { true } else { false } }.count == 1)
         #expect(s.state == .idle)
         _ = sub

@@ -19,16 +19,12 @@ final class PTTHUD {
     var onOpenSettings: ((HUDLine.SettingsDestination) -> Void)?
     var onEndSession: (() -> Void)?
     var phoneInputIsConfirmed: (() -> Bool)?
-    /// The end button's popover text for the current scene; nil ends at once (video, demo).
-    var endConfirmation: ((SubtitleScene) -> SessionEndConfirmation?)?
     /// The phone settings page shows the titlebar's own voice state, risk included (§7).
     var onPhoneVoiceChange: ((VoiceState?) -> Void)?
     /// The scenario page's running line dots the meeting's voice state, as the menu does.
     var onMeetingVoiceChange: ((VoiceState?) -> Void)?
     private let detailsPopover = NSPopover()
-    private let endPopover = NSPopover()
     private var popoverActions: [HUDButtonAction] = []
-    private var endActions: [HUDButtonAction] = []
     private var detailsAnchor: NSView?
     private var shownVoice: VoiceState?
     private var shownIssue: IssueSlot?
@@ -63,16 +59,17 @@ final class PTTHUD {
 
     init(panel: SubtitlePanel) {
         self.panel = panel
-        for popover in [detailsPopover, endPopover] {
-            popover.behavior = .transient
-            popover.animates = false
-            popover.appearance = NSAppearance(named: .darkAqua)
-        }
+        detailsPopover.behavior = .transient
+        detailsPopover.animates = false
+        detailsPopover.appearance = NSAppearance(named: .darkAqua)
         let titlebar = panel.titlebar
         titlebar.onVoice = { [weak self] anchor in self?.toggleDetails(from: anchor) }
         titlebar.onIssue = { [weak self] anchor in self?.toggleDetails(from: anchor) }
         titlebar.onKey = { [weak self] anchor in self?.toggleDetails(from: anchor) }
-        titlebar.onEnd = { [weak self] anchor in self?.endPressed(from: anchor) }
+        // 结束 ends at once; its consequence is the button's help (redesign §3).
+        titlebar.onEnd = { [weak self] _ in self?.onEndSession?() }
+        // The window leaves in one step; nothing anchored to it may stay behind.
+        panel.onSessionClosed = { [weak self] in self?.detailsPopover.close() }
         panel.onAppearanceChange = { [weak self] in
             guard let self else { return }
             render(force: true)
@@ -103,7 +100,7 @@ final class PTTHUD {
     // MARK: inputs
 
     func meetingStarted() {
-        panel.prepareForNewSession()
+        panel.beginSession()
         announcedGroup = nil
         cloudPopoverShown = false
         playingPresses = []
@@ -119,7 +116,6 @@ final class PTTHUD {
         panel.setRemoteSilent(false)
         cloudReminder = nil
         detailsPopover.close()
-        endPopover.close()
         change { $0.meetingEnded() }
         render()
     }
@@ -413,9 +409,8 @@ final class PTTHUD {
         panel.setLocalSpeechVisible(showSpeech)
         panel.setDock(dock)
         if !showSpeech { panel.stopInputLevel() }
-        if voice == nil, issue == nil { detailsPopover.close(); endPopover.close() }
+        if voice == nil, issue == nil { detailsPopover.close() }
         else if detailsPopover.isShown, statusChanged { updateDetails() }
-        if !model.meetingActive { endPopover.close() }
         showCloudPopoverOnce(issue: issue)
     }
 
@@ -554,66 +549,6 @@ final class PTTHUD {
         return anchor
     }
 
-    // MARK: end
-
-    private func endPressed(from anchor: NSView) {
-        if endPopover.isShown { endPopover.close(); return }
-        guard model.meetingActive, let confirmation = endConfirmation?(panel.scene) else {
-            onEndSession?()
-            return
-        }
-        detailsPopover.close()
-        endActions.removeAll()
-        let width = SubtitleTokens.Size.endConfirmationWidth
-        let document = HUDDetailsView()
-        var y: CGFloat = 16
-        func label(_ value: String, font: NSFont, color: NSColor) {
-            let field = NSTextField(wrappingLabelWithString: value)
-            field.font = font
-            field.textColor = color
-            let height = ceil((value as NSString).boundingRect(
-                with: NSSize(width: width - 32, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font]).height) + 4
-            field.frame = NSRect(x: 16, y: y, width: width - 32, height: height)
-            document.addSubview(field)
-            y += height + 6
-        }
-        label(confirmation.title, font: .systemFont(ofSize: 13, weight: .semibold), color: SubtitleStyle.white(0.92))
-        label(confirmation.message, font: .systemFont(ofSize: 12), color: SubtitleStyle.white(0.72))
-        y += 6
-        let cancelAction = HUDButtonAction { [weak self] in self?.endPopover.close() }
-        let confirmAction = HUDButtonAction { [weak self] in
-            self?.endPopover.close()
-            self?.onEndSession?()
-        }
-        endActions = [cancelAction, confirmAction]
-        let confirm = NSButton(title: confirmation.confirm, target: confirmAction, action: #selector(HUDButtonAction.run))
-        confirm.bezelStyle = .push
-        confirm.bezelColor = .systemRed
-        confirm.hasDestructiveAction = true
-        confirm.controlSize = .regular
-        confirm.sizeToFit()
-        let cancel = NSButton(title: confirmation.cancel, target: cancelAction, action: #selector(HUDButtonAction.run))
-        cancel.bezelStyle = .push
-        cancel.keyEquivalent = "\u{1b}"
-        cancel.sizeToFit()
-        // Native push-button heights; both share the taller one and sit on one baseline.
-        let buttonHeight = max(confirm.fittingSize.height, cancel.fittingSize.height)
-        confirm.frame = NSRect(x: width - 16 - confirm.frame.width, y: y, width: confirm.frame.width, height: buttonHeight)
-        cancel.frame = NSRect(x: confirm.frame.minX - 8 - cancel.frame.width, y: y, width: cancel.frame.width,
-                              height: buttonHeight)
-        document.addSubview(cancel)
-        document.addSubview(confirm)
-        y += buttonHeight + 16
-        document.frame = NSRect(x: 0, y: 0, width: width, height: y)
-        let controller = NSViewController()
-        controller.view = document
-        endPopover.contentViewController = controller
-        endPopover.contentSize = document.frame.size
-        endPopover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
-        endPopover.contentViewController?.view.window?.sharingType = .none
-    }
-
     // MARK: details
 
     /// Details are a snapshot opened deliberately, never a stream of rows inside the captions.
@@ -624,7 +559,6 @@ final class PTTHUD {
     }
 
     private func showDetails(from anchor: NSView) {
-        endPopover.close()
         detailsAnchor = anchor
         updateDetails()
         detailsPopover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)

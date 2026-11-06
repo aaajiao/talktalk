@@ -151,7 +151,7 @@ final class SystemInputController {
             // The guard's own ServiceRestarted listener does this too; the session's event may
             // come first. The switcher's own HAL listeners follow TalkTalk Mic.
             micGuard.audioRestarted()
-        case .state, .hint, .translation:
+        case .state, .hint, .translation, .stopping:
             break
         }
     }
@@ -220,7 +220,7 @@ final class SystemInputController {
     }
 
     /// Before the user ends meeting mode: restore automatically, preserving failed restore records.
-    func confirmUserEnd() -> Bool {
+    func confirmUserEnd() {
         SysInputDialogs.endMeeting(switcher: switcher, hud: hud)
     }
 

@@ -113,7 +113,11 @@ final class SubtitlePanel {
     var onAppearanceChange: (() -> Void)?
     var onHintChange: ((String?) -> Void)?
     var openPhone: (() -> Void)?
-    var endPhoneTranslation: (() -> Void)?
+    /// The session window just closed: anything anchored to it (a details popover) goes too.
+    var onSessionClosed: (() -> Void)?
+    /// Only `beginSession` opens it; `endSession` closes it before any layout (§9.1).
+    private var presence = SubtitleWindowPresence()
+    private var endInputSwitched = false
     var scene: SubtitleScene {
         switch presentation {
         case .meeting: .meeting
@@ -151,7 +155,8 @@ final class SubtitlePanel {
     /// Meeting/phone conversation (timeline + dock): subtitles on, or my local speech shown.
     private var hasConversation: Bool { presentation != .video && (subtitlesRequested || localSpeechVisible) }
     private var hasWindowContent: Bool {
-        subtitlesRequested || hasConversation || statusVisible || sessionActionsActive || showsPhoneActions
+        presence.hasContent(subtitles: subtitlesRequested, conversation: hasConversation, status: statusVisible,
+                            sessionActions: sessionActionsActive, phoneActions: showsPhoneActions)
     }
     var contentWidth: CGFloat {
         let visible = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1440
@@ -168,6 +173,9 @@ final class SubtitlePanel {
         panel.hidesOnDeactivate = false
         panel.title = String(localized: "TalkTalk · 会议同传")
         panel.identifier = NSUserInterfaceItemIdentifier("TalkTalkConversation")
+        // TalkTalk is an accessory app, inactive during a meeting: 结束's consequence lives in its
+        // tooltip, which AppKit otherwise shows only in the active app.
+        panel.allowsToolTipsWhenApplicationIsInactive = true
         panel.appearance = NSAppearance(named: .darkAqua)
         // The leading accessory draws the scene title; the window title remains for AX/menus.
         panel.titleVisibility = .hidden
@@ -404,7 +412,15 @@ final class SubtitlePanel {
                                 key: titlebarKey, showsPhone: showsPhoneActions,
                                 phoneEnabled: phoneActionsEnabled && sessionActionsEnabled,
                                 showsEnd: sessionActionsActive, endEnabled: sessionActionsEnabled,
+                                endInputSwitched: endInputSwitched,
                                 showsMore: presentation == .video && sessionActionsActive)
+    }
+
+    /// TalkTalk holds the system default input: 结束's help names the raw-voice consequence.
+    func setEndInputSwitched(_ on: Bool) {
+        guard endInputSwitched != on else { return }
+        endInputSwitched = on
+        updateTitlebarActions()
     }
 
     func setSessionActions(active: Bool, enabled: Bool = true) {
@@ -1041,10 +1057,30 @@ final class SubtitlePanel {
     var canRestoreWindow: Bool { hasWindowContent && (isMiniaturized || panel.userHidden || !panel.isVisible) }
 
     /// A new session is an explicit start, unlike an ordinary update or a late failure notice.
-    func prepareForNewSession() {
+    /// It is the only call that lets the window appear again after `endSession`.
+    func beginSession() {
+        presence.begin()
         if panel.isMiniaturized || panel.minimizationPending { panel.dismissMiniaturizedWindow() }
         panel.clearUserPresentationState()
         updateWindowVisibility()
+    }
+
+    /// Any end (user, automatic, failure, after sleep, demo, quit): the window leaves in one step,
+    /// ordered out before any layout, while the stop continues in the background. Late status
+    /// for this session cannot bring it back. Idempotent.
+    func endSession() {
+        let announce = presence.sessionOpen && isWindowVisible && sessionActionsActive
+        let wasOpen = presence.end()
+        updateWindowVisibility()
+        setVisible(false)
+        guard wasOpen else { return }
+        onSessionClosed?()
+        if announce {
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
+                .announcement: String(localized: "\(scene.title)已结束"),
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ])
+        }
     }
 
     /// Explicit user intent only: the menu and Dock can restore the existing reading views.

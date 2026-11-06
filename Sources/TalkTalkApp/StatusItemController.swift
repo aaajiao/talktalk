@@ -10,7 +10,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     struct Actions {
         var openSettings: (SettingsSection?) -> Void
         var toggleMeeting: () -> Void
-        /// The in-session "结束<场景>": the owner confirms meeting and phone as the titlebar does.
+        /// The in-session "结束<场景>": ends at once, as the titlebar does.
         var endSession: () -> Void = {}
         var quit: () -> Void
         var stillInMeeting: () -> Void = {}
@@ -31,6 +31,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         var quickStart: (MeetingMode) -> Void = { _ in }
         /// The titlebar's voice capsule state (HUDModel.voiceState), for the in-session header.
         var voiceState: () -> VoiceState? = { nil }
+        /// TalkTalk holds the system default input (the 结束 help's raw-voice branch).
+        var systemInputSwitched: () -> Bool = { false }
     }
 
     private let state: AppState
@@ -186,6 +188,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         if busy {
             let stop = item(String(localized: "结束\(mode)"), #selector(endSession), symbol: SubtitleTokens.VoiceIcon.end)
             stop.isEnabled = !state.meetingStarting && !state.meetingStopping
+            stop.toolTip = state.meetingMode.scene.endHelp(systemInputSwitched: actions.systemInputSwitched())
             menu.addItem(stop)
         } else {
             let meeting = item(String(localized: "会议同传…"), #selector(openMeetingMode), symbol: SubtitleTokens.SceneIcon.meeting)
@@ -201,7 +204,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
-        if state.meetingMode == .phone, state.meetingActive || state.meetingStarting {
+        if state.meetingMode == .phone, state.meetingActive || state.meetingStarting, !state.meetingStopping {
             if let status = state.phoneStatus { menu.addItem(statusLine(status)) }
             // The titlebar's Phone button glyph: this leaves TalkTalk for the Phone app.
             menu.addItem(item(String(localized: "打开 Phone 拨号或接听"), #selector(openPhone),
@@ -219,6 +222,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 attention.append(item(String(localized: "继续收听，不自动停止"), #selector(stillInMeeting),
                                       symbol: SubtitleTokens.VoiceIcon.listening))
             }
+        }
+        if !state.meetingActive, !state.meetingStarting, let mode = state.lastEndProblem {
+            // The window left in one step; a failure end stays here until the next start.
+            attention.append(detailItem(HUDLine(String(localized: "\(mode.displayTitle)因错误已结束"), .yellow,
+                                                detail: String(localized: "字幕识别或发言链路出错，已自动结束。可重新开始。"),
+                                                symbol: "exclamationmark.triangle"),
+                                        actionTitle: String(localized: "查看当前场景…"), action: #selector(openCurrentScene),
+                                        actionSymbol: mode.sceneSymbol))
         }
         if let apple = state.appleCheck {
             attention.append(detailItem(HUDLine(String(localized: "Apple 资源待配置"), .yellow,

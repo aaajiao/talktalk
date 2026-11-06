@@ -30,9 +30,8 @@ final class MeetingController {
     var onActiveChange: ((Bool) -> Void)?
     /// The finals' source or the network changed (menu line, icon).
     var onTranslationChange: (() -> Void)?
-    /// Runs before a user end, while meeting mode is still on (the system-input question, §8.6);
-    /// false = you cancelled and meeting mode goes on.
-    var beforeUserEnd: (() -> Bool)?
+    /// Runs before a user end, while meeting mode is still on: restores the system input (§8.6).
+    var beforeUserEnd: (() -> Void)?
     var prepareCloud: (() async -> Bool)?
     var canStartMeeting: () -> Bool = { true }
     private let hud: PTTHUD?
@@ -60,13 +59,18 @@ final class MeetingController {
         state.onDialPhone = { [weak self] number in self?.dialPhone(number) }
         state.onRefreshSources = { [weak self] in self?.refreshSourceOptions() }
         panel.openPhone = { [weak self] in self?.openPhone() }
-        panel.endPhoneTranslation = { [weak self] in self?.toggle(mode: .phone) }
         panel.onLockRequest = { [weak self] in self?.state.videoSubtitleLocked = true }
         applySubtitleAppearance()
         panel.analysisRecorder = privacy?.subtitleAnalysis
         ui = events.subscribe { [weak self] e in
             switch e {
             case let .state(st): self?.sessionState(st)
+            case .stopping:
+                // Every end reason: the window leaves as the stop begins (§9.1); the menu shows
+                // 正在结束… until the session reaches idle.
+                self?.state.meetingStopping = true
+                self?.panel.endSession()
+                self?.refreshPhoneContext()
             case let .hint(h):
                 if self?.state.meetingMode == .phone {
                     let text: String?
@@ -91,6 +95,7 @@ final class MeetingController {
             case .suspended(let reason): self?.privacy?.recorder.meetingSuspended(String(describing: reason))
             case .resumed: self?.privacy?.recorder.meetingResumed()
             case .ended(let reason):
+                self?.state.lastEndProblem = reason == .failed ? self?.state.meetingMode : nil
                 self?.releaseCaptionsEngine()
                 self?.hud?.meetingEnded()
                 self?.privacy?.recorder.meetingEnded(reason.rawValue)
@@ -147,11 +152,14 @@ final class MeetingController {
         }
     }
 
+    /// Ends at once, with no confirmation: the window leaves in this turn, before the input
+    /// restore can post a notice into it, and the stop continues in the background.
     func toggle(mode: MeetingMode = .meeting) {
-        guard !state.meetingStopping else { return }   // one end question, one stop
+        guard !state.meetingStopping else { return }   // one stop
         if state.meetingActive {
-            guard session?.mode.supportsSpeaking != true || (beforeUserEnd?() ?? true) else { return }
+            panel.endSession()
             state.meetingStopping = true
+            if session?.mode.supportsSpeaking == true { beforeUserEnd?() }
             refreshPhoneContext()
             Task {
                 await session?.stop(.user)
@@ -226,7 +234,7 @@ final class MeetingController {
     func phoneSpeechFailed(_ failedSession: MeetingSession?) {
         guard let failedSession, session === failedSession, state.meetingMode == .phone else { return }
         state.phoneReadyToDial = false
-        state.phoneProblem = String(localized: "电话发言链路未能启动。请结束同传，检查组件、麦克风和输入监控权限后重新准备。")
+        state.phoneProblem = String(localized: "电话发言链路未能启动，同传已结束。请检查组件、麦克风和输入监控权限后重新准备。")
         refreshPhoneContext()
         Task {
             guard self.session === failedSession else { return }
@@ -236,7 +244,8 @@ final class MeetingController {
 
     private func refreshPhoneContext() {
         guard state.meetingMode == .phone else { return }
-        guard state.meetingActive || state.meetingStarting else {
+        // While stopping, the window is already gone and the menu says 正在结束… once.
+        guard (state.meetingActive || state.meetingStarting) && !state.meetingStopping else {
             hud?.setSceneIssue(nil)
             panel.setPhoneContext(nil)
             return
@@ -248,9 +257,7 @@ final class MeetingController {
         })
         panel.setPhoneActionsEnabled(state.meetingActive && !state.meetingStarting && !state.meetingStopping)
         let text: String
-        if state.meetingStopping {
-            text = String(localized: "正在结束电话同传并还原麦克风…")
-        } else if let problem = state.phoneProblem {
+        if let problem = state.phoneProblem {
             text = problem
         } else if state.meetingStarting {
             text = String(localized: "正在准备电话字幕、声音与麦克风…")
@@ -392,14 +399,20 @@ final class MeetingController {
         state.meetingMode = mode
         state.requestedScenario = mode
         state.meetingStarting = true
+        state.lastEndProblem = nil
         defer {
             state.meetingStarting = false
+            // A failed or abandoned start closes the window it may have opened (phone context).
+            if !state.meetingActive { panel.endSession() }
             if mode == .phone {
                 if !state.meetingActive { state.phoneStatus = String(localized: "电话同传尚未开始，请准备后再拨号或接听。") }
                 refreshPhoneContext()
             }
         }
         panel.setPresentation(mode == .phone ? .phone : mode == .captions ? .video : .meeting)
+        // Only phone shows a window before it starts (its preparing context); the others open
+        // theirs at `.started`, so a leftover notice never shows as a strip while starting.
+        if mode == .phone { panel.beginSession() }
         if mode == .phone {
             state.phoneProblem = nil; phoneReadinessDetail = nil
             state.phoneReadyToDial = false; state.phoneAudioActive = false
@@ -606,6 +619,7 @@ final class MeetingController {
             state.listenASRStatus = nil
             subtitleSessionID = nil
             state.meetingActive = false
+            state.meetingStopping = false
             state.meetingApp = nil
             state.meetingStartedAt = nil
             state.meetingHint = nil
@@ -617,7 +631,7 @@ final class MeetingController {
             }
             hud?.setSceneIssue(nil)
             panel.setPhoneContext(nil)
-            panel.setVisible(false)
+            panel.endSession()
             panel.clear(includingMyTurns: true)
             onActiveChange?(false)
         }
