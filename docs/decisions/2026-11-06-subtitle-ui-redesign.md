@@ -366,6 +366,6 @@
 
 **未做**：
 
-- 未删除不再使用的 `HUDModel.MeetingAudio.modeBadge`，删除前需用户确认。
+- 不再使用的 `HUDModel.MeetingAudio.modeBadge` 经用户确认后已删除（其职责由发声胶囊承担）。
 - `TalkTalkApp` 没有测试目标，也不允许启动应用，因此未加离屏渲染测试。
 - 分段控件中 `Label` 的图文绘制、菜单 Picker 中的图像、per-segment help，以及全部光学效果与 VoiceOver 实听，均未经实机验证。

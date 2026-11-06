@@ -354,20 +354,6 @@ public struct HUDModel: Sendable, Equatable {
             }
         }
 
-        /// Always visible beside a warning: a problem summary must not hide the audio mode.
-        public var modeBadge: HUDLine {
-            switch self {
-            case .phoneReady: HUDLine(String(localized: "已就绪"), .check, symbol: SubtitleTokens.VoiceIcon.localOnly)
-            case .original: HUDLine(String(localized: "原声发送中"), .check, symbol: SubtitleTokens.VoiceIcon.original)
-            case .switching: HUDLine(String(localized: "切换中"), .secondary, symbol: "arrow.left.arrow.right")
-            case .translating: HUDLine(String(localized: "翻译收音中"), symbol: SubtitleTokens.VoiceIcon.translating)
-            case .draining: HUDLine(String(localized: "译音处理中"), .secondary, symbol: SubtitleTokens.VoiceIcon.translating)
-            case .restoringOriginal: HUDLine(String(localized: "恢复原声"), .secondary, symbol: SubtitleTokens.VoiceIcon.originalOff)
-            case .phoneReconnecting: HUDLine(String(localized: "重新连接 Phone"), .secondary, symbol: SubtitleTokens.VoiceIcon.reconnecting)
-            case .unavailable: HUDLine(String(localized: "待检查"), .yellow, symbol: "exclamationmark.triangle")
-            }
-        }
-
         /// The action or consequence shown alongside the mode when no warning takes priority.
         public var operationHint: String? {
             switch self {
