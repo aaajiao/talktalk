@@ -163,6 +163,18 @@ final class MeetingController {
         }
     }
 
+    /// The menu's quick start (redesign §7): start the scenario directly with its remembered
+    /// source. When a source must be chosen, or starting fails, the scenario page opens instead
+    /// (after the usual alert); an explicitly chosen source that is missing is never replaced.
+    func quickStart(mode: MeetingMode, openScenario: @escaping @MainActor (MeetingMode) -> Void) {
+        guard !state.meetingActive, !state.meetingStarting, !state.meetingStopping else { return }
+        state.requestedScenario = mode
+        Task {
+            await start(mode: mode, askForChoice: false)
+            if !lastStartSucceeded, !state.meetingActive, !state.meetingStarting { openScenario(mode) }
+        }
+    }
+
     func stillInMeeting() { session?.stillInMeeting() }
 
     func openPhone() {
@@ -367,7 +379,11 @@ final class MeetingController {
         await engines(cloud: nil)(lang, EventLog(inMemory: HostClock.now), 0)
     }
 
-    func start(mode: MeetingMode = .meeting, choice: String? = nil) async {
+    /// Whether the latest `start` reached `.started` (the quick start opens settings otherwise).
+    private var lastStartSucceeded = false
+
+    func start(mode: MeetingMode = .meeting, choice: String? = nil, askForChoice: Bool = true) async {
+        lastStartSucceeded = false
         guard !state.meetingActive, !state.meetingStarting else { return }
         guard canStartMeeting() else {
             alert("暂时不能开始收听", "请先结束正在运行的自检或说话测试。")
@@ -484,6 +500,8 @@ final class MeetingController {
         }
         switch result {
         case .started:
+            lastStartSucceeded = true
+            state.lastScenario = mode
             if s.listenLanguage != state.remoteLanguage.lang { listenConfigurationChanged() }
             else if state.listenASREngine == .apple { state.listenASRStatus = "Apple Speech" }
             cloudReminder()
@@ -502,6 +520,7 @@ final class MeetingController {
             }
         case let .needsChoice(ids):
             session = nil
+            guard askForChoice else { return }   // the caller opens the scenario page
             if let pick = choose(ids) {
                 state.selectSource(pick, for: mode)
                 state.meetingStarting = false

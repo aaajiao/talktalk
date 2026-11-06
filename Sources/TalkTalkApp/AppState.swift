@@ -194,8 +194,15 @@ final class AppState {
     /// Meeting mode (LISTEN) can be started from the menu.
     var meetingAvailable = true
     var meetingMode: MeetingMode = .meeting
-    /// Settings selection only; choosing a scene never changes a running session.
-    var requestedScenario: MeetingMode = .meeting
+    /// Settings selection only; choosing a scene never changes a running session. Persisted
+    /// as `ui.requestedScenario` (redesign §7).
+    var requestedScenario: MeetingMode {
+        didSet { if requestedScenario != oldValue { ScenarioPreferences.setRequested(requestedScenario, defaults: defaults) } }
+    }
+    /// The scenario that last started successfully, for the menu's quick start (`ui.lastScenario`).
+    var lastScenario: MeetingMode? {
+        didSet { if let lastScenario, lastScenario != oldValue { ScenarioPreferences.setLast(lastScenario, defaults: defaults) } }
+    }
     struct SourceOption: Identifiable, Equatable {
         let id: String
         let name: String
@@ -270,6 +277,8 @@ final class AppState {
     init(defaults: UserDefaults = .standard, voiceStore: VoiceStore = .product) {
         self.defaults = defaults
         self.voiceStore = voiceStore
+        requestedScenario = ScenarioPreferences.requested(defaults: defaults)
+        lastScenario = ScenarioPreferences.last(defaults: defaults)
         meetingSourceID = ListeningSourcePreferences.source(for: .meeting, defaults: defaults) ?? ""
         videoSourceID = ListeningSourcePreferences.source(for: .captions, defaults: defaults) ?? ""
         remoteLanguage = RemoteLanguage(rawValue: defaults.string(forKey: Key.remoteLanguage) ?? "") ?? .en

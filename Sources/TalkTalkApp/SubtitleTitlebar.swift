@@ -365,6 +365,8 @@ final class VoiceCapsuleView: TitlebarControl {
     private var state: VoiceState?
     private var display = SubtitleStyle.Display.current
     var showsChevron = true
+    /// Settings in light mode: token colours use their light-surface values (§2).
+    var lightSurface = false
 
     init(large: Bool) {
         self.large = large
@@ -400,7 +402,7 @@ final class VoiceCapsuleView: TitlebarControl {
     func apply(_ next: VoiceState, full: Bool, display nextDisplay: SubtitleStyle.Display = .current) {
         state = next
         display = nextDisplay
-        let colors = Self.colors(next.appearance, display: nextDisplay)
+        let colors = Self.colors(next.appearance, display: nextDisplay, lightSurface: lightSurface)
         icon.image = SubtitleStyle.symbol(next.symbol, size: Self.iconSize(large: large), weight: .semibold,
                                           accessibilityDescription: nil)
         icon.contentTintColor = colors.text
@@ -421,8 +423,11 @@ final class VoiceCapsuleView: TitlebarControl {
 
     struct Colors { var fill: NSColor?; var stroke: NSColor?; var dashed: Bool; var text: NSColor }
 
-    static func colors(_ appearance: VoiceState.Appearance, display: SubtitleStyle.Display) -> Colors {
-        func token(_ role: SubtitleTokens.Color) -> NSColor { SubtitleStyle.color(role, display: display) }
+    static func colors(_ appearance: VoiceState.Appearance, display: SubtitleStyle.Display,
+                       lightSurface: Bool = false) -> Colors {
+        func token(_ role: SubtitleTokens.Color) -> NSColor {
+            SubtitleStyle.color(role, display: display, lightSurface: lightSurface)
+        }
         let dark = NSColor(white: 0, alpha: 0.85)
         return switch appearance {
         case .originalFill: Colors(fill: token(.voiceOriginal), stroke: nil, dashed: false, text: dark)
@@ -439,7 +444,7 @@ final class VoiceCapsuleView: TitlebarControl {
 
     private func updateLayer(_ colors: Colors? = nil) {
         guard let state else { return }
-        let colors = colors ?? Self.colors(state.appearance, display: display)
+        let colors = colors ?? Self.colors(state.appearance, display: display, lightSurface: lightSurface)
         var fill = colors.fill ?? .clear
         if isHovered, state.opensDetails, showsChevron {
             fill = colors.fill.map { $0.blended(withFraction: 0.08, of: .white) ?? $0 } ?? SubtitleStyle.white(0.08)
@@ -592,6 +597,8 @@ final class KeycapActionView: TitlebarControl {
     private let action = NSTextField(labelWithString: "")
     private var key: TitlebarKey?
     private var showsAction = true
+    /// Settings in light mode: system label colours instead of the panel's whites.
+    var lightSurface = false
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
@@ -628,9 +635,16 @@ final class KeycapActionView: TitlebarControl {
         keyLabel.stringValue = next.key
         action.stringValue = next.action ?? ""
         action.isHidden = !nextShowsAction || next.action == nil
+        action.textColor = lightSurface ? .secondaryLabelColor : SubtitleStyle.white(0.7)
         switch next.style {
+        case .idle where lightSurface:
+            keyBox.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
+            keyBox.layer?.borderWidth = 1
+            keyBox.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.25).cgColor
+            keyLabel.textColor = .labelColor
         case .translating:
-            keyBox.layer?.backgroundColor = SubtitleStyle.color(.voiceTranslate, display: display).cgColor
+            keyBox.layer?.backgroundColor = SubtitleStyle.color(.voiceTranslate, display: display,
+                                                                lightSurface: lightSurface).cgColor
             keyBox.layer?.borderWidth = 0
             keyLabel.textColor = .white
         case .pressed:

@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let smokeOut: String?
     private let isSmoke: Bool
     private var quitting = false
+    private var subtitleTabSynced = false
 
     init(smoke: Bool, smokeOut: String?) {
         isSmoke = smoke
@@ -67,6 +68,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state?.meetingActive == false && state?.meetingStarting == false
         }
         let onboarding = OnboardingWindowController(model: onboardingModel)
+        onboardingModel.openScenario = { [weak state, weak settings, weak onboarding] mode in
+            state?.requestedScenario = mode
+            onboarding?.close()
+            settings?.show(.meeting)
+        }
         AppUIModels.shared.general.onRestartOnboarding = { [weak onboarding] in
             onboarding?.model.restart()
             onboarding?.show()
@@ -188,9 +194,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switchBackToMic: { [weak systemInput] in systemInput?.switchBack() },
             restoreDefaultInput: { [weak systemInput] in systemInput?.restoreNow() },
             canRestoreSubtitleWindow: { [weak conversationPanel] in conversationPanel?.canRestoreWindow ?? false },
-            restoreSubtitleWindow: { [weak conversationPanel] in conversationPanel?.restoreWindow() }))
+            restoreSubtitleWindow: { [weak conversationPanel] in conversationPanel?.restoreWindow() },
+            quickStart: { [weak meeting, weak self] mode in
+                meeting?.quickStart(mode: mode) { mode in
+                    self?.state.requestedScenario = mode
+                    self?.settings?.show(.meeting)
+                }
+            },
+            voiceState: { [weak hud] in hud?.model.voiceState }))
         statusItem = status
-        meeting.onActiveChange = { [weak self] _ in self?.updateIcon() }
+        meeting.onActiveChange = { [weak self] active in
+            self?.updateIcon()
+            // §7: the subtitle settings tab follows the scenario that just started (once per
+            // session; later running-state updates keep the user's choice).
+            guard let self else { return }
+            if active, !self.subtitleTabSynced {
+                self.subtitleTabSynced = true
+                self.settings?.navigation.subtitlePresentation = self.state.meetingMode.subtitlePresentation
+            } else if !active {
+                self.subtitleTabSynced = false
+            }
+        }
         meeting.onTranslationChange = { [weak self] in self?.updateIcon() }
         systemInput?.onStatusChange = { [weak self] in self?.updateIcon() }
 

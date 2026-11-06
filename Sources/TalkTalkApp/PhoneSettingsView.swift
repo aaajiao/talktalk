@@ -6,6 +6,7 @@ import TalkTalkSession
 
 /// Phone has its own preparation and dialing workflow; the system Phone app owns the call.
 /// Opening this scene only changes the settings view, never the current audio session.
+/// Redesign §7: a three-step checklist (prepare → dial or answer → end after hanging up).
 struct PhoneSettingsView: View {
     @Bindable var state: AppState
     @Bindable var navigation: SettingsNavigation
@@ -18,6 +19,14 @@ struct PhoneSettingsView: View {
         sessionBusy && state.meetingMode != .phone
     }
 
+    private var phoneSession: Bool { sessionBusy && state.meetingMode == .phone }
+
+    private var checklist: PhoneChecklist {
+        PhoneChecklist.make(phoneSession: phoneSession, starting: state.meetingStarting, stopping: state.meetingStopping,
+                            active: state.meetingActive, readyToDial: state.phoneReadyToDial,
+                            dialing: state.phoneDialing, callAudioActive: state.phoneAudioActive)
+    }
+
     private var canDial: Bool {
         state.meetingMode == .phone && state.meetingActive && state.phoneReadyToDial
             && !state.meetingStarting && !state.meetingStopping
@@ -27,14 +36,16 @@ struct PhoneSettingsView: View {
 
     var body: some View {
         Section {
-            Label("电话同传", systemImage: "phone.fill").font(.headline)
-            Text("通过 iPhone 使用自己的号码，在 Mac 上打电话或接听来电。听对方、看双语字幕；点按右⌥把中文翻译给对方。")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            LabeledContent("通话应用", value: "Phone")
-            if state.meetingMode == .phone, sessionBusy {
-                phoneSpeechStatus
+            HStack {
+                Label("电话同传", systemImage: SubtitleTokens.SceneIcon.phone).font(.headline)
+                Spacer()
+                InfoButton(lines: [
+                    String(localized: "TalkTalk 专门收听 Phone；拨号、接听、静音和挂断都在 Phone 中完成。"),
+                    String(localized: "准备好后即可收音，点按右⌥就能翻译自己的发言，不必等电话接通。")
+                ])
             }
+            Text("用 iPhone 号码在 Mac 上通话，双向同传").foregroundStyle(.secondary)
+            if phoneSession { phoneSpeechStatus }
 
             VStack(alignment: .leading, spacing: 12) {
                 Text("听对方").font(.subheadline.weight(.semibold))
@@ -43,27 +54,16 @@ struct PhoneSettingsView: View {
                     ("character.bubble", String(localized: "识别与翻译")),
                     ("captions.bubble", String(localized: "原文＋中文字幕"))
                 ], links: [
-                    1: .init(String(localized: "模型设置")) { navigation.openModel(.recognition) },
-                    2: .init(String(localized: "字幕设置")) {
-                        navigation.subtitlePresentation = .phone
-                        navigation.selection = .subtitles
+                    1: FlowLink(String(localized: "模型设置")) { follow { navigation.openModel(.recognition) } },
+                    2: FlowLink(String(localized: "字幕设置")) {
+                        follow {
+                            navigation.subtitlePresentation = .phone
+                            navigation.selection = .subtitles
+                        }
                     }
                 ])
                 Divider()
-                Text("我说话").font(.subheadline.weight(.semibold))
-                Text("默认：你的原声 → TalkTalk Mic → Phone 对方")
-                    .font(.callout).foregroundStyle(.secondary)
-                SpeechFlow(steps: [
-                    ("mic", String(localized: "中文，可夹英语")),
-                    ("character.bubble", String(localized: "关闭原声并翻译")),
-                    ("phone.fill", String(localized: "对方听英语／德语"))
-                ], links: [
-                    0: .init(String(localized: "麦克风设置")) { navigation.selection = .audio },
-                    1: .init(String(localized: "翻译设置")) { navigation.openModel(.translation) },
-                    2: .init(String(localized: "声音与试听")) { navigation.selection = .voice }
-                ])
-                Text("说完再点按右⌥结束发言，等剩余译音播完后自动恢复原声。")
-                    .font(.callout).foregroundStyle(.secondary)
+                SpeakingLanes(mode: .phone, follow: follow, navigation: navigation)
             }
         }
 
@@ -77,7 +77,6 @@ struct PhoneSettingsView: View {
                 Text("请先结束当前同传或视频字幕，再准备电话同传。")
                     .font(.callout).foregroundStyle(.secondary)
             }
-
             Picker("对方语言", selection: $state.remoteLanguage) {
                 ForEach(AppState.RemoteLanguage.allCases) { Text($0.title).tag($0) }
             }
@@ -86,35 +85,20 @@ struct PhoneSettingsView: View {
                 ForEach(AppState.RemoteLanguage.allCases) { Text($0.title).tag($0) }
             }
             .disabled(anotherSceneIsRunning)
-
-            Button("打开 Phone 拨号或接听") { state.onOpenPhone?() }
-                .disabled(state.onOpenPhone == nil)
-            Text("点击底部“准备电话同传”后即可收音，点按右⌥就能翻译自己的发言，不必等电话接通。TalkTalk 专门收听 Phone；拨号和接听在 Phone 中完成。")
-                .font(.callout).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                TextField(String(localized: "电话号码（可选，含国家区号）"), text: $state.phoneNumber)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel(String(localized: "电话号码"))
-                    .disabled(anotherSceneIsRunning || state.meetingStarting || state.meetingStopping)
-                Button(state.phoneDialing ? String(localized: "正在打开 Phone…") : String(localized: "拨打此号码")) { state.onDialPhone?(state.phoneNumber) }
-                    .disabled(!canDial || state.phoneDialing || state.phoneAudioActive)
-            }
-            Text("拨号交给 Phone 完成；也可以直接在 Phone 中选择联系人或接听来电。")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         } header: {
-            Text("通话准备")
+            Text("通话语言")
         }
 
         Section {
-            Label("使用 Phone 的静音与挂断按钮", systemImage: "phone.down")
-            Text("在 Phone 中静音或挂断。挂断后点“结束电话同传”，TalkTalk 会结束翻译并还原麦克风；结束同传不会替你挂断电话。")
-                .font(.callout).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            checklistRow(1, status: checklist.prepare, title: String(localized: "准备电话同传")) { prepareStep }
+            checklistRow(2, status: checklist.dial, title: String(localized: "拨号或接听")) { dialStep }
+            checklistRow(3, status: checklist.finish, title: String(localized: "挂断后结束同传")) {
+                Text("在 Phone 中静音或挂断。挂断后点“结束电话同传”，TalkTalk 会结束翻译并还原麦克风；结束同传不会替你挂断电话。")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } header: {
-            Text("通话中与结束")
+            Text("通话步骤")
         }
 
         Section {
@@ -128,11 +112,88 @@ struct PhoneSettingsView: View {
                 Text("建议使用耳机，避免对方的声音从扬声器回到麦克风。")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("打开音频设置") { navigation.selection = .audio }
+                Button("打开音频设置") { follow { navigation.selection = .audio } }
             }
         }
     }
 
+    private func follow(_ open: @escaping () -> Void) {
+        navigation.follow(from: .phone, open)
+    }
+
+    private func checklistRow<Content: View>(_ number: Int, status: PhoneChecklist.Status, title: String,
+                                             @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            ChecklistStatusCircle(number: number, status: status)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title).font(.headline)
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(String(localized: "第 \(number) 步，\(title)"))
+        .accessibilityValue(statusText(status))
+    }
+
+    private func statusText(_ status: PhoneChecklist.Status) -> String {
+        switch status {
+        case .pending: String(localized: "未完成")
+        case .inProgress: String(localized: "进行中")
+        case .done: String(localized: "已完成")
+        }
+    }
+
+    /// ① The same action as the bottom bar's primary button.
+    @ViewBuilder private var prepareStep: some View {
+        switch checklist.prepare {
+        case .done:
+            Label("已就绪，可拨号", systemImage: "checkmark").font(.callout).foregroundStyle(.green)
+        case .inProgress:
+            Text(state.phoneStatus ?? String(localized: "正在准备电话同传…"))
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        case .pending:
+            Button {
+                state.onToggleListening?(.phone)
+            } label: {
+                Label("准备电话同传", systemImage: SubtitleTokens.SceneIcon.phone)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(sessionBusy || state.onToggleListening == nil || !state.meetingAvailable)
+        }
+    }
+
+    /// ② Dimmed until ① is ready.
+    private var dialStep: some View {
+        let enabled = checklist.dialEnabled
+        return VStack(alignment: .leading, spacing: 8) {
+            if !enabled {
+                Text("准备完成后可拨号").font(.caption).foregroundStyle(.secondary)
+            }
+            Group {
+                HStack {
+                    TextField(String(localized: "电话号码（可选，含国家区号）"), text: $state.phoneNumber)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel(String(localized: "电话号码"))
+                    Button(state.phoneDialing ? String(localized: "正在打开 Phone…") : String(localized: "拨打此号码")) {
+                        state.onDialPhone?(state.phoneNumber)
+                    }
+                    .disabled(!canDial || state.phoneDialing || state.phoneAudioActive)
+                }
+                Button {
+                    state.onOpenPhone?()
+                } label: {
+                    Label("打开 Phone 接听来电", systemImage: "phone.arrow.down.left")
+                }
+                .disabled(state.onOpenPhone == nil)
+            }
+            .disabled(!enabled)
+            .opacity(enabled ? 1 : 0.5)
+        }
+    }
+
+    /// The live voice capsule, the same component and vocabulary as the subtitle window (§5).
     @ViewBuilder private var phoneSpeechStatus: some View {
         if state.meetingStarting || state.meetingStopping {
             HStack(spacing: 10) {
@@ -144,23 +205,20 @@ struct PhoneSettingsView: View {
             }
             .padding(.vertical, 8)
         } else if let audio = state.phoneSpeechMode {
-            let presentation = SpeechStatusPresentation(audio: audio, phoneInputConfirmed: state.phoneInputConfirmed,
-                                                        playing: state.phoneSpeechPlaying)
-            let color = phoneModeColor(presentation.tone)
+            let voice = VoiceState.resolve(audio: audio, scene: .phone, phoneInputConfirmed: state.phoneInputConfirmed,
+                                           playing: state.phoneSpeechPlaying)
             HStack(spacing: 10) {
-                Label(presentation.title, systemImage: presentation.symbol)
-                    .font(.callout.weight(.medium)).foregroundStyle(color)
+                VoiceCapsule(state: voice).accessibilityLabel(voice.accessibilityLabel)
+                Text(voice.consequence).font(.callout).foregroundStyle(.secondary)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                if let shortcut = presentation.shortcut {
-                    Text(shortcut).font(.callout).foregroundStyle(.secondary)
-                }
                 Button {
                     state.phoneStatusDetailsPresented.toggle()
                 } label: {
-                    Image(systemName: presentation.tone == .unavailable ? "exclamationmark.circle" : "info.circle")
+                    Image(systemName: voice.kind == .unavailable ? "exclamationmark.circle" : "info.circle")
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(color)
+                .foregroundStyle(.secondary)
                 .accessibilityLabel(String(localized: "状态与提示"))
                 .help(String(localized: "状态与提示"))
                 .popover(isPresented: $state.phoneStatusDetailsPresented, arrowEdge: .bottom) {
@@ -178,14 +236,13 @@ struct PhoneSettingsView: View {
                             .accessibilityLabel(String(localized: "关闭详情"))
                             .help(String(localized: "关闭详情"))
                         }
-                        Label(presentation.title, systemImage: presentation.symbol)
-                            .font(.callout.weight(.medium)).foregroundStyle(color)
-                        Text(presentation.detail).font(.callout).foregroundStyle(.secondary)
+                        VoiceCapsule(state: voice)
+                        Text(voice.detail).font(.callout).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        if presentation.tone == .unavailable {
+                        if voice.kind == .unavailable || voice.kind == .phoneLocalOnly {
                             Button("打开音频设置") {
                                 state.phoneStatusDetailsPresented = false
-                                navigation.selection = .audio
+                                follow { navigation.selection = .audio }
                             }
                         }
                     }
@@ -195,15 +252,6 @@ struct PhoneSettingsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 8)
-        }
-    }
-
-    private func phoneModeColor(_ tone: PhoneSpeechPresentation.Tone) -> Color {
-        switch tone {
-        case .original: .green
-        case .translation: .blue
-        case .ready, .progress: .secondary
-        case .unavailable: .orange
         }
     }
 }
