@@ -14,8 +14,9 @@ public struct SubtitleBoard: Sendable, Equatable {
             self.sentence = sentence; self.text = text; self.source = source
             self.approx = approx; self.numberWarning = numberWarning
         }
-        /// As displayed: “≈” for the Apple fallback (§5.1).
-        public var display: String { (approx ? "≈ " : "") + text + (numberWarning ? "  ⚠︎数字待核" : "") }
+        /// Number-check results remain metadata and never append text to the subtitle.
+        /// “≈” still identifies the Apple fallback (§5.1).
+        public var display: String { (approx ? "≈ " : "") + text }
     }
 
     public let finalLines: Int

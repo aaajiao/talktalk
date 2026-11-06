@@ -518,7 +518,8 @@ enum Fixture {
         b.apply(.final(sentence: 1, text: "一", approx: true, numberWarning: false))   // a slow cloud reply
         b.apply(.final(sentence: 3, text: "三", approx: false, numberWarning: true))
         #expect(b.finals.map(\.sentence) == [2, 3])
-        #expect(b.finals.map(\.display) == ["二", "三  ⚠︎数字待核"])
+        #expect(b.finals.map(\.display) == ["二", "三"])
+        #expect(b.finals.last?.numberWarning == true)
         b.apply(.final(sentence: 4, text: "四", approx: true, numberWarning: false))
         #expect(b.finals.last?.display == "≈ 四")
     }
