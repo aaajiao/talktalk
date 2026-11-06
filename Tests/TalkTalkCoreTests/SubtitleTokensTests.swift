@@ -101,6 +101,10 @@ import Testing
         #expect(SubtitleScene.video.endAccessibilityLabel == "结束视频字幕")
         #expect(SubtitleScene.phone.endAccessibilityHelp.contains("通话不会挂断"))
         #expect(SubtitleScene.meeting.endAccessibilityHelp.contains("会议本身不会结束"))
+        // Video ends with no confirmation: its tooltip says what stops.
+        #expect(SubtitleScene.video.endAccessibilityHelp == "结束视频字幕：停止收听和翻译")
+        #expect(SubtitleScene.video.endToolTip == SubtitleScene.video.endAccessibilityHelp)
+        #expect(SubtitleScene.meeting.endToolTip == "结束会议同传")
     }
 
     @Test func oneGlyphCarriesOneMeaning() {

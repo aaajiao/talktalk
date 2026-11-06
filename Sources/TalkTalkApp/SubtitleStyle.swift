@@ -101,9 +101,14 @@ enum SubtitleStyle {
     /// cleared 1.5 pt ring so that, tinted to one colour, it stays a separate shape and the
     /// risk glyph never reads as plain mic.fill (原声). The result stays a template image, so
     /// contentTintColor and Increase Contrast still apply.
+    /// `palette` (layer colours, e.g. [white, warn] for a white mark on a yellow triangle) or
+    /// `hierarchical` (one base colour) give a coloured, non-template image instead.
     static func symbol(_ name: String, size: CGFloat, weight: NSFont.Weight = .semibold,
-                       accessibilityDescription: String? = nil) -> NSImage? {
-        let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: weight)
+                       accessibilityDescription: String? = nil, palette: [NSColor]? = nil,
+                       hierarchical: NSColor? = nil) -> NSImage? {
+        var configuration = NSImage.SymbolConfiguration(pointSize: size, weight: weight)
+        if let palette { configuration = configuration.applying(.init(paletteColors: palette)) }
+        else if let hierarchical { configuration = configuration.applying(.init(hierarchicalColor: hierarchical)) }
         if let image = NSImage(systemSymbolName: name, accessibilityDescription: accessibilityDescription)?
             .withSymbolConfiguration(configuration) {
             return image

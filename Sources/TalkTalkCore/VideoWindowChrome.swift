@@ -73,13 +73,17 @@ public struct VideoHoverBar: Sendable, Equatable {
     }
 }
 
-/// The persistent 8 pt dot in the video window's top-right corner: yellow for a warning
-/// (including captions more than 5 s behind), red for a risk. Notifications and information
-/// do not light it. Clicking it opens the details popover.
+/// The persistent 10 pt warning symbol in the video window's top-right corner: a yellow
+/// triangle for a warning (including captions more than 5 s behind), a red octagon for a risk,
+/// so the two differ by shape as well as colour. Notifications and information do not light
+/// it. Clicking it opens the details popover.
 public enum VideoStatusDot: Sendable, Equatable {
     case warn, risk
 
+    /// Layout width of the mark, used to centre it at `edgeInset` from the right edge.
     public static let diameter: Double = 8
+    /// Point size of the drawn symbol (white mark on the coloured shape).
+    public static let symbolPointSize: Double = 10
     /// Distance of the dot (and the lock indicator) from the window's right edge.
     public static let edgeInset: Double = 10
     /// Room the hover bar's trailing controls leave for the dot.
@@ -96,9 +100,12 @@ public enum VideoStatusDot: Sendable, Equatable {
 
     public var color: SubtitleTokens.Color { self == .risk ? .riskStroke : .warn }
 
+    /// Apple's caution triangle for a warning, the stop octagon for a risk.
+    public var symbol: String { self == .risk ? SubtitleTokens.VoiceIcon.statusRisk : SubtitleTokens.VoiceIcon.statusWarn }
+
     /// "字幕落后约 N 秒" (§6 视觉反馈): a warning chip in the hover bar, which turns the dot yellow.
     public static func lagChip(seconds: Int) -> HUDChip {
-        HUDChip(titlebarLabel("字幕落后约 \(seconds) 秒"), symbol: "clock", tone: .warn,
+        HUDChip(titlebarLabel("字幕落后约 \(seconds) 秒"), symbol: SubtitleTokens.VoiceIcon.captionLag, tone: .warn,
                 detail: String(localized: "字幕落后声音约 \(seconds) 秒：先加快翻页追赶，追不上时跳过较旧的句子。"))
     }
 }
@@ -114,9 +121,10 @@ public enum SubtitleClickThrough {
         sessionActive && scene == .video
     }
 
-    /// The 10 pt `lock.fill` indicator at 40% white.
+    /// The 10 pt `lock.fill` indicator at 40% white (80% with Increase Contrast). It always
+    /// carries the reading shadow, since it sits on arbitrary video frames.
     public static let indicatorSize: Double = 10
-    public static let indicatorAlpha: Double = 0.4
+    public static func indicatorAlpha(increaseContrast: Bool) -> Double { increaseContrast ? 0.8 : 0.4 }
 }
 
 /// Long-silence dimming (§1): 8 s after the last page has been read, with no pending cue and

@@ -203,6 +203,8 @@ public enum SubtitleTokens {
         /// "已中止" (a Phone reader dropped mid-turn); stop.circle stays the user's end action.
         public static let aborted = "xmark.octagon"
         public static let listening = "ear"
+        /// "字幕落后约 N 秒": captions are behind the audio.
+        public static let captionLag = "clock.badge.exclamationmark"
         public static let locked = "lock.fill"
         public static let chevron = "chevron.down"
         /// The titlebar keycap's action glyphs (开始翻译 / 结束 this turn).
@@ -211,7 +213,7 @@ public enum SubtitleTokens {
         /// Only the user's own end-session action.
         public static let end = "stop.circle"
         public static let cloud = "network"
-        /// The video status dot's shapes with "Differentiate without colour" on.
+        /// The video window's persistent status mark: warning triangle, risk octagon.
         public static let statusWarn = "exclamationmark.triangle.fill"
         public static let statusRisk = "exclamationmark.octagon.fill"
         /// The video hover bar's window options menu, as the menu bar's "更多".
@@ -315,5 +317,7 @@ public enum ControlTypography {
     public static let placeholder: Double = 13
     public static let fallbackBadge: Double = 10
     public static let titleScene: Double = 13
+    /// The video hover bar's source name, shown after the scene icon instead of "视频字幕 · ".
+    public static let titleVideoSource: Double = 12
     public static let endButton: Double = 11
 }

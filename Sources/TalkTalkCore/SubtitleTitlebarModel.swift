@@ -41,14 +41,18 @@ public enum SubtitleScene: String, Sendable, Equatable, CaseIterable {
         }
     }
 
-    /// What ending does not do: the meeting or call itself goes on.
+    /// What ending does not do: the meeting or call itself goes on. Video ends at once with
+    /// no confirmation, so its help (also the tooltip) says what stops.
     public var endAccessibilityHelp: String {
         switch self {
         case .meeting: String(localized: "结束 TalkTalk 同传；会议本身不会结束")
         case .phone: String(localized: "结束 TalkTalk 同传；通话不会挂断")
-        case .video: String(localized: "停止视频字幕")
+        case .video: String(localized: "结束视频字幕：停止收听和翻译")
         }
     }
+
+    /// The end button's tooltip: video, which has no confirmation step, explains the effect.
+    public var endToolTip: String { self == .video ? endAccessibilityHelp : endAccessibilityLabel }
 }
 
 /// What the voice capsule says (§3). It reads the current speaking mode directly and never
@@ -100,6 +104,11 @@ public struct VoiceState: Sendable, Equatable {
     public var announcement: String?
     /// The capsule opens details; video's listening capsule is read-only.
     public var opensDetails: Bool { kind != .listening }
+
+    /// Video's listening state is a neutral, read-only status that sends nothing anywhere: the
+    /// titlebar draws it as the bare `ear` glyph (tooltip and VoiceOver keep the words), not as
+    /// a capsule shaped like the clickable ones. Every other state keeps its capsule and text.
+    public var isStatusGlyph: Bool { kind == .listening }
 
     /// Mode family used to announce only real speaking-mode changes, not processing/playback
     /// toggles inside one translated turn.

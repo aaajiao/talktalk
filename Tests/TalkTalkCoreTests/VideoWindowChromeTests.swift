@@ -63,9 +63,13 @@ import Testing
         #expect(VideoStatusDot.make(issue: .chip(HUDChip("未听到对方", symbol: "ear", tone: .info))) == nil)
         #expect(VideoStatusDot.make(issue: .chip(HUDChip("风险", symbol: "mic", tone: .risk))) == .risk)
         #expect(VideoStatusDot.risk.color == .riskStroke && VideoStatusDot.warn.color == .warn)
+        // Severity differs by shape too: caution triangle vs stop octagon.
+        #expect(VideoStatusDot.warn.symbol == "exclamationmark.triangle.fill")
+        #expect(VideoStatusDot.risk.symbol == "exclamationmark.octagon.fill")
         // Captions 7 s behind: a warning chip that turns the dot yellow.
         let chip = VideoStatusDot.lagChip(seconds: 7)
         #expect(chip.label == "字幕落后约 7 秒" && chip.tone == .warn)
+        #expect(chip.symbol == SubtitleTokens.VoiceIcon.captionLag && chip.symbol == "clock.badge.exclamationmark")
         var model = HUDModel()
         model.meetingStarted()
         model.scene = .video
@@ -83,6 +87,8 @@ import Testing
         #expect(SubtitleClickThrough.offersLock(scene: .video, sessionActive: true))
         #expect(!SubtitleClickThrough.offersLock(scene: .video, sessionActive: false))
         #expect(!SubtitleClickThrough.offersLock(scene: .meeting, sessionActive: true))
+        #expect(SubtitleClickThrough.indicatorAlpha(increaseContrast: false) == 0.4)
+        #expect(SubtitleClickThrough.indicatorAlpha(increaseContrast: true) == 0.8)
     }
 
     @Test func quietDimStartsEightSecondsAfterTheLastPageWasReadAndRestoresAtOnce() {

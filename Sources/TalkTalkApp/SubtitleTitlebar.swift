@@ -272,11 +272,29 @@ final class SubtitleTitleView: NSView {
 
     private static let iconWidth: CGFloat = 22
 
+    /// Video names only its source after the `play.rectangle` icon, which already says
+    /// "视频字幕"; the full title stays in the tooltip, VoiceOver and the window title.
+    private var showsSourceOnly: Bool { scene == .video && !(source ?? "").isEmpty }
+
     func apply(scene: SubtitleScene, source: String?) {
         self.scene = scene
         self.source = source
         icon.image = SubtitleStyle.symbol(scene.symbol, size: 13, weight: .regular)
         icon.contentTintColor = SubtitleStyle.color(.controlTertiary, display: display)
+        if showsSourceOnly, let source {
+            label.attributedStringValue = NSAttributedString(string: source, attributes: [
+                .font: NSFont.systemFont(ofSize: ControlTypography.titleVideoSource, weight: .semibold),
+                .foregroundColor: SubtitleStyle.color(.textPrimary, display: display),
+            ])
+            let full = String(localized: "视频字幕 · \(source)")
+            label.toolTip = full
+            setAccessibilityElement(true)
+            setAccessibilityRole(.staticText)
+            setAccessibilityLabel(full)
+            return
+        }
+        setAccessibilityElement(false)
+        setAccessibilityLabel(nil)
         let text = NSMutableAttributedString(string: scene.title, attributes: [
             .font: NSFont.systemFont(ofSize: ControlTypography.titleScene, weight: .semibold),
             .foregroundColor: SubtitleStyle.color(.textPrimary, display: display),
@@ -298,8 +316,10 @@ final class SubtitleTitleView: NSView {
         apply(scene: scene, source: source)
     }
 
-    /// Icon plus the scene title without its source: the part that never yields.
+    /// Icon plus the scene title without its source: the part that never yields. Video's
+    /// source name truncates down to the icon.
     var minimumWidth: CGFloat {
+        if showsSourceOnly { return Self.iconWidth + 4 }
         let title = (scene.title as NSString).size(withAttributes: [
             .font: NSFont.systemFont(ofSize: ControlTypography.titleScene, weight: .semibold)]).width
         return Self.iconWidth + ceil(title) + 4
@@ -426,8 +446,13 @@ final class VoiceCapsuleView: TitlebarControl {
 
     private static func fontSize(large: Bool) -> CGFloat { large ? 13 : ControlTypography.capsule }
     private static func iconSize(large: Bool) -> CGFloat { large ? 12 : SubtitleTokens.Size.capsuleIconSize }
+    /// Video's listening state: the bare 12 pt `ear`, no fill, text or hover (a status glyph).
+    private static let statusGlyphSize: CGFloat = 12
+    private static let statusGlyphWidth: CGFloat = 20
+    private var isStatusGlyph: Bool { !large && state?.isStatusGlyph == true }
 
     static func width(for state: VoiceState, full: Bool, large: Bool, chevron: Bool = true) -> CGFloat {
+        if !large, state.isStatusGlyph { return statusGlyphWidth }
         let title = full ? state.title : state.compactTitle
         let text = (title as NSString).size(withAttributes: [.font: SubtitleStyle.controlFont(fontSize(large: large))]).width
         let pad = SubtitleTokens.Size.capsuleHorizontalPadding
@@ -441,9 +466,16 @@ final class VoiceCapsuleView: TitlebarControl {
         state = next
         display = nextDisplay
         let colors = Self.colors(next.appearance, display: nextDisplay, lightSurface: lightSurface)
-        icon.image = SubtitleStyle.symbol(next.symbol, size: Self.iconSize(large: large), weight: .semibold,
-                                          accessibilityDescription: nil)
-        icon.contentTintColor = colors.text
+        if isStatusGlyph {
+            let tint = SubtitleStyle.white(0.8)
+            icon.image = SubtitleStyle.symbol(next.symbol, size: Self.statusGlyphSize, weight: .semibold, hierarchical: tint)
+            icon.contentTintColor = nil
+        } else {
+            icon.image = SubtitleStyle.symbol(next.symbol, size: Self.iconSize(large: large), weight: .semibold,
+                                              accessibilityDescription: nil)
+            icon.contentTintColor = colors.text
+        }
+        label.isHidden = isStatusGlyph
         label.font = SubtitleStyle.controlFont(Self.fontSize(large: large))
         label.stringValue = full ? next.title : next.compactTitle
         label.textColor = colors.text
@@ -452,7 +484,7 @@ final class VoiceCapsuleView: TitlebarControl {
         // The tertiary token's alpha (60%, Increase Contrast 90%) over the capsule's text colour.
         let chevronAlpha = SubtitleTokens.Color.controlTertiary.rgba(increaseContrast: nextDisplay.increaseContrast).alpha
         chevron.contentTintColor = colors.text.withAlphaComponent(chevronAlpha)
-        chevron.isHidden = !showsChevron || !next.opensDetails
+        chevron.isHidden = !showsChevron || !next.opensDetails || isStatusGlyph
         setAccessibilityLabel(next.accessibilityLabel)
         setAccessibilityHelp(next.detail)
         setAccessibilityRole(next.opensDetails && showsChevron ? .button : .staticText)
@@ -484,6 +516,12 @@ final class VoiceCapsuleView: TitlebarControl {
 
     private func updateLayer(_ colors: Colors? = nil) {
         guard let state else { return }
+        if isStatusGlyph {
+            layer?.backgroundColor = nil
+            layer?.borderWidth = 0
+            dash.isHidden = true
+            return
+        }
         let colors = colors ?? Self.colors(state.appearance, display: display, lightSurface: lightSurface)
         var fill = colors.fill ?? .clear
         if isHovered || isPressed, state.opensDetails, showsChevron {
@@ -508,6 +546,11 @@ final class VoiceCapsuleView: TitlebarControl {
         dash.frame = bounds
         dash.path = CGPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5),
                            cornerWidth: layer?.cornerRadius ?? 10, cornerHeight: layer?.cornerRadius ?? 10, transform: nil)
+        if isStatusGlyph {
+            let box = Self.statusGlyphSize + 4
+            icon.frame = NSRect(x: (bounds.width - box) / 2, y: (height - box) / 2, width: box, height: box)
+            return
+        }
         let pad = SubtitleTokens.Size.capsuleHorizontalPadding
         let iconSize = Self.iconSize(large: large)
         icon.frame = NSRect(x: pad, y: (height - iconSize - 2) / 2, width: iconSize + 2, height: iconSize + 2)
@@ -790,7 +833,7 @@ final class EndTextButton: TitlebarControl {
         icon.isHidden = nextShowsText
         setAccessibilityLabel(scene.endAccessibilityLabel)
         setAccessibilityHelp(scene.endAccessibilityHelp)
-        toolTip = scene.endAccessibilityLabel
+        toolTip = scene.endToolTip
         hoverChanged()
         needsLayout = true
     }
@@ -826,6 +869,8 @@ final class MoreMenuButton: TitlebarControl {
         icon.setAccessibilityElement(false)
         addSubview(icon)
         layer?.cornerRadius = SubtitleTokens.Radius.chip
+        // VoiceOver announces that it opens a menu.
+        setAccessibilityRole(.menuButton)
         setAccessibilityLabel(String(localized: "字幕窗口选项"))
         toolTip = String(localized: "字幕窗口选项：锁定字幕位置")
         hoverChanged()

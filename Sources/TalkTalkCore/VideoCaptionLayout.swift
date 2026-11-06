@@ -68,20 +68,23 @@ public enum VideoCaptionLayout {
     public static let plateHorizontalPaddingEm: Double = 0.4
 
     // Page feedback.
+    // Meta alphas take stronger values with Increase Contrast (§2).
     public static let continuationMarker = "›"
-    public static let continuationAlpha: Double = 0.45
+    public static func continuationAlpha(increaseContrast: Bool) -> Double { increaseContrast ? 0.7 : 0.45 }
     public static let pageDotDiameter: Double = 3
     public static let pageDotSpacing: Double = 4
     public static let pageDotGap: Double = 4
-    public static let pageDotCurrentAlpha: Double = 0.90
-    public static let pageDotOtherAlpha: Double = 0.30
+    public static func pageDotCurrentAlpha(increaseContrast: Bool) -> Double { increaseContrast ? 1.0 : 0.90 }
+    public static func pageDotOtherAlpha(increaseContrast: Bool) -> Double { increaseContrast ? 0.5 : 0.30 }
     /// Draft text that changed since the previous version.
     public static let draftTailAlpha: Double = 0.65
     public static let skippedNoticeSeconds: Double = 1.5
     public static let skippedNoticeSize: Double = 12
-    public static let skippedNoticeAlpha: Double = 0.5
+    public static func skippedNoticeAlpha(increaseContrast: Bool) -> Double { increaseContrast ? 0.75 : 0.5 }
+    /// "正在听 <来源>…", led by the listening glyph (`ear`) at 13 pt.
     public static let placeholderSize: Double = 14
-    public static let placeholderAlpha: Double = 0.6
+    public static let placeholderSymbolSize: Double = 13
+    public static func placeholderAlpha(increaseContrast: Bool) -> Double { increaseContrast ? 0.8 : 0.6 }
 
     /// 20 × Chinese size, never wider than the window minus 48; narrow windows use window − 48.
     public static func translationBlockWidth(windowWidth: Double, translationSize: Double) -> Double {

@@ -18,6 +18,8 @@ final class VideoSubtitleView: NSView {
         var opacity: CGFloat = 0.85
         var reduceTransparency = false
         var reduceMotion = false
+        /// Strengthens the meta alphas: page dots, "›", "已跳过 N 句", the placeholder (§2).
+        var increaseContrast = false
     }
 
     private struct Page {
@@ -126,7 +128,6 @@ final class VideoSubtitleView: NSView {
         }
         captionLayer.addSubview(dots)
         noticeView.isHidden = true
-        noticeView.setAccessibilityElement(false)
         dots.isHidden = true
         sourceView.setAccessibilityLabel(String(localized: "原文"))
         translationView.setAccessibilityLabel(String(localized: "译文"))
@@ -222,10 +223,12 @@ final class VideoSubtitleView: NSView {
         if metadataChanged, !changed { onDisplayedTextChange?() }
     }
 
+    static func skippedText(count: Int) -> String { String(localized: "已跳过 \(count) 句") }
+
     /// "已跳过 N 句" at the source position for 1.5 s (§6 视觉反馈).
     func showSkipped(count: Int, at now: Double) {
         guard count > 0 else { return }
-        skippedNotice = (String(localized: "已跳过 \(count) 句"), now + VideoCaptionLayout.skippedNoticeSeconds)
+        skippedNotice = (Self.skippedText(count: count), now + VideoCaptionLayout.skippedNoticeSeconds)
         applyVisual()
     }
 
@@ -505,11 +508,16 @@ final class VideoSubtitleView: NSView {
 
         // Source slot: the skipped notice, the page, or the empty-state placeholder.
         var sourceVisual = sourcePageValue.map { visual(for: $0, in: source) } ?? NSAttributedString(string: "")
+        let contrast = appearanceSettings.increaseContrast
         var notice: NSAttributedString?
+        var noticeText: String?
         if let skipped = skippedNotice {
-            notice = plain(skipped.text, size: VideoCaptionLayout.skippedNoticeSize, alpha: VideoCaptionLayout.skippedNoticeAlpha)
+            notice = plain(skipped.text, size: VideoCaptionLayout.skippedNoticeSize,
+                           alpha: VideoCaptionLayout.skippedNoticeAlpha(increaseContrast: contrast))
+            noticeText = skipped.text
         } else if !hasCaption, let placeholder, !placeholder.isEmpty {
-            notice = plain(placeholder, size: VideoCaptionLayout.placeholderSize, alpha: VideoCaptionLayout.placeholderAlpha)
+            notice = placeholderVisual(placeholder)
+            noticeText = placeholder
         }
         if notice != nil { sourceVisual = NSAttributedString(string: "") }
         let translationVisual = NSMutableAttributedString(attributedString:
@@ -518,7 +526,7 @@ final class VideoSubtitleView: NSView {
             let attributes = translationVisual.attributes(at: translationVisual.length - 1, effectiveRange: nil)
             if hasNextPage {
                 var marker = attributes
-                marker[.foregroundColor] = SubtitleStyle.white(CGFloat(VideoCaptionLayout.continuationAlpha))
+                marker[.foregroundColor] = SubtitleStyle.white(CGFloat(VideoCaptionLayout.continuationAlpha(increaseContrast: contrast)))
                 marker[.strokeWidth] = nil
                 translationVisual.append(NSAttributedString(string: VideoCaptionLayout.continuationMarker, attributes: marker))
             } else if fallback, isDisplayingFinal, isLastTranslationPage {
@@ -538,7 +546,12 @@ final class VideoSubtitleView: NSView {
         translationView.setCaption(translationVisual)
         noticeView.setCaption(notice ?? NSAttributedString(string: ""))
         sourceView.setAccessibilityValue(displayedSource)
-        translationView.setAccessibilityValue(displayedTranslation)
+        // VoiceOver hears that more pages follow, which the dots and "›" only show.
+        translationView.setAccessibilityValue(layoutReady && pageCount > 1 && !displayedTranslation.isEmpty
+            ? String(localized: "\(displayedTranslation)，第 \(currentPageIndex + 1) 页，共 \(pageCount) 页")
+            : displayedTranslation)
+        // The source block is hidden while a notice holds its slot; the notice is read instead.
+        noticeView.setAccessibilityValue(noticeText)
         if fallback, isDisplayingFinal {
             translationView.setAccessibilityHelp(ConversationText.fallbackHelp)
         } else {
@@ -573,6 +586,7 @@ final class VideoSubtitleView: NSView {
         if showsDots {
             dots.count = pageCount
             dots.current = currentPageIndex
+            dots.increaseContrast = contrast
             let baseline = translationView.frame.minY + CGFloat(max(0, translationView.lineCount - 1)) * Self.lineHeight(translationFont)
                 + baselineOffset(for: translationFont)
             let size = dots.intrinsicContentSize
@@ -644,6 +658,28 @@ final class VideoSubtitleView: NSView {
             }
             result.append(text.attributedSubstring(from: line))
         }
+        styled(result)
+        return result
+    }
+
+    /// "正在听 <来源>…" led by the listening glyph, so the empty state matches the bar's `ear`.
+    private func placeholderVisual(_ value: String) -> NSAttributedString {
+        let alpha = VideoCaptionLayout.placeholderAlpha(increaseContrast: appearanceSettings.increaseContrast)
+        let font = NSFont.systemFont(ofSize: VideoCaptionLayout.placeholderSize)
+        let color = SubtitleStyle.white(CGFloat(alpha))
+        let result = NSMutableAttributedString()
+        if let symbol = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.listening,
+                                             size: CGFloat(VideoCaptionLayout.placeholderSymbolSize), weight: .regular) {
+            let image = SubtitleStyle.tinted(symbol, color)
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            attachment.bounds = NSRect(x: 0, y: (font.capHeight - image.size.height) / 2,
+                                       width: image.size.width, height: image.size.height)
+            result.append(NSAttributedString(attachment: attachment))
+            result.append(NSAttributedString(string: " "))
+            result.addAttributes([.font: font, .foregroundColor: color], range: NSRange(location: 0, length: result.length))
+        }
+        result.append(NSAttributedString(string: value, attributes: [.font: font, .foregroundColor: color]))
         styled(result)
         return result
     }
@@ -725,6 +761,7 @@ private final class CaptionContainerView: NSView {
 private final class PageDotsView: NSView {
     var count = 0 { didSet { if count != oldValue { needsDisplay = true; invalidateIntrinsicContentSize() } } }
     var current = 0 { didSet { if current != oldValue { needsDisplay = true } } }
+    var increaseContrast = false { didSet { if increaseContrast != oldValue { needsDisplay = true } } }
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
 
@@ -736,7 +773,8 @@ private final class PageDotsView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let diameter = CGFloat(VideoCaptionLayout.pageDotDiameter), spacing = CGFloat(VideoCaptionLayout.pageDotSpacing)
         for index in 0..<count {
-            let alpha = index == current ? VideoCaptionLayout.pageDotCurrentAlpha : VideoCaptionLayout.pageDotOtherAlpha
+            let alpha = index == current ? VideoCaptionLayout.pageDotCurrentAlpha(increaseContrast: increaseContrast)
+                : VideoCaptionLayout.pageDotOtherAlpha(increaseContrast: increaseContrast)
             SubtitleStyle.white(CGFloat(alpha)).setFill()
             NSBezierPath(ovalIn: NSRect(x: CGFloat(index) * (diameter + spacing), y: 0, width: diameter, height: diameter)).fill()
         }

@@ -130,6 +130,9 @@ final class SubtitlePanel {
     private var moveObserver: NSObjectProtocol?
     private var resizeObserver: NSObjectProtocol?
     private var accessibilityObserver: NSObjectProtocol?
+    /// VoiceOver does not move the pointer, so while it runs the video hover bar stays shown.
+    /// `accessibilityDisplayOptionsDidChange` does not fire for VoiceOver; KVO does.
+    private var voiceOverObservation: NSKeyValueObservation?
     private var restoreObserver: NSObjectProtocol?
     var analysisRecorder: SubtitleAnalysisRecorder?
     private var analysisConfiguration: UInt64 = 0
@@ -175,8 +178,6 @@ final class SubtitlePanel {
         panel.isMovable = true
         panel.isMovableByWindowBackground = true
         panel.isReleasedWhenClosed = false
-        panel.standardWindowButton(.closeButton)?.toolTip = String(localized: "隐藏字幕，同传继续")
-        panel.standardWindowButton(.miniaturizeButton)?.toolTip = String(localized: "最小化字幕，同传继续")
         panel.animationBehavior = .none
         backgroundEffect.material = .hudWindow
         backgroundEffect.blendingMode = .behindWindow
@@ -198,6 +199,7 @@ final class SubtitlePanel {
         hoverStrip.isHidden = true
         content.addSubview(hoverStrip)
         statusDot.isHidden = true
+        statusDot.onPress = { [weak self] in self?.statusDotPressed() }
         content.addSubview(statusDot)
         titlebar.onStatusDot = { [weak self] anchor in self?.onStatusDotClick?(anchor) }
         titlebar.onFrameChange = { [weak self] in
@@ -206,9 +208,17 @@ final class SubtitlePanel {
         }
         lockIndicator.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.locked,
                                                    size: CGFloat(SubtitleClickThrough.indicatorSize), weight: .semibold)
-        lockIndicator.contentTintColor = SubtitleStyle.white(CGFloat(SubtitleClickThrough.indicatorAlpha))
         lockIndicator.imageScaling = .scaleNone
+        // Legible on any frame: the reading shadow, as captions below 0.75 opacity.
+        lockIndicator.wantsLayer = true
+        let lockShadow = NSShadow()
+        lockShadow.shadowColor = SubtitleStyle.nsColor(SubtitleTokens.readingShadow.color)
+        lockShadow.shadowBlurRadius = SubtitleTokens.readingShadow.blur
+        lockShadow.shadowOffset = NSSize(width: SubtitleTokens.readingShadow.offsetX, height: SubtitleTokens.readingShadow.offsetY)
+        lockIndicator.shadow = lockShadow
         lockIndicator.setAccessibilityLabel(String(localized: "字幕位置已锁定"))
+        // The locked window takes no pointer events, so no tooltip can explain how to unlock.
+        lockIndicator.setAccessibilityHelp(String(localized: "鼠标会穿过字幕窗口；从菜单栏的 TalkTalk 菜单解锁"))
         lockIndicator.isHidden = true
         content.addSubview(lockIndicator)
         hintBubble.isHidden = true
@@ -283,6 +293,9 @@ final class SubtitlePanel {
                     self?.onAppearanceChange?()
                 }
             }
+        voiceOverObservation = NSWorkspace.shared.observe(\.isVoiceOverEnabled, options: [.new]) { @Sendable [weak self] _, _ in
+            Task { @MainActor in self?.updateVideoChrome(animated: false) }
+        }
     }
 
     isolated deinit {
@@ -357,7 +370,8 @@ final class SubtitlePanel {
         let display = SubtitleStyle.Display.current
         videoCaptions.appearanceSettings = .init(style: effectiveVideoCaptionStyle, arrangement: videoCaptionArrangement,
                                                  opacity: effectiveOpacity, reduceTransparency: display.reduceTransparency,
-                                                 reduceMotion: display.reduceMotion)
+                                                 reduceMotion: display.reduceMotion,
+                                                 increaseContrast: display.increaseContrast)
     }
 
     /// Phone owns dialing and the actual call. Its opener shares the compact titlebar;
@@ -774,7 +788,15 @@ final class SubtitlePanel {
         case .dropped: break
         }
         if videoBoard.skippedCount > seenSkippedCount {
-            videoCaptions.showSkipped(count: videoBoard.skippedCount - seenSkippedCount, at: Double(now) / 1_000_000_000)
+            let skipped = videoBoard.skippedCount - seenSkippedCount
+            videoCaptions.showSkipped(count: skipped, at: Double(now) / 1_000_000_000)
+            // Only with "朗读新译文" (§4): VoiceOver users otherwise never learn a sentence went.
+            if announcesNewTranslations, isVisible {
+                NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
+                    .announcement: VideoSubtitleView.skippedText(count: skipped),
+                    .priority: NSAccessibilityPriorityLevel.low.rawValue,
+                ])
+            }
         }
         seenSkippedCount = videoBoard.skippedCount
         switch update {
@@ -1192,6 +1214,11 @@ final class SubtitlePanel {
         // The hover bar holds the red and yellow buttons only.
         panel.standardWindowButton(.zoomButton)?.isHidden = video
         content.dragsWindow = !video
+        // Red close and yellow minimise only hide the presentation; the session goes on.
+        panel.standardWindowButton(.closeButton)?.toolTip = video
+            ? String(localized: "隐藏字幕，收听和翻译继续") : String(localized: "隐藏字幕，同传继续")
+        panel.standardWindowButton(.miniaturizeButton)?.toolTip = video
+            ? String(localized: "最小化字幕，收听和翻译继续") : String(localized: "最小化字幕，同传继续")
         titlebar.trailingInset = video ? CGFloat(VideoStatusDot.reservedTrailingWidth) : 0
         hoverTimer?.invalidate(); hoverTimer = nil
         hoverBar = VideoHoverBar()
@@ -1252,7 +1279,9 @@ final class SubtitlePanel {
             return
         }
         let now = uptime
-        hoverBar.setPinned(!subtitlesRequested)
+        // Captions off: the window is only its bar. VoiceOver: hover-only controls would leave
+        // the accessibility tree. A locked window still hides the bar.
+        hoverBar.setPinned(!subtitlesRequested || NSWorkspace.shared.isVoiceOverEnabled)
         if let deadline = hoverBar.hideDeadline(at: now) {
             let timer = Timer(timeInterval: max(0.01, deadline - now), repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateVideoChrome(animated: true) }
@@ -1325,13 +1354,18 @@ final class SubtitlePanel {
             statusDot.frame = dotFrame
             statusDot.color = SubtitleStyle.color(dot.color)
             statusDot.dot = dot
-            statusDot.differentiateWithoutColor = SubtitleStyle.Display.current.differentiateWithoutColor
             let chip = titlebarIssue?.chip
             target.setAccessibilityLabel(chip?.label)
             target.setAccessibilityHelp(chip?.detail)
             target.toolTip = chip?.detail
+            // The dot is its own button while the bar (and its target) is hidden, e.g. locked.
+            statusDot.setAccessibilityElement(chromeShown != true)
+            statusDot.setAccessibilityLabel(chip?.label)
+            statusDot.setAccessibilityHelp(chip?.detail)
         }
         lockIndicator.isHidden = !(video && panel.ignoresMouseEvents)
+        lockIndicator.contentTintColor = SubtitleStyle.white(CGFloat(SubtitleClickThrough.indicatorAlpha(
+            increaseContrast: SubtitleStyle.Display.current.increaseContrast)))
         let lockSize: CGFloat = 12
         let lockRight = dot == nil ? width - inset : dotFrame.minX
         lockIndicator.frame = NSRect(x: lockRight - lockSize, y: strip / 2 - lockSize / 2, width: lockSize, height: lockSize)
@@ -1339,6 +1373,14 @@ final class SubtitlePanel {
             let size = hintBubble.fittingSize
             hintBubble.frame = NSRect(x: (width - size.width) / 2, y: strip + 6, width: size.width, height: size.height)
         }
+    }
+
+    /// VoiceOver pressed the status dot: anchor the details at the titlebar target when the
+    /// bar shows it, else at the dot.
+    private func statusDotPressed() {
+        let target = titlebar.statusDotTarget
+        let anchor: NSView = chromeShown == true && !target.isHidden && target.window === panel ? target : statusDot
+        onStatusDotClick?(anchor)
     }
 
     /// Locked: the whole window ignores the mouse and cannot be dragged; only the menu-bar
@@ -1418,9 +1460,15 @@ final class SubtitlePanel {
         else { return }
         UserDefaults.standard.set(true, forKey: Self.fullScreenHintKey)
         hintBubble.text = FullScreenSpaceHint.text
+        hintBubble.increaseContrast = SubtitleStyle.Display.current.increaseContrast
         hintBubble.alphaValue = 1
         hintBubble.isHidden = false
         layoutVideoChrome()
+        // The hint appears without focus; VoiceOver hears it once.
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
+            .announcement: FullScreenSpaceHint.text,
+            .priority: NSAccessibilityPriorityLevel.low.rawValue,
+        ])
         hintTimer?.invalidate()
         let timer = Timer(timeInterval: FullScreenSpaceHint.seconds, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.hideHint(animated: true) }
@@ -1596,38 +1644,47 @@ final class PassiveEffectView: NSVisualEffectView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-/// The 8 pt status dot (§6), drawn in the content; its click target lives in the titlebar.
+/// The 10 pt status mark (§6): a white "!" on a yellow triangle (warning) or a red octagon
+/// (risk), so severity reads by shape too, with the reading shadow for bright or orange frames.
+/// It is drawn in the content; mouse clicks go to its target in the titlebar. While the bar is
+/// hidden it is its own VoiceOver button.
 @MainActor
 final class VideoStatusDotView: NSView {
     static let boxSize: CGFloat = 16
     var color: NSColor = .systemOrange { didSet { if color != oldValue { needsDisplay = true } } }
     var dot: VideoStatusDot = .warn { didSet { if dot != oldValue { needsDisplay = true } } }
-    /// "Differentiate without colour": warn and risk also differ by shape (Apple's caution
-    /// triangle and stop octagon) instead of being an 8 pt dot of a different hue.
-    var differentiateWithoutColor = false { didSet { if differentiateWithoutColor != oldValue { needsDisplay = true } } }
+    var onPress: (() -> Void)?
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
         setAccessibilityElement(false)
+        setAccessibilityRole(.button)
     }
 
     required init?(coder: NSCoder) { nil }
 
+    override func accessibilityPerformPress() -> Bool {
+        guard let onPress else { return false }
+        onPress()
+        return true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        if differentiateWithoutColor,
-           let image = SubtitleStyle.symbol(dot == .risk ? SubtitleTokens.VoiceIcon.statusRisk : SubtitleTokens.VoiceIcon.statusWarn,
-                                            size: 10, weight: .semibold).map({ SubtitleStyle.tinted($0, color) }) {
-            let size = image.size
-            image.draw(in: NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2,
-                                  width: size.width, height: size.height))
-            return
-        }
-        let diameter = CGFloat(VideoStatusDot.diameter)
-        color.setFill()
-        NSBezierPath(ovalIn: NSRect(x: (bounds.width - diameter) / 2, y: (bounds.height - diameter) / 2,
-                                    width: diameter, height: diameter)).fill()
+        guard let image = SubtitleStyle.symbol(dot.symbol, size: CGFloat(VideoStatusDot.symbolPointSize), weight: .bold,
+                                               palette: [.white, color]) else { return }
+        let size = image.size
+        let token = SubtitleTokens.readingShadow
+        let shadow = NSShadow()
+        shadow.shadowColor = SubtitleStyle.nsColor(token.color)
+        shadow.shadowBlurRadius = token.blur
+        shadow.shadowOffset = NSSize(width: token.offsetX, height: token.offsetY)
+        NSGraphicsContext.saveGraphicsState()
+        shadow.set()
+        image.draw(in: NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2,
+                              width: size.width, height: size.height))
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 
@@ -1638,6 +1695,13 @@ final class WindowHintView: NSView {
     var text: String {
         get { label.stringValue }
         set { label.stringValue = newValue; needsLayout = true }
+    }
+    /// Increase Contrast outlines the capsule (1 pt white 35%).
+    var increaseContrast = false {
+        didSet {
+            layer?.borderWidth = increaseContrast ? 1 : 0
+            layer?.borderColor = SubtitleStyle.white(0.35).cgColor
+        }
     }
     override var isFlipped: Bool { true }
 

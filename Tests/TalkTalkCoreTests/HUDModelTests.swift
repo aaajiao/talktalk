@@ -465,13 +465,16 @@ import Testing
         let local = try #require(model.voiceState)
         #expect(local.kind == .localPlayback && local.title == "本机播放" && local.compactTitle == "本机")
         // Audible on this Mac: never the muted-speaker glyph.
-        #expect(local.symbol == SubtitleTokens.VoiceIcon.thisMac)
+        #expect(local.symbol == SubtitleTokens.VoiceIcon.thisMac && !local.isStatusGlyph)
         #expect(!local.consequence.contains("对方") && !local.accessibilityLabel.contains("对方"))
         #expect(MicDockPresentation.make(local, scene: .meeting).label == "译音只在本机播放")
         model.scene = .video
         model.post(.remoteHearsYourVoice, now: 0)
         let video = try #require(model.voiceState)
         #expect(video.kind == .listening && video.title == "收听中" && video.symbol == "ear" && !video.opensDetails)
+        // Drawn as the bare glyph; the words stay in VoiceOver and the tooltip.
+        #expect(video.isStatusGlyph && video.accessibilityLabel == "发声：收听中，麦克风未开启")
+        #expect(video.detail == "只收听所选应用，麦克风未开启")
         #expect(model.titlebarKey == nil)
     }
 

@@ -282,7 +282,7 @@ final class SubtitlePreviewCanvas: NSView {
             arrangement: configuration.videoArrangement, opacity: CGFloat(effectiveOpacity(configuration)),
             reduceTransparency: display.reduceTransparency,
             // A still picture: no page or finalization fades.
-            reduceMotion: true)
+            reduceMotion: true, increaseContrast: display.increaseContrast)
         let translation = String(localized: "最简单的想法，往往始于换一种方式去看待我们身边的世界")
         let source = VideoSubtitleView.sourceText("The simplest ideas often begin with a different way of looking at the world around us.",
                                                   font: SubtitleStyle.font(typography.source), display: display)
