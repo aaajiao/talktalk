@@ -123,10 +123,11 @@ scripts/build-app.sh release
 
 ## 开发与状态
 
-这是持续完善中的项目；不同会议软件的真实通话、音频路由和恢复行为仍需验证，不能将构建通过视为会议兼容性保证。
+本机试说、声音录入与试听已有真实验证；1.0.13 的自然长发言音色改善和 1.0.14 的末句不再重复已获用户确认。跨应用、跨设备会议及故障恢复仍有待覆盖，具体范围见验收状态。
 
 - [架构与开发约束](docs/ARCHITECTURE.md)
-- [已知限制与剩余工作](docs/remaining-work.md)
+- [验收状态与剩余工作](docs/remaining-work.md)
+- [历史验证记录](docs/validation-history.md)
 - [维护、诊断与卸载](docs/maintenance.md)
 
 常规检查：`scripts/check.sh --skip-stress`。实际麦克风、驱动、云端请求和通话检查需单独运行。
