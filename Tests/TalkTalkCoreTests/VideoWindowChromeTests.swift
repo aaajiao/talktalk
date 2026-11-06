@@ -18,6 +18,23 @@ import Testing
         #expect(VideoHoverBar.fadeDuration(reduceMotion: true) == 0)
     }
 
+    @Test func hidingTheWindowDropsThePointerAndCaptionsOffPinsTheBar() {
+        var bar = VideoHoverBar()
+        bar.pointer(inside: true, at: 1)
+        bar.setHeld(true, at: 1)
+        // Ordered out with the pointer inside: no mouseExited arrives, the bar goes at once.
+        bar.windowHidden()
+        #expect(!bar.isShown(at: 1) && !bar.pointerInside && !bar.held && bar.hideDeadline(at: 1) == nil)
+        // Re-sampled on show: an entry is no longer swallowed by a stale inside state.
+        bar.pointer(inside: true, at: 2)
+        #expect(bar.isShown(at: 2))
+        bar.pointer(inside: false, at: 3)
+        bar.setPinned(true)
+        #expect(bar.isShown(at: 100) && bar.hideDeadline(at: 3.1) == nil)
+        bar.setLocked(true)
+        #expect(!bar.isShown(at: 100))
+    }
+
     @Test func menusHoldAShownBarButNeverRevealAHiddenOneAndLockingHidesIt() {
         var bar = VideoHoverBar()
         bar.setHeld(true, at: 0)

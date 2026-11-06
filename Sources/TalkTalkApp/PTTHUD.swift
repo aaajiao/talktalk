@@ -21,7 +21,8 @@ final class PTTHUD {
     var phoneInputIsConfirmed: (() -> Bool)?
     /// The end button's popover text for the current scene; nil ends at once (video, demo).
     var endConfirmation: ((SubtitleScene) -> SessionEndConfirmation?)?
-    var onPhoneSpeechModeChange: ((HUDModel.MeetingAudio?, Bool, Bool) -> Void)?
+    /// The phone settings page shows the titlebar's own voice state, risk included (§7).
+    var onPhoneVoiceChange: ((VoiceState?) -> Void)?
     private let detailsPopover = NSPopover()
     private let endPopover = NSPopover()
     private var popoverActions: [HUDButtonAction] = []
@@ -32,13 +33,15 @@ final class PTTHUD {
     private var shownKey: TitlebarKey?
     private var shownChips: [HUDChip] = []
     private var announcedGroup: Int?
-    private var publishedPhoneMode: HUDModel.MeetingAudio?
+    private var publishedPhoneVoice: VoiceState?
     private var publishedPhoneInput = false
-    private var publishedPhonePlaying = false
     private var subtitlesVisible = true
     private var listenHint: HUDModel.Warning?
     private var cloudReminder: (apple: () -> Void, copy: () -> Void)?
     private var cloudPopoverShown = false
+    private var cloudPopoverScheduled = false
+    /// Presses whose own translated audio is playing (SpeakUIEvent.outputPresses).
+    private var playingPresses: Set<UInt64> = []
     /// The current press: shown in the dock while it is live, then committed as "我的行".
     private struct TurnTrack {
         var turn: ConversationTimeline.Turn
@@ -78,6 +81,10 @@ final class PTTHUD {
             requestRedraw()
         }
         panel.onPlaceholderClick = { [weak self] anchor in self?.toggleDetails(from: anchor) }
+        panel.onTitlebarShown = { [weak self] in
+            guard let self else { return }
+            showCloudPopoverOnce(issue: model.issueSlot(now: clock()))
+        }
         panel.onHintChange = { [weak self] message in
             guard let self else { return }
             let next = message.map {
@@ -94,12 +101,14 @@ final class PTTHUD {
         panel.prepareForNewSession()
         announcedGroup = nil
         cloudPopoverShown = false
+        playingPresses = []
         resetTurn()
         change { $0.meetingStarted() }
     }
 
     func meetingEnded() {
         inputActivity(nil)
+        playingPresses = []
         resetTurn()
         listenHint = nil
         panel.setRemoteSilent(false)
@@ -157,6 +166,13 @@ final class PTTHUD {
     func setOutputPlaying(_ playing: Bool) {
         guard model.outputPlaying != playing else { return }
         model.outputPlaying = playing
+        render()
+    }
+
+    /// Which presses' audio is playing; a turn's delivery counts only its own playback.
+    func setOutputPresses(_ presses: Set<UInt64>) {
+        guard playingPresses != presses else { return }
+        playingPresses = presses
         render()
     }
 
@@ -354,13 +370,14 @@ final class PTTHUD {
         let key = model.titlebarKey
         let chips = model.issueChips(now: now)
         let audio = model.meetingActive ? model.meetingAudio : nil
-        let playing = model.outputPlaying
         let phoneAudio = panel.presentation == .phone ? audio : nil
-        let phoneInput = phoneAudio != nil && model.phoneInputConfirmed
-        let phonePlaying = phoneAudio != nil && playing
-        if phoneAudio != publishedPhoneMode || phoneInput != publishedPhoneInput || phonePlaying != publishedPhonePlaying {
-            publishedPhoneMode = phoneAudio; publishedPhoneInput = phoneInput; publishedPhonePlaying = phonePlaying
-            onPhoneSpeechModeChange?(phoneAudio, phoneInput, phonePlaying)
+        publishedPhoneInput = phoneAudio != nil && model.phoneInputConfirmed
+        // The same value as the capsule, so a raw-audio risk reaches the settings page too.
+        let phoneVoice = panel.presentation == .phone && model.meetingActive
+            && (phoneAudio != nil || voice?.kind == .remoteHearsOriginal) ? voice : nil
+        if phoneVoice != publishedPhoneVoice {
+            publishedPhoneVoice = phoneVoice
+            onPhoneVoiceChange?(phoneVoice)
         }
         let showSpeech = subtitlesVisible && model.meetingActive && panel.presentation != .video
         let expanded = updateTurn(voice: voice, now: now)
@@ -431,8 +448,12 @@ final class PTTHUD {
             if current.turn.isFinal { commit(current) } else { track = nil }
         }
         guard var current = track else { return expanded }
-        current.delivery.observe(voice: voice?.kind, playing: model.outputPlaying,
-                                 hasTranslation: !current.turn.translation.isEmpty)
+        // Only this press's own playback counts, and only a live turn can be aborted.
+        let ownPlayback = playingPresses.contains(current.turn.press)
+        let live = !current.turn.isFinal || model.speechWorkPending || ownPlayback
+        current.delivery.observe(voice: voice?.kind, playing: ownPlayback,
+                                 hasTranslation: !current.turn.translation.isEmpty, live: live,
+                                 isolated: model.meetingAudio == nil)
         track = current
         if current.committed != nil || !expanded {
             // Collapsed: the turn is a row. A late final or delivery change updates that row.
@@ -476,17 +497,27 @@ final class PTTHUD {
     }
 
     /// The cloud privacy note opens once per session as a transient popover; it never makes
-    /// the panel key.
+    /// the panel key. In video the titlebar is hover-only: the note waits until the bar is
+    /// shown (the panel calls back), and it counts as shown only once it actually appeared.
     private func showCloudPopoverOnce(issue: IssueSlot?) {
-        guard cloudReminder != nil, !cloudPopoverShown, model.meetingActive, panel.isWindowVisible,
-              !detailsPopover.isShown else { return }
-        let anchor: NSView = issue == .cloudPrivacy ? panel.titlebar.cloud : panel.titlebar.capsule
-        guard !anchor.isHidden, anchor.window != nil else { return }
-        cloudPopoverShown = true
+        guard cloudReminder != nil, !cloudPopoverShown, !cloudPopoverScheduled, model.meetingActive,
+              !detailsPopover.isShown, let anchor = cloudPopoverAnchor(issue: issue) else { return }
+        cloudPopoverScheduled = true
         DispatchQueue.main.async { [weak self] in
-            guard let self, cloudReminder != nil, !detailsPopover.isShown, !anchor.isHidden else { return }
+            guard let self else { return }
+            cloudPopoverScheduled = false
+            guard cloudReminder != nil, !cloudPopoverShown, model.meetingActive, !detailsPopover.isShown,
+                  cloudPopoverAnchor(issue: model.issueSlot(now: clock())) === anchor else { return }
             showDetails(from: anchor)
+            cloudPopoverShown = detailsPopover.isShown
         }
+    }
+
+    private func cloudPopoverAnchor(issue: IssueSlot?) -> NSView? {
+        guard panel.isWindowVisible, panel.titlebarIsShown else { return nil }
+        let anchor: NSView = issue == .cloudPrivacy ? panel.titlebar.cloud : panel.titlebar.capsule
+        guard !anchor.isHiddenOrHasHiddenAncestor, anchor.window != nil else { return nil }
+        return anchor
     }
 
     // MARK: end

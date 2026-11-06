@@ -38,6 +38,8 @@ public struct VoiceState: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         case original, translating, processing, playingTranslation, switching, restoring
         case notSent, phoneNotConnected, phoneLocalTrial, phoneLocalOnly, phoneReconnecting
+        /// No raw gate (isolated onboarding demo): translated audio plays on this Mac only.
+        case localPlayback
         case remoteHearsOriginal, unavailable, listening
     }
 
@@ -85,7 +87,7 @@ public struct VoiceState: Sendable, Equatable {
     public var announcementGroup: Int {
         switch kind {
         case .original: 0
-        case .translating, .processing, .playingTranslation, .switching: 1
+        case .translating, .processing, .playingTranslation, .switching, .localPlayback: 1
         case .restoring: 2
         case .notSent, .phoneNotConnected, .phoneLocalTrial, .phoneLocalOnly: 3
         case .phoneReconnecting: 4
@@ -122,10 +124,11 @@ public struct VoiceState: Sendable, Equatable {
             case .restoringOriginal: kind = .restoring
             }
         } else {
-            // No raw gate (isolated practice): report only actual capture/output.
+            // No raw gate (isolated practice): report only actual capture/output. Nothing can
+            // reach another person, so playback is local, never "对方听到".
             switch pushToTalk {
             case .holding: kind = unconfirmed ? .phoneLocalTrial : .translating
-            case .playing: kind = unconfirmed ? .phoneLocalOnly : .playingTranslation
+            case .playing: kind = unconfirmed ? .phoneLocalOnly : .localPlayback
             case .idle: kind = .notSent
             }
         }
@@ -198,6 +201,12 @@ public struct VoiceState: Sendable, Equatable {
             consequence = String(localized: "译音只在本机播放，Phone 没有读取 TalkTalk Mic")
             short = String(localized: "译音只在本机播放")
             announcement = String(localized: "仅本机播放，Phone 未接收")
+        case .localPlayback:
+            title = titlebarLabel("本机播放"); compact = titlebarLabel("本机"); symbol = icon.localOnly
+            appearance = .dimStroke
+            consequence = String(localized: "译音只在本机播放，没有发给任何人")
+            short = String(localized: "译音只在本机播放")
+            announcement = String(localized: "译音只在本机播放")
         case .phoneReconnecting:
             title = titlebarLabel("正在重新连接 Phone…"); compact = titlebarLabel("本机")
             symbol = "arrow.clockwise"; appearance = .dimStroke

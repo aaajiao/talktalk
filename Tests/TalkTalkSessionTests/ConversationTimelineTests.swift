@@ -126,28 +126,49 @@ import TalkTalkCore
 
     @Test func deliveryLabelsFollowWhatActuallyPlayed() {
         var meeting = TurnDelivery()
-        // Audio from an earlier turn before this one has text is not credited.
-        meeting.observe(voice: .playingTranslation, playing: true, hasTranslation: false)
+        // Audio before this turn has text is not credited.
+        meeting.observe(voice: .playingTranslation, playing: true, hasTranslation: false, live: true)
         #expect(meeting.label(scene: .meeting, hasTranslation: true) == .notSent)
-        meeting.observe(voice: .translating, playing: true, hasTranslation: true)
+        // Another press's playback is reported as not this turn's (playing: false).
+        meeting.observe(voice: .translating, playing: false, hasTranslation: true, live: true)
+        #expect(meeting.label(scene: .meeting, hasTranslation: true) == .notSent)
+        meeting.observe(voice: .translating, playing: true, hasTranslation: true, live: true)
         #expect(meeting.label(scene: .meeting, hasTranslation: true) == .sent)
         #expect(TurnDelivery().label(scene: .meeting, hasTranslation: false) == nil)
         // Risk or unavailable audio never counts as sent.
         var risky = TurnDelivery()
-        risky.observe(voice: .remoteHearsOriginal, playing: true, hasTranslation: true)
+        risky.observe(voice: .remoteHearsOriginal, playing: true, hasTranslation: true, live: true)
         #expect(risky.label(scene: .meeting, hasTranslation: true) == .notSent)
 
         var phone = TurnDelivery()
         #expect(phone.label(scene: .phone, hasTranslation: true) == nil)
-        phone.observe(voice: .playingTranslation, playing: true, hasTranslation: true)
+        phone.observe(voice: .playingTranslation, playing: true, hasTranslation: true, live: true)
         #expect(phone.label(scene: .phone, hasTranslation: true) == .phoneSent)
-        phone.observe(voice: .phoneLocalOnly, playing: true, hasTranslation: true)
+        phone.observe(voice: .phoneLocalOnly, playing: true, hasTranslation: true, live: true)
         #expect(phone.label(scene: .phone, hasTranslation: true) == .phoneLocalOnly)
-        phone.observe(voice: .phoneReconnecting, playing: false, hasTranslation: true)
+        phone.observe(voice: .phoneReconnecting, playing: false, hasTranslation: true, live: true)
         #expect(phone.label(scene: .phone, hasTranslation: true) == .aborted)
         #expect(phone.label(scene: .video, hasTranslation: true) == nil)
         #expect(ConversationTimeline.Delivery.phoneSent.title == "已送入 Phone")
         #expect(ConversationTimeline.Delivery.notSent.symbol == ConversationTextRules.unsentSymbol)
+    }
+
+    @Test func finishedTurnsAreNotRelabelledAndDemoTurnsAreNeverSent() {
+        // Delivered, then the call ends: a reader change after the turn finished is no abort.
+        var delivered = TurnDelivery()
+        delivered.observe(voice: .playingTranslation, playing: true, hasTranslation: true, live: true)
+        delivered.observe(voice: .phoneReconnecting, playing: false, hasTranslation: true, live: false)
+        #expect(delivered.label(scene: .phone, hasTranslation: true) == .phoneSent)
+        var trial = TurnDelivery()
+        trial.observe(voice: .phoneLocalOnly, playing: true, hasTranslation: true, live: true)
+        trial.observe(voice: .phoneReconnecting, playing: false, hasTranslation: true, live: false)
+        #expect(trial.label(scene: .phone, hasTranslation: true) == .phoneLocalOnly)
+        // Isolated demo: playback is local, never 已送出.
+        var demo = TurnDelivery()
+        demo.observe(voice: .translating, playing: true, hasTranslation: true, live: true, isolated: true)
+        demo.observe(voice: .localPlayback, playing: true, hasTranslation: true, live: true)
+        #expect(demo.label(scene: .meeting, hasTranslation: true) == nil)
+        #expect(!demo.sent)
     }
 
     @Test func freezeKeepsOneLatestSnapshotAndCountsNewFinals() {

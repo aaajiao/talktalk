@@ -100,6 +100,9 @@ public struct MicDockPresentation: Sendable, Equatable {
         case .phoneLocalOnly:
             label = String(localized: "译音只在本机播放"); consequence = String(localized: "Phone 没有读取 TalkTalk Mic")
             tone = .warn; wave = .dashed
+        case .localPlayback:
+            label = String(localized: "译音只在本机播放"); consequence = String(localized: "没有发给任何人")
+            wave = .dashed
         case .phoneReconnecting:
             label = String(localized: "当前发言已停止"); consequence = String(localized: "等待 Phone")
         case .remoteHearsOriginal:
@@ -238,5 +241,12 @@ public struct MicWaveSignal: Sendable, Equatable {
     public var amplitude: Double {
         if case let .level(value) = state { return value * Self.maxAmplitude }
         return 0
+    }
+
+    /// Reduce Motion draws a stationary line whose opacity carries the level. A flat curve
+    /// ("nothing is sent") ignores the level there too, exactly as its amplitude does.
+    public static func reducedMotionAlpha(level: Double, wave: MicDockPresentation.Wave) -> Double {
+        let value = wave == .flat ? 0 : min(1, max(0, level))
+        return (0.15 + 0.4 * value) * (wave == .outlined ? 0.6 : 1)
     }
 }

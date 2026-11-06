@@ -234,3 +234,25 @@ public enum VideoCaptionPacing {
         zip(previous, current).prefix(while: { $0 == $1 }).count
     }
 }
+
+/// The draft's dimmed tail (§6 草稿) is measured when the draft text actually changes. A
+/// re-render of the same draft (the 500 ms preview tick, a layout pass) keeps that tail
+/// instead of comparing the draft with itself.
+public struct VideoDraftTail: Sendable, Equatable {
+    private var sentence: UInt64?
+    private var text = ""
+    private var stable = 0
+
+    public init() {}
+
+    /// `previous`: the draft text of the same sentence that was on screen before this render.
+    public mutating func stablePrefix(sentence: UInt64, text: String, previous: String?) -> Int {
+        if self.sentence == sentence, self.text == text { return stable }
+        stable = previous.map { VideoCaptionPacing.stablePrefixLength(previous: $0, current: text) } ?? 0
+        self.sentence = sentence
+        self.text = text
+        return stable
+    }
+
+    public mutating func reset() { self = .init() }
+}

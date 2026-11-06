@@ -11,6 +11,8 @@ public struct VideoHoverBar: Sendable, Equatable {
     public private(set) var pointerInside = false
     public private(set) var held = false
     public private(set) var locked = false
+    /// Captions are off: the window is only its titlebar, which then stays shown (§6).
+    public private(set) var pinned = false
     private var leftAt: Double?
 
     public init() {}
@@ -33,6 +35,16 @@ public struct VideoHoverBar: Sendable, Equatable {
         }
     }
 
+    /// The window was ordered out or minimised: AppKit sends no mouseExited then, so the
+    /// pointer counts as gone at once. Showing the window again re-samples the pointer.
+    public mutating func windowHidden() {
+        pointerInside = false
+        held = false
+        leftAt = nil
+    }
+
+    public mutating func setPinned(_ on: Bool) { pinned = on }
+
     /// Mouse-through: the window gets no pointer events, so the bar goes at once.
     public mutating func setLocked(_ on: Bool) {
         locked = on
@@ -43,14 +55,14 @@ public struct VideoHoverBar: Sendable, Equatable {
 
     public func isShown(at now: Double) -> Bool {
         guard !locked else { return false }
-        if pointerInside || held { return true }
+        if pointerInside || held || pinned { return true }
         guard let leftAt else { return false }
         return now < leftAt + Self.hideDelay
     }
 
     /// When the bar starts fading out unless the pointer comes back; nil when nothing waits.
     public func hideDeadline(at now: Double) -> Double? {
-        guard !locked, !pointerInside, !held, let leftAt, now < leftAt + Self.hideDelay else { return nil }
+        guard !locked, !pointerInside, !held, !pinned, let leftAt, now < leftAt + Self.hideDelay else { return nil }
         return leftAt + Self.hideDelay
     }
 

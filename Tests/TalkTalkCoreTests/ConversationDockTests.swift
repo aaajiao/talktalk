@@ -109,6 +109,14 @@ import Testing
         #expect(!phase.isExpanded)
     }
 
+    @Test func reduceMotionKeepsAFlatCurveConstant() {
+        let quiet = MicWaveSignal.reducedMotionAlpha(level: 0, wave: .flat)
+        #expect(MicWaveSignal.reducedMotionAlpha(level: 1, wave: .flat) == quiet)
+        #expect(abs(MicWaveSignal.reducedMotionAlpha(level: 1, wave: .solid) - 0.55) < 1e-9)
+        #expect(abs(MicWaveSignal.reducedMotionAlpha(level: 1, wave: .outlined) - 0.33) < 1e-9)
+        #expect(MicWaveSignal.reducedMotionAlpha(level: 0.5, wave: .dashed) > quiet)
+    }
+
     @Test func waveSignalFlattensQuietInputAndDisappearsWithoutInput() {
         #expect(MicWaveSignal.normalized(0) == 0)
         #expect(MicWaveSignal.normalized(0.001) == 0)       // −60 dB

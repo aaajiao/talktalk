@@ -732,6 +732,7 @@ final class SpeakController {
         switch event {
         case .transcript(let transcript): hud.transcript(transcript)
         case .outputActivity(let playing): hud.setOutputPlaying(playing)
+        case .outputPresses(let presses): hud.setOutputPresses(presses)
         case .pushToTalk(let p):
             hud.pushToTalk(p)
             if demoActive {

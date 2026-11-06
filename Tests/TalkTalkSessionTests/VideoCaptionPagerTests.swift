@@ -75,5 +75,13 @@ import Testing
         #expect(VideoCaptionPacing.effectiveDuration(4, catchingUp: false) == 4)
         #expect(VideoCaptionPacing.stablePrefixLength(previous: "我们需要决定", current: "我们需要先决定") == 4)
         #expect(VideoCaptionPacing.stablePrefixLength(previous: "", current: "新句") == 0)
+        // The changed tail stays dimmed across re-renders of the same draft.
+        var tail = VideoDraftTail()
+        #expect(tail.stablePrefix(sentence: 1, text: "你好世界", previous: nil) == 0)
+        #expect(tail.stablePrefix(sentence: 1, text: "你好世界今天", previous: "你好世界") == 4)
+        #expect(tail.stablePrefix(sentence: 1, text: "你好世界今天", previous: "你好世界今天") == 4)
+        #expect(tail.stablePrefix(sentence: 2, text: "新句", previous: nil) == 0)
+        tail.reset()
+        #expect(tail.stablePrefix(sentence: 1, text: "你好世界今天", previous: "你好世界今天") == 6)
     }
 }

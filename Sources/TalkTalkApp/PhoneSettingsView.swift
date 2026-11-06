@@ -204,9 +204,7 @@ struct PhoneSettingsView: View {
                     .font(.callout)
             }
             .padding(.vertical, 8)
-        } else if let audio = state.phoneSpeechMode {
-            let voice = VoiceState.resolve(audio: audio, scene: .phone, phoneInputConfirmed: state.phoneInputConfirmed,
-                                           playing: state.phoneSpeechPlaying)
+        } else if let voice = state.phoneVoice {
             HStack(spacing: 10) {
                 VoiceCapsule(state: voice).accessibilityLabel(voice.accessibilityLabel)
                 Text(voice.consequence).font(.callout).foregroundStyle(.secondary)
@@ -215,7 +213,8 @@ struct PhoneSettingsView: View {
                 Button {
                     state.phoneStatusDetailsPresented.toggle()
                 } label: {
-                    Image(systemName: voice.kind == .unavailable ? "exclamationmark.circle" : "info.circle")
+                    Image(systemName: voice.kind == .unavailable || voice.kind == .remoteHearsOriginal
+                          ? "exclamationmark.circle" : "info.circle")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -239,7 +238,7 @@ struct PhoneSettingsView: View {
                         VoiceCapsule(state: voice)
                         Text(voice.detail).font(.callout).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        if voice.kind == .unavailable || voice.kind == .phoneLocalOnly {
+                        if [.unavailable, .phoneLocalOnly, .remoteHearsOriginal].contains(voice.kind) {
                             Button("打开音频设置") {
                                 state.phoneStatusDetailsPresented = false
                                 follow { navigation.selection = .audio }

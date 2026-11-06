@@ -98,7 +98,7 @@ final class MicWaveView: NSView {
         if case let .level(value) = signal.state { level = CGFloat(value) }
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             // Stationary geometry; the same real level shows as opacity.
-            color.withAlphaComponent((0.15 + 0.4 * level) * (style == .outlined ? 0.6 : 1)).setStroke()
+            color.withAlphaComponent(CGFloat(MicWaveSignal.reducedMotionAlpha(level: Double(level), wave: style))).setStroke()
             path.move(to: NSPoint(x: bounds.minX, y: midY))
             path.line(to: NSPoint(x: bounds.maxX, y: midY))
             path.stroke()

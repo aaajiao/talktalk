@@ -14,14 +14,20 @@ import Testing
         #expect(original == again)
     }
 
-    /// The file is §5.3 verbatim.
-    @Test func defaultFileIsTheArchitectureBlock() throws {
-        let doc = try String(contentsOf: TestResources.repoRoot.appendingPathComponent("docs/ARCHITECTURE.md"), encoding: .utf8)
-        guard let start = doc.range(of: "```json\n{\"listen\":"),
-              let end = doc.range(of: "```", range: start.upperBound..<doc.endIndex) else {
-            Issue.record("§5.3 JSON block not found"); return
-        }
-        let block = String(doc[doc.index(start.lowerBound, offsetBy: 8)..<end.lowerBound])
+    /// The §5.3 policy JSON block, while docs/ARCHITECTURE.md carries one. The condensed public
+    /// document does not; Resources/PolicyProfile.default.json is then the only source.
+    static func architectureBlock() -> String? {
+        guard let doc = try? String(contentsOf: TestResources.repoRoot.appendingPathComponent("docs/ARCHITECTURE.md"),
+                                    encoding: .utf8),
+              let start = doc.range(of: "```json\n{\"listen\":"),
+              let end = doc.range(of: "```", range: start.upperBound..<doc.endIndex) else { return nil }
+        return String(doc[doc.index(start.lowerBound, offsetBy: 8)..<end.lowerBound])
+    }
+
+    /// The file is §5.3 verbatim whenever the architecture document carries that block.
+    @Test(.enabled(if: PolicyProfileTests.architectureBlock() != nil, "ARCHITECTURE.md carries no §5.3 JSON block"))
+    func defaultFileIsTheArchitectureBlock() throws {
+        let block = try #require(Self.architectureBlock())
         let fromDoc = try JSONSerialization.jsonObject(with: Data(block.utf8)) as! NSDictionary
         let fromFile = try JSONSerialization.jsonObject(with: Data(contentsOf: TestResources.resource("PolicyProfile.default.json"))) as! NSDictionary
         #expect(fromDoc == fromFile)

@@ -304,8 +304,12 @@ public struct ConversationTimeline: Sendable, Equatable {
 }
 
 /// What one of my turns actually delivered, observed while it is the current turn (§4, §5).
-/// Playback counts only once the turn has translated text, so the tail of an earlier turn's
-/// audio is not credited to a press that has produced nothing yet.
+/// `playing` must mean that this turn's own audio is playing (the pipeline reports playing
+/// presses), so neither the tail of an earlier turn nor a later one is credited to it.
+/// Playback counts only once the turn has translated text. "已中止" is recorded only while the
+/// turn is still live (capture, pending work or its own playback): a Phone reader change after
+/// a finished turn never relabels it. `isolated`: no raw gate exists (onboarding demo), so
+/// playback is local only and nothing can be "已送出".
 public struct TurnDelivery: Sendable, Equatable {
     public private(set) var sent = false
     public private(set) var localOnly = false
@@ -313,18 +317,23 @@ public struct TurnDelivery: Sendable, Equatable {
 
     public init() {}
 
-    public mutating func observe(voice: VoiceState.Kind?, playing: Bool, hasTranslation: Bool) {
-        if voice == .phoneReconnecting { aborted = true }
+    public mutating func observe(voice: VoiceState.Kind?, playing: Bool, hasTranslation: Bool, live: Bool,
+                                 isolated: Bool = false) {
+        if isolated {
+            if playing, hasTranslation { localOnly = true }
+            return
+        }
+        if voice == .phoneReconnecting, live { aborted = true }
         guard playing, hasTranslation, let voice else { return }
         switch voice {
-        case .phoneLocalOnly, .phoneLocalTrial: localOnly = true
+        case .phoneLocalOnly, .phoneLocalTrial, .localPlayback: localOnly = true
         case .translating, .processing, .playingTranslation: sent = true
         default: break
         }
     }
 
-    /// Meeting: 已送出 or 未发送. Phone: 已中止, 仅本机 · Phone 未接收 or 已送入 Phone; nothing
-    /// otherwise (the phone table's "—"). Video has no turns.
+    /// Meeting: 已送出 or 未发送 (nothing for local-only playback). Phone: 已中止, 仅本机 ·
+    /// Phone 未接收 or 已送入 Phone; nothing otherwise (the phone table's "—"). Video has no turns.
     public func label(scene: SubtitleScene, hasTranslation: Bool) -> ConversationTimeline.Delivery? {
         switch scene {
         case .phone:
@@ -333,6 +342,8 @@ public struct TurnDelivery: Sendable, Equatable {
             return sent ? .phoneSent : nil
         case .meeting:
             if sent { return .sent }
+            // Local-only playback (demo): nothing was meant to reach anyone.
+            if localOnly { return nil }
             return hasTranslation ? .notSent : nil
         case .video:
             return nil

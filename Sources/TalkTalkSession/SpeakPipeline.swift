@@ -137,6 +137,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private var reportedBusy = false
     private var playingOutput: [UInt64: JobID] = [:]
     private var reportedOutputPlaying = false
+    private var reportedOutputPresses: Set<UInt64> = []
     public var commitWhileHeld = true
     public var isIdle: Bool {
         workBarriers == 0 && cancellingJobs.isEmpty && presses.isEmpty && asrTasks.isEmpty
@@ -220,6 +221,12 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     }
 
     private func reportOutputActivity() {
+        // Announcements belong to no press; a clause's press is read before it is released.
+        let presses = Set(playingOutput.keys.compactMap { clauses[$0]?.press })
+        if presses != reportedOutputPresses {
+            reportedOutputPresses = presses
+            ui(.outputPresses(presses))
+        }
         let playing = !playingOutput.isEmpty
         guard reportedOutputPlaying != playing else { return }
         reportedOutputPlaying = playing

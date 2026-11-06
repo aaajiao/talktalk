@@ -279,7 +279,7 @@ final class ConversationTimelineView: NSView {
 /// One pair row: speaker track 24 + source 40% + gap 16 + translation 60%, top aligned, with
 /// the pair padding; my rows add the meRow fill and a delivery label. Stacked below 520 pt.
 @MainActor
-final class TimelineRowView: NSView {
+final class TimelineRowView: NSView, HoverClearing {
     private(set) var row = ConversationTimeline.Row(id: .remoteLive(0), speaker: .remote, source: "", sourceIsLive: false,
                                                     translation: "", translationIsFinal: true, fallback: false,
                                                     unsentSource: "", delivery: nil, arrivedAt: 0, settledAt: nil, order: 0)
@@ -586,6 +586,7 @@ final class TimelineRowView: NSView {
 
     override func mouseEntered(with event: NSEvent) { hover.isHidden = false }
     override func mouseExited(with event: NSEvent) { hover.isHidden = true }
+    func clearHover() { hover.isHidden = true }
 }
 
 /// Speaker track bar: 3 pt (4 pt with Increase Contrast), radius 1.5 at a segment's ends.

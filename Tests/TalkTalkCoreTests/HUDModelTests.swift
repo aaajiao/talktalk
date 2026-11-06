@@ -460,7 +460,11 @@ import Testing
         #expect(model.voiceState?.kind == .translating)
         #expect(model.titlebarKey == TitlebarKey(action: "结束", style: .translating))
         model.pushToTalk = .playing(lang: .en, voice: .system, source: .openAI, queued: 3)
-        #expect(model.voiceState?.kind == .playingTranslation)
+        // No raw gate: playback is local only and never claims the other side hears it.
+        let local = try #require(model.voiceState)
+        #expect(local.kind == .localPlayback && local.title == "本机播放" && local.compactTitle == "本机")
+        #expect(!local.consequence.contains("对方") && !local.accessibilityLabel.contains("对方"))
+        #expect(MicDockPresentation.make(local, scene: .meeting).label == "译音只在本机播放")
         model.scene = .video
         model.post(.remoteHearsYourVoice, now: 0)
         let video = try #require(model.voiceState)

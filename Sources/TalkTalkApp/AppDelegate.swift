@@ -126,11 +126,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if case .holding = systemInput?.switcher.status { switched = true }
             return SessionEndConfirmation.make(scene: scene, systemInputSwitched: switched)
         }
-        hud.onPhoneSpeechModeChange = { [weak state] mode, inputConfirmed, playing in
-            state?.phoneSpeechMode = mode
-            state?.phoneInputConfirmed = inputConfirmed
-            state?.phoneSpeechPlaying = playing
-            if mode == nil { state?.phoneStatusDetailsPresented = false }
+        hud.onPhoneVoiceChange = { [weak state] voice in
+            state?.phoneVoice = voice
+            if voice == nil { state?.phoneStatusDetailsPresented = false }
         }
         settings.driver.systemInput = systemInput   // 组件 › 虚拟麦克风 / 完全卸载 (§8.4)
         settings.driver.isChannel1Busy = { output?.isChannel1Busy ?? false }

@@ -168,6 +168,13 @@ import Testing
         #expect(abs(board.lagSeconds(at: 9 * second) - 6) < 1e-9)
         board.advance(); board.advance()
         #expect(board.lag(at: 30 * second) == nil)
+        // Hidden time does not count: 60 s hidden, then 2 s visible is not "62 s behind".
+        board.apply(.final(sentence: 5, text: "第五句。", source: "Fifth.", approx: false, numberWarning: false), at: 40 * second)
+        board.apply(.final(sentence: 6, text: "第六句。", source: "Sixth.", approx: false, numberWarning: false), at: 41 * second)
+        #expect(board.lag(at: 102 * second) == 62)
+        board.excludeHiddenTime(60 * second)
+        #expect(board.lag(at: 102 * second) == nil)
+        #expect(abs(board.lagSeconds(at: 102 * second) - 2) < 1e-9)
         board.clear()
         #expect(board.skippedCount == 0)
     }

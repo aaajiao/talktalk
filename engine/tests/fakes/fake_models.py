@@ -38,7 +38,8 @@ class FakeTTSModel:
         return voice, {"encode_ms": 1.0, "text_ids_ms": 0.1, "speaker_embed_ms": 0.5}
 
     def stream(self, text, voice, language, interval=0.16, compiled=False, temperature=None, top_k=None,
-               top_p=None, repetition_penalty=None, seed=None, max_frames=None, stats=None, prime=True):
+               top_p=None, repetition_penalty=None, seed=None, max_frames=None, stats=None, prime=True,
+               capture_codes=False):
         st = stats if stats is not None else {}
         print(f"fake tts: generating {len(text)} chars")   # library chatter on fd 1
         n = max(3, int(real_tts.expected_seconds(text, language) * FRAME_HZ))
@@ -89,7 +90,8 @@ class FakeASRModel:
 def install():
     fake_tts = types.ModuleType("talktalk_engine.tts")
     fake_tts.TTSModel = FakeTTSModel
-    for name in ("expected_seconds", "echo_features", "LANGUAGES", "SAMPLE_RATE", "FRAME_HZ"):
+    for name in ("expected_seconds", "echo_features", "LANGUAGES", "SAMPLE_RATE", "FRAME_HZ",
+                 "CONTINUATION_MAX_FRAMES", "CONTINUATION_MAX_TEXT"):
         setattr(fake_tts, name, getattr(real_tts, name))
     fake_asr = types.ModuleType("talktalk_engine.asr")
     fake_asr.ASRModel = FakeASRModel

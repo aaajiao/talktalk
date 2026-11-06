@@ -55,6 +55,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private(set) var iconState: IconState = .standby
     /// The in-session header and its one-second clock while the menu is open.
     private weak var sessionHeader: NSMenuItem?
+    /// The capsule's state line; refreshed with the header so a new risk shows while open.
+    private weak var voiceItem: NSMenuItem?
+    private var shownMenuVoice: VoiceState?
     private var headerTimer: Timer?
 
     init(state: AppState, actions: Actions) {
@@ -120,9 +123,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         headerTimer?.invalidate()
-        guard sessionHeader != nil else { return }
+        guard sessionHeader != nil || voiceItem != nil else { return }
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshSessionHeader() }
+            MainActor.assumeIsolated {
+                self?.refreshSessionHeader()
+                self?.refreshVoiceLine()
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         headerTimer = timer
@@ -144,9 +150,21 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
     }
 
+    /// The voice line follows the titlebar while the menu is open (one-second tick).
+    private func refreshVoiceLine() {
+        guard let voiceItem, state.meetingActive else { return }
+        let voice = actions.voiceState()
+        guard voice != shownMenuVoice else { return }
+        shownMenuVoice = voice
+        voiceItem.isHidden = voice == nil
+        if let voice { configureVoiceLine(voiceItem, voice) }
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         sessionHeader = nil
+        voiceItem = nil
+        shownMenuVoice = nil
         let mode = state.meetingMode.displayTitle
         let busy = state.meetingActive || state.meetingStarting || state.meetingStopping
         if state.meetingActive, !state.meetingStopping {
@@ -155,7 +173,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(header)
             sessionHeader = header
             refreshSessionHeader()
-            if let voice = actions.voiceState() { menu.addItem(voiceLine(voice)) }
+            if let voice = actions.voiceState() {
+                let line = voiceLine(voice)
+                menu.addItem(line)
+                voiceItem = line
+                shownMenuVoice = voice
+            }
             if iconState != .listening { menu.addItem(statusLine(statusDescription)) }
         } else if busy {
             menu.addItem(statusLine(state.meetingStarting ? String(localized: "正在准备\(mode)…")
@@ -355,6 +378,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// The capsule's state with a dot of the same colour (§7).
     private func voiceLine(_ voice: VoiceState) -> NSMenuItem {
         let line = statusLine(voice.accessibilityLabel)
+        configureVoiceLine(line, voice)
+        return line
+    }
+
+    private func configureVoiceLine(_ line: NSMenuItem, _ voice: VoiceState) {
+        line.title = voice.accessibilityLabel
         let color = Self.dotColor(voice.appearance.tone)
         line.image = NSImage(size: NSSize(width: 10, height: 10), flipped: false) { rect in
             color.setFill()
@@ -362,7 +391,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             return true
         }
         line.toolTip = voice.detail
-        return line
     }
 
     private static func dotColor(_ tone: VoiceTone) -> NSColor {

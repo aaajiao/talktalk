@@ -484,8 +484,10 @@ struct SpeakPipelineTests {
 
     @Test func outputActivityTracksPlaybackIndependentlyOfCaptureAndQueuedWork() async throws {
         let output = Mutex<[Bool]>([])
+        let presses = Mutex<[Set<UInt64>]>([])
         let (pipeline, mic, host, tts) = try fixture(holdTTS: true, whileHeld: true, onUI: { event in
             if case let .outputActivity(value) = event { output.withLock { $0.append(value) } }
+            if case let .outputPresses(value) = event { presses.withLock { $0.append(value) } }
         })
         let now = HostClock.now()
         await pipeline.handle(.began(at: now))
@@ -499,6 +501,8 @@ struct SpeakPipelineTests {
         let began = ClauseQueue.Event.firstSamplePlayed(clause: first.clause, job: first.job, at: now + 2_000_000_000)
         await pipeline.receive([began, began])
         #expect(output.withLock { $0 } == [true])
+        // The playing press is reported with it, so a later press is never credited.
+        #expect(presses.withLock { $0.count == 1 && $0[0].count == 1 })
         // A fresh capture emits .holding but cannot overwrite the independent output state.
         await pipeline.handle(.released(at: now + 2_100_000_000, reason: .keyUp))
         await pipeline.handle(.began(at: now + 2_200_000_000))
@@ -507,6 +511,7 @@ struct SpeakPipelineTests {
                                              start: now + 2_000_000_000, end: now + 2_300_000_000, incomplete: false))])
         #expect(host.queue.clauseCount > 0)
         #expect(output.withLock { $0 } == [true, false])
+        #expect(presses.withLock { $0.last } == [])
         let secondBegan = ClauseQueue.Event.firstSamplePlayed(clause: second.clause, job: second.job, at: now + 2_400_000_000)
         await pipeline.receive([secondBegan, .cut(clause: second.clause, reason: .passthroughCut, at: now + 2_500_000_000)])
         #expect(output.withLock { $0 } == [true, false, true, false])

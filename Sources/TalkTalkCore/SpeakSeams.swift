@@ -185,6 +185,9 @@ public enum SpeakUIEvent: Sendable, Equatable {
     case pushToTalk(HUDModel.PushToTalk)
     /// Actual first-sample to end/cut playback, independent of simultaneous microphone input.
     case outputActivity(Bool)
+    /// The presses whose translated audio is actually playing, so a turn is credited only
+    /// with its own playback (never with the tail of an earlier press).
+    case outputPresses(Set<UInt64>)
     case post(HUDModel.Warning)
     case clear(HUDModel.Warning)
     case pttAvailable(Bool)

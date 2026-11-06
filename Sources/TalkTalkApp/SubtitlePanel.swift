@@ -33,6 +33,9 @@ final class SubtitlePanel {
     private let videoCaptions = VideoSubtitleView()
     private var videoBoard = VideoSubtitleBoard()
     private var renderedVideoCue: VideoSubtitleBoard.Cue?
+    private var videoDraftTail = VideoDraftTail()
+    /// When the video captions stopped being on screen; that pause is not lag.
+    private var videoHiddenSince: HostTime?
     /// Video-only preferences (redesign §6): caption style and block order.
     private(set) var videoCaptionStyle: VideoCaptionStyle = .default
     private(set) var videoCaptionArrangement: VideoCaptionArrangement = .default
@@ -46,6 +49,14 @@ final class SubtitlePanel {
     private var hoverBar = VideoHoverBar()
     private var hoverTimer: Timer?
     private var chromeShown: Bool?
+    /// The hover bar became visible (PTTHUD shows a deferred popover then).
+    var onTitlebarShown: (() -> Void)?
+    /// The titlebar can be seen: always in meeting/phone, while the hover bar is shown in video.
+    var titlebarIsShown: Bool { presentation != .video || chromeShown == true }
+    /// Typography width while a live resize runs: the reading sizes depend on width, so they
+    /// are frozen during the drag and applied once when it ends.
+    private var liveResizeTypographyWidth: CGFloat?
+    private var liveResizeObservers: [NSObjectProtocol] = []
     private var chromeGeneration = 0
     private let hoverStrip = PassiveEffectView()
     private let statusDot = VideoStatusDotView()
@@ -84,11 +95,12 @@ final class SubtitlePanel {
     private(set) var baseFontSize: CGFloat = 22
     /// Reading sizes come from the shared typography tokens (redesign §2).
     var conversationTypography: ConversationTypography {
-        ConversationTypography(base: Double(baseFontSize), width: Double(contentWidth))
+        ConversationTypography(base: Double(baseFontSize), width: Double(typographyWidth))
     }
     var videoTypography: VideoCaptionTypography {
-        VideoCaptionTypography(base: Double(baseFontSize), width: Double(contentWidth))
+        VideoCaptionTypography(base: Double(baseFontSize), width: Double(typographyWidth))
     }
+    private var typographyWidth: CGFloat { liveResizeTypographyWidth ?? contentWidth }
     var fontSize: CGFloat {
         presentation == .video ? videoTypography.translation.size : conversationTypography.remoteTranslation.size
     }
@@ -235,9 +247,21 @@ final class SubtitlePanel {
                         self.renderVideo(at: HostClock.now(), forceLayout: true)
                         self.resetVideoReading()
                     }
+                    self.windowShownAgain()
                     self.recordPresentation()
                 }
             }
+        panel.onPresentationHidden = { [weak self] in self?.windowHidden() }
+        liveResizeObservers = [
+            NotificationCenter.default.addObserver(forName: NSWindow.willStartLiveResizeNotification, object: panel,
+                                                   queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.liveResizeStarted() }
+            },
+            NotificationCenter.default.addObserver(forName: NSWindow.didEndLiveResizeNotification, object: panel,
+                                                   queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.liveResizeEnded() }
+            },
+        ]
         for name in [NSPopover.didShowNotification, NSPopover.didCloseNotification] {
             let shown = name == NSPopover.didShowNotification
             popoverObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
@@ -268,6 +292,7 @@ final class SubtitlePanel {
         hintTimer?.invalidate()
         hintCheck?.cancel()
         popoverObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        liveResizeObservers.forEach { NotificationCenter.default.removeObserver($0) }
         if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
         if let moveObserver { NotificationCenter.default.removeObserver(moveObserver) }
         if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
@@ -678,7 +703,8 @@ final class SubtitlePanel {
     func clear(includingMyTurns: Bool = false) {
         let hadHint = board.hint != nil
         liveSource = ""; renderedSource = ""; renderedDraft = nil; lastPreviewRenderAt = 0; board.clear()
-        videoBoard.clear(); renderedVideoCue = nil
+        videoBoard.clear(); renderedVideoCue = nil; videoDraftTail.reset()
+        videoHiddenSince = isVisible || presentation != .video ? nil : HostClock.now()
         videoCaptions.setCaption(source: NSAttributedString(string: ""), translation: NSAttributedString(string: ""),
                                  sentence: nil, isFinal: false, at: Double(HostClock.now()) / 1_000_000_000)
         if includingMyTurns { timeline.clear() } else { timeline.clearRemote() }
@@ -808,7 +834,8 @@ final class SubtitlePanel {
             return VideoSubtitleView.translationText(cue.line.display, isFinal: true, stablePrefix: 0, font: videoTranslationFont)
         }
         let previous = renderedVideoCue.flatMap { $0.line.sentence == cue.line.sentence && !$0.isFinal ? $0.line.text : nil }
-        let stable = previous.map { VideoCaptionPacing.stablePrefixLength(previous: $0, current: cue.line.text) } ?? 0
+        // Measured when the draft changes; an unchanged draft keeps its dimmed tail.
+        let stable = videoDraftTail.stablePrefix(sentence: cue.line.sentence, text: cue.line.text, previous: previous)
         return VideoSubtitleView.translationText(cue.line.text, isFinal: false, stablePrefix: stable, font: videoTranslationFont)
     }
 
@@ -890,7 +917,10 @@ final class SubtitlePanel {
         let minimumReading = presentation == .video
             ? VideoSubtitleView.minimumReadingHeight(sourceFont: videoSourceFont, translationFont: videoTranslationFont)
             : CGFloat(ConversationLayout.minimumContentHeight(translationSize: conversationTypography.remoteTranslation.size))
-        let minHeight: CGFloat = hasReadingArea ? min(maxHeight, ceil(minimumReading)) : 0
+        // Video uses a full-size content view, so its frame is the content: without captions
+        // it keeps the hover bar's height, never zero (§6 关闭正文时只保留标题栏).
+        let titlebarOnly: CGFloat = presentation == .video ? ceil(hoverStripHeight) : 0
+        let minHeight: CGFloat = hasReadingArea ? min(maxHeight, ceil(minimumReading)) : titlebarOnly
         panel.contentMinSize = NSSize(width: min(minimumWidth, width), height: minHeight)
         panel.contentMaxSize = NSSize(width: max(280, visible.width - 40), height: maxHeight)
         // Status-only mode collapses to the titlebar without changing saved reading sizes.
@@ -939,6 +969,7 @@ final class SubtitlePanel {
         subtitlesRequested = on
         layout()
         updateWindowVisibility()
+        if presentation == .video { updateVideoChrome(animated: false) }
         if on {
             if presentation == .video {
                 renderVideo(at: HostClock.now(), forceLayout: true)
@@ -954,6 +985,7 @@ final class SubtitlePanel {
             self.timer = timer; RunLoop.main.add(timer, forMode: .common)
         } else {
             timer?.invalidate(); timer = nil
+            pauseVideoLag(at: HostClock.now())
             observe("panel_hidden", at: HostClock.now())
             presentedFinals = []; presentedDraft = nil
         }
@@ -965,13 +997,14 @@ final class SubtitlePanel {
             guard !isMiniaturized, !panel.userHidden else { return }
             if !panel.isVisible {
                 panel.orderFrontRegardless()
+                windowShownAgain()
                 scheduleFullScreenHintCheck()
             }
         } else {
             // Ending the last visible work removes its Dock thumbnail without flashing the
             // window on screen. Reusing this retained panel later starts a fresh presentation.
             if panel.isMiniaturized || panel.minimizationPending { panel.dismissMiniaturizedWindow() }
-            else if panel.isVisible { panel.orderOut(nil) }
+            else if panel.isVisible { panel.orderOut(nil); windowHidden() }
         }
     }
 
@@ -997,7 +1030,28 @@ final class SubtitlePanel {
             resetVideoReading()
             scheduleFullScreenHintCheck()
         }
+        windowShownAgain()
         recordPresentation()
+    }
+
+    /// Ordered out or minimised: AppKit sends no mouseExited, so hover state is dropped here.
+    private func windowHidden() {
+        hoverBar.windowHidden()
+        Self.clearHover(in: panel.contentView?.superview ?? content)
+        if presentation == .video { updateVideoChrome(animated: false) }
+    }
+
+    /// Shown again: the pointer may be anywhere now, and no tracking event says so.
+    private func windowShownAgain() {
+        guard presentation == .video, panel.isVisible else { return }
+        hoverBar.windowHidden()
+        hoverBar.pointer(inside: pointerIsInsideWindow, at: uptime)
+        updateVideoChrome(animated: false)
+    }
+
+    private static func clearHover(in view: NSView) {
+        (view as? HoverClearing)?.clearHover()
+        view.subviews.forEach { clearHover(in: $0) }
     }
 
     var isVisible: Bool { subtitlesRequested && isWindowVisible }
@@ -1009,9 +1063,14 @@ final class SubtitlePanel {
     private func poll() {
         let now = HostClock.now()
         if presentation == .video {
+            guard isWindowVisible else { pauseVideoLag(at: now); return }
+            if let since = videoHiddenSince {
+                // The hidden time was a deliberate pause; queued cues did not wait through it.
+                videoBoard.excludeHiddenTime(now > since ? now - since : 0)
+                videoHiddenSince = nil
+            }
             renderVideo(at: now)
             updateVideoLag(at: now)
-            guard isWindowVisible else { return }
             let seconds = Double(now) / 1_000_000_000
             videoCaptions.catchingUp = !videoBoard.pendingSentenceIDs.isEmpty
             let pageChanged = videoCaptions.advance(at: seconds)
@@ -1030,11 +1089,29 @@ final class SubtitlePanel {
         else { recordPresentation() }
     }
 
+    /// Hidden, minimised or captions off: no lag is measured or shown until they are back.
+    private func pauseVideoLag(at now: HostTime) {
+        guard presentation == .video else { return }
+        if videoHiddenSince == nil { videoHiddenSince = now }
+        if videoLag != nil { videoLag = nil; onVideoLagChange?(nil) }
+    }
+
     private func updateVideoLag(at now: HostTime) {
         let lag = presentation == .video ? videoBoard.lag(at: now) : nil
         guard lag != videoLag else { return }
         videoLag = lag
         onVideoLagChange?(lag)
+    }
+
+    private func liveResizeStarted() {
+        liveResizeTypographyWidth = contentWidth
+    }
+
+    private func liveResizeEnded() {
+        guard liveResizeTypographyWidth != nil else { return }
+        liveResizeTypographyWidth = nil
+        render(forceLayout: true)
+        onAppearanceChange?()
     }
 
     private func userResized() {
@@ -1169,6 +1246,7 @@ final class SubtitlePanel {
             return
         }
         let now = uptime
+        hoverBar.setPinned(!subtitlesRequested)
         if let deadline = hoverBar.hideDeadline(at: now) {
             let timer = Timer(timeInterval: max(0.01, deadline - now), repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateVideoChrome(animated: true) }
@@ -1185,6 +1263,9 @@ final class SubtitlePanel {
     private func setChrome(shown: Bool, animated: Bool) {
         guard chromeShown != shown else { return }
         chromeShown = shown
+        if shown, presentation == .video {
+            DispatchQueue.main.async { [weak self] in self?.onTitlebarShown?() }
+        }
         chromeGeneration += 1
         let generation = chromeGeneration
         let video = presentation == .video
@@ -1400,6 +1481,8 @@ private final class SubtitleWindow: NSPanel {
     private(set) var userMinimized = false
     private(set) var userHidden = false
     private var dismissingMiniwindow = false
+    /// Red close or yellow minimise took the window off screen.
+    var onPresentationHidden: (() -> Void)?
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
@@ -1414,6 +1497,7 @@ private final class SubtitleWindow: NSPanel {
             super.close()
             dismissingMiniwindow = false
         } else { orderOut(nil) }
+        onPresentationHidden?()
         AppActivation.minimizedPanelRestored(self)
     }
 
@@ -1421,6 +1505,7 @@ private final class SubtitleWindow: NSPanel {
         guard !isMiniaturized, !minimizationPending else { return }
         minimizationPending = true
         userMinimized = true
+        onPresentationHidden?()
         let needsDock = NSApp.activationPolicy() != .regular
         AppActivation.panelWillMiniaturize(self)
         // Menu-bar apps need a Dock presence for a native miniwindow. Give the activation
@@ -1463,6 +1548,12 @@ private final class SubtitleWindow: NSPanel {
         AppActivation.minimizedPanelRestored(self)
     }
 }
+/// Views whose hover look must be dropped when the window leaves the screen.
+@MainActor
+protocol HoverClearing: AnyObject {
+    func clearHover()
+}
+
 final class ConversationContentView: NSView {
     /// Video sets this off: only its text blocks and the hover bar drag the window (§6).
     var dragsWindow = true

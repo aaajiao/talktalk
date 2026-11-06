@@ -42,6 +42,13 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
         return seconds > Self.lagThresholdSeconds ? Int(seconds.rounded(.down)) : nil
     }
 
+    /// Hidden or minimised time is a deliberate pause, not lag: queued cues stop ageing while
+    /// the window is not on screen.
+    public mutating func excludeHiddenTime(_ duration: HostTime) {
+        guard duration > 0 else { return }
+        queuedAt = queuedAt.mapValues { $0 &+ duration }
+    }
+
     public var pendingSentenceIDs: [UInt64] { pending.map { $0.line.sentence } }
     public var pendingFinalSentenceIDs: [UInt64] { pending.filter(\.isFinal).map { $0.line.sentence } }
     public var pendingDraftSentenceIDs: [UInt64] { pending.filter { !$0.isFinal }.map { $0.line.sentence } }

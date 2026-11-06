@@ -238,11 +238,10 @@ final class AppState {
     var phoneReadyToDial = false
     var phoneAudioActive = false
     var phoneDialing = false
-    /// Presentation from the real speech gate and scoped microphone guard, never inferred
-    /// from opening Phone or preparing the local engine.
-    var phoneSpeechMode: HUDModel.MeetingAudio?
-    var phoneInputConfirmed = false
-    var phoneSpeechPlaying = false
+    /// The subtitle titlebar's voice state (HUDModel.voiceState), from the real speech gate,
+    /// the Phone reader and the microphone guard's raw-audio risk; never inferred from
+    /// opening Phone or preparing the local engine.
+    var phoneVoice: VoiceState?
     var phoneStatusDetailsPresented = false
     @ObservationIgnored var onOpenPhone: (() -> Void)?
     @ObservationIgnored var onDialPhone: ((String) -> Void)?

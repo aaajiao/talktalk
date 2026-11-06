@@ -309,7 +309,7 @@ final class SubtitleTitleView: NSView {
 /// Base for titlebar controls: clicks act on the first mouse-down in the non-key panel, never
 /// drag the window, show an arrow cursor and report hover.
 @MainActor
-class TitlebarControl: NSView {
+class TitlebarControl: NSView, HoverClearing {
     var onClick: (() -> Void)?
     var isEnabled = true { didSet { alphaValue = isEnabled ? 1 : 0.45 } }
     private(set) var isHovered = false
@@ -338,6 +338,11 @@ class TitlebarControl: NSView {
 
     override func mouseEntered(with event: NSEvent) { isHovered = true; hoverChanged() }
     override func mouseExited(with event: NSEvent) { isHovered = false; hoverChanged() }
+    func clearHover() {
+        guard isHovered else { return }
+        isHovered = false
+        hoverChanged()
+    }
     override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {
