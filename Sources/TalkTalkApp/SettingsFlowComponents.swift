@@ -72,7 +72,8 @@ struct FlowNodeCard<Leading: View>: View {
         VStack(spacing: 5) {
             leading()
             if let symbol {
-                Image(systemName: symbol).font(.title3).foregroundStyle(.secondary).accessibilityHidden(true)
+                Image(systemName: symbol).font(.title3).symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary).accessibilityHidden(true)
             }
             Text(title).font(.callout).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -137,6 +138,9 @@ struct SpeakingLanes: View {
     let navigation: SettingsNavigation
 
     private var phone: Bool { mode == .phone }
+    private var remoteSymbol: String {
+        phone ? SubtitleTokens.ConversationIcon.phoneRemote : SubtitleTokens.SettingsIcon.remote
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -144,12 +148,12 @@ struct SpeakingLanes: View {
             laneHeader(VoiceState.resolve(audio: .original, scene: mode.scene, phoneInputConfirmed: true),
                        title: String(localized: "默认 · 原声"))
             HStack(spacing: 8) {
-                FlowNodeCard(symbol: "mic", title: String(localized: "麦克风"),
+                FlowNodeCard(symbol: SubtitleTokens.SettingsIcon.physicalMic, title: String(localized: "麦克风"),
                              link: FlowLink(String(localized: "麦克风设置")) { follow { navigation.selection = .audio } })
                 FlowArrow()
-                FlowNodeCard(symbol: "waveform", title: "TalkTalk Mic")
+                FlowNodeCard(symbol: SubtitleTokens.SettingsIcon.talkTalkMic, title: "TalkTalk Mic")
                 FlowArrow()
-                FlowNodeCard(symbol: phone ? "phone.fill" : "person.wave.2",
+                FlowNodeCard(symbol: remoteSymbol,
                              title: phone ? String(localized: "通话对方听到原声") : String(localized: "对方听到原声"))
             }
             Label(String(localized: "再点按 右⌥ 结束 · 译音播完后回到原声"), systemImage: "arrow.triangle.2.circlepath")
@@ -164,11 +168,11 @@ struct SpeakingLanes: View {
                 FlowNodeCard(symbol: "character.bubble", title: String(localized: "识别与翻译"),
                              link: FlowLink(String(localized: "翻译设置")) { follow { navigation.openModel(.translation) } })
                 FlowArrow()
-                FlowNodeCard(symbol: "person.wave.2", title: String(localized: "我的声音"),
+                FlowNodeCard(symbol: SubtitleTokens.SettingsIcon.myVoice, title: String(localized: "我的声音"),
                              link: FlowLink(String(localized: "声音与试听")) { follow { navigation.selection = .voice } })
                 FlowArrow()
-                FlowNodeCard(symbol: phone ? "phone.fill" : "speaker.wave.2",
-                             title: String(localized: "对方听英语／德语"))
+                // The same audience as the original lane: the lane headers say what it hears.
+                FlowNodeCard(symbol: remoteSymbol, title: String(localized: "对方听英语／德语"))
             }
         }
         .accessibilityElement(children: .contain)
@@ -186,6 +190,8 @@ struct SpeakingLanes: View {
 /// toolchain has no SwiftUIMacros plugin, so the popover state lives in the coordinator, not in
 /// `@State`.
 struct InfoButton: NSViewRepresentable {
+    /// What the popover explains ("会议同传"): several ⓘ on one page stay distinguishable.
+    let topic: String
     let lines: [String]
 
     @MainActor final class Coordinator: NSObject {
@@ -219,19 +225,21 @@ struct InfoButton: NSViewRepresentable {
                               target: context.coordinator, action: #selector(Coordinator.toggle(_:)))
         button.isBordered = false
         button.contentTintColor = .secondaryLabelColor
-        button.toolTip = String(localized: "说明")
-        button.setAccessibilityLabel(String(localized: "说明"))
+        button.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .body, scale: .medium)
         return button
     }
 
     func updateNSView(_ button: NSButton, context: NSViewRepresentableContext<Self>) {
         context.coordinator.lines = lines
+        let name = String(localized: "\(topic)说明")
+        button.toolTip = name
+        button.setAccessibilityLabel(name)
         button.setAccessibilityHelp(lines.joined(separator: "\n"))
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSButton,
                       context: NSViewRepresentableContext<Self>) -> CGSize? {
-        CGSize(width: 18, height: 18)
+        nsView.intrinsicContentSize
     }
 }
 
@@ -263,7 +271,8 @@ struct ReturnToScenePill: View {
     }
 }
 
-/// The checklist's 24 pt status circle: gray, a progress ring, or a green check (§7 电话页).
+/// The checklist's 24 pt status circle: the system's numbered circle, a progress ring, or a
+/// green check (§7 电话页). Both glyphs share one font size, so their weights match.
 struct ChecklistStatusCircle: View {
     let number: Int
     let status: PhoneChecklist.Status
@@ -272,15 +281,62 @@ struct ChecklistStatusCircle: View {
         ZStack {
             switch status {
             case .pending:
-                Circle().strokeBorder(Color.secondary.opacity(0.5), lineWidth: 1.5)
-                Text(verbatim: "\(number)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Image(systemName: "\(number).circle").font(.system(size: 22)).foregroundStyle(.secondary)
             case .inProgress:
                 ProgressView().controlSize(.small)
             case .done:
-                Image(systemName: "checkmark.circle.fill").resizable().foregroundStyle(.green)
+                Image(systemName: SubtitleTokens.SettingsIcon.statusOK).font(.system(size: 22))
+                    .symbolRenderingMode(.palette).foregroundStyle(.white, .green)
             }
         }
         .frame(width: 24, height: 24)
         .accessibilityHidden(true)
+    }
+}
+
+/// One status vocabulary across Settings (shape first, then colour, then words): passed, needs
+/// action, blocks speech (the other party hears the original voice), failed, a neutral note,
+/// not yet checked, and waiting.
+enum SettingsStatus {
+    case ok, warn, risk, failed, info, pending, waiting
+
+    var symbol: String {
+        typealias I = SubtitleTokens.SettingsIcon
+        return switch self {
+        case .ok: I.statusOK
+        case .warn, .risk: I.statusWarn
+        case .failed: I.statusFailed
+        case .info: I.statusInfo
+        case .pending: I.statusPending
+        case .waiting: I.statusWaiting
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .ok: .green
+        case .warn: .orange
+        case .risk, .failed: .red
+        case .info, .pending, .waiting: .secondary
+        }
+    }
+}
+
+/// A status row: the state's glyph and colour with its (unchanged) text.
+struct SettingsStatusLabel: View {
+    let text: String
+    let status: SettingsStatus
+    init(_ text: String, _ status: SettingsStatus) {
+        self.text = text
+        self.status = status
+    }
+
+    var body: some View {
+        Label {
+            Text(verbatim: text)
+        } icon: {
+            Image(systemName: status.symbol).accessibilityHidden(true)
+        }
+        .foregroundStyle(status.color)
     }
 }

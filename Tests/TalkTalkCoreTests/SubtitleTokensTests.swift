@@ -132,6 +132,14 @@ import Testing
         #expect(W.audioRestarting.symbol == I.reconnecting && W.tccUnconfirmed.symbol == "hand.raised")
     }
 
+    @Test func settingsGlyphsKeepTheRemotePartyAndMyVoiceApart() {
+        typealias S = SubtitleTokens.SettingsIcon
+        #expect(S.remote == "person.wave.2" && S.myVoice == "waveform.and.person.filled")
+        #expect(S.myVoice != S.remote && S.myVoice != SubtitleTokens.ConversationIcon.remote)
+        #expect(S.talkTalkMic != S.physicalMic && S.talkTalkMic != SubtitleTokens.VoiceIcon.original)
+        #expect(S.recognition == SubtitleTokens.VoiceIcon.translating && S.audio != S.recognition)
+    }
+
     @Test func keycapShowsStartAndEndAsGlyphsButKeepsLocalTrialAndReleaseAsText() {
         let start = SpeechStatusPresentation(audio: .original)
         #expect(start.keyAction == "开始翻译" && start.keySymbol == "translate")

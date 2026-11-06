@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import AppKit
 import SwiftUI
 import TalkTalkAudio
@@ -13,15 +14,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .general: "通用"
-        case .meeting: "使用场景"
-        case .subtitles: "字幕"
-        case .audio: "音频"
-        case .voice: "我的声音"
-        case .translation: "模型"
-        case .components: "组件"
-        case .glossary: "术语表"
-        case .privacy: "隐私与诊断"
+        case .general: String(localized: "通用")
+        case .meeting: String(localized: "使用场景")
+        case .subtitles: String(localized: "字幕")
+        case .audio: String(localized: "音频")
+        case .voice: String(localized: "我的声音")
+        case .translation: String(localized: "模型")
+        case .components: String(localized: "组件")
+        case .glossary: String(localized: "术语表")
+        case .privacy: String(localized: "隐私与诊断")
         }
     }
 
@@ -30,11 +31,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .meeting: "person.2.wave.2"
         case .subtitles: "captions.bubble"
-        case .audio: "waveform"
-        case .voice: "person.wave.2"
+        case .audio: SubtitleTokens.SettingsIcon.audio
+        case .voice: SubtitleTokens.SettingsIcon.myVoice
         case .translation: "character.bubble"
         case .components: "shippingbox"
-        case .glossary: "list.bullet.rectangle"
+        case .glossary: SubtitleTokens.SettingsIcon.glossary
         case .privacy: "hand.raised"
         }
     }
@@ -181,13 +182,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: 640),
                               styleMask: [.titled, .closable, .resizable],
                               backing: .buffered, defer: false)
-        window.title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "TalkTalk"
-        window.title += " 设置"
         window.identifier = NSUserInterfaceItemIdentifier("TalkTalkSettings")
         window.level = .normal
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.standardWindowButton(.zoomButton)?.isEnabled = false
-        navigation.onSelectionChange = { [weak window] section in window?.title = "\(section.title) — TalkTalk" }
+        // As macOS settings windows: the title names the pane.
+        navigation.onSelectionChange = { [weak window] section in window?.title = section.title }
         navigation.onSelectionChange?(navigation.selection ?? .general)
         let host = NSHostingView(rootView: view)
         // The window size is ours (contentMinSize below), not SwiftUI's: with the default options,
@@ -223,16 +223,10 @@ struct SettingsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            // Label rows: the system sizes the glyph to the Sidebar icon size setting and tints it
+            // in the selected row.
             List(SettingsSection.allCases, selection: $navigation.selection) { section in
-                HStack(spacing: 10) {
-                    Image(systemName: section.symbol)
-                        .resizable().scaledToFit()
-                        .frame(width: 18, height: 18)
-                        .frame(width: 24, height: 24)
-                        .accessibilityHidden(true)
-                    Text(section.title)
-                }
-                .tag(section)
+                Label(section.title, systemImage: section.symbol).tag(section)
             }
             .listStyle(.sidebar)
             .frame(width: 190)
@@ -299,7 +293,7 @@ final class TranslationPage {
     func load() {
         guard model == nil, problem == nil else { return }
         do { model = try TranslationSettingsModel.forCurrentApp() } catch {
-            problem = "这个构建没有 bundle id（直接运行的二进制），翻译设置只在 TalkTalk.app / TalkTalk-Dev.app 里可用。"
+            problem = String(localized: "这个构建没有 bundle id（直接运行的二进制），翻译设置只在 TalkTalk.app / TalkTalk-Dev.app 里可用。")
         }
     }
 }
@@ -312,7 +306,7 @@ struct TranslationPageView: View {
             if let model = page.model {
                 TranslationSettingsView(model: model)
             } else if let problem = page.problem {
-                PlaceholderSettingsView(title: "翻译", lines: [problem])
+                PlaceholderSettingsView(title: String(localized: "翻译"), lines: [problem])
             } else {
                 ProgressView()
             }

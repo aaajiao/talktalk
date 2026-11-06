@@ -384,29 +384,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func configureVoiceLine(_ line: NSMenuItem, _ voice: VoiceState) {
         line.title = voice.accessibilityLabel
-        let color = Self.dotColor(voice.appearance.tone)
+        let color = SubtitleStyle.toneColor(voice.appearance.tone)
         line.image = NSImage(size: NSSize(width: 10, height: 10), flipped: false) { rect in
             color.setFill()
             NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
             return true
         }
         line.toolTip = voice.detail
-    }
-
-    private static func dotColor(_ tone: VoiceTone) -> NSColor {
-        func token(_ role: SubtitleTokens.Color) -> NSColor {
-            NSColor(name: nil) { appearance in
-                let light = appearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
-                return SubtitleStyle.nsColor(role.rgba(lightSurface: light))
-            }
-        }
-        return switch tone {
-        case .original: token(.voiceOriginal)
-        case .translate: token(.voiceTranslate)
-        case .warn: token(.warn)
-        case .risk: token(.riskFill)
-        case .neutral: .tertiaryLabelColor
-        }
     }
 
     private func languageName(_ language: AppState.RemoteLanguage) -> String {

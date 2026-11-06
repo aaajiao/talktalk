@@ -39,7 +39,7 @@ struct PhoneSettingsView: View {
             HStack {
                 Label("电话同传", systemImage: SubtitleTokens.SceneIcon.phone).font(.headline)
                 Spacer()
-                InfoButton(lines: [
+                InfoButton(topic: String(localized: "电话同传"), lines: [
                     String(localized: "TalkTalk 专门收听 Phone；拨号、接听、静音和挂断都在 Phone 中完成。"),
                     String(localized: "准备好后即可收音，点按右⌥就能翻译自己的发言，不必等电话接通。")
                 ])
@@ -69,8 +69,8 @@ struct PhoneSettingsView: View {
 
         Section {
             if let problem = state.phoneProblem {
-                Label(problem, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout).foregroundStyle(.orange)
+                SettingsStatusLabel(problem, .warn)
+                    .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if anotherSceneIsRunning {
@@ -157,7 +157,7 @@ struct PhoneSettingsView: View {
             Button {
                 state.onToggleListening?(.phone)
             } label: {
-                Label("准备电话同传", systemImage: SubtitleTokens.SceneIcon.phone)
+                Label("准备电话同传", systemImage: MenuQuickStart.symbol)
             }
             .buttonStyle(.borderedProminent)
             .disabled(sessionBusy || state.onToggleListening == nil || !state.meetingAvailable)
@@ -193,6 +193,18 @@ struct PhoneSettingsView: View {
         }
     }
 
+    /// The details button shows severity by shape and colour: a red or orange triangle while the
+    /// other party hears the original voice or the Phone does not receive; otherwise ⓘ.
+    @ViewBuilder private func statusGlyph(_ tone: VoiceTone) -> some View {
+        switch tone {
+        case .risk, .warn:
+            Image(systemName: SubtitleTokens.SettingsIcon.statusWarn)
+                .foregroundStyle(Color(nsColor: SubtitleStyle.toneColor(tone)))
+        case .original, .translate, .neutral:
+            Image(systemName: SubtitleTokens.SettingsIcon.statusInfo).foregroundStyle(.secondary)
+        }
+    }
+
     /// The live voice capsule, the same component and vocabulary as the subtitle window (§5).
     @ViewBuilder private var phoneSpeechStatus: some View {
         if state.meetingStarting || state.meetingStopping {
@@ -213,12 +225,11 @@ struct PhoneSettingsView: View {
                 Button {
                     state.phoneStatusDetailsPresented.toggle()
                 } label: {
-                    Image(systemName: voice.kind == .unavailable || voice.kind == .remoteHearsOriginal
-                          ? "exclamationmark.circle" : "info.circle")
+                    statusGlyph(voice.appearance.tone)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
                 .accessibilityLabel(String(localized: "状态与提示"))
+                .accessibilityValue(voice.accessibilityLabel)
                 .help(String(localized: "状态与提示"))
                 .popover(isPresented: $state.phoneStatusDetailsPresented, arrowEdge: .bottom) {
                     VStack(alignment: .leading, spacing: 14) {

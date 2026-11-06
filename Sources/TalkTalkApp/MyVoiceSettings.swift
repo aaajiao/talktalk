@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 import Observation
 import SwiftUI
@@ -118,7 +119,7 @@ final class MyVoiceModel {
             } catch let e as AuditionMonitorError {
                 auditionProblem = e.description
             } catch {
-                auditionProblem = "试听没有生成：\(error)"
+                auditionProblem = String(localized: "试听没有生成：\(String(describing: error))")
             }
             auditioning = nil
             reload()
@@ -132,10 +133,10 @@ final class MyVoiceModel {
     }
     /// Why 试听 is grayed out (nil while it can play or is playing).
     var auditionBlockedNote: String? {
-        if externalBusy() { return "自检正在运行，完成后可录制或试听。" }
-        if !engineAvailable { return "引擎装好并就绪后可试听（经自听输出播到耳机，绝不进 TalkTalk Mic）。" }
-        if installerRunning { return "引擎组件正在安装或修复，完成后再试听。" }
-        if !monitorAvailable { return monitorUnavailableReason ?? "自听输出暂不可用" }
+        if externalBusy() { return String(localized: "自检正在运行，完成后可录制或试听。") }
+        if !engineAvailable { return String(localized: "引擎装好并就绪后可试听（经自听输出播到耳机，绝不进 TalkTalk Mic）。") }
+        if installerRunning { return String(localized: "引擎组件正在安装或修复，完成后再试听。") }
+        if !monitorAvailable { return monitorUnavailableReason ?? String(localized: "自听输出暂不可用") }
         return nil
     }
 
@@ -177,7 +178,7 @@ final class MyVoiceModel {
             break   // already handed to the old queue; reconciled again once it is saved or failed
         default:
             if e.phase.capturing { break }   // let the take finish; dropped as soon as it stops
-            restartRecording(note: "引擎刚刚换过，这一遍没有保存，请再录一遍。")
+            restartRecording(note: String(localized: "引擎刚刚换过，这一遍没有保存，请再录一遍。"))
         }
     }
 
@@ -217,7 +218,7 @@ struct MyVoiceSettingsView: View {
         if let controller = model.enrollment {
             VStack(alignment: .leading, spacing: 8) {
                 if let note = model.recordingNote {
-                    Label(note, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    SettingsStatusLabel(note, .warn)
                 }
                 if model.saveBlocked {
                     HStack {
@@ -245,28 +246,22 @@ struct MyVoiceSettingsView: View {
 
     private var overview: some View {
         Form {
+            // The window title names the pane; the page starts with what it does.
             Section {
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: "person.wave.2.fill")
-                        .font(.system(size: 34)).foregroundStyle(.secondary).accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("我的声音").font(.title2.bold())
-                        Text("用你的声音朗读英语或德语译文。")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                SpeechFlow(steps: [("mic", "录一段中文"), ("person.crop.circle.badge.checkmark", "保存声音档案"), ("headphones", "听英语／德语")])
+                Text("用你的声音朗读英语或德语译文。").foregroundStyle(.secondary)
+                SpeechFlow(steps: [(SubtitleTokens.SettingsIcon.physicalMic, String(localized: "录一段中文")),
+                                   (SubtitleTokens.SettingsIcon.myVoice, String(localized: "保存声音档案")),
+                                   (SubtitleTokens.SettingsIcon.headphones, String(localized: "听英语／德语"))])
             }
             Section {
                 if let note = model.recordingNote {
-                    Label(note, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    SettingsStatusLabel(note, .warn)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let p = model.profile {
                     profileSummary(p)
                 } else if model.profileUnreadable {
-                    Label("声音档案无法读取，请重新录制。", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+                    SettingsStatusLabel(String(localized: "声音档案无法读取，请重新录制。"), .warn)
                 } else {
                     Label("尚未创建声音档案", systemImage: "person.crop.circle.badge.plus")
                     SettingsNote("读一遍固定的中文稿子即可创建。没有声音档案时，译音使用系统声音。")
@@ -281,20 +276,21 @@ struct MyVoiceSettingsView: View {
                             .disabled(!model.canAudition)
                         if model.auditioning != nil { ProgressView().controlSize(.small) }
                     }
-                    Text(model.auditionBlockedNote ?? "试听在耳机或当前播放设备中响起，不发送到会议。")
+                    Text(model.auditionBlockedNote ?? String(localized: "试听在耳机或当前播放设备中响起，不发送到会议。"))
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     if let problem = model.auditionProblem {
-                        Label(problem, systemImage: "exclamationmark.triangle")
-                            .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                        SettingsStatusLabel(problem, .warn)
+                            .font(.callout).fixedSize(horizontal: false, vertical: true)
                     }
-                } header: { Label("听听效果", systemImage: "headphones") }
+                } header: { Text("听听效果") }
             }
             Section {
                 HStack {
                     Button { model.beginRecording() } label: {
-                        Label(model.hasProfile ? "重新录制" : "开始录制", systemImage: "mic.badge.plus")
+                        Label(model.hasProfile ? String(localized: "重新录制") : String(localized: "开始录制"),
+                              systemImage: "mic.badge.plus")
                     }
-                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
                     .disabled(model.deleting || model.installerRunning || !model.canRecord)
                     Spacer()
                     if model.hasProfile {
@@ -323,13 +319,19 @@ struct MyVoiceSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("声音档案已保存", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.headline)
             LabeledContent("录制时间", value: Self.dateText(p.createdAt))
-            LabeledContent("试听检查", value: Self.auditionText(p))
+            LabeledContent("试听检查") { SettingsStatusLabel(Self.auditionText(p), Self.auditionStatus(p)) }
             DisclosureGroup("档案详情") {
                 VStack(spacing: 8) {
-                    LabeledContent("参考音", value: String(format: "%.1f 秒", p.durationSeconds))
-                    LabeledContent("语速", value: String(format: "%.1f 字/秒", p.speakingRateCharsPerSecond))
-                    LabeledContent("自动检查", value: Self.checksText(p))
-                    LabeledContent("声音缓存", value: p.conditioning == "built" ? "已建立" : "引擎预热时建立")
+                    LabeledContent("参考音", value: String(localized: "\(Self.decimal(p.durationSeconds, 1)) 秒"))
+                    LabeledContent("语速", value: String(localized: "\(Self.decimal(p.speakingRateCharsPerSecond, 1)) 字/秒"))
+                    LabeledContent("自动检查") {
+                        SettingsStatusLabel(Self.checksText(p), Self.warningCount(p) == 0 ? .ok : .warn)
+                    }
+                    LabeledContent("声音缓存") {
+                        p.conditioning == "built"
+                            ? SettingsStatusLabel(String(localized: "已建立"), .ok)
+                            : SettingsStatusLabel(String(localized: "引擎预热时建立"), .waiting)
+                    }
                 }
                 .font(.callout).padding(.top, 6)
             }
@@ -346,17 +348,29 @@ struct MyVoiceSettingsView: View {
         switch p.audition {
         case "passed":
             let sim = p.auditionResult?.clips.compactMap(\.similarity).min()
-            return sim.map { String(format: "通过（音色相似度 %.2f）", $0) } ?? "通过"
-        case "failed": return "没通过：请重录"
-        default: return "待引擎（引擎就绪后生成）"
+            return sim.map { String(localized: "通过（音色相似度 \(Self.decimal($0, 2))）") } ?? String(localized: "通过")
+        case "failed": return String(localized: "没通过：请重录")
+        default: return String(localized: "待引擎（引擎就绪后生成）")
         }
     }
 
+    /// A fixed-precision number, as the previous "%.Nf" text.
+    static func decimal(_ value: Double, _ digits: Int) -> String { String(format: "%.\(digits)f", value) }
+
+    static func auditionStatus(_ p: VoiceProfile) -> SettingsStatus {
+        switch p.audition {
+        case "passed": .ok
+        case "failed": .failed
+        default: .waiting
+        }
+    }
+
+    static func warningCount(_ p: VoiceProfile) -> Int { p.checks.status.values.filter { $0 == .warn }.count }
+
     static func checksText(_ p: VoiceProfile) -> String {
-        let s = p.checks.status
-        let warns = s.values.filter { $0 == .warn }.count
-        var parts: [String] = [warns == 0 ? "通过" : "通过（\(warns) 项警告）"]
-        if s["transcript"] == .pending { parts.append("转写比对待核对") }
-        return parts.joined(separator: "，")
+        let warns = warningCount(p)
+        var parts: [String] = [warns == 0 ? String(localized: "通过") : String(localized: "通过（\(warns) 项警告）")]
+        if p.checks.status["transcript"] == .pending { parts.append(String(localized: "转写比对待核对")) }
+        return parts.joined(separator: String(localized: "，"))
     }
 }

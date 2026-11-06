@@ -242,6 +242,8 @@ final class AppState {
     /// the Phone reader and the microphone guard's raw-audio risk; never inferred from
     /// opening Phone or preparing the local engine.
     var phoneVoice: VoiceState?
+    /// The same titlebar voice state for a meeting session (the scenario page's running dot).
+    var meetingVoice: VoiceState?
     var phoneStatusDetailsPresented = false
     @ObservationIgnored var onOpenPhone: (() -> Void)?
     @ObservationIgnored var onDialPhone: ((String) -> Void)?

@@ -1,5 +1,6 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import SwiftUI
+import TalkTalkCore
 import TalkTalkDriverSupport
 
 enum ComponentsSettingsTab: CaseIterable, Identifiable {
@@ -13,7 +14,7 @@ enum ComponentsSettingsTab: CaseIterable, Identifiable {
         }
     }
 
-    var symbol: String { self == .engine ? "cpu" : "mic" }
+    var symbol: String { self == .engine ? "cpu" : SubtitleTokens.SettingsIcon.talkTalkMic }
 
     var summary: String {
         switch self {
@@ -32,17 +33,10 @@ struct ComponentsSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                ForEach(ComponentsSettingsTab.allCases) { tab in
-                    SettingsTabButton(title: tab.title, symbol: tab.symbol, summary: tab.summary,
-                                      selected: navigation.componentsTab == tab) {
-                        navigation.componentsTab = tab
-                    }
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(String(localized: "组件分类"))
-            .padding([.horizontal, .top], 20)
+            SettingsSubpagePicker(label: String(localized: "组件分类"), selection: $navigation.componentsTab,
+                                  pages: ComponentsSettingsTab.allCases, title: \.title, symbol: \.symbol,
+                                  summary: \.summary)
+                .padding([.horizontal, .top], 20)
 
             Form {
                 switch navigation.componentsTab {

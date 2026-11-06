@@ -126,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if case .holding = systemInput?.switcher.status { switched = true }
             return SessionEndConfirmation.make(scene: scene, systemInputSwitched: switched)
         }
+        hud.onMeetingVoiceChange = { [weak state] voice in state?.meetingVoice = voice }
         hud.onPhoneVoiceChange = { [weak state] voice in
             state?.phoneVoice = voice
             if voice == nil { state?.phoneStatusDetailsPresented = false }

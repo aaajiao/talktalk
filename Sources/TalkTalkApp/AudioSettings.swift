@@ -24,13 +24,16 @@ enum MeetingMicCheck: Equatable {
         }
     }
 
-    var color: Color {
+    /// The other party hearing the raw microphone blocks speech: the red risk triangle.
+    var status: SettingsStatus {
         switch self {
-        case .notChecked, .nobodyReads: .secondary
-        case .green: .green
-        case .physicalMic: .red
+        case .notChecked, .nobodyReads: .pending
+        case .green: .ok
+        case .physicalMic: .risk
         }
     }
+
+    var color: Color { status.color }
 }
 
 /// "这是耳机吗？" (§11): asked once per unconfirmed Bluetooth or USB output, remembered by UID,
@@ -192,9 +195,9 @@ struct AudioSettingsView: View {
     private func soundPaths(_ proxy: ScrollViewProxy) -> some View {
         Section {
             SpeechFlow(steps: [
-                ("mic", String(localized: "实体麦克风")),
+                (SubtitleTokens.SettingsIcon.physicalMic, String(localized: "实体麦克风")),
                 ("character.bubble", String(localized: "原声／按键翻译")),
-                ("waveform", "TalkTalk Mic"),
+                (SubtitleTokens.SettingsIcon.talkTalkMic, "TalkTalk Mic"),
                 ("person.2.wave.2", String(localized: "会议应用"))
             ], links: [
                 0: .init(String(localized: "选择采音设备")) { proxy.scrollTo("audio.microphone", anchor: .top) },
@@ -277,7 +280,7 @@ struct AudioSettingsView: View {
                 LabeledContent("校准增益") { Text("\(String(format: "%+.1f", g)) dB").monospacedDigit() }
             } else {
                 LabeledContent("校准状态") {
-                    Label("尚未校准 · 0 dB", systemImage: "exclamationmark.circle").foregroundStyle(.secondary)
+                    SettingsStatusLabel(String(localized: "尚未校准 · 0 dB"), .info)
                 }
             }
             HStack(spacing: 12) {
@@ -326,12 +329,18 @@ struct AudioSettingsView: View {
                 LabeledContent {
                     HStack(spacing: 12) {
                         Picker("设备类型", selection: Binding(get: { h.isHeadphone }, set: { model.setHeadphone(h.uid, name: h.name, $0) })) {
-                            Text("耳机").tag(true)
-                            Text("扬声器").tag(false)
+                            Label("耳机", systemImage: SubtitleTokens.SettingsIcon.headphones).tag(true)
+                            Label("扬声器", systemImage: SubtitleTokens.SettingsIcon.speaker).tag(false)
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
-                        Button("忘记") { model.forgetHeadphone(h.uid) }
+                        // Reversible (asked again on the next connection): a list removal, not destructive.
+                        Button { model.forgetHeadphone(h.uid) } label: {
+                            Image(systemName: SubtitleTokens.SettingsIcon.remove)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("忘记此设备")
+                        .accessibilityLabel(String(localized: "忘记 \(h.name)"))
                     }
                 } label: {
                     Text(verbatim: h.name)
@@ -349,20 +358,12 @@ struct AudioSettingsView: View {
 
     private var meetingCheck: some View {
         Section {
-            Label(model.meetingMic.text, systemImage: meetingCheckSymbol).font(.callout).foregroundStyle(model.meetingMic.color)
+            SettingsStatusLabel(model.meetingMic.text, model.meetingMic.status).font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
         } header: {
             Text("会议与电话应用检查")
         } footer: {
             Text("会议应用请选择 TalkTalk Mic；Phone 可在“音频 › 麦克风”选择“使用系统设置”，跟随 TalkTalk 的默认输入切换。")
-        }
-    }
-
-    private var meetingCheckSymbol: String {
-        switch model.meetingMic {
-        case .green: "checkmark.circle.fill"
-        case .physicalMic: "exclamationmark.triangle.fill"
-        case .notChecked, .nobodyReads: "circle.dashed"
         }
     }
 }

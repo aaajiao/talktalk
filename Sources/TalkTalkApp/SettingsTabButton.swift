@@ -22,6 +22,7 @@ struct SettingsTabButton: View {
             VStack(spacing: 7) {
                 Image(systemName: symbol)
                     .font(.system(size: 22)).frame(height: 26)
+                    .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(selected ? Color.accentColor : Color.secondary)
                     .accessibilityHidden(true)
                 Text(title).font(.callout.weight(.semibold))
@@ -53,6 +54,7 @@ struct SettingsTabButton: View {
                     .accessibilityHidden(true).allowsHitTesting(false)
             }
         }
+        .help(running ? (runningSubtitle ?? summary) : summary)
         .accessibilityLabel(title)
         .accessibilityValue(accessibilityValue)
         .accessibilityHint(summary)

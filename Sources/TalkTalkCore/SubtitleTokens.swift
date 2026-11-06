@@ -238,6 +238,36 @@ public enum SubtitleTokens {
         public static let fix = "wrench.and.screwdriver"
     }
 
+    /// Settings window glyphs: one shape per meaning across the sidebar, flow diagrams and
+    /// status rows. `remote` (the other party) is never the user's own synthesized voice.
+    public enum SettingsIcon {
+        /// The other party in flow diagrams (the timeline's remote marker is its .fill form).
+        public static let remote = "person.wave.2"
+        /// The user's own (synthesized) voice: the 我的声音 page, its flow nodes and sidebar row.
+        public static let myVoice = "waveform.and.person.filled"
+        /// The TalkTalk Mic virtual device; `mic` stays the physical microphone.
+        public static let talkTalkMic = "mic.circle"
+        public static let physicalMic = "mic"
+        /// Sidebar 音频.
+        public static let audio = "mic.and.signal.meter"
+        /// Speech recognition (as Apple's Speech Recognition privacy glyph).
+        public static let recognition = "waveform"
+        public static let glossary = "character.book.closed"
+        public static let refresh = "arrow.clockwise"
+        public static let reset = "arrow.counterclockwise"
+        public static let add = "plus"
+        public static let remove = "minus.circle"
+        public static let headphones = "headphones"
+        public static let speaker = "hifispeaker"
+        /// Status rows: needs action / blocks speech / failed / passed / note / not yet checked / waiting.
+        public static let statusWarn = "exclamationmark.triangle.fill"
+        public static let statusFailed = "xmark.circle.fill"
+        public static let statusOK = "checkmark.circle.fill"
+        public static let statusInfo = "info.circle"
+        public static let statusPending = "circle.dashed"
+        public static let statusWaiting = "clock"
+    }
+
     /// Leading images of the details popover's command buttons.
     public enum ActionIcon {
         /// Buttons that open the Settings window, as the menu's "设置…".

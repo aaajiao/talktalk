@@ -23,6 +23,8 @@ final class PTTHUD {
     var endConfirmation: ((SubtitleScene) -> SessionEndConfirmation?)?
     /// The phone settings page shows the titlebar's own voice state, risk included (§7).
     var onPhoneVoiceChange: ((VoiceState?) -> Void)?
+    /// The scenario page's running line dots the meeting's voice state, as the menu does.
+    var onMeetingVoiceChange: ((VoiceState?) -> Void)?
     private let detailsPopover = NSPopover()
     private let endPopover = NSPopover()
     private var popoverActions: [HUDButtonAction] = []
@@ -36,6 +38,7 @@ final class PTTHUD {
     /// The first issue chip as last considered for VoiceOver.
     private var announcedChip: HUDChip?
     private var publishedPhoneVoice: VoiceState?
+    private var publishedMeetingVoice: VoiceState?
     private var publishedPhoneInput = false
     private var subtitlesVisible = true
     private var listenHint: HUDModel.Warning?
@@ -380,6 +383,11 @@ final class PTTHUD {
         if phoneVoice != publishedPhoneVoice {
             publishedPhoneVoice = phoneVoice
             onPhoneVoiceChange?(phoneVoice)
+        }
+        let meetingVoice = panel.presentation == .meeting && model.meetingActive ? voice : nil
+        if meetingVoice != publishedMeetingVoice {
+            publishedMeetingVoice = meetingVoice
+            onMeetingVoiceChange?(meetingVoice)
         }
         let showSpeech = subtitlesVisible && model.meetingActive && panel.presentation != .video
         let expanded = updateTurn(voice: voice, now: now)

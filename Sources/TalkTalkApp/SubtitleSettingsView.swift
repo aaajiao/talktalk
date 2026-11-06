@@ -91,8 +91,10 @@ struct SubtitleSettingsView: View {
                         Label("显示字幕（所有场景）", systemImage: "captions.bubble")
                     }
                     Toggle(isOn: $state.announceNewTranslations) {
-                        Label("朗读新译文（VoiceOver）", systemImage: "text.bubble")
+                        Label("朗读新译文（VoiceOver）", systemImage: "voiceover")
                     }
+                    .help("用 VoiceOver 朗读每条定稿译文，不读草稿")
+                    .accessibilityHint(String(localized: "用 VoiceOver 朗读每条定稿译文，不读草稿"))
                 } footer: {
                     // The preview sits in a footer: no grouped card around the window picture
                     // (macOS grouped forms ignore listRowBackground).
@@ -104,12 +106,29 @@ struct SubtitleSettingsView: View {
 
                 Section {
                     LabeledContent("基础字号") {
+                        let defaultSize = SubtitleOpacityControl.defaultFontSize(for: scene)
                         HStack {
-                            Slider(value: fontSize, in: 16...36, step: 1).frame(minWidth: 150)
+                            Slider(value: fontSize, in: 16...36, step: 1) {
+                                Text("基础字号")
+                            } minimumValueLabel: {
+                                Image(systemName: "textformat.size.smaller").accessibilityHidden(true)
+                            } maximumValueLabel: {
+                                Image(systemName: "textformat.size.larger").accessibilityHidden(true)
+                            }
+                            .labelsHidden()
+                            .frame(minWidth: 150)
+                            .accessibilityLabel(String(localized: "基础字号"))
+                            .accessibilityValue(String(localized: "\(Int(fontSize.wrappedValue)) 磅"))
                             Text("\(Int(fontSize.wrappedValue)) 磅").monospacedDigit().frame(width: 54, alignment: .trailing)
+                            Button { fontSize.wrappedValue = defaultSize } label: {
+                                Image(systemName: SubtitleTokens.SettingsIcon.reset)
+                            }
+                            .buttonStyle(.borderless)
+                            .help("恢复默认字号")
+                            .accessibilityLabel(String(localized: "恢复默认字号"))
+                            .disabled(fontSize.wrappedValue == defaultSize)
                         }
                     }
-                    Button("恢复默认字号") { fontSize.wrappedValue = SubtitleOpacityControl.defaultFontSize(for: scene) }
                 } header: {
                     Text("字幕大小")
                 } footer: {
@@ -124,8 +143,14 @@ struct SubtitleSettingsView: View {
 
                 Section("移动与隐私") {
                     Label("拖动标题栏或文字区域移动；视频可在菜单中锁定位置。", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
-                    Label("窗口左上角的最小化按钮收起字幕，同传继续；从菜单栏选择“恢复字幕窗口”。", systemImage: "minus.circle")
-                    Label("不抢键盘焦点，不出现在屏幕共享中。", systemImage: "rectangle.slash").foregroundStyle(.secondary)
+                    Label {
+                        Text("窗口左上角的最小化按钮收起字幕，同传继续；从菜单栏选择“恢复字幕窗口”。")
+                    } icon: {
+                        // The yellow traffic light it refers to; the text names it by position.
+                        Image(systemName: "minus.circle.fill").foregroundStyle(.yellow)
+                    }
+                    Label("不抢键盘焦点", systemImage: "keyboard").foregroundStyle(.secondary)
+                    Label("不出现在屏幕共享中", systemImage: "rectangle.on.rectangle.slash").foregroundStyle(.secondary)
                     Text("标题栏右侧显示发声状态、右⌥ 和结束操作；点状态查看说明。")
                         .font(.callout).foregroundStyle(.secondary)
                     if phone {
@@ -172,10 +197,20 @@ struct SubtitleSettingsView: View {
     private var backgroundSettings: some View {
         Section {
             LabeledContent("背景不透明度") {
+                let percent = Int((opacity.wrappedValue * 100).rounded())
                 HStack {
-                    Slider(value: opacity, in: 0.35...1, step: 0.05)
-                        .frame(minWidth: 150).disabled(!opacityControl.enabled)
-                    Text(verbatim: "\(Int((opacity.wrappedValue * 100).rounded()))%")
+                    Slider(value: opacity, in: 0.35...1, step: 0.05) {
+                        Text("背景不透明度")
+                    } minimumValueLabel: {
+                        Image(systemName: "circle.dotted").accessibilityHidden(true)
+                    } maximumValueLabel: {
+                        Image(systemName: "circle.fill").accessibilityHidden(true)
+                    }
+                    .labelsHidden()
+                    .frame(minWidth: 150).disabled(!opacityControl.enabled)
+                    .accessibilityLabel(String(localized: "背景不透明度"))
+                    .accessibilityValue(Text(verbatim: "\(percent)%"))
+                    Text(verbatim: "\(percent)%")
                         .monospacedDigit().frame(width: 54, alignment: .trailing)
                         .foregroundStyle(opacityControl.enabled ? .primary : .secondary)
                 }

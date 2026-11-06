@@ -1,5 +1,6 @@
 import AppKit
 import TalkTalkCore
+import TalkTalkSession
 
 /// AppKit factories for `SubtitleTokens` (redesign §2). Meeting rows, my rows, the settings
 /// preview and video all take colours and fonts from here instead of fixed grays.
@@ -25,6 +26,24 @@ enum SubtitleStyle {
 
     static func color(_ role: SubtitleTokens.Color, display: Display = .current, lightSurface: Bool = false) -> NSColor {
         nsColor(role.rgba(increaseContrast: display.increaseContrast, lightSurface: lightSurface))
+    }
+
+    /// A voice-state dot outside the subtitle panel (menu, settings): the token colour for the
+    /// surface it is drawn on, resolved per appearance.
+    static func toneColor(_ tone: VoiceTone) -> NSColor {
+        func token(_ role: SubtitleTokens.Color) -> NSColor {
+            NSColor(name: nil) { appearance in
+                let light = appearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
+                return nsColor(role.rgba(lightSurface: light))
+            }
+        }
+        return switch tone {
+        case .original: token(.voiceOriginal)
+        case .translate: token(.voiceTranslate)
+        case .warn: token(.warn)
+        case .risk: token(.riskFill)
+        case .neutral: .tertiaryLabelColor
+        }
     }
 
     static func nsColor(_ value: SubtitleTokens.RGBA) -> NSColor {

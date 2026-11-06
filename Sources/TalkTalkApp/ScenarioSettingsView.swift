@@ -81,6 +81,8 @@ struct MeetingSettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .controlSize(.large)
+                // The 32 pt band is the container's; the control keeps its native height.
                 .frame(height: 32)
                 .padding(.horizontal, 20).padding(.vertical, 8)
             } else {
@@ -131,7 +133,7 @@ struct MeetingSettingsView: View {
             HStack {
                 Label("会议同传", systemImage: SubtitleTokens.SceneIcon.meeting).font(.headline)
                 Spacer()
-                InfoButton(lines: [
+                InfoButton(topic: String(localized: "会议同传"), lines: [
                     String(localized: "在会议应用里选 TalkTalk Mic；需要静音时，使用会议应用的静音按钮。"),
                     String(localized: "点按右⌥开始翻译，说中文，可夹英语；再点按结束，译音播完后回到原声。")
                 ])
@@ -140,7 +142,7 @@ struct MeetingSettingsView: View {
             sourceSelection(for: .meeting)
             VStack(alignment: .leading, spacing: 12) {
                 Text("听对方").font(.subheadline.weight(.semibold))
-                SpeechFlow(steps: [("person.wave.2", String(localized: "对方说英语／德语")),
+                SpeechFlow(steps: [(SubtitleTokens.SettingsIcon.remote, String(localized: "对方说英语／德语")),
                                    ("character.bubble", String(localized: "识别与翻译")),
                                    ("captions.bubble", String(localized: "原文＋中文字幕"))], links: [
                     1: FlowLink(String(localized: "模型设置")) { follow { navigation.openModel(.recognition) } },
@@ -157,7 +159,7 @@ struct MeetingSettingsView: View {
             HStack {
                 Label("视频字幕", systemImage: SubtitleTokens.SceneIcon.video).font(.headline)
                 Spacer()
-                InfoButton(lines: [String(localized: "不启用按键说话，也不更改系统默认麦克风。")])
+                InfoButton(topic: String(localized: "视频字幕"), lines: [String(localized: "不启用按键说话，也不更改系统默认麦克风。")])
             }
             Text("看视频时只收听应用声音，显示双语字幕").foregroundStyle(.secondary)
             sourceSelection(for: .captions)
@@ -179,7 +181,7 @@ struct MeetingSettingsView: View {
         } header: {
             HStack {
                 Text("听译语言")
-                InfoButton(lines: [String(localized: "英语或德语原文与中文译文同时显示。切换语言立即生效，也可从菜单直接切换。")])
+                InfoButton(topic: String(localized: "听译语言"), lines: [String(localized: "英语或德语原文与中文译文同时显示。切换语言立即生效，也可从菜单直接切换。")])
             }
         }
     }
@@ -224,10 +226,13 @@ struct MeetingSettingsView: View {
             }
             .disabled(sourceChangesLocked)
             Button { state.onRefreshSources?() } label: {
-                Label("刷新", systemImage: "arrow.clockwise")
+                Label("刷新", systemImage: SubtitleTokens.SettingsIcon.refresh).labelStyle(.iconOnly)
             }
+            .buttonStyle(.borderless)
+            .help("刷新应用列表")
+            .accessibilityLabel(String(localized: "刷新应用列表"))
             .disabled(state.onRefreshSources == nil)
-            InfoButton(lines: [
+            InfoButton(topic: String(localized: "声音来源"), lines: [
                 mode == .meeting
                     ? String(localized: "自动选择正在使用麦克风的会议应用；有多个候选时会请你选择。")
                     : String(localized: "自动选择正在播放声音的应用；有多个候选时会请你选择。"),
@@ -238,8 +243,8 @@ struct MeetingSettingsView: View {
             Text("来源在本次会话中保持不变。请先结束当前同传或视频字幕，再更换应用。")
                 .font(.callout).foregroundStyle(.secondary)
         } else if missing {
-            Label("请先打开 \(selectedName)，或重新选择应用；不会自动改用其他声音来源。", systemImage: "exclamationmark.circle")
-                .font(.callout).foregroundStyle(.orange)
+            SettingsStatusLabel(String(localized: "请先打开 \(selectedName)，或重新选择应用；不会自动改用其他声音来源。"), .warn)
+                .font(.callout)
         }
         if ScenarioSourceNote.showsBrowserNote(selectedID: selectedID) {
             Label("选择浏览器会包含它的其他标签页。", systemImage: "rectangle.on.rectangle")
@@ -275,9 +280,19 @@ struct MeetingSettingsView: View {
         }
     }
 
+    /// The action, not the scene (the card and title already name it): as the menu's quick start.
     private var actionSymbol: String {
-        if state.meetingActive { return "stop.fill" }
-        return actionMode.sceneSymbol
+        state.meetingActive ? "stop.fill" : MenuQuickStart.symbol
+    }
+
+    /// The running session's voice state, as the menu's dot: green only while the other party
+    /// hears the original voice. Video listens only (neutral).
+    private var runningVoice: VoiceState? {
+        switch state.meetingMode {
+        case .meeting: state.meetingVoice
+        case .phone: state.phoneVoice
+        case .captions: VoiceState.resolve(audio: nil, scene: .video)
+        }
     }
 
     private var actionDescription: String? {
@@ -304,11 +319,17 @@ struct MeetingSettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if state.meetingActive, !state.meetingStopping,
                        let line = runState.runningLine(source: state.meetingApp) {
+                        let voice = runningVoice
                         HStack(spacing: 6) {
-                            Circle().fill(Color(nsColor: SubtitleStyle.color(.voiceOriginal))).frame(width: 8, height: 8)
-                                .accessibilityHidden(true)
+                            if let voice {
+                                Circle().fill(Color(nsColor: SubtitleStyle.toneColor(voice.appearance.tone)))
+                                    .frame(width: 8, height: 8)
+                                    .accessibilityHidden(true)
+                            }
                             Text(line).font(.callout.weight(.semibold))
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityValue(voice?.accessibilityLabel ?? "")
                     } else {
                         Text(modeTitle(actionMode)).font(.callout.weight(.semibold))
                     }

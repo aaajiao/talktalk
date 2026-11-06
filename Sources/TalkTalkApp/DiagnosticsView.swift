@@ -36,22 +36,17 @@ struct DiagnosticsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                ForEach(DiagnosticsSettingsTab.allCases) { tab in
-                    SettingsTabButton(title: tab.title, symbol: tab.symbol, summary: tab.summary,
-                                      selected: navigation.diagnosticsTab == tab) {
-                        navigation.diagnosticsTab = tab
-                    }
-                }
-            }
-            .padding([.horizontal, .top], 20)
+            SettingsSubpagePicker(label: String(localized: "隐私与诊断分类"), selection: $navigation.diagnosticsTab,
+                                  pages: DiagnosticsSettingsTab.allCases, title: \.title, symbol: \.symbol,
+                                  summary: \.summary)
+                .padding([.horizontal, .top], 20)
             activeRecordingStatus.padding(.horizontal, 20)
             Form {
                 switch navigation.diagnosticsTab {
                 case .privacy:
-                    Section { whatStays } header: { Label("声音与文字的去向", systemImage: "hand.raised") }
-                    Section { transcripts } header: { Label("文字记录", systemImage: "text.document") }
-                    Section { retention } header: { Label("自动清理", systemImage: "clock.arrow.circlepath") }
+                    Section { whatStays } header: { Text("声音与文字的去向") }
+                    Section { transcripts } header: { Text("文字记录") }
+                    Section { retention } header: { Text("自动清理") }
                 case .subtitles:
                     Section {
                         SpeechFlow(steps: [("play.rectangle", String(localized: "开始收听")),
@@ -61,17 +56,14 @@ struct DiagnosticsView: View {
                         ])
                         note(String(localized: "检查本次原文、译文和字幕节奏。只在你开启后记录文字，不录音；会话结束后自动停止。"))
                     }
-                    Section { subtitleAnalysis } header: { Label("本次分析", systemImage: "captions.bubble") }
+                    Section { subtitleAnalysis } header: { Text("本次分析") }
                 case .troubleshooting:
                     Section {
-                        SpeechFlow(steps: [("checklist", String(localized: "选择检查项目")),
-                                           ("list.bullet.rectangle", String(localized: "查看结果")),
-                                           ("square.and.arrow.up", String(localized: "按需导出"))])
                         note(String(localized: "下面的检查与导出都由你手动开始。打开此页不会启动录音或发送测试请求。"))
                     }
-                    Section { selfTests } header: { Label("运行自检", systemImage: "checkmark.shield") }
-                    Section { selfTestResults } header: { Label("检查结果", systemImage: "list.bullet.rectangle") }
-                    Section { bundle } header: { Label("导出诊断包", systemImage: "square.and.arrow.up") }
+                    Section { selfTests } header: { Text("运行自检") }
+                    Section { selfTestResults } header: { Text("检查结果") }
+                    Section { bundle } header: { Text("导出诊断包") }
                     Section {
                         DisclosureGroup("详细性能记录") { latency.padding(.top, 8) }
                         DisclosureGroup("离线音频自检命令") { offlineCommands.padding(.top, 8) }
@@ -82,13 +74,19 @@ struct DiagnosticsView: View {
                         } else {
                             DisclosureGroup("按需记录音频") { recording.padding(.top, 8) }
                         }
-                    } header: { Label("诊断录音", systemImage: "waveform") }
+                    } header: { Text("诊断录音") }
                 }
             }
             .formStyle(.grouped)
             .id(navigation.diagnosticsTab)
         }
         .onAppear { model.diagnosticsStatus.refresh() }
+        .confirmationDialog(String(localized: "删除本场诊断录音？"), isPresented: $model.confirmDiscardRecording) {
+            Button(String(localized: "删除"), role: .destructive) { model.recorder.discardCurrent() }
+            Button(String(localized: "取消"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "本场已录的诊断音频会从这台 Mac 上删除。"))
+        }
         .alert(String(localized: "会议没有在进行"), isPresented: $model.showRemoteRefused) {
             Button(String(localized: "好")) {}
         } message: {
@@ -207,7 +205,13 @@ struct DiagnosticsView: View {
             HStack {
                 Text("最近 20 段延迟").font(.headline)
                 Spacer()
-                Button("刷新") { status.refresh() }.disabled(status.refreshing)
+                Button { status.refresh() } label: {
+                    Label("刷新", systemImage: SubtitleTokens.SettingsIcon.refresh).labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .help("重新读取延迟记录")
+                .accessibilityLabel(String(localized: "重新读取延迟记录"))
+                .disabled(status.refreshing)
                 if status.refreshing { ProgressView().controlSize(.small) }
             }
             note(String(localized: "只读取最近 3 场日志的末尾，每场最多 512 KiB；页面打开或手动刷新时读取。提交到首声与结束翻译到首声不是同一个指标。"))
@@ -340,7 +344,7 @@ struct DiagnosticsView: View {
             }
             HStack(spacing: 10) {
                 Button(String(localized: "在 Finder 中显示")) { model.revealDiagnostics() }
-                Button(String(localized: "停止并删除本场录音")) { r.discardCurrent() }
+                Button(String(localized: "停止并删除本场录音…"), role: .destructive) { model.confirmDiscardRecording = true }
                     .disabled(r.sessionDirectory == nil)
             }
             note(String(localized: "录音存在本机 diagnostics 文件夹（只有你能读，不进备份），24 小时后自动删除，不进诊断包。"))

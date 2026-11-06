@@ -15,23 +15,29 @@ final class GlossarySettingsModel {
     struct Row: Identifiable { let id = UUID(); var entry: GlossaryEntry }
     var rows: [Row] = []
     var message: String?
+    /// The message reports a failure (read/save error, missing term), not a successful save.
+    private(set) var messageIsError = false
     private let store: GlossaryStore
     init(store: GlossaryStore = AppGlossary.store) { self.store = store; reload() }
     func reload() {
         do { try store.reload(); rows = store.snapshot().map { Row(entry: $0) }; message = nil }
-        catch { message = String(localized: "术语表读取失败：\(error.localizedDescription)") }
+        catch { report(String(localized: "术语表读取失败：\(error.localizedDescription)"), error: true) }
     }
     func add() { guard rows.count < GlossaryStore.limit else { return }; rows.append(Row(entry: .init(zh: "", en: "", de: ""))) }
     func remove(_ id: UUID) { rows.removeAll { $0.id == id } }
     func save() {
         do {
             try store.save(rows.map(\.entry))
-            message = String(localized: "已保存，下次翻译请求生效。")
+            report(String(localized: "已保存，下次翻译请求生效。"), error: false)
         } catch GlossaryStore.Failure.missingTerm {
-            message = String(localized: "每条填写中文，以及至少一种外语译法。")
+            report(String(localized: "每条填写中文，以及至少一种外语译法。"), error: true)
         } catch {
-            message = String(localized: "术语表保存失败：\(error.localizedDescription)")
+            report(String(localized: "术语表保存失败：\(error.localizedDescription)"), error: true)
         }
+    }
+    private func report(_ text: String, error: Bool) {
+        message = text
+        messageIsError = error
     }
 }
 
@@ -39,7 +45,6 @@ struct GlossarySettingsView: View {
     @Bindable var model: GlossarySettingsModel
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("术语表", systemImage: "text.book.closed").font(.title2.bold())
             Text("填写中文及至少一种外语译法；保存后，下次翻译请求生效。")
                 .font(.callout).foregroundStyle(.secondary)
             DisclosureGroup("术语使用说明") {
@@ -49,7 +54,7 @@ struct GlossarySettingsView: View {
             ScrollView {
                 if model.rows.isEmpty {
                     ContentUnavailableView {
-                        Label("还没有术语", systemImage: "character.book.closed")
+                        Label("还没有术语", systemImage: SubtitleTokens.SettingsIcon.glossary)
                     } description: {
                         Text("添加产品名、人名或专业词，填写中文及至少一种外语译法。")
                     }
@@ -87,12 +92,20 @@ struct GlossarySettingsView: View {
             }
             Divider()
             HStack {
-                Button("添加术语") { model.add() }.disabled(model.rows.count >= GlossaryStore.limit)
+                Button { model.add() } label: {
+                    Image(systemName: SubtitleTokens.SettingsIcon.add)
+                }
+                .buttonStyle(.borderless)
+                .help("添加术语")
+                .accessibilityLabel(String(localized: "添加术语"))
+                .disabled(model.rows.count >= GlossaryStore.limit)
                 Text("\(model.rows.count) / 30").foregroundStyle(.secondary)
                 Spacer()
                 Button("保存") { model.save() }.buttonStyle(.borderedProminent)
             }
-            if let message = model.message { Text(verbatim: message).font(.callout) }
+            if let message = model.message {
+                SettingsStatusLabel(message, model.messageIsError ? .warn : .ok).font(.callout)
+            }
             Text("启用云端翻译时，术语随文字发送给 OpenAI；关闭时不发送。")
                 .font(.caption).foregroundStyle(.secondary)
         }

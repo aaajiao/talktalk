@@ -131,17 +131,17 @@ struct GeneralSettingsView: View {
         Form {
             Section {
                 LaunchAtLoginRow(launch: model.launch, stronglyRecommended: model.loginStronglyRecommended)
-            } header: { Label("启动", systemImage: "power") }
+            } header: { Text("启动") }
             Section {
-                SpeechFlow(steps: [
-                    ("mic", String(localized: "默认原声")),
-                    ("option", String(localized: "点按右⌥开始翻译")),
-                    ("speaker.wave.2", String(localized: "再点按结束发言"))
-                ])
-                SettingsNote("点按一次右⌥开始翻译，原声随即关闭；说中文，可夹英语。再点按结束发言，等剩余译音播完后自动恢复原声。")
+                speakingFlow
                 Label("需要静音时，请使用会议应用或 Phone 的静音按钮。", systemImage: "mic.slash")
                     .font(.callout).foregroundStyle(.secondary)
-            } header: { Label("会议与电话发言方式", systemImage: "mic.and.signal.meter") }
+            } header: {
+                HStack {
+                    Text("会议与电话发言方式")
+                    InfoButton(topic: String(localized: "发言方式"), lines: [Self.speakingHint])
+                }
+            }
             Section {
                 Toggle(isOn: Binding(
                     get: { model.autoEndNotificationsEnabled },
@@ -158,11 +158,11 @@ struct GeneralSettingsView: View {
                 }
                 if model.notificationAuthorization == .denied {
                     Button { model.openNotificationSettings() } label: {
-                        Label("打开系统通知设置…", systemImage: "gearshape")
+                        Label("打开系统通知设置", systemImage: "gearshape")
                     }
                 }
                 SettingsNote("关闭通知不会改变自动结束会议的规则；视频字幕同样适用。")
-            } header: { Label("通知", systemImage: "bell")
+            } header: { Text("通知")
             } footer: {
                 Text("提醒你会议似乎已结束。")
             }
@@ -172,13 +172,13 @@ struct GeneralSettingsView: View {
                 }
                 SettingsNote("向对方说明你正在使用机器同传和合成声音。")
                 SettingsNote("也可以从菜单选择“现在播放告知语”。")
-            } header: { Label("告知对方", systemImage: "megaphone") }
+            } header: { Text("告知对方") }
             Section {
                 Button { model.onRestartOnboarding?() } label: {
                     Label("重新运行引导…", systemImage: "arrow.clockwise.circle")
                 }
                 .disabled(model.onRestartOnboarding == nil)
-            } header: { Label("首次引导", systemImage: "list.number")
+            } header: { Text("首次引导")
             } footer: {
                 Text("重新检查权限、组件和声音设置，保留已安装的模型与声音档案。")
             }
@@ -189,7 +189,7 @@ struct GeneralSettingsView: View {
                 Button { NSApp.orderFrontStandardAboutPanel(nil) } label: {
                     Label("关于 \(appVersion.name)…", systemImage: "info.circle")
                 }
-            } header: { Label("关于", systemImage: "info.circle") }
+            } header: { Text("关于") }
             Section {
                 if let component = driver.model {
                     FullUninstallSection(model: component)
@@ -199,32 +199,50 @@ struct GeneralSettingsView: View {
                 } else {
                     ProgressView("正在检查组件…").controlSize(.small)
                 }
-            } header: { Label("应用管理", systemImage: "app.badge") }
+            } header: { Text("应用管理") }
         }
         .formStyle(.grouped)
         .onAppear { driver.load(); model.launch.refresh(); Task { await model.refreshNotifications() } }
     }
 
+    private static let speakingHint = String(localized: "点按一次右⌥开始翻译，原声随即关闭；说中文，可夹英语。再点按结束发言，等剩余译音播完后自动恢复原声。")
+
+    /// The subtitle window's own capsule and keycap: 原声 → 右⌥ 开始翻译 → 译音, then press again.
+    private var speakingFlow: some View {
+        HStack(spacing: 8) {
+            VoiceCapsule(state: VoiceState.resolve(audio: .original, scene: .meeting, phoneInputConfirmed: true))
+            FlowArrow()
+            Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle))
+            FlowArrow()
+            VoiceCapsule(state: VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true))
+            Label("再点按结束", systemImage: "arrow.triangle.2.circlepath")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.speakingHint)
+    }
+
+    /// Only a mismatch needs a row: the switch is on but system notifications are not allowed
+    /// (or still being checked). On/off itself is the switch.
     @ViewBuilder private var notificationStatus: some View {
         if model.notificationRequesting {
             HStack {
                 ProgressView().controlSize(.small)
                 Text("正在检查系统通知授权…").font(.callout).foregroundStyle(.secondary)
             }
-        } else if model.autoEndNotificationSetting.isEffective {
-            Label("已开启，系统通知已允许", systemImage: "checkmark.circle.fill")
-                .font(.callout).foregroundStyle(.green)
-        } else if !model.autoEndNotificationsEnabled {
-            Label("已关闭，不发送会议结束通知", systemImage: "bell.slash")
-                .font(.callout).foregroundStyle(.secondary)
-            Text(model.notificationPermissionText).font(.caption).foregroundStyle(.secondary)
-        } else {
-            Label(model.notificationPermissionText,
-                  systemImage: model.notificationAuthorization == .checking ? "hourglass" : "exclamationmark.circle")
+        } else if model.autoEndNotificationsEnabled, !model.autoEndNotificationSetting.isEffective {
+            SettingsStatusLabel(model.notificationPermissionText, notificationMismatch)
                 .font(.callout)
-                .foregroundStyle(model.notificationAuthorization == .notDetermined || model.notificationAuthorization == .denied
-                    ? Color.orange : Color.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var notificationMismatch: SettingsStatus {
+        switch model.notificationAuthorization {
+        case .checking: .waiting
+        case .notDetermined, .denied: .warn
+        case .allowed, .unavailable: .info
         }
     }
 }
