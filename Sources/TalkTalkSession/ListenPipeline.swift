@@ -7,8 +7,9 @@ import TalkTalkCore
 public enum SubtitleUpdate: Sendable, Equatable {
     /// The gray source line: the current sentence as heard so far.
     case source(String)
-    /// Gray draft translation of an open sentence (only the newest matters).
-    case draft(sentence: UInt64, text: String)
+    /// Gray draft translation of an open sentence and the exact source submitted for it.
+    /// The default preserves callers that do not yet supply paired draft source text.
+    case draft(sentence: UInt64, text: String, source: String = "")
     /// Frozen translation. `approx` = the Apple fallback (“≈”, §5.1); `numberWarning` = the
     /// numbers in the subtitle do not all occur in what was said (NumberGuard, §5.4).
     case final(sentence: UInt64, text: String, source: String = "", approx: Bool, numberWarning: Bool)
@@ -435,7 +436,7 @@ public actor ListenPipeline {
         // Only an open sentence shows drafts; a frozen final is never overwritten.
         guard running, !draftsPaused, sentence == segmenter.sentence, rejectedEcho?.sentence != sentence else { return }
         drafts[sentence] = (source, target)
-        onUpdate(.draft(sentence: sentence, text: target))
+        onUpdate(.draft(sentence: sentence, text: target, source: source))
     }
 
     // MARK: - finals

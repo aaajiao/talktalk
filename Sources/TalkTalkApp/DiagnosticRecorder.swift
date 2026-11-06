@@ -111,7 +111,7 @@ final class DiagnosticRecorder {
         guard !recordingTracks.isEmpty else { return }
         switch u {
         case .source: return   // every ASR update; the events log has the timing that matters
-        case let .draft(sentence, text):
+        case let .draft(sentence, text, _):
             mark("draft", ["sentence": Int(sentence), "chars": text.count])
         case let .final(sentence, text, source, approx, numberWarning):
             mark("final", ["sentence": Int(sentence), "chars": text.count, "source_chars": source.count,

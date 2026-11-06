@@ -13,6 +13,9 @@ final class SubtitlePanel {
     private let content = ConversationContentView()
     private let backgroundEffect = NSVisualEffectView()
     private let remoteColumns = ConversationColumnsView()
+    private let videoCaptions = VideoSubtitleView()
+    private var videoBoard = VideoSubtitleBoard()
+    private var renderedVideoCue: VideoSubtitleBoard.Cue?
     private var speechView: NSView?
     private let divider = NSBox()
     private let titlebarActions = SubtitleTitlebarActionsView()
@@ -59,6 +62,7 @@ final class SubtitlePanel {
     private var analysisConfiguration: UInt64 = 0
     private var presentedFinals: [SubtitleBoard.Line] = []
     private var presentedDraft: SubtitleBoard.Line?
+    private var presentedVideoIdentity: SubtitleBoard.Line?
     var frame: NSRect { panel.frame }
     var screen: NSScreen? { panel.screen }
     private var defaultContentSize: NSSize {
@@ -103,6 +107,8 @@ final class SubtitlePanel {
         content.addSubview(backgroundEffect)
 
         content.addSubview(remoteColumns)
+        content.addSubview(videoCaptions)
+        videoCaptions.isHidden = true
         divider.boxType = .separator
         content.addSubview(divider)
         titlebarActions.openPhone = { [weak self] in self?.openPhone?() }
@@ -117,6 +123,7 @@ final class SubtitlePanel {
         updateRemoteHeadings()
         panel.contentView = content
         remoteColumns.onDisplayedTextChange = { [weak self] in self?.recordPresentation() }
+        videoCaptions.onDisplayedTextChange = { [weak self] in self?.recordPresentation() }
         if let screen = NSScreen.main ?? NSScreen.screens.first { loadSize(for: screen) }
         setFontSize(22)
         updateBackground()
@@ -132,6 +139,10 @@ final class SubtitlePanel {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.panel.didRestoreFromDock()
+                    if self.presentation == .video {
+                        self.renderVideo(at: HostClock.now(), forceLayout: true)
+                        self.videoCaptions.resetReadingTime(at: Double(HostClock.now()) / 1_000_000_000)
+                    }
                     self.recordPresentation()
                 }
             }
@@ -301,6 +312,10 @@ final class SubtitlePanel {
 
     func apply(_ update: SubtitleUpdate) {
         let now = HostClock.now()
+        if presentation == .video {
+            applyVideo(update, at: now)
+            return
+        }
         let previousPending = board.pendingFinalSentenceIDs
         let previousSource = liveSource
         if case .source(let text) = update { liveSource = text }
@@ -309,9 +324,9 @@ final class SubtitlePanel {
         case let .final(sentence, text, source, approx, numberWarning):
             observe("subtitle_queued", at: now,
                     line: .init(sentence: sentence, text: text, source: source, approx: approx, numberWarning: numberWarning), kind: "final")
-        case let .draft(sentence, text):
+        case let .draft(sentence, text, source):
             observe("subtitle_queued", at: now,
-                    line: .init(sentence: sentence, text: text, approx: false, numberWarning: false), kind: "draft")
+                    line: .init(sentence: sentence, text: text, source: source, approx: false, numberWarning: false), kind: "draft")
         case let .dropped(sentence):
             observe("subtitle_dropped", at: now,
                     line: .init(sentence: sentence, text: "", approx: false, numberWarning: false))
@@ -332,6 +347,9 @@ final class SubtitlePanel {
     func clear() {
         let hadHint = board.hint != nil
         liveSource = ""; lastPreviewRenderAt = 0; board.clear()
+        videoBoard.clear(); renderedVideoCue = nil
+        videoCaptions.setCaption(source: NSAttributedString(string: ""), translation: NSAttributedString(string: ""),
+                                 sentence: nil, isFinal: false, at: Double(HostClock.now()) / 1_000_000_000)
         resetRemoteScroll = true
         if hadHint { onHintChange?(nil) }
         render()
@@ -343,10 +361,15 @@ final class SubtitlePanel {
         analysisConfiguration = id
         resetRemoteScroll = true
         presentedFinals = []; presentedDraft = nil
+        presentedVideoIdentity = nil
         observe("configuration_reset", at: HostClock.now())
     }
 
     private func render(at now: HostTime = HostClock.now(), forceLayout: Bool = false) {
+        if presentation == .video {
+            renderVideo(at: now, forceLayout: forceLayout)
+            return
+        }
         // Keep transient recognition/translation changes together. Finals use their own
         // board cadence and never wait for this preview clock; obsolete previews clear at once.
         if now >= lastPreviewRenderAt, now - lastPreviewRenderAt >= Self.previewInterval {
@@ -399,8 +422,106 @@ final class SubtitlePanel {
         recordPresentation()
     }
 
+    private var videoSourceFont: NSFont {
+        .systemFont(ofSize: max(11, max(12, baseFontSize * 0.78) * textScale))
+    }
+    private var videoTranslationFont: NSFont { .systemFont(ofSize: fontSize, weight: .medium) }
+
+    private func applyVideo(_ update: SubtitleUpdate, at now: HostTime) {
+        let previousPending = videoBoard.pendingSentenceIDs
+        var droppedSentence: UInt64?
+        if case .source(let text) = update { liveSource = text }
+        let changed = videoBoard.apply(update)
+        switch update {
+        case let .final(sentence, text, source, approx, warning):
+            observe("subtitle_queued", at: now,
+                    line: .init(sentence: sentence, text: text, source: source, approx: approx, numberWarning: warning), kind: "final")
+        case let .draft(sentence, text, source):
+            observe("subtitle_queued", at: now,
+                    line: .init(sentence: sentence, text: text, source: source, approx: false, numberWarning: false), kind: "draft")
+        case let .dropped(sentence):
+            droppedSentence = sentence
+            if changed { liveSource = "" }
+            observe("subtitle_dropped", at: now,
+                    line: .init(sentence: sentence, text: "", approx: false, numberWarning: false))
+        case .source: break
+        }
+        if videoBoard.current == nil { _ = videoBoard.advance() }
+        for sentence in previousPending where !videoBoard.pendingSentenceIDs.contains(sentence)
+            && videoBoard.current?.line.sentence != sentence && sentence != droppedSentence {
+            observe("subtitle_discarded", at: now,
+                    line: .init(sentence: sentence, text: "", approx: false, numberWarning: false), kind: "pacing_overflow")
+        }
+        renderVideo(at: now)
+    }
+
+    private func renderVideo(at now: HostTime, forceLayout: Bool = false) {
+        // Defer hidden updates so corrections cannot be credited as read while off screen.
+        guard isWindowVisible else {
+            if forceLayout { layout() }
+            return
+        }
+        let cue = videoBoard.current
+        let newSentence = cue?.line.sentence != renderedVideoCue?.line.sentence
+        let finalChanged = cue?.isFinal == true && cue != renderedVideoCue
+        let previewDue = now >= lastPreviewRenderAt && now - lastPreviewRenderAt >= Self.previewInterval
+        guard forceLayout || newSentence || finalChanged || previewDue else { return }
+        let source = cue?.line.source ?? liveSource
+        let translation = cue?.line.display ?? ""
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byWordWrapping
+        let sourceText = NSAttributedString(string: source, attributes: [
+            .font: videoSourceFont, .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: paragraph
+        ])
+        let targetText = NSAttributedString(string: translation, attributes: [
+            .font: videoTranslationFont,
+            .foregroundColor: cue?.isFinal == true ? NSColor.labelColor : NSColor.labelColor.withAlphaComponent(0.80),
+            .paragraphStyle: paragraph
+        ])
+        renderedVideoCue = cue
+        renderedSource = liveSource
+        lastPreviewRenderAt = now
+        videoCaptions.setCaption(source: sourceText, translation: targetText,
+                                 sentence: cue?.line.sentence, isFinal: cue?.isFinal ?? false,
+                                 at: Double(now) / 1_000_000_000)
+        resetRemoteScroll = false
+        if forceLayout { layout() }
+        recordPresentation()
+    }
+
+    /// Only the page actually assigned to the video view counts as displayed. Pending cues
+    /// and hidden portions of a long sentence must not masquerade as visible subtitles.
+    private func recordVideoPresentation() {
+        displayedLines = [videoCaptions.displayedSource, videoCaptions.displayedTranslation, "", "", "", ""]
+        let now = HostClock.now()
+        var finals: [SubtitleBoard.Line] = []
+        var draft: SubtitleBoard.Line?
+        if let cue = renderedVideoCue {
+            let visible = SubtitleBoard.Line(sentence: cue.line.sentence,
+                text: videoCaptions.displayedTranslation, source: videoCaptions.displayedSource,
+                approx: cue.line.approx, numberWarning: cue.line.numberWarning)
+            if cue.isFinal { finals = [visible] } else { draft = visible }
+        }
+        for line in finals where !presentedFinals.contains(line) {
+            observe("subtitle_displayed", at: now, line: line, kind: "final", cueIdentity: renderedVideoCue?.line)
+        }
+        for line in presentedFinals where !finals.contains(where: { $0.sentence == line.sentence }) {
+            observe("subtitle_removed", at: now, line: line, kind: "final", cueIdentity: presentedVideoIdentity)
+        }
+        if let draft, draft != presentedDraft {
+            observe("subtitle_displayed", at: now, line: draft, kind: "draft", cueIdentity: renderedVideoCue?.line)
+        } else if draft == nil, let old = presentedDraft {
+            observe("subtitle_removed", at: now, line: old, kind: "draft", cueIdentity: presentedVideoIdentity)
+        }
+        presentedFinals = finals; presentedDraft = draft
+        presentedVideoIdentity = renderedVideoCue?.line
+    }
+
     private func recordPresentation() {
-        guard subtitlesRequested, panel.isVisible, !remoteColumns.hasPendingText else { return }
+        guard subtitlesRequested, isWindowVisible else { return }
+        if presentation == .video { recordVideoPresentation(); return }
+        guard !remoteColumns.hasPendingText else { return }
         let now = HostClock.now()
         // Log actual label changes after board pacing, including revisions, not timer ticks or
         // font/layout refreshes. This is AppKit submission time, not a display hardware timestamp.
@@ -418,11 +539,13 @@ final class SubtitlePanel {
         presentedFinals = board.finals; presentedDraft = renderedDraft
     }
 
-    private func observe(_ event: String, at time: HostTime, line: SubtitleBoard.Line? = nil, kind: String? = nil) {
+    private func observe(_ event: String, at time: HostTime, line: SubtitleBoard.Line? = nil, kind: String? = nil,
+                         cueIdentity: SubtitleBoard.Line? = nil) {
         analysisRecorder?.recordPanel(event, configuration: analysisConfiguration, at: time,
-                                      line: line, kind: kind, visible: subtitlesRequested && panel.isVisible,
-                                      pendingFinals: board.pendingFinalSentenceIDs,
-                                      pendingDraft: board.pendingDraftSentenceID)
+                                      line: line, kind: kind, visible: subtitlesRequested && isWindowVisible,
+                                      pendingFinals: presentation == .video ? videoBoard.pendingFinalSentenceIDs : board.pendingFinalSentenceIDs,
+                                      pendingDraft: presentation == .video ? videoBoard.pendingDraftSentenceIDs.last : board.pendingDraftSentenceID,
+                                      cueIdentity: cueIdentity)
     }
 
     private func layout() {
@@ -440,8 +563,11 @@ final class SubtitlePanel {
         let footerSpace = footerContentHeight > 0 ? footerContentHeight + (hasReadingArea ? 12 : 0) : 0
         let rowGap: CGFloat = subtitlesRequested && hasSpeech ? 22 : 0
         let sectionChrome: CGFloat = 24 + rowGap + footerSpace
+        let minimumReading = presentation == .video
+            ? VideoSubtitleView.minimumReadingHeight(sourceFont: videoSourceFont, translationFont: videoTranslationFont)
+            : (subtitlesRequested && hasSpeech ? 80 : 48)
         let minHeight: CGFloat = hasReadingArea
-            ? min(maxHeight, max(140, sectionChrome + (subtitlesRequested && hasSpeech ? 80 : 48)))
+            ? min(maxHeight, max(140, sectionChrome + minimumReading))
             : max(24, footerContentHeight + 24)
         panel.contentMinSize = NSSize(width: min(minimumWidth, width), height: minHeight)
         panel.contentMaxSize = NSSize(width: max(280, visible.width - 40), height: maxHeight)
@@ -454,12 +580,18 @@ final class SubtitlePanel {
         let remoteHeight = subtitlesRequested ? (hasSpeech ? budget / 2 : budget) : 0
         let localHeight = hasSpeech ? budget - remoteHeight : 0
         var top: CGFloat = 12
-        remoteColumns.isHidden = !subtitlesRequested
+        remoteColumns.isHidden = !subtitlesRequested || presentation == .video
+        videoCaptions.isHidden = !subtitlesRequested || presentation != .video
         speechView?.isHidden = !hasSpeech
         divider.isHidden = !subtitlesRequested || !hasSpeech
         if subtitlesRequested {
-            remoteColumns.frame = NSRect(x: 16, y: top, width: width - 32, height: remoteHeight)
-            remoteColumns.layoutSubtreeIfNeeded()
+            if presentation == .video {
+                videoCaptions.frame = NSRect(x: 16, y: top, width: width - 32, height: remoteHeight)
+                videoCaptions.layoutSubtreeIfNeeded()
+            } else {
+                remoteColumns.frame = NSRect(x: 16, y: top, width: width - 32, height: remoteHeight)
+                remoteColumns.layoutSubtreeIfNeeded()
+            }
             top += remoteHeight
         }
         if hasSpeech {
@@ -493,6 +625,10 @@ final class SubtitlePanel {
         layout()
         updateWindowVisibility()
         if on {
+            if presentation == .video {
+                renderVideo(at: HostClock.now(), forceLayout: true)
+                videoCaptions.resetReadingTime(at: Double(HostClock.now()) / 1_000_000_000)
+            }
             observe("panel_shown", at: HostClock.now())
             recordPresentation()
             guard timer == nil else { return }
@@ -537,6 +673,10 @@ final class SubtitlePanel {
         if NSApp.isHidden { NSApp.unhideWithoutActivation() }
         panel.deminiaturize(nil)
         panel.orderFrontRegardless()
+        if presentation == .video {
+            renderVideo(at: HostClock.now(), forceLayout: true)
+            videoCaptions.resetReadingTime(at: Double(HostClock.now()) / 1_000_000_000)
+        }
         recordPresentation()
     }
 
@@ -547,6 +687,16 @@ final class SubtitlePanel {
 
     private func poll() {
         let now = HostClock.now()
+        if presentation == .video {
+            renderVideo(at: now)
+            guard isWindowVisible else { return }
+            let seconds = Double(now) / 1_000_000_000
+            let pageChanged = videoCaptions.advance(at: seconds)
+            if videoCaptions.canAdvance(at: seconds), videoBoard.advance() {
+                renderVideo(at: now)
+            } else if pageChanged { recordPresentation() }
+            return
+        }
         let advanced = board.advance(at: now)
         let previewPending = liveSource != renderedSource || board.draft != renderedDraft
         let previewDue = now >= lastPreviewRenderAt && now - lastPreviewRenderAt >= Self.previewInterval

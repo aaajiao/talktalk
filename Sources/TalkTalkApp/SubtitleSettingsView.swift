@@ -95,7 +95,7 @@ struct SubtitleSettingsView: View {
                     Text("字幕大小")
                 } footer: {
                     Text(video
-                         ? String(localized: "保留最近两组字幕。拖动边缘调整大小，长文在各自的阅读区内滚动。")
+                         ? String(localized: "每次显示同一句的原文与中文，草稿在原位更新为定稿。长句按完整文字行接续显示，拖动边缘可调整阅读空间。")
                          : String(localized: "连续发言保留最近约一分钟，原译文一起更新。上翻时暂停跟随，点击“回到最新”继续；新一轮翻译会替换自己的上轮文字。"))
                 }
 

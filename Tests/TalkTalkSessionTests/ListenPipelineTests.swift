@@ -68,7 +68,7 @@ final class Sink: @unchecked Sendable {
     var finals: [(UInt64, String, Bool, Bool)] {
         items.compactMap { if case let .final(s, t, _, a, n) = $0 { (s, t, a, n) } else { nil } }
     }
-    var drafts: [String] { items.compactMap { if case let .draft(_, t) = $0 { t } else { nil } } }
+    var drafts: [String] { items.compactMap { if case let .draft(_, t, _) = $0 { t } else { nil } } }
 }
 
 func until(_ timeoutMs: Int = 3000, _ cond: () async -> Bool) async -> Bool {
@@ -234,6 +234,9 @@ enum Fixture {
         s.volatile("we need to decide")
         #expect(await until { !sink.drafts.isEmpty })
         #expect(sink.drafts.last == "苹:we need to")
+        #expect(sink.items.contains(.draft(sentence: 1, text: "苹:we need to", source: "we need to")))
+        // The newer ASR hypothesis is not the source of this already-translated draft.
+        #expect(sink.items.contains(.source("we need to decide")))
         await p.stop()
     }
 
@@ -524,7 +527,8 @@ enum Fixture {
         var board = SubtitleBoard(maxCharactersPerSecond: 9)
         board.apply(.final(sentence: 1, text: "明天见", source: "See you tomorrow.", approx: false, numberWarning: false), at: 0)
         board.apply(.source("Wir besprechen den Plan."), at: 100_000_000)
-        board.apply(.draft(sentence: 2, text: "我们讨论计划"), at: 150_000_000)
+        board.apply(.draft(sentence: 2, text: "我们讨论计划", source: "Wir besprechen den Plan."), at: 150_000_000)
+        #expect(board.draft?.source == "Wir besprechen den Plan.")
         board.apply(.final(sentence: 2, text: "我们讨论计划。", source: "Wir besprechen den Plan.", approx: false, numberWarning: false), at: 200_000_000)
         #expect(board.finals.first?.source == "See you tomorrow.")
         _ = board.advance(at: 2_000_000_000)

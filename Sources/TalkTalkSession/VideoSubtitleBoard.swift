@@ -1,0 +1,94 @@
+/// Video presents one bilingual cue. Draft and final are states of that same cue, never
+/// additional paragraphs. The view owns measured paging and decides when to call advance.
+public struct VideoSubtitleBoard: Sendable, Equatable {
+    public struct Cue: Sendable, Equatable {
+        public var line: SubtitleBoard.Line
+        public var isFinal: Bool
+
+        public init(line: SubtitleBoard.Line, isFinal: Bool) {
+            self.line = line
+            self.isFinal = isFinal
+        }
+    }
+
+    public private(set) var current: Cue?
+    private var pending: [Cue] = []
+    private var newestDisplayed: UInt64?
+    /// Draft cancellation is monotonic for newly arriving draft identities. Keep current
+    /// and queued pairs revisable, and never suppress a valid final with this watermark.
+    private var discardedDraftThrough: UInt64?
+    private static let pendingLimit = 2
+
+    public init() {}
+
+    public var pendingSentenceIDs: [UInt64] { pending.map { $0.line.sentence } }
+    public var pendingFinalSentenceIDs: [UInt64] { pending.filter(\.isFinal).map { $0.line.sentence } }
+    public var pendingDraftSentenceIDs: [UInt64] { pending.filter { !$0.isFinal }.map { $0.line.sentence } }
+
+    /// Returns whether the visible cue changed. Updating the pending queue alone is not a
+    /// display event. In particular, volatile raw source cannot alter a translated pair.
+    @discardableResult
+    public mutating func apply(_ update: SubtitleUpdate) -> Bool {
+        let before = current
+        switch update {
+        case .source:
+            break
+        case let .draft(sentence, text, source):
+            accept(Cue(line: .init(sentence: sentence, text: text, source: source,
+                                   approx: false, numberWarning: false), isFinal: false))
+        case let .final(sentence, text, source, approx, warning):
+            accept(Cue(line: .init(sentence: sentence, text: text, source: source,
+                                   approx: approx, numberWarning: warning), isFinal: true))
+        case let .dropped(sentence):
+            if current?.line.sentence != sentence || current?.isFinal == false {
+                discardedDraftThrough = max(discardedDraftThrough ?? 0, sentence)
+            }
+            pending.removeAll { $0.line.sentence == sentence && !$0.isFinal }
+            if current?.line.sentence == sentence, current?.isFinal == false { current = nil }
+        }
+        return before != current
+    }
+
+    private mutating func accept(_ cue: Cue) {
+        let sentence = cue.line.sentence
+        if current?.line.sentence == sentence {
+            guard current?.isFinal != true || cue.isFinal else { return }
+            current = cue
+            return
+        }
+        // A final can replace a dropped draft until the display moves to a newer sentence.
+        // Older results cannot rewind after that move, even if the new cue was later dropped.
+        guard newestDisplayed.map({ sentence > $0 || (current == nil && cue.isFinal && sentence == $0) }) ?? true else { return }
+        if let index = pending.firstIndex(where: { $0.line.sentence == sentence }) {
+            guard !pending[index].isFinal || cue.isFinal else { return }
+            pending[index] = cue
+        } else {
+            guard cue.isFinal || (discardedDraftThrough.map({ sentence > $0 }) ?? true) else { return }
+            pending.append(cue)
+            pending.sort { $0.line.sentence < $1.line.sentence }
+            if pending.count > Self.pendingLimit { pending.removeFirst(pending.count - Self.pendingLimit) }
+        }
+        if current == nil { _ = advance() }
+    }
+
+    /// Advance only when the view has finished the current cue's reading/page interval.
+    /// Pending pairs stay together, and the newest two bound latency and retained memory.
+    @discardableResult
+    public mutating func advance() -> Bool {
+        guard !pending.isEmpty else { return false }
+        let next = pending.removeFirst()
+        current = next
+        newestDisplayed = next.line.sentence
+        if let discardedDraftThrough, next.line.sentence >= discardedDraftThrough {
+            self.discardedDraftThrough = nil
+        }
+        return true
+    }
+
+    public mutating func clear() {
+        current = nil
+        pending.removeAll()
+        newestDisplayed = nil
+        discardedDraftThrough = nil
+    }
+}

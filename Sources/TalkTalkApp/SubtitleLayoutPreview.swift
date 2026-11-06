@@ -16,6 +16,7 @@ struct SubtitleLayoutPreview: NSViewRepresentable {
 final class SubtitlePreviewCanvas: NSView {
     private let remote = ConversationColumnsView()
     private let local = ConversationColumnsView()
+    private let videoCaption = VideoSubtitleView()
     private let rowDivider = NSBox()
     private var presentation: SubtitlePanel.Presentation = .meeting
     private var pendingReset = true
@@ -27,7 +28,8 @@ final class SubtitlePreviewCanvas: NSView {
         super.init(frame: frame)
         appearance = NSAppearance(named: .darkAqua)
         rowDivider.boxType = .separator
-        for view in [remote, local, rowDivider] { addSubview(view) }
+        for view in [remote, local, videoCaption, rowDivider] { addSubview(view) }
+        videoCaption.isHidden = true
         remote.setHeadings(source: String(localized: "对方 · 英语"), sourceSymbol: "person", translation: String(localized: "中文"))
         local.setHeadings(source: String(localized: "我 · 中文"), sourceSymbol: "mic", translation: String(localized: "英语"))
     }
@@ -38,6 +40,8 @@ final class SubtitlePreviewCanvas: NSView {
         self.presentation = presentation
         self.fontSize = fontSize
         remote.style = video ? .subtitles : .columns
+        remote.isHidden = video
+        videoCaption.isHidden = !video
         local.isHidden = video
         rowDivider.isHidden = video
         needsLayout = true
@@ -47,7 +51,7 @@ final class SubtitlePreviewCanvas: NSView {
         super.layout()
         let resetScroll = pendingReset
         if video {
-            remote.frame = bounds
+            videoCaption.frame = bounds
         } else {
             let rowGap: CGFloat = 20
             let rowHeight = max(0, (bounds.height - rowGap) / 2)
@@ -68,10 +72,10 @@ final class SubtitlePreviewCanvas: NSView {
             ])
         }
         if video {
-            remote.setText(
+            videoCaption.setCaption(
                 source: attributed("The simplest ideas often begin with a different way of looking.", source: true),
                 translation: attributed(String(localized: "最简单的想法，往往始于一种不同的观看方式。"), source: false),
-                resetScroll: resetScroll)
+                sentence: 1, isFinal: true, at: 0)
         } else if presentation == .phone {
             remote.setText(
                 source: attributed("I'm calling to confirm your appointment. Would Tuesday morning work for you?", source: true),

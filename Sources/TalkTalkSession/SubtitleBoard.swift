@@ -60,9 +60,9 @@ public struct SubtitleBoard: Sendable, Equatable {
         case let .source(t):
             // An empty line means "sentence closed": keep the last one up until speech resumes.
             if !t.isEmpty { source = t }
-        case let .draft(s, t):
+        case let .draft(s, t, source):
             guard s > newestFinal, !finals.contains(where: { $0.sentence == s }) else { break }
-            if draft == nil || draft!.sentence <= s { draft = Line(sentence: s, text: t, approx: false, numberWarning: false) }
+            if draft == nil || draft!.sentence <= s { draft = Line(sentence: s, text: t, source: source, approx: false, numberWarning: false) }
         case let .final(s, t, source, approx, warn):
             guard retention == nil || s > retiredThrough else { break }
             if firstFinalAt[s] == nil { firstFinalAt[s] = now }
@@ -82,9 +82,9 @@ public struct SubtitleBoard: Sendable, Equatable {
         let oldSource = source, oldFinals = finals, oldDraft = draft
         switch update {
         case let .source(text): if !text.isEmpty { source = text }
-        case let .draft(id, text):
+        case let .draft(id, text, source):
             if id > newestReceived, id >= (pendingDraft?.sentence ?? draft?.sentence ?? 0) {
-                pendingDraft = Line(sentence: id, text: text, approx: false, numberWarning: false)
+                pendingDraft = Line(sentence: id, text: text, source: source, approx: false, numberWarning: false)
             }
         case let .final(id, text, source, approx, warning):
             guard retention == nil || id > retiredThrough else { break }

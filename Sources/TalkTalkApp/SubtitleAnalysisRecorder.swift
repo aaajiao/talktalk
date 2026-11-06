@@ -85,7 +85,8 @@ final class SubtitleAnalysisRecorder {
     /// means the panel is ordered onscreen, not proof that no other window occludes it.
     func recordPanel(_ event: String, configuration: UInt64, at: HostTime,
                      line: SubtitleBoard.Line? = nil, kind: String? = nil,
-                     visible: Bool, pendingFinals: [UInt64], pendingDraft: UInt64?) {
+                     visible: Bool, pendingFinals: [UInt64], pendingDraft: UInt64?,
+                     cueIdentity: SubtitleBoard.Line? = nil) {
         guard isRecording else { return }
         var fields: [String: Any] = ["event": event, "configuration": configuration,
                                      "visible": visible, "pending_final_ids": pendingFinals,
@@ -96,6 +97,12 @@ final class SubtitleAnalysisRecorder {
             fields["sentence"] = line.sentence; fields["source"] = line.source
             fields["translation"] = line.text; fields["approx"] = line.approx
             fields["number_warning"] = line.numberWarning
+        }
+        // A paged cue needs its raw revision identity for matching to MT completion. Keep
+        // source/translation above as the actual visible excerpt, including display marks.
+        if let cueIdentity {
+            fields["cue_source"] = cueIdentity.source
+            fields["cue_translation"] = cueIdentity.text
         }
         write(fields, at: at)
     }

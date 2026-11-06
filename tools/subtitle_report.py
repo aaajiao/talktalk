@@ -23,7 +23,8 @@ def base(event):
 
 
 def revision(event):
-    return (*base(event), event.get("source", ""), event.get("translation", ""))
+    return (*base(event), event.get("cue_source", event.get("source", "")),
+            event.get("cue_translation", event.get("translation", "")))
 
 
 def report(path, include_text=False):
@@ -37,7 +38,10 @@ def report(path, include_text=False):
                 raise ValueError()
             if any(k in event and not uint(event[k]) for k in ("configuration", "sentence")):
                 raise ValueError()
-            if any(k in event and not isinstance(event[k], str) for k in ("source", "translation")):
+            if any(k in event and not isinstance(event[k], str)
+                   for k in ("source", "translation", "cue_source", "cue_translation")):
+                raise ValueError()
+            if ("cue_source" in event) != ("cue_translation" in event):
                 raise ValueError()
             events.append(event)
         except (ValueError, TypeError):
@@ -80,7 +84,17 @@ def report(path, include_text=False):
         shown_ms = (shown[0]["t"] - start) / 1e6 if shown else None
         if mt_ms is not None: mt_lag.append(mt_ms)
         if shown_ms is not None: display_lag.append(shown_ms)
-        redisplayed += max(0, len(shown) - 1)
+        paged = any("cue_source" in event for event in shown)
+        excerpts = {}
+        if paged:
+            for event in shown:
+                excerpt = (event.get("source", ""), event.get("translation", ""))
+                if excerpt in excerpts:
+                    redisplayed += 1
+                else:
+                    excerpts[excerpt] = event["t"]
+        else:
+            redisplayed += max(0, len(shown) - 1)
         next_base = next((e["t"] for e in translations[index + 1:] if base(e) == base(mt)), math.inf)
         later = [e for e in events if e["t"] >= start]
         discarded = any(base(e) == base(mt) and start <= e["t"] < next_base
@@ -98,6 +112,12 @@ def report(path, include_text=False):
                "sentence_to_mt_ms": mt_ms, "mt_to_display_ms": shown_ms,
                "number_warning": mt.get("number_warning") is True}
         if include_text: row.update(source=key[2], translation=key[3])
+        if paged:
+            row.update(display_scope="visible_excerpts", visible_excerpt_count=len(excerpts))
+            if include_text:
+                row["visible_excerpts"] = [
+                    {"source": source, "translation": target, "mt_to_display_ms": (at - start) / 1e6}
+                    for (source, target), at in excerpts.items()]
         rows.append(row)
     pairs = collections.defaultdict(set)
     for mt in translations:
@@ -118,6 +138,7 @@ def report(path, include_text=False):
             "stop_reason": stop.get("reason") if stop else None, "segments": rows,
             "limitations": ["ASR lag is result arrival minus audioThrough, not voice onset latency.",
                             "Display time is visible AppKit label submission, not compositor or optical time.",
+                            "For paged captions, displayed means at least one visible excerpt; full cue identity is not proof that every page was shown.",
                             "Exact source/target revisions only; combined or second-pass source may have no final start match.",
                             "Repeated pairs and <=3-word fragments are review hints, not errors or accuracy scores.",
                             "No stop marker may mean active, size-limited, interrupted, or partially read capture.",
