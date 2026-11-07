@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Darwin
 import Foundation
 
@@ -213,12 +214,14 @@ public struct DriverInstallation: Sendable {
 
         switch disk {
         case .foreign(let id):
-            return (.damaged(reason: "\(installedBundle.lastPathComponent) belongs to \(id.isEmpty ? "another bundle" : id)"), record)
+            let name = installedBundle.lastPathComponent
+            return (.damaged(reason: id.isEmpty ? String(localized: "\(name) 属于其他软件")
+                                                : String(localized: "\(name) 属于 \(id)")), record)
         case .damaged(let why):
             return (.damaged(reason: why), record)
         case .absent:
             if loadedVersion != nil {
-                return (.damaged(reason: "removed from disk but still loaded; restart the audio service"), record)
+                return (.damaged(reason: String(localized: "已从磁盘删除但仍在加载：请重启音频服务")), record)
             }
             return (.notInstalled, record)
         case .present(let diskVersion):

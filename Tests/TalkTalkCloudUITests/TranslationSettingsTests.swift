@@ -159,6 +159,26 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         #expect(TranslationFlowFacts(preferences: p, hasKey: false, keyStateKnown: false).cloudConnected)
     }
 
+    /// §7.8: the 文本翻译 card says what the page draws.
+    @Test func theCardBadgeReadsThePageFacts() {
+        var p = TranslationPreferences()
+        #expect(TranslationFlowFacts(preferences: p, hasKey: true, keyStateKnown: true).cardBadge(warning: nil) == nil)
+        p.cloudConsentGiven = true
+        #expect(TranslationFlowFacts(preferences: p, hasKey: false, keyStateKnown: false).cardBadge(warning: nil) == nil)
+        #expect(TranslationFlowFacts(preferences: p, hasKey: false, keyStateKnown: true).cardBadge(warning: "x")
+            == .status(.warn, "无 key → Apple"))
+        let ready = TranslationFlowFacts(preferences: p, hasKey: true, keyStateKnown: true)
+        #expect(ready.cardBadge(warning: nil) == .cloud("已启用 OpenAI"))
+        #expect(ready.cardBadge(warning: "模型即将下线") == .status(.warn, "模型即将下线 · 已启用 OpenAI"))
+        var off = p
+        off.speakCloudEnabled = false
+        off.listenCloudEnabled = false
+        #expect(TranslationFlowFacts(preferences: off, hasKey: true, keyStateKnown: true).cardBadge(warning: "x") == nil)
+        // Switched off during a session that still sends text: OpenAI stays shown, no waiting badge.
+        #expect(TranslationFlowFacts(preferences: off, hasKey: true, keyStateKnown: true, baseline: p).cardBadge(warning: nil)
+            == .cloud("已启用 OpenAI"))
+    }
+
     /// An OpenAI switch that is on can be turned off without a key; one that is off waits.
     @Test func aSwitchThatIsOnCanAlwaysBeTurnedOff() {
         var p = TranslationPreferences()

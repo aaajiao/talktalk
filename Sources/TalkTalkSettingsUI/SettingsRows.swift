@@ -8,6 +8,15 @@ import TalkTalkCore
 
 private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 
+extension DynamicTypeSize {
+    /// The largest text sizes (§3.3, §9.3 #1): flow diagrams fold their lane column into the
+    /// nodes, and fact rows and DataBoundary stack. Read from the environment, never from
+    /// measured geometry. Apple documents that macOS users cannot change this value today, so on
+    /// a Mac it applies where a view sets `.dynamicTypeSize(_:)`. Public for the app's own fact
+    /// row (我的声音), which keeps its ⓘ and Finder button beside its first chip.
+    public var foldsSettingsGraphics: Bool { self >= .xxLarge }
+}
+
 /// A visible fact in icon + shortest words (§3.11), in place of a gray paragraph: a 20 pt
 /// capsule, 11 pt icon and 11 pt text (≤ 8 characters; the safety facts of §5.4 ≤ 16). Every
 /// chip has its glyph: a neutral chip names it, `.cloud`, `.warn` and `.risk` draw their tone's.
@@ -96,12 +105,14 @@ public struct FactChip: View {
 
 /// Up to four fact chips in a row under the main graphic or a section's last row (§3.11).
 /// When the row does not fit, the chips stack (`ViewThatFits`, no custom layout and no geometry
-/// read back). `indented` starts the row at the row text inset (+30). `info`: the row's one ⓘ
-/// (§3.9: at the row's end), kept beside the last chip when the chips stack.
+/// read back); at the largest text sizes they always stack. `indented` starts the row at the row
+/// text inset (+30). `info`: the row's one ⓘ (§3.9: at the row's end), kept beside the last chip
+/// when the chips stack.
 public struct FactRow: View {
     private let chips: [FactChip]
     private let indented: Bool
     private let info: InfoButton?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(_ chips: [FactChip], indented: Bool = false, info: InfoButton? = nil) {
         self.chips = Array(chips.prefix(4))
@@ -110,21 +121,31 @@ public struct FactRow: View {
     }
 
     public var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) {
-                ForEach(chips.indices, id: \.self) { chips[$0] }
-                info
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(chips.indices.dropLast()), id: \.self) { chips[$0] }
-                HStack(spacing: 6) {
-                    chips.last
-                    info
+        Group {
+            if typeSize.foldsSettingsGraphics {
+                stacked
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        ForEach(chips.indices, id: \.self) { chips[$0] }
+                        info
+                    }
+                    stacked
                 }
             }
         }
         .padding(.leading, indented ? Ladder.rowTextInset : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(chips.indices.dropLast()), id: \.self) { chips[$0] }
+            HStack(spacing: 6) {
+                chips.last
+                info
+            }
+        }
     }
 }
 

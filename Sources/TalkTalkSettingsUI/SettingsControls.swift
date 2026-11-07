@@ -36,34 +36,51 @@ public struct VoiceCapsule: NSViewRepresentable {
     }
 }
 
-/// The subtitle window's 右⌥ keycap with its action text. `decorative`: it only draws a row's
-/// title (onboarding's 右⌥ permission row), so it is no accessibility element and has no tooltip
-/// of its own; the row speaks and shows its help.
-public struct Keycap: NSViewRepresentable {
+/// The subtitle window's 右⌥ keycap with its action text, as a picture: settings never press it
+/// (onboarding's 右⌥ permission row, flow nodes, the loop row). It is no accessibility element,
+/// has no tooltip of its own and lets clicks through to whatever encloses it (a node's button);
+/// the enclosing row, node accessory (`NodeAccessory.keycap`) or loop speaks for it and shows its
+/// help. `showsAction` false draws the key alone.
+public struct Keycap: View {
     let key: TitlebarKey
-    let decorative: Bool
+    let showsAction: Bool
+
+    public init(key: TitlebarKey, showsAction: Bool = true) {
+        self.key = key
+        self.showsAction = showsAction
+    }
+
+    public var body: some View {
+        // KeycapActionView is a titlebar control: as a subview it would take the click and,
+        // without an action, drop it.
+        KeycapPicture(key: key, showsAction: showsAction).allowsHitTesting(false)
+    }
+}
+
+private struct KeycapPicture: NSViewRepresentable {
+    let key: TitlebarKey
+    let showsAction: Bool
     @Environment(\.colorScheme) private var colorScheme
 
-    public init(key: TitlebarKey, decorative: Bool = false) {
-        self.key = key
-        self.decorative = decorative
-    }
+    func makeNSView(context: NSViewRepresentableContext<Self>) -> KeycapActionView { KeycapActionView() }
 
-    public func makeNSView(context: NSViewRepresentableContext<Self>) -> KeycapActionView { KeycapActionView() }
-
-    public func updateNSView(_ view: KeycapActionView, context: NSViewRepresentableContext<Self>) {
+    func updateNSView(_ view: KeycapActionView, context: NSViewRepresentableContext<Self>) {
         view.lightSurface = colorScheme == .light
-        view.effectiveAppearance.performAsCurrentDrawingAppearance { view.apply(key, showsAction: true) }
-        if decorative {
-            view.setAccessibilityElement(false)
-            view.toolTip = nil
-        }
+        view.effectiveAppearance.performAsCurrentDrawingAppearance { view.apply(key, showsAction: showsAction) }
+        view.setAccessibilityElement(false)
+        view.toolTip = nil
     }
 
-    public func sizeThatFits(_ proposal: ProposedViewSize, nsView: KeycapActionView,
-                             context: NSViewRepresentableContext<Self>) -> CGSize? {
-        CGSize(width: KeycapActionView.width(for: key, showsAction: true), height: SubtitleTokens.Size.controlHeight)
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: KeycapActionView,
+                      context: NSViewRepresentableContext<Self>) -> CGSize? {
+        CGSize(width: KeycapActionView.width(for: key, showsAction: showsAction), height: SubtitleTokens.Size.controlHeight)
     }
+}
+
+extension TitlebarKey {
+    /// The key and its action in words ("右⌥ 开始翻译"): the keycap's VoiceOver label and tooltip,
+    /// also where a glyph replaces the drawn action.
+    var spokenLabel: String { [key, action].compactMap { $0 }.joined(separator: " ") }
 }
 
 /// ⓘ (§3.9): only for the full sentence of a safety fact, a legal basis or a privacy promise,

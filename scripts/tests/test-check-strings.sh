@@ -31,8 +31,9 @@ struct V: View {
             Text("你好")
             Button("继续") {}
             Toggle("热麦", isOn: .constant(true))
-            SettingsNote("说明文字")
-            GrantRow(title: "麦克风", note: "只在按键时用", actionTitle: "允许…")
+            Label("说明文字", systemImage: "info.circle")
+            LabeledContent("麦克风") { Text("只在按键时用") }
+            Menu("允许…") {}
             Text(verbatim: "en-US")
             Text("已跳过 \(n) 段")
             Picker("", selection: .constant(1)) { Text("A").tag(1) }
@@ -94,12 +95,12 @@ run "$R"
 R="$(fixture bare)"
 /usr/bin/sed -i '' 's|var log: String { "pt.close" }|var log: String { "裸的中文" }|' "$R/Sources/App/View.swift"
 run "$R"
-[ "$rc" = 1 ] && /usr/bin/grep -q 'View.swift:21: bare zh-Hans literal.*"裸的中文"' "$work/out" && ok "bare zh literal fails with file:line" || no "bare literal (rc=$rc)"
+[ "$rc" = 1 ] && /usr/bin/grep -q 'View.swift:22: bare zh-Hans literal.*"裸的中文"' "$work/out" && ok "bare zh literal fails with file:line" || no "bare literal (rc=$rc)"
 
 R="$(fixture nested)"
 /usr/bin/sed -i '' 's|String(localized: "多")|"多"|' "$R/Sources/App/View.swift"
 run "$R"
-[ "$rc" = 1 ] && /usr/bin/grep -q 'View.swift:19: bare zh-Hans literal.*"多"' "$work/out" \
+[ "$rc" = 1 ] && /usr/bin/grep -q 'View.swift:20: bare zh-Hans literal.*"多"' "$work/out" \
   && ok "bare zh literal inside a localized literal's interpolation fails" || no "nested bare (rc=$rc)"
 
 R="$(fixture verbatim)"
@@ -108,10 +109,12 @@ run "$R"
 [ "$rc" = 1 ] && /usr/bin/grep -q 'bare zh-Hans literal.*"中文"' "$work/out" && ok "Text(verbatim:) with zh text fails" || no "verbatim (rc=$rc)"
 
 R="$(fixture second)"
-/usr/bin/sed -i '' 's|Toggle("热麦", isOn: .constant(true))|Toggle(isOn: .constant(true)) { Text("热麦") }; Foo(1, "第二个参数")|' "$R/Sources/App/View.swift"
+/usr/bin/sed -i '' 's|Toggle("热麦", isOn: .constant(true))|Toggle(isOn: .constant(true)) { Text("热麦") }; Foo(1, "第二个参数"); StepTitle(symbol: "x", title: "带标签的参数")|' "$R/Sources/App/View.swift"
 run "$R"
-[ "$rc" = 1 ] && /usr/bin/grep -q '"第二个参数"' "$work/out" && ! /usr/bin/grep -q '"热麦"' "$work/out" \
-  && ok "unknown callee / later argument is bare; trailing-closure Text is a key" || no "second arg (rc=$rc)"
+[ "$rc" = 1 ] && /usr/bin/grep -q 'bare zh-Hans literal.*"第二个参数"' "$work/out" \
+  && /usr/bin/grep -q 'bare zh-Hans literal.*"带标签的参数"' "$work/out" \
+  && ! /usr/bin/grep -q '"热麦"' "$work/out" \
+  && ok "unknown callee, later argument or labeled argument to an app view (StepTitle) is bare; trailing-closure Text is a key" || no "second arg (rc=$rc)"
 
 R="$(fixture multiline)"
 printf '%s\n' 'let m = """' '多行文字' '"""' >> "$R/Sources/App/View.swift"

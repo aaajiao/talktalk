@@ -15,11 +15,13 @@ private typealias Icon = SubtitleTokens.SettingsIcon
 /// direction sends text to OpenAI (`cloudEnabled` false) the right panel is at 40 %, shows
 /// `network.slash` and "未连接", and the arrow goes. `info`: the trailing ⓘ (the cloud notice);
 /// `link`: the right panel opens that page (chevron at its corner). VoiceOver reads one group
-/// named after both panels, "，未连接" appended when off.
+/// named after both panels, "，未连接" appended when off. At the largest text sizes the panels
+/// stack, the arrow pointing down.
 public struct DataBoundary: View {
     private let cloudEnabled: Bool
     private let info: [String]?
     private let link: NodeLink?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     static let height: Double = 56
 
@@ -43,7 +45,9 @@ public struct DataBoundary: View {
     }
 
     public var body: some View {
-        HStack(spacing: 12) {
+        let stacked = typeSize.foldsSettingsGraphics
+        let layout = stacked ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
+        layout {
             panel {
                 caption(Icon.thisMac, String(localized: "本机"), badge: Icon.locked)
                 FactChip(String(localized: "声音 · 声音档案 · 录音"), symbol: Icon.privacyPromise,
@@ -55,6 +59,7 @@ public struct DataBoundary: View {
                 Image(systemName: Icon.flowArrow)
                     .font(.system(size: Ladder.badge, weight: .semibold))
                     .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(stacked ? 90 : 0))
                     .accessibilityHidden(true)
             }
             cloudPanel

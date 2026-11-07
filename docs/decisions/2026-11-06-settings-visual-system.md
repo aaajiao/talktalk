@@ -219,7 +219,10 @@
   - `FlowGrid(lanes: [FlowLane], loop: LoopRow?)`，用 `Grid(horizontalSpacing: 0, verticalSpacing: 10)` 渲染，每条泳道一个 `GridRow`。
   - 节点用 `.frame(maxWidth: .infinity, minHeight: h, maxHeight: h)`。
   - 不使用 GeometryReader、PreferenceKey，也不用 fixedSize 包裹。
-  - 内容列在最小宽 630 下仍能放下（4×113）。如果用户把系统字号调到最大导致放不下，用 `ViewThatFits` 退化：gutter 收进节点的附件槽，宽度降为 0。
+  - 内容列在最小宽 630 下仍能放下（4×113）。
+  - 大字号退化（第 5 次提交实测裁决）：读环境值 `dynamicTypeSize ≥ .xxLarge`，不量几何，也不用 `ViewThatFits` 判断要不要折（它按理想宽度判断，正常字号下节点标题一截断就会误折）。折叠时 gutter 宽度降为 0，泳道标签移进该泳道首个节点的附件槽，VoiceOver 把泳道名读在节点名前；FactRow 一律竖排，DataBoundary 两栏改为上下排、箭头朝下。
+  - 原声 / 译音胶囊是安全词（§1.3），折叠后也不能被挤掉：槽里放不下时，键帽先缩成只画“右⌥”，仍放不下就只留胶囊（键帽的词仍在 AX 里）。泳道放两个胶囊（音频），或胶囊泳道的首节点带控件时，整张图保留 gutter 列不折。图标 gutter 在放不下时让位给节点自己的附件。折进节点的胶囊和键帽只是示意，点击穿过它们落到节点按钮上。
+  - Apple 文档写明 macOS 用户目前不能改 `dynamicTypeSize`（开发者论坛也这样答复），所以这套退化在 Mac 上只在视图自己设定 `.dynamicTypeSize(_:)` 时出现。PageHero、术语表网格、滑杆行和缩略图因此不另做大字号退化，只有本条和 §3.11 的 FactRow 有。
   - 模型定义：`FlowNodeModel { id, glyph: .symbol(String) | .appIcon(bundleID) | .step(n, StepState), title, state: NodeState, badge: SettingsStatus?, target: NodeTarget?, accessory: NodeAccessory?, satellite: FlowSatellite?, help, axValue }`。
   - 悬停和闪烁状态放在 `@Observable FlowInteraction { flashed: String? }`，由 SettingsNavigation 持有；0.8s 后用 Task 清空。
 
@@ -336,7 +339,7 @@
 - **尺寸**：胶囊高 20，内边距 h8，1pt 分隔色描边，`.quaternary` 底；11pt 图标 + 11pt caption。普通 chip ≤8 字；§5.4 列出的安全事实 ≤16 字。
 - **语气**：neutral（secondary）；cloud（`network` 图标，accent 字色）；warn（橙）；risk（红色合成字形 + 红字）。
 - 每个 chip 都必须有 `.help`（≤20 字）；AX 读完整句。
-- **FactRow**：HStack(spacing 6)，最多 4 个。宽度不够时用 `ViewThatFits(in: .horizontal) { HStack; VStack(alignment: .leading) }` 折到两行，不用自写 Layout。位置是主图正下方，或某个 Section 末行下方，缩进 +30。
+- **FactRow**：HStack(spacing 6)，最多 4 个。宽度不够时用 `ViewThatFits(in: .horizontal) { HStack; VStack(alignment: .leading) }` 折到两行，不用自写 Layout；大字号（§3.3）下一律竖排。我的声音的事实行把 ⓘ 和 Finder 按钮挂在第一个 chip 后（§7.7），不用 FactRow，但遵守同样的竖排规则。位置是主图正下方，或某个 Section 末行下方，缩进 +30。
 - **SwiftUI**：`public struct FactChip: View { symbol, text, tone, help }`，`public struct FactRow: View { chips }`。
 
 ### 3.12 ThumbnailChoice
@@ -1271,7 +1274,7 @@ FactRow：`[text.quote 仅文字]` `[mic.slash 不录音]` `[1.circle 仅本次]
 
 ### 9.3 风险与缓解
 
-1. **宽度。** 最小窗口下每列约 113pt。“Microsoft Teams”这类长名会截断为“图标 + 截断名”，全名放 help。节点标题允许缩放到 0.85，但永不换行，永不截断安全词。最大系统字号下用 ViewThatFits 收起 gutter。必须在 820 宽下截图验收。
+1. **宽度。** 最小窗口下每列约 113pt。“Microsoft Teams”这类长名会截断为“图标 + 截断名”，全名放 help。节点标题允许缩放到 0.85，但永不换行，永不截断安全词。大字号（环境值 `dynamicTypeSize ≥ .xxLarge`；macOS 用户改不了它，所以 Mac 上平时不出现）下 gutter 收进首节点，胶囊永不被挤掉（§3.3）。必须在 820 宽下截图验收。
 2. **布局循环。** Grid、固定高度和常量列都不做几何回传；卡片行、横幅、底栏放在 Form 滚动区外；TimelineView 只包住计时 Text。每次页面提交后，在 release 应用里反复滚动、切卡、切子页。
 3. **嵌套点击和 AX。** 严格执行 §3.3 的命中规则：有控件的节点只有 chevron 是链接。逐节点用 VoiceOver 验证。
 4. **可发现性。** 只有非安全信息才降级为 help。安全信息保留可见 chip，AX 写完整句。缩略图保留名称。建议请用户做一次“只看图能不能说出对方此刻听到什么”的实测。

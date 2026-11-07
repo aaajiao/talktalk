@@ -308,9 +308,9 @@ extension FlowGrid {
         let remoteSymbol = facts.mode == .phone ? SubtitleTokens.ConversationIcon.phoneRemote : Icon.remote
         let profile = state.voiceProfilePresent
         return FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
-            .node(FlowNode(String(localized: "说中文"), glyph: .symbol(Icon.me), accessory: .display {
-                Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle))
-            }, help: String(localized: "可夹英语"))),
+            .node(FlowNode(String(localized: "说中文"), glyph: .symbol(Icon.me),
+                           accessory: .keycap(TitlebarKey(action: String(localized: "开始翻译"), style: .idle)),
+                           help: String(localized: "可夹英语"))),
             .node(FlowNode(String(localized: "识别与翻译"), glyph: .symbol(Icon.translation),
                            link: links?.node(String(localized: "模型 · 文本翻译"), .translation, .model(.translation)))),
             .node(FlowNode(String(localized: "我的声音"), glyph: .symbol(Icon.myVoice),

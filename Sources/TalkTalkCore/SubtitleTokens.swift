@@ -522,7 +522,7 @@ public enum SubtitleTokens {
         public static let warming = "hourglass"
         /// Audio not yet confirmed (the meeting app's input is unchecked or not TalkTalk Mic yet).
         public static let audioUnconfirmed = "questionmark.bubble"
-        /// Part of the session runs on a fallback.
+        /// Part of the session runs on a fallback, or the last one ended on an error.
         public static let degraded = "exclamationmark.triangle"
         /// Repairs outside the risk itself (default-input leftovers).
         public static let needsAttention = "exclamationmark.bubble"

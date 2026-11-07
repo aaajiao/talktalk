@@ -95,14 +95,12 @@ struct SettingsNavigationBand: View {
         }
     }
 
-    /// OpenAI in use shows `network`; with OpenAI chosen but no key, a failed check or a retirement
-    /// notice, a warning. Nothing until the page's model has answered whether the key item exists
-    /// (a metadata query; the key is never read), so no false "无 key" flashes on first open.
+    /// The page's own facts (`TranslationFlowFacts.cardBadge`): OpenAI in use shows `network`;
+    /// OpenAI chosen without a key, a failed key check or a retirement notice, a warning. Nothing
+    /// until the page's model has answered whether the key item exists (a metadata query; the
+    /// key is never read).
     private var translationBadge: CardBadge? {
-        guard let model = translation.model, model.keyStateKnown else { return nil }
-        let prefs = model.preferences
-        guard prefs.cloudConsentGiven, prefs.listenCloudEnabled || prefs.speakCloudEnabled else { return nil }
-        guard model.hasKey else { return .status(.warn, String(localized: "无 key → Apple")) }
+        guard let model = translation.model else { return nil }
         let warning: String?
         if case .failed = model.verification {
             warning = String(localized: "key 未通过验证")
@@ -113,9 +111,7 @@ struct SettingsNavigationBand: View {
             case .keep, nil: warning = nil
             }
         }
-        guard let warning else { return .cloud(String(localized: "已启用 OpenAI")) }
-        // The one corner shows the warning; its help and VoiceOver still say text goes to OpenAI (§5.4).
-        return .status(.warn, String(localized: "\(warning) · 已启用 OpenAI"))
+        return model.flowFacts.cardBadge(warning: warning)
     }
 
     // MARK: 组件

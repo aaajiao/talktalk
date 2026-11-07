@@ -211,7 +211,7 @@ public final class DriverComponentModel {
             notice = [notice, line].compactMap { $0 }.joined(separator: "\n")
             result = SettingsProblem.mostSevere([result, SettingsProblem(.warn, sentence: line)]) ?? result
         } else {
-            try? installer.installation.record(report)
+            _ = try? installer.installation.record(report)
         }
         refresh()
     }
@@ -236,7 +236,7 @@ public final class DriverComponentModel {
         case .outdated(let i, let b): String(localized: "已安装 \(i)，App 带的是 \(b)：请更新")
         case .damaged(let why): String(localized: "有问题：\(why)")
         case .selfTestFailed(let v, let f):
-            String(localized: "已安装 \(v)，上次自检没通过（\(f.joined(separator: String(localized: "、")))）")
+            String(localized: "已安装 \(v)，上次自检没通过（\(DriverSelfTestReport.Check.Name.shortTitles(f))）")
         }
     }
 
@@ -250,17 +250,6 @@ public final class DriverComponentModel {
         case .failed(let m): String(localized: "没有成功：\(m)")
         case .cancelled: String(localized: "已取消。")
         default: nil
-        }
-    }
-
-    public static func checkTitle(_ n: DriverSelfTestReport.Check.Name) -> String {
-        switch n {
-        case .properties: String(localized: "设备属性")
-        case .loopback: String(localized: "回环（第 2 声道 → Test Mic）")
-        case .isolation: String(localized: "隔离（TalkTalk Mic 全零）")
-        case .replay: String(localized: "防重放")
-        case .gate: String(localized: "门禁（其他 App 写不进 Feed）")
-        case .meetingPath: String(localized: "会议声道（第 1 声道 → TalkTalk Mic）")
         }
     }
 }

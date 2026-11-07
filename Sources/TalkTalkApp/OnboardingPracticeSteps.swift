@@ -334,9 +334,8 @@ extension FlowGrid {
         return FlowGrid(String(localized: "试说路径"), lanes: [
             FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
                 .node(FlowNode(String(localized: "说中文"), glyph: .symbol(Icon.me), state: state == .listening ? .live : .ready,
-                               accessory: .display {
-                                   Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle))
-                               }, help: String(localized: "可夹英语；说完再点按右⌥结束"))),
+                               accessory: .keycap(TitlebarKey(action: String(localized: "开始翻译"), style: .idle)),
+                               help: String(localized: "可夹英语；说完再点按右⌥结束"))),
                 .node(FlowNode(String(localized: "翻译与合成"), glyph: .symbol(Icon.translation),
                                help: String(localized: "原文和译文显示在“我的发言”区"))),
                 .node(FlowNode(String(localized: "耳机听译音"), glyph: .symbol(Icon.headphones),

@@ -60,15 +60,28 @@ public struct NodeLink {
 public struct NodeAccessory {
     let content: AnyView
     let interactive: Bool
+    /// A narrower picture of the same thing (the keycap without its action words), tried only
+    /// when a folded lane capsule has to share the slot (§3.3, the largest text sizes).
+    var compact: AnyView?
 
     /// Controls (chips, switches, buttons): the node keeps only the chevron as its link.
     public static func controls<Content: View>(@ViewBuilder _ content: () -> Content) -> NodeAccessory {
         NodeAccessory(content: AnyView(content()), interactive: true)
     }
 
-    /// Something to read (a keycap, a value): the whole node can still be the link.
+    /// Something to read (a value): the whole node can still be the link.
     public static func display<Content: View>(@ViewBuilder _ content: () -> Content) -> NodeAccessory {
         NodeAccessory(content: AnyView(content()), interactive: false)
+    }
+
+    /// The 右⌥ keycap shown on a node (说中文): a picture of the key, not a button, so VoiceOver
+    /// reads its words ("右⌥ 开始翻译") as text and the node's help stays the tooltip. Its compact
+    /// form draws the key alone and still says the words.
+    @MainActor public static func keycap(_ key: TitlebarKey) -> NodeAccessory {
+        NodeAccessory(content: AnyView(Keycap(key: key).accessibilityRepresentation { Text(verbatim: key.spokenLabel) }),
+                      interactive: false,
+                      compact: AnyView(Keycap(key: key, showsAction: false)
+                          .accessibilityRepresentation { Text(verbatim: key.spokenLabel) }))
     }
 }
 
@@ -133,6 +146,13 @@ public struct FlowNode {
         return title
     }
 
+    /// The label of a lane's first node once the lane column folds into it (the largest text
+    /// sizes): "听对方，对方".
+    func accessibilityLabel(lane: String?) -> String {
+        guard let lane else { return accessibilityLabel }
+        return [lane, accessibilityLabel].joined(separator: String(localized: "，"))
+    }
+
     /// The state in words (§3.3): the step's progress, the risk, off or in use, and the badge's
     /// cause; "已就绪" when nothing else applies.
     var accessibilityValue: String {
@@ -183,6 +203,13 @@ public enum LaneLabel {
     case voice(VoiceState, caption: String? = nil)
     case voices([VoiceState])
     case symbol(String)
+
+    /// 原声 / 译音 are safety words (§1.3, §5.4): a folded lane label that is a capsule never
+    /// gives way in its first node; a symbol gives way to the node's own accessory.
+    var isCapsule: Bool {
+        if case .symbol = self { return false }
+        return true
+    }
 }
 
 /// One lane: a gutter and up to four node columns, left to right. `label` names the lane for
@@ -230,7 +257,9 @@ public struct LoopRow {
 /// 16 pt arrow columns between them; lanes 10 pt apart. Every node of a diagram has one fixed
 /// height: 60, or 82 once any node has an accessory. A node meaning the same thing sits in the
 /// same column in every diagram. VoiceOver gets one container named `label`; each lane begins
-/// with its gutter, announced as a heading.
+/// with its gutter, announced as a heading. At the largest text sizes the gutter column goes
+/// (width 0) and each lane's label moves into its first node's accessory slot (§3.3), unless a
+/// capsule could not stay visible there (`lanesFold`).
 public struct FlowGrid: View {
     nonisolated public static let columns = 4
     static let gutterWidth: Double = 64
@@ -246,7 +275,10 @@ public struct FlowGrid: View {
     private let label: String
     private let rows: [Row]
     private let showsGutter: Bool
-    private let nodeHeight: Double
+    /// The lane column may fold at the largest text sizes (`lanesFold`).
+    private let foldable: Bool
+    private let hasAccessory: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(_ label: String, lanes: [FlowLane], loop: LoopRow? = nil) {
         self.label = label
@@ -257,11 +289,35 @@ public struct FlowGrid: View {
         }
         self.rows = rows
         showsGutter = lanes.contains { $0.gutter != nil }
-        let hasAccessory = lanes.contains { lane in
+        foldable = Self.lanesFold(lanes)
+        hasAccessory = lanes.contains { lane in
             lane.cells.contains { if case let .node(node) = $0 { node.accessory != nil } else { false } }
         }
-        nodeHeight = hasAccessory ? Self.accessoryHeight : Self.compactHeight
     }
+
+    /// Whether the lane labels can move into the lanes' first nodes (§3.3). A capsule (原声 /
+    /// 译音) must stay visible (§1.3): two capsules (`voices`) are wider than a node's slot, and a
+    /// capsule cannot give way to its first node's controls, so then the diagram keeps its lane
+    /// column. One column serves every lane, so a single such lane keeps it for the whole grid.
+    static func lanesFold(_ lanes: [FlowLane]) -> Bool {
+        lanes.allSatisfy { lane in
+            switch lane.gutter {
+            case .voices?:
+                return false
+            case .voice?:
+                if case let .node(node) = lane.cell(0) { return node.accessory?.interactive != true }
+                return true
+            case .symbol?, nil:
+                return true
+            }
+        }
+    }
+
+    /// The largest text sizes: no gutter column; the lane labels sit in the nodes' accessory slot.
+    private var foldsGutter: Bool { showsGutter && foldable && typeSize.foldsSettingsGraphics }
+
+    /// 60, or 82 once any node has an accessory (a folded lane label counts).
+    private var nodeHeight: Double { hasAccessory || foldsGutter ? Self.accessoryHeight : Self.compactHeight }
 
     public var body: some View {
         Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 10) {
@@ -279,8 +335,8 @@ public struct FlowGrid: View {
 
     private func laneRow(_ lane: FlowLane) -> some View {
         GridRow(alignment: .top) {
-            if showsGutter { FlowGutter(lane: lane, height: nodeHeight) }
-            cell(lane, 0)
+            if showsGutter && !foldsGutter { FlowGutter(lane: lane, height: nodeHeight) }
+            cell(lane, 0, mark: foldsGutter ? lane : nil)
             arrow(lane, 0)
             cell(lane, 1)
             arrow(lane, 1)
@@ -290,16 +346,18 @@ public struct FlowGrid: View {
         }
     }
 
-    @ViewBuilder private func cell(_ lane: FlowLane, _ index: Int) -> some View {
+    /// `mark`: the lane whose label folds into this (first) cell.
+    @ViewBuilder private func cell(_ lane: FlowLane, _ index: Int, mark: FlowLane? = nil) -> some View {
         switch lane.cell(index) {
         case let .node(node):
-            FlowNodeView(node: node, height: nodeHeight)
+            FlowNodeView(node: node, height: nodeHeight, laneMark: mark)
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
         case .pass:
             Rectangle().fill(.tertiary).frame(height: 1)
                 .frame(minWidth: 0, maxWidth: .infinity)
                 .frame(height: nodeHeight)
                 .accessibilityHidden(true)
+                .overlay(alignment: .bottomLeading) { laneMark(mark) }
         case let .carry(voice, spoken):
             Rectangle().fill(.tertiary).frame(height: 1)
                 .frame(minWidth: 0, maxWidth: .infinity)
@@ -308,11 +366,24 @@ public struct FlowGrid: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(verbatim: spoken))
                 .help(spoken)
+                .overlay(alignment: .bottomLeading) { laneMark(mark) }
         case .empty:
             Color.clear
                 .frame(minWidth: 0, maxWidth: .infinity)
                 .frame(height: nodeHeight)
                 .accessibilityHidden(true)
+                .overlay(alignment: .bottomLeading) { laneMark(mark) }
+        }
+    }
+
+    /// A folded lane label in a cell without a node: it keeps the lane's VoiceOver heading.
+    @ViewBuilder private func laneMark(_ lane: FlowLane?) -> some View {
+        if let lane {
+            FlowLaneMark(lane: lane)
+                .padding(8)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: lane.label))
+                .accessibilityAddTraits(.isHeader)
         }
     }
 
@@ -335,7 +406,7 @@ public struct FlowGrid: View {
     /// help either (measured offscreen at 630 pt); spec §3.3 records the exception.
     private func loopRow(_ loop: LoopRow) -> some View {
         GridRow {
-            if showsGutter { Color.clear.frame(width: Self.gutterWidth, height: 22) }
+            if showsGutter && !foldsGutter { Color.clear.frame(width: Self.gutterWidth, height: 22) }
             Color.clear.frame(minWidth: 0, maxWidth: .infinity).frame(height: 22)
             Color.clear.frame(width: Self.arrowWidth, height: 22)
             FlowLoop(loop: loop)
@@ -374,6 +445,41 @@ private struct FlowGutter: View {
     }
 }
 
+/// A lane's label folded into its first node's 20 pt accessory slot (the largest text sizes,
+/// §3.3): the capsule or the 15 pt symbol. The gutter's caption ("默认") moves to the tooltip.
+/// In a node it is hidden from VoiceOver (the node's label names the lane); in a cell without a
+/// node it is the lane's heading. A picture, not a control: clicks go through to the node's
+/// button (the capsule's AppKit view would otherwise take them and do nothing).
+private struct FlowLaneMark: View {
+    let lane: FlowLane
+
+    var body: some View {
+        HStack(spacing: 3) {
+            switch lane.gutter {
+            case let .voice(voice, _)?:
+                VoiceCapsule(state: voice)
+            case let .voices(voices)?:
+                ForEach(voices.indices, id: \.self) { VoiceCapsule(state: voices[$0]) }
+            case let .symbol(symbol)?:
+                Image(systemName: symbol)
+                    .font(.system(size: Ladder.row, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+            case nil:
+                EmptyView()
+            }
+        }
+        .frame(height: Ladder.chipHeight)
+        .help(tooltip)
+        .allowsHitTesting(false)
+    }
+
+    private var tooltip: String {
+        if case let .voice(_, caption?)? = lane.gutter { return "\(lane.label) · \(caption)" }
+        return lane.label
+    }
+}
+
 /// The loop row's dashed capsule at its own width, left aligned in column 2 and overflowing to
 /// the right over the loop row's empty columns.
 private struct FlowLoop: View {
@@ -382,6 +488,7 @@ private struct FlowLoop: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: Icon.loopBack).font(.system(size: Ladder.badge, weight: .semibold))
+            // Shown, not pressed: the capsule's `spoken` is its VoiceOver label and tooltip.
             Keycap(key: loop.key)
             Image(systemName: Icon.stop).font(.system(size: Ladder.badge, weight: .regular))
             Text(verbatim: loop.text).font(.system(size: Ladder.badge)).lineLimit(1)
@@ -406,13 +513,15 @@ private struct FlowLoop: View {
 struct FlowNodeView: View {
     let node: FlowNode
     let height: Double
+    /// The lane whose label folds into this node's accessory slot (the largest text sizes).
+    var laneMark: FlowLane?
 
     var body: some View {
         VStack(spacing: 0) {
             if let link = node.link, node.isCardButton {
                 Button(action: link.action) { content(chevron: true) }
                     .buttonStyle(FlowNodeButtonStyle(state: node.state))
-                    .accessibilityLabel(Text(verbatim: node.accessibilityLabel))
+                    .accessibilityLabel(Text(verbatim: node.accessibilityLabel(lane: laneMark?.label)))
                     .accessibilityValue(Text(verbatim: node.accessibilityValue))
                     .accessibilityHint(Text(verbatim: link.destination))
                     .help(ifPresent: node.tooltip)
@@ -435,10 +544,10 @@ struct FlowNodeView: View {
         VStack(alignment: .leading, spacing: 3) {
             header
             Spacer(minLength: 0)
-            if let accessory = node.accessory {
-                accessory.content
+            if node.accessory != nil || laneMark != nil {
+                accessorySlot
                     .frame(height: Ladder.chipHeight)
-                    .padding(.trailing, node.link != nil && accessory.interactive ? 18 : 0)
+                    .padding(.trailing, node.link != nil && node.accessory?.interactive == true ? 18 : 0)
             }
         }
         .padding(8)
@@ -471,9 +580,39 @@ struct FlowNodeView: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: node.accessibilityLabel))
+        .accessibilityLabel(Text(verbatim: node.accessibilityLabel(lane: laneMark?.label)))
         .accessibilityValue(Text(verbatim: node.accessibilityValue))
     }
+
+    /// The accessory, after a folded lane label when there is one. Both share the slot when they
+    /// fit. Otherwise a capsule stays (§1.3) and the node's accessory, never a control here
+    /// (`FlowGrid.lanesFold`), narrows to its compact form and then gives way; a symbol gives way
+    /// to the node's own accessory. The node's VoiceOver label names the lane either way.
+    @ViewBuilder private var accessorySlot: some View {
+        switch (laneMark, node.accessory) {
+        case let (lane?, accessory?):
+            if lane.gutter?.isCapsule == true {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) { mark(lane); accessory.content }
+                    HStack(spacing: 4) { mark(lane); accessory.compact ?? accessory.content }
+                    mark(lane)
+                }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) { mark(lane); accessory.content }
+                    accessory.content
+                }
+            }
+        case let (lane?, nil):
+            mark(lane)
+        case let (nil, accessory?):
+            accessory.content
+        case (nil, nil):
+            EmptyView()
+        }
+    }
+
+    private func mark(_ lane: FlowLane) -> some View { FlowLaneMark(lane: lane).accessibilityHidden(true) }
 
     /// The link beside a node's controls: 24 × 24, always visible.
     @ViewBuilder private var chevronLink: some View {

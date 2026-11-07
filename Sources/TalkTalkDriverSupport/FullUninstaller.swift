@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Darwin
 import Foundation
 import Observation
@@ -29,14 +30,14 @@ public final class FullUninstaller {
         /// What the settings row shows while the step runs and when it stops there.
         public var title: String {
             switch self {
-            case .defaultInput: "还原系统默认输入"
-            case .driver: "卸载虚拟麦克风"
-            case .engine: "卸载引擎和模型"
-            case .files: "删除数据文件"
-            case .keychain: "删除钥匙串里的 OpenAI key"
-            case .preferences: "删除设置"
-            case .loginItem: "移除登录项"
-            case .privacy: "重置隐私权限"
+            case .defaultInput: String(localized: "还原系统默认输入")
+            case .driver: String(localized: "卸载虚拟麦克风")
+            case .engine: String(localized: "卸载引擎和模型")
+            case .files: String(localized: "删除数据文件")
+            case .keychain: String(localized: "删除钥匙串里的 OpenAI key")
+            case .preferences: String(localized: "删除设置")
+            case .loginItem: String(localized: "移除登录项")
+            case .privacy: String(localized: "重置隐私权限")
             }
         }
     }
@@ -140,7 +141,7 @@ public final class FullUninstaller {
     /// and delete the installer's TMPDIR and log under it).
     public var isEngineBusy: Bool { deps.engineBusy() }
 
-    public static let engineBusyText = "引擎正在安装或校验：请在“组件”页取消或等它结束，再完全卸载。"
+    public static let engineBusyText = String(localized: "引擎正在安装或校验：请在“组件”页取消或等它结束，再完全卸载。")
 
     /// The exact files and directories step 4 removes (only those that exist).
     public nonisolated static func fileTargets(home: URL, logs: URL, caches: URL) -> [URL] {
@@ -194,9 +195,9 @@ public final class FullUninstaller {
         phase = .running(.defaultInput)
         switch deps.restoreDefaultInput() {
         case .noRecord, .recordDropped: break
-        case .restored(let name): report.removed.append("默认输入已还原到 \(name)")
-        case .callOngoing: return finish(.blocked("通话还在进行：先离开会议，再完全卸载。"), report)
-        case .ownedByAnotherTalkTalk: return finish(.blocked("另一个 TalkTalk 正在管系统默认输入：先在那边结束会议模式。"), report)
+        case .restored(let name): report.removed.append(String(localized: "默认输入已还原到 \(name)"))
+        case .callOngoing: return finish(.blocked(String(localized: "通话还在进行：先离开会议，再完全卸载。")), report)
+        case .ownedByAnotherTalkTalk: return finish(.blocked(String(localized: "另一个 TalkTalk 正在管系统默认输入：先在那边结束会议模式。")), report)
         case .failed(let why): return finish(.failed(.defaultInput, why), report)
         }
 
@@ -206,9 +207,9 @@ public final class FullUninstaller {
             case nil:
                 break   // nothing on disk
             case .finished(.needsLogout):
-                report.removed.append("虚拟麦克风（注销或重启后完全移除）")
+                report.removed.append(String(localized: "虚拟麦克风（注销或重启后完全移除）"))
             case .finished:
-                report.removed.append("虚拟麦克风")
+                report.removed.append(String(localized: "虚拟麦克风"))
             case .cancelled:
                 return finish(.cancelled, report)
             case .blocked(let pre):
@@ -222,21 +223,21 @@ public final class FullUninstaller {
             // without Info.plist) is named, so "虚拟麦克风" removed is not the whole story.
             let left = deps.driverLeftovers()
             if !left.isEmpty {
-                report.problems.append("虚拟麦克风：\(left.map(\.path).joined(separator: "、")) 没有删除"
-                                       + "（认不出是 TalkTalk 的安装副本，卸载脚本不碰它；确定不要的话，在访达里删除，要管理员密码）")
+                let paths = left.map(\.path).joined(separator: String(localized: "、"))
+                report.problems.append(String(localized: "虚拟麦克风：\(paths) 没有删除（认不出是 TalkTalk 的安装副本，卸载脚本不碰它；确定不要的话，在访达里删除，要管理员密码）"))
             }
         }
 
         phase = .running(.engine)
         await beforeBegin?()
         let engineError = await deps.uninstallEngine()
-        if let engineError { report.problems.append("引擎：\(engineError)") }
+        if let engineError { report.problems.append(String(localized: "引擎：\(engineError)")) }
         // Checked whatever the script said: it exits 0 when it keeps something.
         let engineLeft = deps.engineLeftovers()
         for url in engineLeft {
-            report.problems.append("引擎：\(url.path) 没有删除（卸载以后还在；确定不要的话，在访达里删除）")
+            report.problems.append(String(localized: "引擎：\(url.path) 没有删除（卸载以后还在；确定不要的话，在访达里删除）"))
         }
-        if engineError == nil, engineLeft.isEmpty { report.removed.append("引擎和模型") }
+        if engineError == nil, engineLeft.isEmpty { report.removed.append(String(localized: "引擎和模型")) }
 
         phase = .running(.files)
         let fm = FileManager.default
@@ -245,7 +246,7 @@ public final class FullUninstaller {
                 try fm.removeItem(at: url)
                 report.removed.append(url.path)
             } catch {
-                report.problems.append("\(url.path)：\(error.localizedDescription)")
+                report.problems.append(String(localized: "\(url.path)：\(error.localizedDescription)"))
             }
         }
         // Application Support/TalkTalk itself, once nothing is left in it; otherwise each entry
@@ -257,19 +258,19 @@ public final class FullUninstaller {
                 for name in rest.sorted() {
                     let url = deps.home.appendingPathComponent(name)
                     if engineLeft.contains(where: { $0.path == url.path || $0.path.hasPrefix(url.path + "/") }) { continue }
-                    report.problems.append("\(url.path) 没有删除（不在完全卸载要删的清单里；确定不要的话，在访达里删除）")
+                    report.problems.append(String(localized: "\(url.path) 没有删除（不在完全卸载要删的清单里；确定不要的话，在访达里删除）"))
                 }
             }
         }
 
         phase = .running(.keychain)
-        if let err = deps.deleteKeychainItem() { report.problems.append("钥匙串：\(err)") }
+        if let err = deps.deleteKeychainItem() { report.problems.append(String(localized: "钥匙串：\(err)")) }
         phase = .running(.preferences)
         deps.removePreferences()
         phase = .running(.loginItem)
-        if let err = deps.unregisterLoginItem() { report.problems.append("登录项：\(err)") }
+        if let err = deps.unregisterLoginItem() { report.problems.append(String(localized: "登录项：\(err)")) }
         phase = .running(.privacy)
-        if let err = deps.resetPrivacy() { report.problems.append("隐私权限：\(err)") }
+        if let err = deps.resetPrivacy() { report.problems.append(String(localized: "隐私权限：\(err)")) }
         return finish(.finished(report), report)
     }
 
@@ -313,9 +314,9 @@ extension FullUninstaller.Dependencies {
             // A build without install-engine.sh cannot remove an installed engine: say so instead
             // of reporting it removed.
             guard let engine else {
-                return FileManager.default.fileExists(atPath: engineHome.path) ? "这个构建没有带 install-engine.sh，引擎没有卸载" : nil
+                return FileManager.default.fileExists(atPath: engineHome.path) ? String(localized: "这个构建没有带 install-engine.sh，引擎没有卸载") : nil
             }
-            guard !engine.state.isRunning else { return "引擎安装器正在运行，引擎没有卸载" }
+            guard !engine.state.isRunning else { return String(localized: "引擎安装器正在运行，引擎没有卸载") }
             let state: InstallerState = await engine.run(.uninstall)
             switch state {
             case .failed(let m): return m
@@ -379,9 +380,9 @@ public enum SysInputRestore {
             return .recordDropped
         }
         guard let target = SystemInputPlan.restoreTarget(original: record.original, devices: snap.devices) else {
-            return .failed("没有可还原的实体输入设备：接上一个麦克风再试")
+            return .failed(String(localized: "没有可还原的实体输入设备：接上一个麦克风再试"))
         }
-        guard hal.writeAndConfirm(uid: target.device.uid) else { return .failed("写默认输入失败（\(target.device.name)）") }
+        guard hal.writeAndConfirm(uid: target.device.uid) else { return .failed(String(localized: "写默认输入失败（\(target.device.name)）")) }
         store.delete()
         return .restored(target.device.name)
     }

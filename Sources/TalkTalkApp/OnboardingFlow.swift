@@ -866,9 +866,8 @@ private struct GrantRow: View {
         HStack(spacing: 8) {
             Label {
                 if let key {
-                    Keycap(key: key, decorative: true)
+                    Keycap(key: key)
                         .accessibilityHidden(true)
-                        .allowsHitTesting(false)
                 } else {
                     Text(verbatim: title)
                 }
@@ -1069,7 +1068,10 @@ private struct DriverStep: View {
                 ContentUnavailableView(String(localized: "此构建不可用"), systemImage: Icon.unavailable)
                     .help(problem)
             } else {
-                ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+                StatusGlyph(.busy)
+                    .help(String(localized: "正在读取组件"))
+                    .accessibilityLabel(String(localized: "正在读取组件"))
+                    .frame(maxWidth: .infinity)
                     .onAppear { page.load(); model.refreshDriver() }
             }
         } else {
@@ -1135,7 +1137,10 @@ private struct OpenAIStep: View {
                 }
             } else {
                 Section {
-                    ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+                    StatusGlyph(.busy)
+                        .help(String(localized: "正在读取翻译设置"))
+                        .accessibilityLabel(String(localized: "正在读取翻译设置"))
+                        .frame(maxWidth: .infinity)
                         .onAppear { model.translation.load() }
                 }
             }

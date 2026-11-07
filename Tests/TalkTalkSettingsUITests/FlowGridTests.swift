@@ -1,3 +1,5 @@
+import SwiftUI
+import TalkTalkCore
 import Testing
 @testable import TalkTalkSettingsUI
 
@@ -44,6 +46,36 @@ import Testing
     @Test func dataBoundarySaysWhatLeavesThisMac() {
         #expect(DataBoundary.spoken(cloudEnabled: true) == "本机：声音、声音档案、录音；OpenAI：文字、上下文、术语")
         #expect(DataBoundary.spoken(cloudEnabled: false).hasSuffix("，未连接"))
+    }
+
+    /// §3.3: only the largest text sizes fold the lane column, and the lane's first node then
+    /// says the lane before its own name.
+    @Test func largeTextFoldsTheLaneIntoItsFirstNode() {
+        #expect(!DynamicTypeSize.large.foldsSettingsGraphics && !DynamicTypeSize.xLarge.foldsSettingsGraphics)
+        #expect(DynamicTypeSize.xxLarge.foldsSettingsGraphics && DynamicTypeSize.accessibility3.foldsSettingsGraphics)
+        let node = FlowNode("对方", glyph: .symbol("person.wave.2"))
+        #expect(node.accessibilityLabel(lane: "听对方") == "听对方，对方")
+        #expect(node.accessibilityLabel(lane: nil) == "对方")
+    }
+
+    /// §1.3, §3.3: a folded 原声 / 译音 capsule never gives way. Two capsules in one lane, or a
+    /// capsule beside its first node's controls, keep the lane column for the whole diagram; a
+    /// capsule beside a picture (the keycap) folds and keeps the slot; a symbol always folds.
+    @MainActor @Test func capsuleLanesKeepTheirLabelWhenFolded() {
+        let original = VoiceState.resolve(audio: .original, scene: .meeting, phoneInputConfirmed: true)
+        let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
+        let plain = FlowCell.node(FlowNode("对方", glyph: .symbol("person.wave.2")))
+        let keycap = FlowCell.node(FlowNode("说中文", glyph: .symbol("person.crop.circle.fill"),
+                                            accessory: .keycap(TitlebarKey(action: "开始翻译", style: .idle))))
+        let controls = FlowCell.node(FlowNode("耳机", glyph: .symbol("headphones"), accessory: .controls { EmptyView() }))
+        let listen = FlowLane("听对方", gutter: .symbol("ear"), cells: [controls, plain])
+        #expect(FlowGrid.lanesFold([listen, FlowLane("我说话 · 译音", gutter: .voice(translating), cells: [keycap, plain])]))
+        #expect(FlowGrid.lanesFold([FlowLane("我说话 · 原声", gutter: .voice(original), cells: [.pass, plain])]))
+        #expect(!FlowGrid.lanesFold([listen, FlowLane("我说话", gutter: .voices([original, translating]), cells: [plain])]))
+        #expect(!FlowGrid.lanesFold([FlowLane("译音", gutter: .voice(translating), cells: [controls, plain])]))
+        // Only the capsule keeps its place in the slot; the keycap has a narrower form to try first.
+        #expect(LaneLabel.voice(original).isCapsule && LaneLabel.voices([original]).isCapsule && !LaneLabel.symbol("ear").isCapsule)
+        #expect(NodeAccessory.keycap(TitlebarKey(action: "开始翻译", style: .idle)).compact != nil)
     }
 
     @Test func arrowsJoinOnlyNeighbouringContent() {

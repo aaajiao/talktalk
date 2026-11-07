@@ -228,13 +228,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             // The window left in one step; a failure end stays here until the next start.
             attention.append(detailItem(HUDLine(String(localized: "\(mode.displayTitle)因错误已结束"), .yellow,
                                                 detail: String(localized: "字幕识别或发言链路出错，已自动结束。可重新开始。"),
-                                                symbol: "exclamationmark.triangle"),
+                                                symbol: SubtitleTokens.MenuIcon.degraded),
                                         actionTitle: String(localized: "查看当前场景…"), action: #selector(openCurrentScene),
                                         actionSymbol: mode.sceneSymbol))
         }
         if let apple = state.appleCheck {
             attention.append(detailItem(HUDLine(String(localized: "Apple 资源待配置"), .yellow,
-                                                detail: apple, symbol: "shippingbox"),
+                                                detail: apple, symbol: SubtitleTokens.SettingsIcon.Page.components),
                                         actionTitle: String(localized: "打开使用引导…"), action: #selector(openOnboarding),
                                         actionSymbol: SubtitleTokens.MenuIcon.onboarding))
         }
@@ -327,7 +327,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         var running: [NSMenuItem] = []
         if let asr = state.listenASRStatus {
-            running.append(detailItem(HUDLine(String(localized: "语音识别"), detail: asr, symbol: "waveform"),
+            running.append(detailItem(HUDLine(String(localized: "语音识别"), detail: asr, symbol: SubtitleTokens.SettingsIcon.recognition),
                                       actionTitle: String(localized: "识别与模型设置…"), action: #selector(openModels),
                                       actionSymbol: SettingsSection.translation.symbol))
         }
@@ -340,7 +340,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             default: title = String(localized: "字幕翻译：Apple 备用"); style = .yellow
             }
             running.append(detailItem(HUDLine(title, style, detail: translation.menuText(offline: state.listenOffline),
-                                              symbol: "character.bubble"),
+                                              symbol: SubtitleTokens.SettingsIcon.translation),
                                       actionTitle: String(localized: "翻译与模型设置…"), action: #selector(openModels),
                                       actionSymbol: SettingsSection.translation.symbol))
         }

@@ -330,7 +330,7 @@ public final class KeycapActionView: TitlebarControl {
             keyLabel.textColor = SubtitleStyle.white(0.85)
         }
         // The glyph replaces only the drawn text: VoiceOver and the tooltip keep the words.
-        let spoken = [next.key, next.action].compactMap { $0 }.joined(separator: " ")
+        let spoken = next.spokenLabel
         setAccessibilityLabel(spoken)
         setAccessibilityHelp(String(localized: "点按右侧 Option 键开始或结束翻译；点此查看按键说明。"))
         toolTip = spoken

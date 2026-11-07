@@ -1,3 +1,5 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
+import AppKit
 import Foundation
 import TalkTalkAudio
 import TalkTalkCore
@@ -11,17 +13,17 @@ public struct DriverPreflight: Sendable, Equatable {
         case meetingModeOn
         /// Meeting processes doing audio IO (names of the apps).
         case meetingInProgress([String])
-        /// Someone has IO running on TalkTalk Mic (bundle ids or PIDs).
+        /// Someone has IO running on TalkTalk Mic (app names, "pid N" when there is none).
         case micInUse([String])
         /// `sysinput-restore.json` exists: the default input has not been put back yet.
         case restoreRecordPresent
 
         public var text: String {
             switch self {
-            case .meetingModeOn: "先结束会议模式。"
-            case .meetingInProgress(let apps): "先离开会议（\(apps.joined(separator: "、")) 正在通话）。"
-            case .micInUse(let who): "TalkTalk Mic 正被使用（\(who.joined(separator: "、"))），先离开会议。"
-            case .restoreRecordPresent: "先结束会议模式，等系统默认输入还原。"
+            case .meetingModeOn: String(localized: "先结束会议模式。")
+            case .meetingInProgress(let apps): String(localized: "先离开会议（\(DriverPreflight.names(apps)) 正在通话）。")
+            case .micInUse(let who): String(localized: "TalkTalk Mic 正被使用（\(DriverPreflight.names(who))），先离开会议。")
+            case .restoreRecordPresent: String(localized: "先结束会议模式，等系统默认输入还原。")
             }
         }
     }
@@ -33,7 +35,7 @@ public struct DriverPreflight: Sendable, Equatable {
         public var text: String {
             switch self {
             case .audioWillStop(let apps):
-                "重启音频服务会让所有 App 的声音中断约 1–2 秒，包括 \(apps.joined(separator: "、")) 正在播放的内容。"
+                String(localized: "重启音频服务会让所有 App 的声音中断约 1–2 秒，包括 \(DriverPreflight.names(apps)) 正在播放的内容。")
             }
         }
     }
@@ -58,10 +60,13 @@ public struct DriverPreflight: Sendable, Equatable {
         public var restoreRecordExists: Bool
         public var processes: [AudioProcessInfo]
         public var ownPID: Int32
+        /// The running apps' own names by pid (`NSRunningApplication.localizedName`), for the
+        /// TalkTalk Mic users that are no known meeting app.
+        public var appNames: [Int32: String]
 
         public init(meetingModeOn: Bool = false, meetings: [MeetingCandidate] = [], mic: DriverDeviceInfo? = nil,
                     micUsers: [DriverDiagnostics.Client]? = [], restoreRecordExists: Bool = false,
-                    processes: [AudioProcessInfo] = [], ownPID: Int32 = getpid()) {
+                    processes: [AudioProcessInfo] = [], ownPID: Int32 = getpid(), appNames: [Int32: String] = [:]) {
             self.meetingModeOn = meetingModeOn
             self.meetings = meetings
             self.mic = mic
@@ -69,15 +74,22 @@ public struct DriverPreflight: Sendable, Equatable {
             self.restoreRecordExists = restoreRecordExists
             self.processes = processes
             self.ownPID = ownPID
+            self.appNames = appNames
         }
 
         public static func current(meetingModeOn: Bool, hal: any DriverHAL = CoreAudioDriverHAL(),
                                    resolver: MeetingSourceResolver = MeetingSourceResolver(),
                                    sysinput: SysInputPaths = .standard()) -> Inputs {
             let processes = (try? AudioProcessList.current()) ?? []
+            let micUsers = hal.diagnostics()?.micUsers
+            var names: [Int32: String] = [:]
+            for user in micUsers ?? [] {
+                names[user.pid] = NSRunningApplication(processIdentifier: user.pid)?.localizedName
+            }
             return Inputs(meetingModeOn: meetingModeOn, meetings: resolver.candidates(processes),
-                          mic: hal.device(uid: DriverIdentity.micUID), micUsers: hal.diagnostics()?.micUsers,
-                          restoreRecordExists: SysInputRecordStore(paths: sysinput).exists, processes: processes)
+                          mic: hal.device(uid: DriverIdentity.micUID), micUsers: micUsers,
+                          restoreRecordExists: SysInputRecordStore(paths: sysinput).exists, processes: processes,
+                          appNames: names)
         }
     }
 
@@ -88,18 +100,32 @@ public struct DriverPreflight: Sendable, Equatable {
         if !active.isEmpty { blockers.append(.meetingInProgress(Array(Set(active)).sorted())) }
         if let all = i.micUsers {
             let users = all.filter { $0.pid != i.ownPID }
-            if !users.isEmpty { blockers.append(.micInUse(users.map { $0.bundleID ?? "pid \($0.pid)" }.uniqued())) }
+            if !users.isEmpty {
+                blockers.append(.micInUse(users.map { name(pid: $0.pid, bundleID: $0.bundleID, i.appNames) }.uniqued()))
+            }
         } else if i.mic?.isRunningSomewhere == true {
-            blockers.append(.micInUse(["未知 App"]))
+            blockers.append(.micInUse([String(localized: "未知 App")]))
         }
         if i.restoreRecordExists { blockers.append(.restoreRecordPresent) }
 
         var warnings: [Warning] = []
         let playing = i.processes.filter { $0.isRunningOutput && $0.pid != i.ownPID }
-            .map { $0.bundleID.map(Self.displayName) ?? "pid \($0.pid)" }.uniqued()
+            .map { name(pid: $0.pid, bundleID: $0.bundleID, [:]) }.uniqued()
         if !playing.isEmpty { warnings.append(.audioWillStop(playing)) }
         return DriverPreflight(blockers: blockers, warnings: warnings)
     }
+
+    /// An app as the blockers and warnings name it: the meeting app's name (as the meeting
+    /// blocker says it), else the app's own name, else its bundle id's last part, else "pid N".
+    static func name(pid: Int32, bundleID: String?, _ appNames: [Int32: String]) -> String {
+        if let bundleID, let app = MeetingApp.named(bundleID) { return app.name }
+        if let own = appNames[pid] { return own }
+        if let bundleID { return displayName(bundleID) }
+        return String(localized: "pid \(pid)")
+    }
+
+    /// App names in a sentence: "Zoom、Teams".
+    static func names(_ apps: [String]) -> String { apps.joined(separator: String(localized: "、")) }
 
     /// The bundle id's last component, capitalised ("com.example.readread" → "Readread"), so the
     /// warning names apps without reading any other app's files.

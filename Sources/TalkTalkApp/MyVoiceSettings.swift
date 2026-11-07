@@ -251,6 +251,7 @@ final class MyVoiceModel {
 struct MyVoiceSettingsView: View {
     // No @State: the CLT toolchain has no SwiftUIMacros plugin, so view state lives in the model.
     @Bindable var model: MyVoiceModel
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private typealias Icon = SubtitleTokens.SettingsIcon
 
@@ -337,12 +338,20 @@ struct MyVoiceSettingsView: View {
         }
     }
 
-    /// The safety facts (§5.4): this Mac only, with the ⓘ and the folder; playback stays on this
-    /// Mac; the system voice while there is no profile. Stacks when the row does not fit.
+    /// The safety facts (§5.4): this Mac only, with the ⓘ and the folder beside that chip (§7.7,
+    /// so not `FactRow`, whose ⓘ ends the row); playback stays on this Mac; the system voice
+    /// while there is no profile. Stacks when the row does not fit and, like `FactRow`, always
+    /// at the largest text sizes.
     private var facts: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) { factItems }
-            VStack(alignment: .leading, spacing: 6) { factItems }
+        Group {
+            if typeSize.foldsSettingsGraphics {
+                VStack(alignment: .leading, spacing: 6) { factItems }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) { factItems }
+                    VStack(alignment: .leading, spacing: 6) { factItems }
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

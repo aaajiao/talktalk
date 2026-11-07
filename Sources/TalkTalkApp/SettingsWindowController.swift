@@ -453,7 +453,10 @@ struct TranslationPageView: View {
                                        systemImage: SubtitleTokens.SettingsIcon.unavailable)
                     .help(problem)
             } else {
-                ProgressView()
+                StatusGlyph(.busy)
+                    .help(String(localized: "正在读取翻译设置"))
+                    .accessibilityLabel(String(localized: "正在读取翻译设置"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .onAppear { page.load() }

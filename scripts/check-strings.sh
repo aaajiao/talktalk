@@ -10,8 +10,9 @@
 #   1. the catalog is valid JSON with "sourceLanguage": "zh-Hans";
 #   2. every localized literal is a key in the catalog: `String(localized: "…")`, and the first
 #      argument of SwiftUI's LocalizedStringKey initializers (Text, Button, Toggle, Label, Picker,
-#      LabeledContent, Section, Menu, alert, confirmationDialog, help, navigationTitle) and of
-#      this app's own views that take a LocalizedStringKey (SettingsNote, StepTitle, GrantRow);
+#      LabeledContent, Section, Menu, DisclosureGroup, ProgressView, alert, confirmationDialog,
+#      help, navigationTitle). The app's own views take already-localized Strings, so a literal
+#      passed to one of them (even as `title:`) is bare;
 #   3. no literal containing CJK text outside those (a bare "中文" in a marked file is an
 #      error; `Text(verbatim:)` is for data, not for text). `// l10n-ignore` at the end of a line
 #      exempts that line;
@@ -49,16 +50,13 @@ MARKER = "// l10n: zh-Hans (scripts/check-strings.sh)"
 CATALOG = os.path.join(root, "Resources", "Localizable.xcstrings")
 SHORT_LIMITS = {"titlebarLabel": 10, "noticeLabel": 8}
 KEY_CALLEES = {"Text", "Button", "Toggle", "Label", "Picker", "LabeledContent", "Section", "Menu", "DisclosureGroup", "ProgressView",
-               "alert", "confirmationDialog", "help", "navigationTitle",
-               "SettingsNote", "StepTitle", "GrantRow", "OnboardingCard"} | set(SHORT_LIMITS)
+               "alert", "confirmationDialog", "help", "navigationTitle"} | set(SHORT_LIMITS)
 CJK_CHAR = re.compile("[㐀-鿿豈-﫿]")
 LATIN_RUN = re.compile("[A-Za-z0-9]+")
 
 def short_units(k):
     k = SPEC.sub("X", k)
     return len(CJK_CHAR.findall(k)) + len(LATIN_RUN.findall(CJK_CHAR.sub(" ", k)))
-# Labels whose literal is a LocalizedStringKey in the views above (first unlabeled argument too).
-KEY_LABELS = {"title", "note", "actionTitle"}
 CJK = re.compile("[　-〿㐀-鿿豈-﫿＀-￯]")
 SPEC = re.compile(r"%(?:\d+\$)?(?:@|lld|ld|d|lf|f)")
 
@@ -138,7 +136,7 @@ def scan(path, text, line=1, ignore_lines=None):
             localized = False
             if callee == "String" and label == "localized":
                 localized = True
-            elif callee in KEY_CALLEES and (prev == "(" or (label in KEY_LABELS and prev == ":")):
+            elif callee in KEY_CALLEES and prev == "(":
                 localized = True
             if multi:
                 localized = False

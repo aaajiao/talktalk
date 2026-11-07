@@ -96,7 +96,9 @@ import Testing
             .init(.gate, passed: nil, detail: "feedprobe is not in this build"),
         ])
         #expect(!noGate.passed && !noGate.isConclusive)
-        #expect(noGate.incompleteText == "跳过：gate 没有跑（feedprobe is not in this build）")
+        #expect(noGate.incompleteText == "跳过：门禁没有跑（feedprobe is not in this build）")
+        // stored names read as words; one this build does not know stays as stored
+        #expect(DriverSelfTestReport.Check.Name.shortTitles(["loopback", "isolation", "later"]) == "回环、隔离、later")
         #expect(try i.record(noGate) == false)
 
         // isolation and meetingPath may be skipped: a pass, and it replaces the failure
@@ -157,7 +159,7 @@ import Testing
         guard case .damaged(let r) = installation(t4, hal: FakeDriverHAL(loaded: "9.9.9")).check().state else {
             Issue.record("loaded without files"); return
         }
-        #expect(r.contains("restart"))
+        #expect(r.contains("重启音频服务"))
     }
 
     @Test func recordRoundTripIs0600() throws {

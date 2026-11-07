@@ -149,6 +149,20 @@ public struct TranslationFlowFacts: Sendable, Equatable {
     /// The page's one problem line: warn before waiting.
     public var problem: SettingsProblem? { SettingsProblem.mostSevere(TranslationDirection.allCases.map(badge)) }
 
+    /// The 文本翻译 card's corner (§7.8), from the facts the page draws: the page's warning
+    /// ("无 key → Apple"); else `network` while text goes to OpenAI (the running session's
+    /// directions count, as in DataBoundary), turned into a warning by `warning` (a failed key
+    /// check, a retired model). Nothing before the key item is known (no false "无 key" on
+    /// first open), when nothing leaves this Mac, or for "下次开始生效" (the page says it).
+    public func cardBadge(warning: String?) -> CardBadge? {
+        guard keyStateKnown else { return nil }
+        if let problem, problem.status == .warn { return .status(.warn, problem.text) }
+        guard cloudConnected else { return nil }
+        guard let warning else { return .cloud(String(localized: "已启用 OpenAI")) }
+        // The one corner shows the warning; its help and VoiceOver still say text goes to OpenAI (§5.4).
+        return .status(.warn, String(localized: "\(warning) · 已启用 OpenAI"))
+    }
+
     /// The switch's tooltip: what it does, or, while it is off and cannot be turned on, what it
     /// waits for.
     public func switchHelp(_ direction: TranslationDirection) -> String {

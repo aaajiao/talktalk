@@ -127,10 +127,11 @@ struct ComponentsSettingsView: View {
             ContentUnavailableView(String(localized: "此构建不可用"), systemImage: Icon.unavailable)
                 .help(problem)
         } else {
-            ProgressView()
-                .controlSize(.small)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // §7.11: the busy glyph, not a sentence.
+            StatusGlyph(.busy)
+                .help(String(localized: "正在读取组件"))
                 .accessibilityLabel(String(localized: "正在读取组件"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

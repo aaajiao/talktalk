@@ -256,7 +256,7 @@ public struct DriverComponentRows: View {
                         let status: SettingsStatus = check.passed.map { $0 ? .ok : .failed } ?? .pending
                         let word = check.passed.map { $0 ? String(localized: "通过") : String(localized: "没通过") }
                             ?? String(localized: "跳过")
-                        let title = DriverComponentModel.checkTitle(check.name)
+                        let title = check.name.title
                         HStack(spacing: 6) {
                             StatusGlyph(status)
                             Text(verbatim: title)
@@ -275,7 +275,7 @@ public struct DriverComponentRows: View {
                         Text(verbatim: date).foregroundStyle(.secondary).monospacedDigit()
                     }
                     .padding(.leading, Ladder.rowTextInset)
-                    .help(stored.failed.isEmpty ? word : stored.failed.joined(separator: String(localized: "、")))
+                    .help(stored.failed.isEmpty ? word : DriverSelfTestReport.Check.Name.shortTitles(stored.failed))
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Text(String(localized: "上次自检\(word)，\(date)")))
                 }

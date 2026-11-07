@@ -6,12 +6,10 @@ import TalkTalkDriverSupport
 import TalkTalkSession
 import TalkTalkSettingsUI
 
-/// UserDefaults keys of the settings pages. The old passthrough key/switch/cue preferences
-/// remain readable for compatibility, but are no longer user-facing meeting controls.
+/// UserDefaults keys of the settings pages. The cue keys keep their old `speak.passthrough.`
+/// names so existing values still apply.
 enum UIPrefKey {
     static let announcementEnabled = "speak.announcement.enabled" // §16 决定 6: default on
-    static let passthroughEnabled = "speak.passthrough.enabled"
-    static let passthroughKey = "speak.passthrough.key"          // PassthroughKeyChoice raw value
     static let micUID = "audio.micUID"                           // nil: MicPolicy's choice
     static let hotMic = "speak.hotMic"                           // §16 决定 3: default on
     static let monitor = "speak.monitor"                         // §3.4 自听: default off
@@ -22,18 +20,6 @@ enum UIPrefKey {
     static let headphoneNames = "audio.headphoneNames"           // [uid: name] for the list only
 }
 
-/// Legacy preference decoding only; normal meetings now use default original audio and right ⌥.
-enum PassthroughKeyChoice: String, CaseIterable, Identifiable {
-    case rightCommand, rightControl
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .rightCommand: String(localized: "右⌘")
-        case .rightControl: String(localized: "右⌃（外接键盘）")
-        }
-    }
-}
-
 @MainActor
 @Observable
 final class GeneralSettingsModel {
@@ -42,12 +28,6 @@ final class GeneralSettingsModel {
 
     var announcementEnabled: Bool {
         didSet { defaults.set(announcementEnabled, forKey: UIPrefKey.announcementEnabled) }
-    }
-    var passthroughEnabled: Bool {
-        didSet { defaults.set(passthroughEnabled, forKey: UIPrefKey.passthroughEnabled) }
-    }
-    var passthroughKey: PassthroughKeyChoice {
-        didSet { defaults.set(passthroughKey.rawValue, forKey: UIPrefKey.passthroughKey) }
     }
     private(set) var autoEndNotificationsEnabled: Bool
     private(set) var notificationAuthorization: MeetingAutoEndNotification.Authorization = .checking
@@ -65,8 +45,6 @@ final class GeneralSettingsModel {
         self.defaults = defaults
         self.launch = launch
         announcementEnabled = defaults.object(forKey: UIPrefKey.announcementEnabled) as? Bool ?? true
-        passthroughEnabled = defaults.object(forKey: UIPrefKey.passthroughEnabled) as? Bool ?? true
-        passthroughKey = PassthroughKeyChoice(rawValue: defaults.string(forKey: UIPrefKey.passthroughKey) ?? "") ?? .rightCommand
         autoEndNotificationsEnabled = MeetingAutoEndNotification.isEnabled(defaults: defaults)
     }
 

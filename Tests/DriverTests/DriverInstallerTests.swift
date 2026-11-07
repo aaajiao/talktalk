@@ -272,8 +272,14 @@ final class CountingRunner: DriverScriptRunner, @unchecked Sendable {
                                               ioRunning: true)]
         let r = DriverPreflight.evaluate(.init(meetingModeOn: true, meetings: [zoom, idleChrome], micUsers: users,
                                                restoreRecordExists: true, ownPID: 1))
-        #expect(r.blockers == [.meetingModeOn, .meetingInProgress(["Zoom"]), .micInUse(["us.zoom.xos"]), .restoreRecordPresent])
+        #expect(r.blockers == [.meetingModeOn, .meetingInProgress(["Zoom"]), .micInUse(["Zoom"]), .restoreRecordPresent])
         #expect(!r.canProceed)
+        // other users by their own name, their bundle id's last part, or their pid
+        let others = [DriverDiagnostics.Client(device: "mic", pid: 20, bundleID: "com.example.recorder", allowed: true, ioRunning: true),
+                      DriverDiagnostics.Client(device: "mic", pid: 21, bundleID: "com.example.tool", allowed: true, ioRunning: true),
+                      DriverDiagnostics.Client(device: "mic", pid: 22, bundleID: nil, allowed: true, ioRunning: true)]
+        let named = DriverPreflight.evaluate(.init(micUsers: others, ownPID: 1, appNames: [20: "Recorder Pro"]))
+        #expect(named.blockers == [.micInUse(["Recorder Pro", "Tool", "pid 22"])])
     }
 
     @Test func unknownMicUseFallsBackToIsRunningSomewhere() {
