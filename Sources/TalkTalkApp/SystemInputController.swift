@@ -57,7 +57,9 @@ final class SystemInputController {
             self?.onFactsChange?()
             self?.onboardingUpdate?(s)
         }
-        route.onState = { [weak self] _ in
+        route.onState = { [weak self] s in
+            // Settings › 音频's 耳机 node: 外放 now (nil once the probe stops with the session).
+            AppUIModels.shared.audio.speakerMode = s.speakerMode
             self?.onStatusChange?()
             self?.onFactsChange?()
             self?.retryGuardCue()

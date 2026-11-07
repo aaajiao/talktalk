@@ -131,7 +131,8 @@ final class SettingsNavigation {
     func pageAppeared() {
         pageScrollOffset = 0
         guard let offset = pendingScrollRestore else {
-            scrollPage { $0.scrollTo(edge: .top) }
+            // A flow link's anchor: the page scrolls to that section itself (`takeAnchor`).
+            if pendingAnchor == nil { scrollPage { $0.scrollTo(edge: .top) } }
             return
         }
         pendingScrollRestore = nil
@@ -343,7 +344,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         foregroundGeneration &+= 1   // a queued foreground request must not reopen this window
         // Leaving mid-take releases the microphone and drops the staging directory (§9.2 step 8).
         voice.endRecording()
-        AppUIModels.shared.audio.calibration.cancel()
+        AppUIModels.shared.audio.calibration.reset()
         AppActivation.windowWillClose(notification.object as? NSWindow)   // .accessory only if no other window
     }
 }
@@ -401,13 +402,13 @@ struct SettingsView: View {
         case .general:
             GeneralSettingsView(model: AppUIModels.shared.general, driver: driver, navigation: navigation)
         case .audio:
-            AudioSettingsView(model: AppUIModels.shared.audio, meetingActive: state.meetingActive, navigation: navigation)
+            AudioSettingsView(model: AppUIModels.shared.audio, state: state, driver: driver, navigation: navigation)
         case .components:
             ComponentsSettingsView(navigation: navigation, engine: AppUIModels.shared.engine, driver: driver)
         case .glossary:
             GlossarySettingsView(model: glossary, translation: translation)
         case .privacy:
-            DiagnosticsView(model: PrivacySettings.shared, navigation: navigation)
+            DiagnosticsView(model: PrivacySettings.shared, navigation: navigation, voice: voice)
         }
     }
 }

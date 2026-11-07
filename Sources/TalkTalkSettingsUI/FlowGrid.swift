@@ -169,14 +169,19 @@ public enum FlowCell {
     case node(FlowNode)
     /// A short lane passes this column: a 1 pt line through it.
     case pass
+    /// The same line carrying the capsule of what flows through it (音频: 译音 to the
+    /// headphones while 耳机译音 is on). `spoken` names it for VoiceOver.
+    case carry(VoiceState, spoken: String)
     /// Nothing in this column; the columns stay aligned with the other diagrams.
     case empty
 }
 
 /// The lane's gutter (§3.3 LaneLabel): the voice capsule (原声 / 译音, with a caption under it
-/// such as "默认") or a 15 pt symbol (`ear`: listening to the other party).
+/// such as "默认"), capsules stacked (音频: 原声 over 译音, both go the lane's way), or a 15 pt
+/// symbol (`ear`: listening to the other party).
 public enum LaneLabel {
     case voice(VoiceState, caption: String? = nil)
+    case voices([VoiceState])
     case symbol(String)
 }
 
@@ -295,6 +300,14 @@ public struct FlowGrid: View {
                 .frame(minWidth: 0, maxWidth: .infinity)
                 .frame(height: nodeHeight)
                 .accessibilityHidden(true)
+        case let .carry(voice, spoken):
+            Rectangle().fill(.tertiary).frame(height: 1)
+                .frame(minWidth: 0, maxWidth: .infinity)
+                .overlay { VoiceCapsule(state: voice) }
+                .frame(height: nodeHeight)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: spoken))
+                .help(spoken)
         case .empty:
             Color.clear
                 .frame(minWidth: 0, maxWidth: .infinity)
@@ -343,6 +356,8 @@ private struct FlowGutter: View {
                 if let caption {
                     Text(verbatim: caption).font(.caption2).foregroundStyle(.secondary)
                 }
+            case let .voices(voices)?:
+                ForEach(voices.indices, id: \.self) { VoiceCapsule(state: voices[$0]) }
             case let .symbol(symbol)?:
                 Image(systemName: symbol)
                     .font(.system(size: Ladder.row, weight: .regular))

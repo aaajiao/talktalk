@@ -1,4 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
+import AppKit
 import Foundation
 import Observation
 import SwiftUI
@@ -26,6 +27,12 @@ final class MyVoiceModel {
     /// 试听: which language is being prepared or played, and why it could not play.
     private(set) var auditioning: Lang?
     private(set) var auditionProblem: String?
+    /// 停止 was pressed: a play still being generated is skipped. Observed, so the button shows
+    /// play (disabled) at once instead of waiting for the generation to end.
+    private(set) var auditionStopped = false
+    /// The page has started a take by itself once this visit (no profile yet): 关闭 then lands on
+    /// the overview instead of starting another take. Reset when the page goes away.
+    @ObservationIgnored var autoBegan = false
     /// Whether the lifecycle's monitor output can play (read when the page appears and when the
     /// engine instance changes); false: 试听 is grayed out with the monitor's reason.
     private(set) var monitorAvailable = false
@@ -109,6 +116,7 @@ final class MyVoiceModel {
         let engine = engineHost?.engine()
         auditioning = lang
         auditionProblem = nil
+        auditionStopped = false
         Task {
             do {
                 if lifecycle.savedAudition == nil {
@@ -116,7 +124,7 @@ final class MyVoiceModel {
                     do { _ = try await lifecycle.audition() } catch { await engine?.enrollmentFinished(); throw error }
                     await engine?.enrollmentFinished()
                 }
-                try await lifecycle.play(lang)
+                if !auditionStopped { try await lifecycle.play(lang) }
             } catch let e as AuditionMonitorError {
                 auditionProblem = e.description
             } catch {
@@ -128,17 +136,40 @@ final class MyVoiceModel {
         }
     }
 
+    /// 停止 on the playing language: ends the playback (the play call returns normally), or
+    /// skips it while the audition is still being generated.
+    func stopAudition() {
+        guard auditioning != nil, let lifecycle else { return }
+        auditionStopped = true
+        Task { await lifecycle.monitor.stop() }
+    }
+
+    /// The folder button beside 仅本机 · 不上传.
+    func revealInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting([store.voiceURL])
+    }
+
     var engineAvailable: Bool { lifecycle?.engine != nil }
     var canAudition: Bool {
         engineAvailable && monitorAvailable && !installerRunning && !externalBusy() && auditioning == nil && !deleting
     }
-    /// Why 试听 is grayed out (nil while it can play or is playing).
-    var auditionBlockedNote: String? {
-        if externalBusy() { return String(localized: "自检正在运行，完成后可录制或试听。") }
-        if !engineAvailable { return String(localized: "引擎装好并就绪后可试听（经自听输出播到耳机，绝不进 TalkTalk Mic）。") }
-        if installerRunning { return String(localized: "引擎组件正在安装或修复，完成后再试听。") }
-        if !monitorAvailable { return monitorUnavailableReason ?? String(localized: "自听输出暂不可用") }
-        return nil
+
+    /// 我的声音's one problem line (§7.7): only the most severe. The monitor counts once it has
+    /// been read (its reason, not `monitorAvailable`, which is false until then).
+    var problem: SettingsProblem? {
+        let saved = profile != nil
+        return SettingsProblem.mostSevere([
+            externalBusy() ? SettingsProblem(.waiting, String(localized: "自检中")) : nil,
+            saved && !engineAvailable ? SettingsProblem(.waiting, String(localized: "引擎就绪后可试听"),
+                                                          help: String(localized: "试听经自听输出播到耳机，不进 TalkTalk Mic")) : nil,
+            installerRunning ? SettingsProblem(.waiting, String(localized: "组件安装中")) : nil,
+            saved && engineAvailable ? monitorUnavailableReason.map {
+                SettingsProblem(.warn, String(localized: "自听输出不可用"), help: $0)
+            } : nil,
+            auditionProblem.map { SettingsProblem(.warn, String(localized: "试听失败"), help: $0) },
+            profileUnreadable ? SettingsProblem(.warn, String(localized: "声音档案无法读取 · 请重录")) : nil,
+            recordingNote.map { SettingsProblem(.warn, String(localized: "引擎已切换 · 请重录"), help: $0) }
+        ])
     }
 
     // MARK: following the engine instance
@@ -211,23 +242,45 @@ final class MyVoiceModel {
     var recordingActive: Bool { enrollment?.phase.capturing ?? false }
 }
 
+
+/// Settings › 我的声音 (settings visual system §7.7). The page opens with its flow: 录中文 with
+/// the page's one primary action, the profile, and 试听 in English and German; then the one
+/// problem line and the safety facts, and last the red 删除声音档案…. Recording replaces the
+/// page with TalkTalkVoice's `EnrollmentView`. The profile's details are under 隐私与诊断 ›
+/// 故障检查 › 技术详情.
 struct MyVoiceSettingsView: View {
     // No @State: the CLT toolchain has no SwiftUIMacros plugin, so view state lives in the model.
     @Bindable var model: MyVoiceModel
 
+    private typealias Icon = SubtitleTokens.SettingsIcon
+
     var body: some View {
+        // One container around both branches: its onDisappear fires when the page goes away,
+        // not when recording and the overview replace each other.
+        ZStack {
+            content
+        }
+        .onDisappear { model.autoBegan = false }
+    }
+
+    @ViewBuilder private var content: some View {
         if let controller = model.enrollment {
-            VStack(alignment: .leading, spacing: 8) {
-                if let note = model.recordingNote {
-                    StatusLabel(note, .warn)
-                }
-                if model.saveBlocked {
-                    HStack {
-                        Label("引擎组件正在安装或修复，完成后再保存。", systemImage: "hourglass").foregroundStyle(.secondary)
-                        Spacer()
-                        // The flow below is held, its own 关闭 too: this one stays usable.
-                        Button("关闭") { model.endRecording() }
+            VStack(alignment: .leading, spacing: 0) {
+                if model.recordingNote != nil || model.saveBlocked {
+                    HStack(spacing: 8) {
+                        if let note = model.recordingNote {
+                            StatusLabel(String(localized: "引擎已切换 · 请重录"), .warn, help: note)
+                        }
+                        if model.saveBlocked {
+                            StatusLabel(String(localized: "组件安装中"), .waiting,
+                                        help: String(localized: "引擎组件正在安装或修复，完成后再保存"))
+                            Spacer(minLength: 8)
+                            // The flow below is held, its own 关闭 too: this one stays usable.
+                            Button("关闭") { model.endRecording() }
+                        }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
                 }
                 // While the installer runs nothing is saved (the take itself may finish).
                 EnrollmentView(controller: controller, onClose: { model.endRecording() })
@@ -239,139 +292,212 @@ struct MyVoiceSettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .onAppear {
                     model.refreshMonitor()
-                    // No profile yet: go straight to the script and the 开始 button.
-                    if !model.hasProfile && !model.profileUnreadable { model.beginRecording() }
+                    // No profile yet: go straight to the script and the 开始 button, once per
+                    // visit; 关闭 comes back here (录制, 未录制, 系统声音).
+                    if !model.autoBegan && !model.hasProfile && !model.profileUnreadable {
+                        model.autoBegan = true
+                        model.beginRecording()
+                    }
                 }
         }
     }
 
     private var overview: some View {
         Form {
-            // The window title names the pane; the page starts with what it does.
             Section {
-                Text("用你的声音朗读英语或德语译文。").foregroundStyle(.secondary)
-                SpeechFlow(steps: [(SubtitleTokens.SettingsIcon.physicalMic, String(localized: "录一段中文")),
-                                   (SubtitleTokens.SettingsIcon.myVoice, String(localized: "保存声音档案")),
-                                   (SubtitleTokens.SettingsIcon.headphones, String(localized: "听英语／德语"))])
+                VStack(alignment: .leading, spacing: 10) {
+                    FlowGrid.myVoice(model)
+                    if let problem = model.problem {
+                        StatusLabel(problem.text, problem.status, help: problem.help)
+                    }
+                    facts
+                }
+                .padding(.vertical, 4)
             }
-            Section {
-                if let note = model.recordingNote {
-                    StatusLabel(note, .warn)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let p = model.profile {
-                    profileSummary(p)
-                } else if model.profileUnreadable {
-                    StatusLabel(String(localized: "声音档案无法读取，请重新录制。"), .warn)
-                } else {
-                    Label("尚未创建声音档案", systemImage: "person.crop.circle.badge.plus")
-                    SettingsNote("读一遍固定的中文稿子即可创建。没有声音档案时，译音使用系统声音。")
-                }
-            } header: { Text("声音档案") }
-            if model.profile != nil {
+            if model.hasProfile {
                 Section {
-                    HStack(spacing: 12) {
-                        Button { model.audition(.en) } label: { Label("试听英语", systemImage: "play.fill") }
-                            .disabled(!model.canAudition)
-                        Button { model.audition(.de) } label: { Label("试听德语", systemImage: "play.fill") }
-                            .disabled(!model.canAudition)
-                        if model.auditioning != nil { ProgressView().controlSize(.small) }
+                    Button { model.confirmDelete = true } label: {
+                        // A disabled plain button dims its label itself.
+                        Label("删除声音档案…", systemImage: Icon.delete)
+                            .labelStyle(.settingsRowDestructive)
+                            .contentShape(Rectangle())
                     }
-                    Text(model.auditionBlockedNote ?? String(localized: "试听在耳机或当前播放设备中响起，不发送到会议。"))
-                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    if let problem = model.auditionProblem {
-                        StatusLabel(problem, .warn)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } header: { Text("听听效果") }
-            }
-            Section {
-                HStack {
-                    Button { model.beginRecording() } label: {
-                        Label(model.hasProfile ? String(localized: "重新录制") : String(localized: "开始录制"),
-                              systemImage: "mic.badge.plus")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.deleting || model.installerRunning || !model.canRecord)
-                    Spacer()
-                    if model.hasProfile {
-                        Button("删除声音档案…", role: .destructive) { model.confirmDelete = true }
-                            .disabled(model.deleting || !model.canRecord)
-                    }
-                }
-                if model.hasProfile { SettingsNote("重新录制时，旧档案会一直保留到新档案保存成功。") }
-                DisclosureGroup("存储与隐私") {
-                    SettingsNote("声音档案仅保存在这台 Mac，不上传，不进入备份或 Spotlight 索引。")
-                    Text(verbatim: "~/Library/Application Support/TalkTalk/voice/")
-                        .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                    .buttonStyle(.plain)
+                    .disabled(model.deleting || !model.canRecord)
                 }
             }
         }
         .formStyle(.grouped)
+        .labelStyle(.settingsRow)
         .confirmationDialog("删除我的声音？", isPresented: $model.confirmDelete) {
             Button("删除", role: .destructive) { model.deleteProfile() }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("参考音、稿子和声音缓存都会从这台 Mac 上删除。之后译音使用系统声音，直到重新录制。")
+            Text("参考音、稿子和声音缓存从这台 Mac 删除；之后译音用系统声音。")
         }
     }
 
-    private func profileSummary(_ p: VoiceProfile) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("声音档案已保存", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.headline)
-            LabeledContent("录制时间", value: Self.dateText(p.createdAt))
-            LabeledContent("试听检查") { StatusLabel(Self.auditionText(p), Self.auditionStatus(p)) }
-            DisclosureGroup("档案详情") {
-                VStack(spacing: 8) {
-                    LabeledContent("参考音", value: String(localized: "\(Self.decimal(p.durationSeconds, 1)) 秒"))
-                    LabeledContent("语速", value: String(localized: "\(Self.decimal(p.speakingRateCharsPerSecond, 1)) 字/秒"))
-                    LabeledContent("自动检查") {
-                        StatusLabel(Self.checksText(p), Self.warningCount(p) == 0 ? .ok : .warn)
-                    }
-                    LabeledContent("声音缓存") {
-                        p.conditioning == "built"
-                            ? StatusLabel(String(localized: "已建立"), .ok)
-                            : StatusLabel(String(localized: "引擎预热时建立"), .waiting)
-                    }
-                }
-                .font(.callout).padding(.top, 6)
+    /// The safety facts (§5.4): this Mac only, with the ⓘ and the folder; playback stays on this
+    /// Mac; the system voice while there is no profile. Stacks when the row does not fit.
+    private var facts: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) { factItems }
+            VStack(alignment: .leading, spacing: 6) { factItems }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private var factItems: some View {
+        HStack(spacing: 2) {
+            FactChip(String(localized: "仅本机 · 不上传"), symbol: Icon.privacyPromise,
+                     help: String(localized: "声音档案只保存在这台 Mac"))
+            InfoButton(topic: String(localized: "声音档案"),
+                       lines: [String(localized: "声音档案只保存在这台 Mac，不进备份与 Spotlight 索引。")])
+            if model.hasProfile {
+                IconButton(Icon.finder, help: String(localized: "在 Finder 中显示"),
+                           accessibilityLabel: String(localized: "在 Finder 中显示声音档案")) { model.revealInFinder() }
             }
         }
-    }
-
-    static func dateText(_ iso: String) -> String {
-        guard let d = ISO8601DateFormatter().date(from: iso) else { return iso }
-        return d.formatted(date: .abbreviated, time: .shortened)
-    }
-
-    /// The profile's audition state (passed / failed / pending_engine) and its numbers.
-    static func auditionText(_ p: VoiceProfile) -> String {
-        switch p.audition {
-        case "passed":
-            let sim = p.auditionResult?.clips.compactMap(\.similarity).min()
-            return sim.map { String(localized: "通过（音色相似度 \(Self.decimal($0, 2))）") } ?? String(localized: "通过")
-        case "failed": return String(localized: "没通过：请重录")
-        default: return String(localized: "待引擎（引擎就绪后生成）")
+        FactChip(String(localized: "本机播放"), symbol: Icon.thisMac, help: String(localized: "试听不发送到会议"))
+        // Not for an unreadable profile: that waits for recovery, never the system voice.
+        if !model.hasProfile {
+            FactChip(String(localized: "未录制时用系统声音"), symbol: Icon.speech, help: String(localized: "录制后译音用你的声音"))
         }
     }
+}
 
-    /// A fixed-precision number, as the previous "%.Nf" text.
-    static func decimal(_ value: Double, _ digits: Int) -> String { String(format: "%.\(digits)f", value) }
+/// 我的声音's graphic (§7.7): one lane from 录中文 to the profile to 试听.
+@MainActor
+extension FlowGrid {
+    static func myVoice(_ model: MyVoiceModel) -> FlowGrid {
+        typealias Icon = SubtitleTokens.SettingsIcon
+        let profile = model.profile
+        let busy = model.externalBusy()
+        let record = FlowNode(String(localized: "录中文"), glyph: .symbol(Icon.physicalMic), accessory: .controls {
+            Button { model.beginRecording() } label: {
+                Label(model.hasProfile ? String(localized: "重录") : String(localized: "录制"), systemImage: Icon.record)
+                    .labelStyle(.titleAndIcon)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(busy || model.deleting || model.installerRunning || !model.canRecord)
+            .help(model.hasProfile ? String(localized: "旧档案保留到新档案保存") : String(localized: "读一遍中文稿子"))
+        })
+        let state: (status: SettingsStatus, text: String) =
+            model.profileUnreadable ? (.warn, String(localized: "无法读取"))
+            : model.recordingNote != nil ? (.warn, String(localized: "引擎已切换 · 请重录"))
+            : profile != nil ? (.ok, String(localized: "已保存"))
+            : (.pending, String(localized: "未录制"))
+        let date = profile?.createdDate
+        let saved = FlowNode(String(localized: "声音档案"), glyph: .symbol(Icon.myVoice), badge: state.status,
+                             badgeReason: state.text,
+                             accessory: date.map { date in
+                                 .display {
+                                     Text(verbatim: VoiceProfile.shortDate(date))
+                                         .font(.caption2)
+                                         .foregroundStyle(.secondary)
+                                         .monospacedDigit()
+                                 }
+                             },
+                             satellite: profile == nil && !model.profileUnreadable
+                                 ? FlowSatellite(String(localized: "系统声音"), symbol: Icon.speech,
+                                                 help: String(localized: "未录制时用系统声音"), dashed: true)
+                                 : nil,
+                             help: date?.formatted(date: .abbreviated, time: .shortened))
+        let audition: FlowNode
+        if let profile {
+            audition = FlowNode(String(localized: "试听"), glyph: .symbol(Icon.headphones), badge: profile.auditionStatus,
+                                badgeReason: profile.auditionNote, accessory: .controls {
+                                    HStack(spacing: 4) {
+                                        AuditionButton(model: model, lang: .en)
+                                        AuditionButton(model: model, lang: .de)
+                                    }
+                                })
+        } else {
+            audition = FlowNode(String(localized: "试听"), glyph: .symbol(Icon.headphones), state: .dimmed,
+                                help: String(localized: "录制后可试听"))
+        }
+        return FlowGrid(String(localized: "我的声音"), lanes: [
+            FlowLane(String(localized: "我的声音"), gutter: .symbol(Icon.me), cells: [
+                .node(record), .node(saved), .node(audition), .empty
+            ])
+        ])
+    }
+}
 
-    static func auditionStatus(_ p: VoiceProfile) -> SettingsStatus {
-        switch p.audition {
+/// EN / DE on the 试听 node: play, or stop while that language plays (or is being made). After
+/// 停止 it shows play at once, disabled until the audition's task ends.
+private struct AuditionButton: View {
+    let model: MyVoiceModel
+    let lang: Lang
+
+    var body: some View {
+        let playing = model.auditioning == lang && !model.auditionStopped
+        let name = lang == .en ? String(localized: "试听英语") : String(localized: "试听德语")
+        Button {
+            if playing { model.stopAudition() } else { model.audition(lang) }
+        } label: {
+            HStack(spacing: 2) {
+                Image(systemName: playing ? SubtitleTokens.SettingsIcon.stop : SubtitleTokens.SettingsIcon.start)
+                    .font(.system(size: SubtitleTokens.SettingsIcon.Size.badge))
+                Text(verbatim: lang == .en ? "EN" : "DE")
+                    .font(.system(size: SubtitleTokens.SettingsIcon.Size.badge, weight: .medium))
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(!playing && !model.canAudition)
+        .help(playing ? String(localized: "停止") : name)
+        .accessibilityLabel(playing ? String(localized: "停止\(name)") : name)
+    }
+}
+
+/// The saved profile in the words of 我的声音 and 故障检查 › 技术详情 (§7.7, §7.16).
+extension VoiceProfile {
+    var createdDate: Date? { ISO8601DateFormatter().date(from: createdAt) }
+
+    /// "11-06" on the 声音档案 node; the full date is its help.
+    static func shortDate(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd"
+        return f.string(from: date)
+    }
+
+    /// The audition check (passed / failed / pending_engine) as the 试听 node's badge.
+    var auditionStatus: SettingsStatus {
+        switch audition {
         case "passed": .ok
         case "failed": .failed
         default: .waiting
         }
     }
 
-    static func warningCount(_ p: VoiceProfile) -> Int { p.checks.status.values.filter { $0 == .warn }.count }
+    var auditionNote: String {
+        switch audition {
+        case "passed":
+            let similarity = auditionResult?.clips.compactMap(\.similarity).min()
+            return similarity.map { String(localized: "音色相似度 \(Self.decimal($0, 2))") } ?? String(localized: "通过")
+        case "failed": return String(localized: "建议重录")
+        default: return String(localized: "引擎就绪后生成")
+        }
+    }
 
-    static func checksText(_ p: VoiceProfile) -> String {
-        let warns = warningCount(p)
-        var parts: [String] = [warns == 0 ? String(localized: "通过") : String(localized: "通过（\(warns) 项警告）")]
-        if p.checks.status["transcript"] == .pending { parts.append(String(localized: "转写比对待核对")) }
+    /// "参考音 6.2 秒 · 4.1 字/秒".
+    var referenceText: String {
+        String(localized: "参考音 \(Self.decimal(durationSeconds, 1)) 秒 · \(Self.decimal(speakingRateCharsPerSecond, 1)) 字/秒")
+    }
+
+    var checkWarnings: Int { checks.status.values.filter { $0 == .warn }.count }
+
+    var checksText: String {
+        let warns = checkWarnings
+        var parts: [String] = [warns == 0 ? String(localized: "自动检查通过") : String(localized: "自动检查通过（\(warns) 项警告）")]
+        if checks.status["transcript"] == .pending { parts.append(String(localized: "转写比对待核对")) }
         return parts.joined(separator: String(localized: "，"))
     }
+
+    var conditioningBuilt: Bool { conditioning == "built" }
+
+    /// A fixed-precision number, as the previous "%.Nf" text.
+    static func decimal(_ value: Double, _ digits: Int) -> String { String(format: "%.\(digits)f", value) }
 }

@@ -36,6 +36,8 @@ enum DiagnosticsSettingsTab: String, CaseIterable, Identifiable {
 struct DiagnosticsView: View {
     @Bindable var model: PrivacySettings
     @Bindable var navigation: SettingsNavigation
+    /// 技术详情 › 声音档案: the saved profile's numbers (moved here from 我的声音, §7.7).
+    let voice: MyVoiceModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -64,6 +66,8 @@ struct DiagnosticsView: View {
                     Section {
                         DisclosureGroup("详细性能记录") { latency.padding(.top, 8) }
                         DisclosureGroup("离线音频自检命令") { offlineCommands.padding(.top, 8) }
+                        // The 22 pt icon column here only, until 4e styles this Form's root.
+                        voiceProfile.labelStyle(.settingsRow)
                     } header: { Text("技术详情") }
                     Section {
                         if model.recorder.micAndTTSArmed || !model.recorder.recordingTracks.isEmpty {
@@ -78,7 +82,7 @@ struct DiagnosticsView: View {
             .id(navigation.diagnosticsTab)
         }
         .settingsPageScroll(navigation, subpage: navigation.diagnosticsTab)
-        .onAppear { model.diagnosticsStatus.refresh() }
+        .onAppear { model.diagnosticsStatus.refresh(); voice.reload() }
         .confirmationDialog(String(localized: "删除本场诊断录音？"), isPresented: $model.confirmDiscardRecording) {
             Button(String(localized: "删除"), role: .destructive) { model.recorder.discardCurrent() }
             Button(String(localized: "取消"), role: .cancel) {}
@@ -89,6 +93,33 @@ struct DiagnosticsView: View {
             Button(String(localized: "好")) {}
         } message: {
             Text(String(localized: "对方的声音只能在会议进行时、经你当场确认所有参与者都同意之后才录。"))
+        }
+    }
+
+    /// The saved profile (§7.16): reference length and speaking rate, the automatic checks and the
+    /// voice cache as glyphs with their words in help. Nothing without a profile.
+    @ViewBuilder private var voiceProfile: some View {
+        if let p = voice.profile {
+            LabeledContent {
+                HStack(spacing: 8) {
+                    Text(verbatim: p.referenceText).monospacedDigit().foregroundStyle(.secondary)
+                    StatusGlyph(p.checkWarnings == 0 ? .ok : .warn)
+                        .help(p.checksText)
+                        .accessibilityLabel(p.checksText)
+                    StatusGlyph(p.conditioningBuilt ? .ok : .waiting)
+                        .help(p.conditioningBuilt ? String(localized: "声音缓存已建立") : String(localized: "声音缓存在引擎预热时建立"))
+                        .accessibilityLabel(p.conditioningBuilt ? String(localized: "声音缓存已建立")
+                                                                : String(localized: "声音缓存在引擎预热时建立"))
+                }
+            } label: {
+                Label("声音档案", systemImage: SubtitleTokens.SettingsIcon.myVoice)
+            }
+        } else if voice.profileUnreadable {
+            LabeledContent {
+                StatusLabel(String(localized: "无法读取"), .warn)
+            } label: {
+                Label("声音档案", systemImage: SubtitleTokens.SettingsIcon.myVoice)
+            }
         }
     }
 

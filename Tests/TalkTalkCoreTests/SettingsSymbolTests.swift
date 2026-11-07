@@ -33,7 +33,8 @@ import TalkTalkCore
                          S.subtitleWindow, S.windowMovable, S.windowNoFocus, S.windowMinimize,
                          S.windowNotShared, S.hoverOnly, S.callsInPhone]
         let general = [S.launchAtLogin, S.notifications, S.allowNotifications, S.announcement, S.onboarding]
-        for name in pages + meanings + actions + flow + steps + status + subtitles + general {
+        let voice = [S.inputVolume, S.record, S.duration]
+        for name in pages + meanings + actions + flow + steps + status + subtitles + general + voice {
             #expect(exists(name), "\(name)")
         }
         // The sidebar no longer shares glyphs with the meeting card or with translation.

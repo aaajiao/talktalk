@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import TalkTalkAudio
 import TalkTalkCore
+import TalkTalkSession
 import TalkTalkSettingsUI
 import TalkTalkVoice
 
@@ -66,13 +67,14 @@ enum HeadphoneAnswers {
         NotificationCenter.default.post(name: changed, object: nil)
     }
 
-    /// Asks when the device has no answer yet; returns the remembered or new answer.
+    /// Asks when the device has no answer yet; returns the remembered or new answer. The answer
+    /// can be changed or forgotten on 音频 › 耳机.
     @discardableResult
     static func askIfNeeded(uid: String, name: String, _ d: UserDefaults = .standard) -> Bool {
         if let known = answers(d)[uid] { return known }
         let alert = NSAlert()
         alert.messageText = String(localized: "“\(name)”是耳机吗？")
-        alert.informativeText = String(localized: "外放可能产生回声，TalkTalk 会停用耳机译音和会议原声。这个选择会被记住，也可以在设置 › 音频中修改。")
+        alert.informativeText = String(localized: "外放时停用耳机译音和会议原声，避免回声。")
         alert.addButton(withTitle: String(localized: "是耳机"))
         alert.addButton(withTitle: String(localized: "是扬声器"))
         NSApp.activate()
@@ -105,6 +107,9 @@ final class AudioSettingsModel {
     var headphones: [(uid: String, name: String, isHeadphone: Bool)] = []
     /// Set by SystemInputController from MeetingMicGuard during meeting mode.
     var meetingMic: MeetingMicCheck = .notChecked
+    /// The meeting's output is a speaker now (OutputRouteProbe, set by SystemInputController while
+    /// a session runs; nil when unknown or no session): 耳机译音 and the passthrough are off.
+    var speakerMode: Bool?
     /// Calibrated passthrough gain of the selected mic (PassthroughGainStore, voice-m2 /
     /// passthrough-audio); nil: not calibrated or the store is not on main yet.
     var passthroughGainDb: Double?
@@ -160,6 +165,12 @@ final class AudioSettingsModel {
         micUID = uid
     }
 
+    /// Calibrates the selected microphone (`PassthroughCalibration`); not during a session.
+    func calibrate(meetingActive: Bool) {
+        let device = selection.device.flatMap { InputDeviceCatalog.device(uid: $0.uid) }
+        calibration.start(device: device, meetingActive: meetingActive)
+    }
+
     func forgetHeadphone(_ uid: String) {
         HeadphoneAnswers.set(nil, uid: uid, name: "", defaults)
         reload()
@@ -175,224 +186,427 @@ final class AudioSettingsModel {
     }
 }
 
+/// What 音频's graphic, problem line and rows read (§7.6): the microphone choice, the meeting or
+/// Phone check of the running session, TalkTalk Mic and the playback route.
+@MainActor
+struct AudioFacts {
+    let model: AudioSettingsModel
+    let state: AppState
+    let driver: DriverComponentsPage
+
+    private var scene: ScenarioFacts { ScenarioFacts(state: state, mode: state.meetingMode, audio: model) }
+
+    /// The other party can hear the original voice now.
+    var risk: Bool { scene.risk }
+
+    /// The microphone row's and node's one fact: the pick that could not be used, no microphone,
+    /// call quality over Bluetooth or Continuity's delay. nil before the list is read.
+    var micProblem: SettingsProblem? {
+        guard model.devicesLoaded else { return nil }
+        let selection = model.selection
+        let pick: SettingsProblem? = selection.userPickProblem.map {
+            switch $0 {
+            case .missing: SettingsProblem(.warn, String(localized: "所选设备不在 · 暂用自动"))
+            case .notAlive: SettingsProblem(.warn, String(localized: "所选设备不可用 · 暂用自动"))
+            case let .excluded(e): SettingsProblem(.warn, String(localized: "\(e.text)不可用 · 暂用自动"))
+            }
+        }
+        guard let device = selection.device else {
+            return SettingsProblem.mostSevere([pick, SettingsProblem(.failed, String(localized: "无可用麦克风"))])
+        }
+        let notice: SettingsProblem? = MicPolicy.pickNotice(device).map {
+            switch $0 {
+            case .confirmBluetoothHFP: SettingsProblem(.warn, String(localized: "通话音质"), help: $0.text)
+            case .continuityLatency: SettingsProblem(.waiting, String(localized: "延迟约 125 ms"), help: $0.text)
+            }
+        }
+        return SettingsProblem.mostSevere([pick, notice])
+    }
+
+    /// The meeting or Phone check of the running session (§7.6), the words of the node, the
+    /// TalkTalk Mic row and the menu: 未检查 while no speaking session runs.
+    var check: SettingsProblem {
+        let facts = scene
+        let phone = state.meetingMode == .phone
+        let mic = facts.micCheck
+        switch mic {
+        case let .physicalMic(app, _):
+            return SettingsProblem(.risk, phone ? String(localized: "对方能听到原声 · Phone 选“使用系统设置”")
+                                                : String(localized: "对方能听到原声 · 在 \(app) 选 TalkTalk Mic"),
+                                   help: mic.text)
+        case _ where facts.risk:
+            return SettingsProblem(.risk, SettingsStatus.risk.spokenName)
+        case .green:
+            return SettingsProblem(.ok, mic.text)
+        case .nobodyReads where !phone || state.phoneAudioActive:
+            return SettingsProblem(.warn, phone ? String(localized: "Phone 尚未使用 TalkTalk Mic")
+                                                : String(localized: "会议尚未使用 TalkTalk Mic"), help: mic.text)
+        case .nobodyReads, .notChecked:
+            // 视频字幕 never uses TalkTalk Mic: its session leaves the check 未检查.
+            let speaking = facts.running && state.meetingMode.supportsSpeaking
+            let text = !speaking ? String(localized: "未检查")
+                : phone ? String(localized: "通话前检查") : String(localized: "会议麦克风待确认")
+            return SettingsProblem(.pending, text)
+        }
+    }
+
+    /// TalkTalk Mic's node: the driver's state, else ok while 同传时设为系统默认输入 is on.
+    var talkTalkMic: SettingsProblem? {
+        driver.driverProblem
+            ?? (model.switchDefaultInput ? SettingsProblem(.ok, String(localized: "同传时设为默认输入")) : nil)
+    }
+
+    /// The meeting plays through a speaker now: 耳机译音 and the passthrough stop.
+    var speakerOut: Bool { model.speakerMode == true }
+
+    /// The page's one problem line (§2): only the most severe.
+    var problem: SettingsProblem? {
+        let check = check
+        let meeting: SettingsProblem? = switch check.status {
+        case .risk: SettingsProblem(.risk, SettingsStatus.risk.spokenName, help: check.text)
+        case .warn: check
+        default: nil
+        }
+        let speaker = speakerOut
+            ? SettingsProblem(.warn, String(localized: "正在外放 · 耳机译音已停用"),
+                              help: String(localized: "停用耳机译音与原声通路，避免回声"))
+            : nil
+        return SettingsProblem.mostSevere([meeting, micProblem, speaker])
+    }
+
+    /// The microphone's menu glyph: headset, iPhone, this Mac or a microphone.
+    static func symbol(_ device: MicPolicy.Device) -> String {
+        if MicPolicy.isBluetooth(device) { return SubtitleTokens.SettingsIcon.headphones }
+        if MicPolicy.isContinuity(device) { return SubtitleTokens.SettingsIcon.iPhone }
+        if device.transport == "bltn" { return SubtitleTokens.SettingsIcon.thisMac }
+        return SubtitleTokens.SettingsIcon.physicalMic
+    }
+}
+
+/// Settings › 音频 (settings visual system §7.6). The page opens with its flow: what the
+/// microphone sends through TalkTalk Mic to the meeting or Phone, and what the headphones play.
+/// Each node leads to its section, whose header carries the node's glyph; a link from another
+/// page lands on one of them and flashes it. No footers or explanation lines: the one fact per
+/// row sits at its end, the rest is in help, the ⓘ and VoiceOver.
 struct AudioSettingsView: View {
     @Bindable var model: AudioSettingsModel
-    var meetingActive = false
-    /// A flow node's link lands here with the section to scroll to and flash (§6.3, §6.4).
-    var navigation: SettingsNavigation?
+    @Bindable var state: AppState
+    let driver: DriverComponentsPage
+    @Bindable var navigation: SettingsNavigation
+
+    private typealias Icon = SubtitleTokens.SettingsIcon
+    private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 
     var body: some View {
+        let facts = AudioFacts(model: model, state: state, driver: driver)
         ScrollViewReader { proxy in
             Form {
-                soundPaths(proxy)
-                microphone.id(SettingsAnchor.microphone)
-                calibration
-                defaultInput.id(SettingsAnchor.talkTalkMic)
-                meetingCheck
-                playback.id(SettingsAnchor.playback)
-                headphones
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        FlowGrid.audio(facts, monitor: $model.monitor) { jump($0, proxy) }
+                        if let problem = facts.problem {
+                            StatusLabel(problem.text, problem.status, help: problem.help)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                microphone(facts).id(SettingsAnchor.microphone)
+                talkTalkMic(facts).id(SettingsAnchor.talkTalkMic)
+                headphones.id(SettingsAnchor.playback)
             }
             .formStyle(.grouped)
+            .labelStyle(.settingsRow)
+            // Back from 通用 ›: the previous position. A flow link's anchor scrolls the page itself.
+            .settingsPageScroll(navigation, subpage: SettingsSection.audio)
             .onAppear {
-                guard let navigation, let anchor = navigation.takeAnchor() else { return }
                 // After the first layout: the section has to exist before it can be scrolled to.
                 DispatchQueue.main.async {
-                    proxy.scrollTo(anchor, anchor: .top)
-                    navigation.flow.flash(anchor)
+                    if let anchor = navigation.takeAnchor() { jump(anchor, proxy) }
                 }
             }
         }
-        .onAppear { model.reload(); model.launch.refresh() }
-        .onDisappear { model.calibration.cancel() }
-        .onChange(of: meetingActive) { _, on in if on { model.calibration.cancel() } }
+        .onAppear { model.reload(); model.launch.refresh(); driver.load() }
+        // Leaving the page stops a calibration and forgets its outcome: it belonged to this visit.
+        .onDisappear { model.calibration.reset() }
+        .onChange(of: state.meetingActive) { _, on in if on { model.calibration.cancel() } }
     }
 
-    /// The flash state the anchors draw (a fresh one when the page is shown without navigation).
-    private var flow: FlowInteraction { navigation?.flow ?? Self.noFlow }
-    private static let noFlow = FlowInteraction()
+    /// A node's in-page link (§6.3): scroll to its section and flash the header once.
+    private func jump(_ anchor: String, _ proxy: ScrollViewProxy) {
+        proxy.scrollTo(anchor, anchor: .top)
+        navigation.flow.flash(anchor)
+    }
 
-    private func soundPaths(_ proxy: ScrollViewProxy) -> some View {
+    // MARK: 麦克风
+
+    private func microphone(_ facts: AudioFacts) -> some View {
         Section {
-            SpeechFlow(steps: [
-                (SubtitleTokens.SettingsIcon.physicalMic, String(localized: "实体麦克风")),
-                ("character.bubble", String(localized: "原声／按键翻译")),
-                (SubtitleTokens.SettingsIcon.talkTalkMic, "TalkTalk Mic"),
-                ("person.2.wave.2", String(localized: "会议应用"))
-            ], links: [
-                0: .init(String(localized: "选择采音设备")) { proxy.scrollTo(SettingsAnchor.microphone, anchor: .top) },
-                2: .init(String(localized: "设置会议输入")) { proxy.scrollTo(SettingsAnchor.talkTalkMic, anchor: .top) }
-            ])
-            Label("TalkTalk 选实体麦收音；会议应用选 TalkTalk Mic 接收声音。", systemImage: "arrow.triangle.branch")
-                .font(.callout).foregroundStyle(.secondary)
-            SpeechFlow(steps: [
-                ("speaker.wave.2", String(localized: "会议声音与可选译音")),
-                ("headphones", String(localized: "耳机播放"))
-            ], links: [
-                1: .init(String(localized: "设置耳机播放")) { proxy.scrollTo(SettingsAnchor.playback, anchor: .top) }
-            ])
+            LabeledContent {
+                HStack(spacing: 8) {
+                    if let problem = facts.micProblem {
+                        StatusLabel(problem.text, problem.status, help: problem.help)
+                    }
+                    microphonePicker
+                }
+            } label: {
+                Label("麦克风", systemImage: Icon.physicalMic)
+            }
+            inputVolume
+            calibrationResult
         } header: {
-            Text("声音如何流动")
+            SectionHeader(String(localized: "麦克风"), symbol: Icon.physicalMic,
+                          info: [String(localized: "换麦后可单独校准，不必重录声音档案。")])
+                .flowFlash(SettingsAnchor.microphone, in: navigation.flow)
         }
     }
 
-    private var microphone: some View {
-        let sel = model.selection
+    /// 自动 · <the automatic choice>, then every usable device with its glyph; a pick that is
+    /// gone keeps its entry (warn, not selectable) so the menu still shows what was chosen.
+    /// Choosing the current entry again changes nothing (no second Bluetooth alert, no reset).
+    private var microphonePicker: some View {
+        let automatic = MicPolicy.select(model.devices, userUID: nil).device
+        let missing = model.micUID.flatMap { uid in model.pickable.contains { $0.uid == uid } ? nil : uid }
+        return Picker(String(localized: "麦克风"), selection: Binding(get: { model.micUID ?? "" },
+                                                                    set: {
+                                                                        let uid = $0.isEmpty ? nil : $0
+                                                                        guard uid != model.micUID else { return }
+                                                                        model.pick(uid)
+                                                                    })) {
+            Label {
+                Text(verbatim: automatic.map { String(localized: "自动 · \($0.name)") } ?? String(localized: "自动"))
+            } icon: {
+                Image(systemName: Icon.auto)
+            }
+            .tag("")
+            if let missing {
+                Label {
+                    Text(verbatim: model.devices.first { $0.uid == missing }?.name ?? String(localized: "所选设备"))
+                } icon: {
+                    Image(systemName: Icon.statusWarn)
+                }
+                .tag(missing)
+                .selectionDisabled()
+            }
+            ForEach(model.pickable, id: \.uid) { device in
+                Label {
+                    Text(verbatim: device.name)
+                } icon: {
+                    Image(systemName: AudioFacts.symbol(device))
+                }
+                .tag(device.uid)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+    }
+
+    /// 原声音量: the calibrated gain or 未校准, and 校准… (not during a session).
+    private var inputVolume: some View {
+        let calibration = model.calibration
+        return LabeledContent {
+            HStack(spacing: 8) {
+                if case let .calibrated(gain)? = calibration.outcome {
+                    StatusLabel(Self.decibels(gain), .ok)
+                } else if let gain = model.passthroughGainDb {
+                    Text(verbatim: Self.decibels(gain)).monospacedDigit().foregroundStyle(.secondary)
+                } else {
+                    StatusLabel(String(localized: "未校准"), .pending)
+                }
+                Button("校准…") { model.calibrate(meetingActive: state.meetingActive) }
+                    .disabled(state.meetingActive || model.selection.device == nil || calibration.running)
+                    .help(ifPresent: state.meetingActive ? String(localized: "会中不可校准") : nil)
+            }
+        } label: {
+            Label("原声音量", systemImage: Icon.inputVolume)
+        }
+    }
+
+    /// While calibrating: the level, what to do and 取消; afterwards the outcome, except a gain,
+    /// which the row above shows.
+    @ViewBuilder private var calibrationResult: some View {
+        let calibration = model.calibration
+        if calibration.running {
+            let db = calibration.levelDb ?? -60
+            HStack(spacing: 8) {
+                ProgressView(value: min(1, max(0, (db + 60) / 60)))
+                    .progressViewStyle(.linear)
+                    .tint(db > -3 ? .red : .accentColor)
+                    .frame(width: 80)
+                    .accessibilityLabel(String(localized: "输入音量"))
+                Text(String(localized: "按平常音量读一句（约 \(PassthroughCalibration.seconds) 秒）"))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                FactChip(String(localized: "不保存录音"), symbol: Icon.privacyPromise, help: String(localized: "只测电平"))
+                Button("取消") { calibration.cancel() }
+            }
+            .padding(.leading, Ladder.rowTextInset)
+        } else if let outcome = calibration.outcome, let problem = Self.problem(outcome) {
+            StatusLabel(problem.text, problem.status, help: problem.help)
+                .padding(.leading, Ladder.rowTextInset)
+        }
+    }
+
+    private static func problem(_ outcome: PassthroughCalibration.Outcome) -> SettingsProblem? {
+        switch outcome {
+        case .calibrated: nil
+        case .unclear: SettingsProblem(.warn, String(localized: "未测到清晰语音或削波 · 重试"))
+        case .microphoneChanged: SettingsProblem(.warn, String(localized: "麦克风已变 · 已取消"))
+        case .needsPermission: SettingsProblem(.warn, String(localized: "需麦克风权限"))
+        case let .failed(error): SettingsProblem(.failed, String(localized: "未完成"), help: error)
+        case .cancelled: SettingsProblem(.pending, String(localized: "已取消"))
+        }
+    }
+
+    private static func decibels(_ gain: Double) -> String { "\(String(format: "%+.1f", gain)) dB" }
+
+    // MARK: TalkTalk Mic
+
+    private func talkTalkMic(_ facts: AudioFacts) -> some View {
+        let check = facts.check
         return Section {
-            Picker("采音设备", selection: Binding(get: { model.micUID ?? "" }, set: { model.pick($0.isEmpty ? nil : $0) })) {
-                Text("自动（内建麦克风优先）").tag("")
-                ForEach(model.pickable, id: \.uid) { d in Text(verbatim: d.name).tag(d.uid) }
-            }
-            if let d = sel.device {
-                LabeledContent("已选采音设备") { Text(verbatim: d.name).foregroundStyle(.secondary) }
-                if let n = MicPolicy.pickNotice(d) {
-                    Text(n.text).font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            LabeledContent {
+                HStack(spacing: 8) {
+                    InfoButton(topic: String(localized: "默认输入"),
+                               lines: [String(localized: "结束同传或退出时自动还原；你手动改过的输入会保留。")])
+                    Toggle(String(localized: "同传时设为系统默认输入"), isOn: $model.switchDefaultInput)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
-            } else {
-                Label("没有可用的麦克风", systemImage: "mic.slash").font(.callout).foregroundStyle(.red)
+            } label: {
+                Label("同传时设为系统默认输入", systemImage: Icon.talkTalkMic)
             }
-            if let p = sel.userPickProblem {
-                Text(problemText(p)).font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            if model.switchDefaultInput {
+                FactRow([FactChip(String(localized: "听写、Siri 等也会收到原声或译音"), symbol: Icon.talkTalkMic,
+                                  help: String(localized: "跟随系统默认输入的应用"))], indented: true)
             }
-        } header: {
-            HStack {
-                Text("实体麦克风 · 采集你的声音")
-                InfoButton(topic: String(localized: "采音设备"), lines: [
-                    String(localized: "自动选择时优先使用内建麦。这里只选实体设备，不受系统默认输入影响。换麦后可单独校准音量，不必重录声音档案。")
-                ])
+            LabeledContent {
+                StatusLabel(check.text, check.status, help: check.help)
+            } label: {
+                Label("会议 · Phone", systemImage: SubtitleTokens.SceneIcon.meeting)
             }
-            .flowFlash(SettingsAnchor.microphone, in: flow)
-        }
-    }
-
-    private func problemText(_ p: MicPolicy.UserPickProblem) -> String {
-        switch p {
-        case .missing: String(localized: "你选的麦克风现在不在，暂时改用上面这一个。")
-        case .notAlive: String(localized: "你选的麦克风当前不可用，暂时改用上面这一个。")
-        case let .excluded(e): String(localized: "你选的麦克风不能用（\(e.text)），暂时改用上面这一个。")
-        }
-    }
-
-    private var playback: some View {
-        Section {
-            Toggle("在耳机中听到译音", isOn: $model.monitor)
-        } header: {
-            Text("耳机 · 播放声音")
-        } footer: {
-            Text("外放时停用耳机译音和 TalkTalk 的原声通路，避免回声；不更改系统默认输出。")
-        }
-    }
-
-    private var calibration: some View {
-        Section {
-            if let g = model.passthroughGainDb {
-                LabeledContent("校准增益") { Text("\(String(format: "%+.1f", g)) dB").monospacedDigit() }
-            } else {
-                LabeledContent("校准状态") {
-                    StatusLabel(String(localized: "尚未校准 · 0 dB"), .pending)
-                }
-            }
-            HStack(spacing: 12) {
-                Button("读一句话校准音量") {
-                    let device = model.selection.device.flatMap { InputDeviceCatalog.device(uid: $0.uid) }
-                    model.calibration.start(device: device, meetingActive: meetingActive)
-                }
-                .disabled(meetingActive || model.selection.device == nil || model.calibration.running)
-                if model.calibration.running {
-                    ProgressView().controlSize(.small)
-                    Button("取消") { model.calibration.cancel() }
-                }
-                if meetingActive {
-                    Text("结束会话后可校准").font(.callout).foregroundStyle(.secondary)
-                }
-            }
-            if let message = model.calibration.message { Text(verbatim: message).font(.callout).foregroundStyle(.secondary) }
-        } header: {
-            Text("原声音量")
-        } footer: {
-            Text("只测电平，不保存录音。")
-        }
-    }
-
-    private var defaultInput: some View {
-        Section {
-            Toggle("会议或电话同传时将系统默认输入设为 TalkTalk Mic", isOn: $model.switchDefaultInput)
-            LabeledContent("在会议应用或 Phone 中选择", value: model.switchDefaultInput
-                ? String(localized: "TalkTalk Mic，或跟随系统默认") : "TalkTalk Mic")
             // §7.6: only while 登录时启动 is recommended and off; the switch is on 通用.
             if model.loginStronglyRecommended,
                let recommended = model.launch.recommendedProblem(stronglyRecommended: true) {
                 LabeledContent {
                     HStack(spacing: 8) {
                         StatusLabel(recommended.text, recommended.status, help: recommended.help)
-                        if let navigation {
-                            Button("通用 ›") { navigation.open(.general) }
-                                .buttonStyle(.link)
-                                .help("打开通用设置")
-                        }
+                        Button("通用 ›") { navigation.open(.general) }
+                            .buttonStyle(.link)
+                            .help("打开通用设置")
                     }
                 } label: {
-                    Label("登录时启动", systemImage: SubtitleTokens.SettingsIcon.launchAtLogin)
+                    Label("登录时启动", systemImage: Icon.launchAtLogin)
                 }
-                .labelStyle(.settingsRow)
             }
         } header: {
-            HStack {
-                Text("TalkTalk Mic · 通话输入")
-                InfoButton(topic: String(localized: "默认输入"), lines: [
-                    String(localized: "准备会议或电话同传时自动接入；停止同传或退出 TalkTalk 时自动还原。Phone 需选择“使用系统设置”；你手动更改过的输入会保留。")
-                ])
-            }
-            .flowFlash(SettingsAnchor.talkTalkMic, in: flow)
-        } footer: {
-            Text("跟随系统默认输入的应用（听写、Siri、录音等）也会收到原声或译音。")
+            SectionHeader("TalkTalk Mic", symbol: Icon.talkTalkMic)
+                .flowFlash(SettingsAnchor.talkTalkMic, in: navigation.flow)
         }
     }
+
+    // MARK: 耳机
 
     private var headphones: some View {
         Section {
-            if model.headphones.isEmpty {
-                Text("还没有已确认的设备").foregroundStyle(.secondary)
+            Toggle(isOn: $model.monitor) {
+                Label("耳机译音", systemImage: Icon.headphones)
             }
-            ForEach(model.headphones, id: \.uid) { h in
+            FactRow([FactChip(String(localized: "外放时自动停用"), symbol: Icon.speaker,
+                              help: String(localized: "停用耳机译音与原声通路，避免回声"))], indented: true)
+            // The devices asked about once (`HeadphoneAnswers`); nothing at all while there are none.
+            ForEach(model.headphones, id: \.uid) { device in
                 LabeledContent {
-                    HStack(spacing: 12) {
-                        Picker("设备类型", selection: Binding(get: { h.isHeadphone }, set: { model.setHeadphone(h.uid, name: h.name, $0) })) {
-                            Label("耳机", systemImage: SubtitleTokens.SettingsIcon.headphones).tag(true)
-                            Label("扬声器", systemImage: SubtitleTokens.SettingsIcon.speaker).tag(false)
+                    HStack(spacing: 8) {
+                        Picker(String(localized: "设备类型"), selection: Binding(get: { device.isHeadphone },
+                                                                             set: { model.setHeadphone(device.uid, name: device.name, $0) })) {
+                            Label("耳机", systemImage: Icon.headphones).tag(true)
+                            Label("扬声器", systemImage: Icon.speaker).tag(false)
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
+                        .fixedSize()
                         // Reversible (asked again on the next connection): a list removal, not destructive.
-                        Button { model.forgetHeadphone(h.uid) } label: {
-                            Image(systemName: SubtitleTokens.SettingsIcon.remove)
+                        IconButton(Icon.remove, help: String(localized: "忘记此设备"),
+                                   accessibilityLabel: String(localized: "忘记 \(device.name)")) {
+                            model.forgetHeadphone(device.uid)
                         }
-                        .buttonStyle(.borderless)
-                        .help("忘记此设备")
-                        .accessibilityLabel(String(localized: "忘记 \(h.name)"))
                     }
                 } label: {
-                    Text(verbatim: h.name)
+                    Label {
+                        Text(verbatim: device.name)
+                    } icon: {
+                        Image(systemName: device.isHeadphone ? Icon.headphones : Icon.speaker)
+                    }
                 }
             }
         } header: {
-            HStack {
-                Text("已记住的耳机与扬声器")
-                InfoButton(topic: String(localized: "设备分类"), lines: [
-                    String(localized: "首次连接蓝牙或 USB 播放设备时，会询问它是耳机还是扬声器。选择会被记住，可随时修改或忘记。"),
-                    String(localized: "分类不表示当前正在使用的输出。")
-                ])
-            }
+            SectionHeader(String(localized: "耳机"), symbol: Icon.headphones)
+                .flowFlash(SettingsAnchor.playback, in: navigation.flow)
         }
     }
+}
 
-    private var meetingCheck: some View {
-        Section {
-            StatusLabel(model.meetingMic.text, model.meetingMic.status)
-                .fixedSize(horizontal: false, vertical: true)
-        } header: {
-            Text("会议与电话应用检查")
-        } footer: {
-            Text("Phone：在其菜单栏“音频 › 麦克风”中选“使用系统设置”。")
-        }
+/// 音频's graphic (§7.6): the original voice or the translation from the microphone through
+/// TalkTalk Mic to the meeting or Phone; the meeting's sound, with the translation while
+/// 耳机译音 is on and nothing plays through a speaker, to the headphones. Every node scrolls to
+/// its section (`jump`).
+@MainActor
+extension FlowGrid {
+    static func audio(_ facts: AudioFacts, monitor: Binding<Bool>, jump: @escaping (String) -> Void) -> FlowGrid {
+        typealias Icon = SubtitleTokens.SettingsIcon
+        let original = VoiceState.resolve(audio: .original, scene: .meeting, phoneInputConfirmed: true)
+        let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
+        let device = facts.model.selection.device
+        let mic = facts.micProblem
+        let talkTalkMic = facts.talkTalkMic
+        let check = facts.check
+        let speaker = facts.speakerOut
+        let microphone = FlowNode(String(localized: "麦克风"), glyph: .symbol(Icon.physicalMic), badge: mic?.status,
+                                  badgeReason: mic?.text,
+                                  link: NodeLink(String(localized: "麦克风")) { jump(SettingsAnchor.microphone) },
+                                  accessory: device.map { device in
+                                      .display {
+                                          Text(verbatim: device.name)
+                                              .font(.caption2)
+                                              .foregroundStyle(.secondary)
+                                              .lineLimit(1)
+                                              .truncationMode(.tail)
+                                      }
+                                  },
+                                  help: device?.name)
+        let input = FlowNode("TalkTalk Mic", glyph: .symbol(Icon.talkTalkMic),
+                             state: facts.model.switchDefaultInput ? .ready : .off,
+                             badge: talkTalkMic?.status, badgeReason: talkTalkMic?.text,
+                             link: NodeLink("TalkTalk Mic") { jump(SettingsAnchor.talkTalkMic) })
+        let meeting = FlowNode(String(localized: "会议 · Phone"), glyph: .symbol(SubtitleTokens.SceneIcon.meeting),
+                               state: facts.risk || check.status == .risk ? .risk
+                                   : check.status == .warn ? .needsAction : .ready,
+                               badge: check.status, badgeReason: check.text,
+                               link: NodeLink("TalkTalk Mic") { jump(SettingsAnchor.talkTalkMic) })
+        let sound = FlowNode(String(localized: "会议声音"), glyph: .symbol(Icon.speech))
+        let headphones = FlowNode(String(localized: "耳机"), glyph: .symbol(speaker ? Icon.speaker : Icon.headphones),
+                                  badge: speaker ? .warn : nil,
+                                  badgeReason: speaker ? String(localized: "正在外放 · 耳机译音已停用") : nil,
+                                  link: NodeLink(String(localized: "耳机")) { jump(SettingsAnchor.playback) },
+                                  accessory: .controls {
+                                      Toggle(String(localized: "耳机译音"), isOn: monitor)
+                                          .labelsHidden()
+                                          .toggleStyle(.switch)
+                                          .controlSize(.mini)
+                                          .help(String(localized: "耳机译音"))
+                                  })
+        return FlowGrid(String(localized: "音频路径"), lanes: [
+            FlowLane(String(localized: "我说话 · 原声与译音"), gutter: .voices([original, translating]), cells: [
+                .node(microphone), .node(input), .node(meeting), .empty
+            ]),
+            FlowLane(String(localized: "听会议"), gutter: .symbol(Icon.headphones), cells: [
+                .node(sound),
+                // Through a speaker 耳机译音 stops: no capsule on a path that does not play.
+                monitor.wrappedValue && !speaker
+                    ? .carry(translating, spoken: String(localized: "译音也在耳机播放")) : .pass,
+                .node(headphones),
+                .empty
+            ])
+        ])
     }
 }

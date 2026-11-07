@@ -293,6 +293,10 @@ public enum SubtitleTokens {
             public static let badgeDisc: Double = 15
             /// Fact chip height.
             public static let chipHeight: Double = 20
+            /// Text sizes of the recording view (§7.7), not ladder steps: the 3-2-1 countdown and
+            /// the script the user reads.
+            public static let enrollmentCountdown: Double = 72
+            public static let enrollmentScript: Double = 26
         }
 
         /// The other party in flow diagrams (the timeline's remote marker is its .fill form).
@@ -385,6 +389,14 @@ public enum SubtitleTokens {
         public static let announcement = MenuIcon.announcement
         /// 使用引导…, as in the menu.
         public static let onboarding = MenuIcon.onboarding
+
+        // 音频 and 我的声音 (§7.6, §7.7).
+        /// 原声音量: the calibrated level of the original voice.
+        public static let inputVolume = "dial.medium"
+        /// 录制 / 重录 the voice profile (the page's one primary action).
+        public static let record = "mic.badge.plus"
+        /// A length of time ("约 10–20 秒").
+        public static let duration = "clock"
 
         // Navigation (§3.1, §3.13): the arrow between the model page's cards and the ReturnPill's
         // leading chevron.
