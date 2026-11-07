@@ -1,10 +1,11 @@
 import Foundation
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkCore
 @testable import TalkTalkEngineHost
 
 /// RemoteQwenASR as `ClipASREngine` and RemoteQwenTTS as `TTSEngine` (§4.1) against the fake engine.
-@Suite(.serialized) struct RemoteQwenCoreTests {
+@Suite(.serialized, .temporaryFiles) struct RemoteQwenCoreTests {
     static func handle() -> VoiceHandle {
         VoiceHandle(profileID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, conditioningKey: "k",
                     mode: .icl, model: EngineID(name: "tts-x", revision: EngineHostTests.ttsRev, placement: .engineGPU))

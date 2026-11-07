@@ -15,6 +15,8 @@ root="$(cd "$here/../.." && pwd)"
 
 work="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tt-installer-test.XXXXXX")"
 trap '/bin/rm -rf "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Invert one byte in place. A fixed replacement byte equals the random fixture byte 1 time in 256,
 # which left the file unchanged and made the corruption check fail by chance.

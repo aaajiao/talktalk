@@ -10,6 +10,8 @@ repo="$(cd "$here/../.." && pwd)"
 
 work="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tt-gen-pins-test.XXXXXX")"
 trap '/bin/rm -rf "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 pass=0; fail=0
 ok() { pass=$((pass + 1)); printf 'ok   %s\n' "$1"; }

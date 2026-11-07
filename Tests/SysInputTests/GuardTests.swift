@@ -3,11 +3,12 @@ import Foundation
 import Testing
 @testable import TalkTalkAudio
 import TalkTalkCore
+import TalkTalkTestSupport
 
 /// The guard loop in-process: a pipe we control stands in for the app, a fake HAL for Core Audio.
-@Suite(.serialized) struct GuardLoopTests {
+@Suite(.serialized, .temporaryFiles) struct GuardLoopTests {
     struct Rig {
-        let paths = tempPaths()
+        let paths: SysInputPaths
         let hal: FakeHAL
         let procs: FakeProcesses
         let clock = FakeClock()
@@ -21,6 +22,7 @@ import TalkTalkCore
              layer4UID: String? = nil, layer4ArmedUntil: Double? = nil,
              bootSession: String? = SysInputProcess.bootSessionUUID(),
              meetingSwitch: FakeMeetingSwitch? = nil, replacementUID: String? = nil, restoreNow: Bool? = nil) throws {
+            paths = try tempPaths()
             hal = FakeHAL(devices: devices, defaultUID: defaultUID)
             self.procs = FakeProcesses(procs)
             var fds: [Int32] = [-1, -1]
@@ -369,7 +371,7 @@ import TalkTalkCore
 /// The real executable (`TalkTalk --sysinput-guard`), spawned the way the app spawns it. The
 /// fake-HAL tests need the dev build (check.sh builds with -DTALKTALK_DEV); none of these
 /// touches the real default input.
-@Suite(.serialized) struct GuardProcessTests {
+@Suite(.serialized, .temporaryFiles) struct GuardProcessTests {
     static var hasBinary: Bool { Product.talkTalk != nil }
     static var hasDevBinary: Bool { Product.talkTalk != nil && Product.isDevBuild }
 
@@ -384,7 +386,7 @@ import TalkTalkCore
 
     @Test(.enabled(if: hasBinary)) func aDescriptorThatIsNotTheLockIsRefused() throws {
         let exe = try #require(Product.talkTalk)
-        let paths = tempPaths()
+        let paths = try tempPaths()
         let null = open("/dev/null", O_RDONLY)
         defer { close(null) }
         let p = try #require(Spawned.run(exe, ["--sysinput-guard", "--lock-fd", String(null),
@@ -403,7 +405,7 @@ import TalkTalkCore
 
     /// A rig with the real launcher: lock held, record written, fake HAL file.
     struct ProcRig {
-        let paths = tempPaths()
+        let paths: SysInputPaths
         let lock: SysInputLock
         let file: SysInputFileHAL
         let store: SysInputRecordStore
@@ -411,6 +413,7 @@ import TalkTalkCore
         let exited = ExitBox()
 
         init(exe: String) throws {
+            paths = try tempPaths()
             lock = SysInputLock(path: paths.lock.path)
             guard lock.tryAcquire() else { throw POSIXError(.EAGAIN) }
             file = SysInputFileHAL(path: paths.directory.appendingPathComponent("hal.json").path)

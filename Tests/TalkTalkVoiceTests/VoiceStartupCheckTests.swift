@@ -2,10 +2,11 @@ import Darwin
 import Foundation
 import Testing
 import TalkTalkCore
+import TalkTalkTestSupport
 @testable import TalkTalkVoice
 
 /// §7.5 item 4 (m1-engine).
-@Suite struct VoiceStartupCheckTests {
+@Suite(.temporaryFiles) struct VoiceStartupCheckTests {
     static let rev = "e7dd05856522aaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
     func saved() throws -> VoiceStore {

@@ -1,12 +1,13 @@
 import Foundation
 import Synchronization
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkCore
 @testable import TalkTalkEngineHost
 
 /// SPEAK stall rule (§5.7, TTSStall + TTSStallBoard + RemoteQwenTTS.speak) and the /v1/playout
 /// cadence (PlayoutReporter, §4.4), against pure inputs with injected instants and the fake engine.
-@Suite(.serialized) struct TTSStallTests {
+@Suite(.serialized, .temporaryFiles) struct TTSStallTests {
     static let fast: TTSStall.Config = {
         var c = TTSStall.Config()
         c.stallAfter = .milliseconds(300)

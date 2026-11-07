@@ -2,11 +2,11 @@ import Darwin
 import Foundation
 import Testing
 import TalkTalkAudio
+import TalkTalkTestSupport
 @testable import TalkTalkVoice
 
 func tempRoot() throws -> URL {
-    let url = FileManager.default.temporaryDirectory
-        .appendingPathComponent("talktalk-voice-tests-\(UUID().uuidString)", isDirectory: true)
+    let url = try TestTemporaryDirectory.make(prefix: "talktalk-voice-tests")
         .appendingPathComponent("TalkTalk", isDirectory: true)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
@@ -36,7 +36,7 @@ private func fill(_ store: VoiceStore, _ staging: URL, profileID: String) throws
     try store.writeReference(wav, script: .zhV1, profile: profile, into: staging)
 }
 
-@Suite struct VoiceStoreTests {
+@Suite(.temporaryFiles) struct VoiceStoreTests {
     @Test func stagingIsProtectedFromTheStart() throws {
         let store = VoiceStore(root: try tempRoot())
         let staging = try store.makeStaging()
@@ -157,7 +157,7 @@ private func fill(_ store: VoiceStore, _ staging: URL, profileID: String) throws
 /// Fake engine for the save path (§9.2 step 6): the real EngineVoiceServices over a fake backend.
 func FakeEngine() -> EngineVoiceServices { services(FakeBackend()) }
 
-@Suite struct SaveTakeTests {
+@Suite(.temporaryFiles) struct SaveTakeTests {
     @Test func endToEndSaveFromASyntheticTake() async throws {
         let store = VoiceStore(root: try tempRoot())
         let take = Synth.take(segments: [6.0, 6.0], pauses: [0.6])

@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import Synchronization
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkEngineHost
 
 /// §7.3 / §13 InstallerTests, Swift side: the exact environment, event parsing, the run / fail /
@@ -9,14 +10,13 @@ import Testing
 /// on an empty engine home: no network, no models). The installer's own resume / lock /
 /// foreign-file behaviour is covered end to end by scripts/tests/test-installer.sh.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .temporaryFiles)
 struct InstallerTests {
     let dir: URL
     let paths: EnginePaths
 
     init() throws {
-        dir = FileManager.default.temporaryDirectory.appendingPathComponent("tt-installer-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        dir = try TestTemporaryDirectory.make(prefix: "tt-installer")
         let src = dir.appendingPathComponent("engine-src")
         try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
         paths = EnginePaths(home: dir.appendingPathComponent("home"), logs: dir.appendingPathComponent("logs"),

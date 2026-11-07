@@ -20,12 +20,21 @@ done
 "$root/scripts/setup-dev-python.sh" --check
 export TALKTALK_DEV_PYTHON="$root/.venv/bin/python3"
 export PATH="$root/.venv/bin:$PATH"
+# One short, private TMPDIR per run, cleaned on success, failure and interruption.
+# Re-enter this script in the wrapper's child process so Foundation also reads the new TMPDIR.
+if [ "${TALKTALK_CHECK_TMP_SCOPE:-}" != 1 ]; then
+  exec "$TALKTALK_DEV_PYTHON" -I -B "$root/scripts/with-test-temp.py" "$root/scripts/check.sh" "$@"
+fi
+unset TALKTALK_CHECK_TMP_SCOPE
 step() { printf '\n== %s\n' "$*"; }
 
 step "shellcheck"
 # shellcheck disable=SC2046
 shellcheck -x -P SCRIPTDIR $(/usr/bin/find scripts tools -name '*.sh' -type f | LC_ALL=C /usr/bin/sort)
 echo "ok"
+
+step "test temporary-directory cleanup (isolated fixtures)"
+"$TALKTALK_DEV_PYTHON" -I -B scripts/tests/test-test-temp.py
 
 step "generated pins in sync"
 scripts/gen-pins.sh --check

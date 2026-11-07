@@ -1,8 +1,9 @@
 import Foundation
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkCore
 
-@Suite struct SubtitleAnalysisTraceTests {
+@Suite(.temporaryFiles) struct SubtitleAnalysisTraceTests {
     @Test func defaultOffPrivateAndBounded() throws {
         let scratch = try makeScratchDir("subtitle-analysis")
         defer { try? FileManager.default.removeItem(at: scratch) }

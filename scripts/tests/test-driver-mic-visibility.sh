@@ -4,6 +4,8 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/tt-mic-visibility.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 sdk="$(xcrun --show-sdk-path)"
 aspl="$root/Driver/third_party/libASPL"
 xcrun clang++ -std=c++17 -O0 -isysroot "$sdk" \

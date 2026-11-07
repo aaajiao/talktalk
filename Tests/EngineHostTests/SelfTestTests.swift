@@ -1,12 +1,13 @@
 import Darwin
 import Foundation
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkCore
 @testable import TalkTalkEngineHost
 
 /// `--self-test --engine` logic (§12.3): metrics, the lsof audit, and a whole run against the
 /// fake engine (real lsof on its pid).
-@Suite struct SelfTestTests {
+@Suite(.temporaryFiles) struct SelfTestTests {
     @Test func cerIgnoresPunctuationAndWidth() {
         #expect(TextMetrics.cer(reference: "今天十点开会。", hypothesis: "今天，十点开会") == 0)
         #expect(TextMetrics.cer(reference: "今天十点开会", hypothesis: "今天十点开") == 1.0 / 6)

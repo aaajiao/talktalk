@@ -1,9 +1,10 @@
 import Foundation
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkCore
 
 /// §7.5 items 1–2 on a temporary engine home with small fake pins (no real model files).
-@Suite struct EngineInstallationTests {
+@Suite(.temporaryFiles) struct EngineInstallationTests {
     static let ttsRev = String(repeating: "a", count: 40)
     static let ttsOldRev = String(repeating: "b", count: 40)
     static let asrRev = String(repeating: "c", count: 40)
@@ -21,7 +22,7 @@ import Testing
     struct Home {
         let url: URL
         init(ttsRev: String = EngineInstallationTests.ttsRev) throws {
-            url = FileManager.default.temporaryDirectory.appendingPathComponent("tt-inst-\(UUID().uuidString)")
+            url = try TestTemporaryDirectory.make(prefix: "tt-inst")
             let fm = FileManager.default
             try fm.createDirectory(at: url.appendingPathComponent("python"), withIntermediateDirectories: true)
             try fm.createDirectory(at: url.appendingPathComponent("venv/bin"), withIntermediateDirectories: true)

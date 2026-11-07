@@ -11,6 +11,8 @@ cl="$here/../check-licenses.sh"
 
 work="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tt-licenses-test.XXXXXX")"
 trap '/bin/rm -rf "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 unset TALKTALK_ENGINE_HOME TALKTALK_HOME TALKTALK_BENCH_HOME
 
 pass=0; fail=0

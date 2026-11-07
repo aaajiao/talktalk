@@ -12,6 +12,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 
 work="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tt-models-test.XXXXXX")"
 trap '/bin/rm -rf "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 src="$work/hf/acme/fake-model/resolve/0123456789abcdef0123456789abcdef01234567"
 /bin/mkdir -p "$src/sub"
 printf 'hello config\n' > "$src/config.json"

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkVoice
 
 // Fixtures shaped like tools/bench/corpus/t5.json and t17.json (corpus session's format).
@@ -17,7 +18,7 @@ private let t17Fixture = """
           {"id":"t17-p02","kind":"press","text":"大家好。","gap_after_s":4.0}]}
 """
 
-@Suite struct BenchCorpusTests {
+@Suite(.temporaryFiles) struct BenchCorpusTests {
     @Test func decodesT5() throws {
         let set = try BenchCorpusSet.decode(Data(t5Fixture.utf8))
         #expect(set.set == "t5")
@@ -57,7 +58,7 @@ private let t17Fixture = """
     }
 }
 
-@Suite struct BenchTakeTests {
+@Suite(.temporaryFiles) struct BenchTakeTests {
     @Test func autoSetsAreTrimmedAroundSpeech() {
         let take = Synth.take(segments: [2.0], pauses: [], lead: 1.5, tail: 1.5)
         let c = BenchTakeCheck.evaluate(id: "t5-001", take: take, sampleRate: Synth.rate, noiseFloorDb: -68, trim: true, micUID: "m")

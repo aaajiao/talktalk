@@ -7,6 +7,8 @@ check="$here/../check-audio-paths.sh"
 
 work="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tt-audio-paths.XXXXXX")"
 trap '/bin/rm -rf "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 pass=0; fail=0
 ok() { pass=$((pass + 1)); printf 'ok   %s\n' "$1"; }
 no() { fail=$((fail + 1)); printf 'FAIL %s\n' "$1"; [ -n "${2:-}" ] && printf '%s\n' "$2"; return 0; }

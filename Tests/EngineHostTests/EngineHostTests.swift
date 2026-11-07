@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkCore
 @testable import TalkTalkEngineHost
 
@@ -8,7 +9,7 @@ import Testing
 /// stdlib-only fake engine (`Fixtures/fake_engine/talktalk_engine.py`) that speaks the real
 /// handshake and API v2 with scripted misbehaviour. Needs 127.0.0.1 binding (run outside the
 /// Claude Code sandbox). No MLX, no models, no GPU.
-@Suite(.serialized) struct EngineHostTests {
+@Suite(.serialized, .temporaryFiles) struct EngineHostTests {
     static let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("Fixtures/fake_engine")
     static let ttsRev = String(repeating: "a", count: 40)
@@ -38,15 +39,13 @@ import Testing
         let state: URL
 
         init() throws {
-            root = FileManager.default.temporaryDirectory.appendingPathComponent("tt-host-\(UUID().uuidString.prefix(8))")
+            root = try TestTemporaryDirectory.make(prefix: "tt-host")
             paths = EnginePaths(home: root.appendingPathComponent("home"), logs: root.appendingPathComponent("logs"),
                                 caches: root.appendingPathComponent("caches"), engineSource: EngineHostTests.fixture,
                                 installerScript: nil)
             state = root.appendingPathComponent("state")
             try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
         }
-
-        deinit { try? FileManager.default.removeItem(at: root) }
 
         func record(ttsRev: String = EngineHostTests.ttsRev) throws -> EngineInstallation.Record {
             let json = """
@@ -493,7 +492,7 @@ import Testing
 }
 
 /// Pure codec and parser checks (no process).
-@Suite struct EngineWireTests {
+@Suite(.temporaryFiles) struct EngineWireTests {
     @Test func framesRoundTrip() throws {
         var d = Frames.encode(.jsonHead, Data("{\"a\":1}".utf8))
         d.append(Frames.encode(.pcmF32At24k, Frames.pcmF32([0.5, -0.25])))
@@ -544,8 +543,7 @@ import Testing
     }
 
     @Test func logRotatesAtLimit() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tt-log-\(UUID().uuidString.prefix(8))")
-        defer { try? FileManager.default.removeItem(at: dir) }
+        let dir = try TestTemporaryDirectory.make(prefix: "tt-log")
         let log = dir.appendingPathComponent("engine.log")
         var fd = try ServerLog.openForAppend(log, rotateAt: 10)
         _ = "0123456789AB".withCString { write(fd, $0, 12) }

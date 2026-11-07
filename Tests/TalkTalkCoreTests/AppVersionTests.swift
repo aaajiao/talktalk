@@ -24,8 +24,8 @@ import Testing
     private func withBundle(_ metadata: [String: String], check: (Bundle) throws -> Void) throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".bundle")
         let contents = root.appendingPathComponent("Contents")
-        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
         var info = metadata
         info["CFBundleIdentifier"] = "com.aaajiao.talktalk.version-test.\(UUID().uuidString)"
         info["CFBundlePackageType"] = "BNDL"

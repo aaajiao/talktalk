@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 import TalkTalkAudio
 import TalkTalkCore
+import TalkTalkTestSupport
 
 typealias Dev = MicPolicy.Device
 
@@ -196,9 +197,8 @@ final class FakeLauncher: SysInputGuardLauncher, @unchecked Sendable {
 }
 
 /// A fresh directory for the record and lock.
-func tempPaths() -> SysInputPaths {
-    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tt-sysinput-\(UUID().uuidString)", isDirectory: true)
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+func tempPaths() throws -> SysInputPaths {
+    let dir = try TestTemporaryDirectory.make(prefix: "tt-sysinput")
     return SysInputPaths(directory: dir)
 }
 

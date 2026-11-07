@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkCore
 
 private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
@@ -68,7 +69,7 @@ private func setMTime(_ url: URL, _ date: Date) throws {
     }
 }
 
-@Suite struct RetentionSweepTests {
+@Suite(.temporaryFiles) struct RetentionSweepTests {
     @Test func sweepsDiagnosticsSessionsByNewestInnerFile() throws {
         let dir = try makeScratchDir("ret")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -124,7 +125,7 @@ private func setMTime(_ url: URL, _ date: Date) throws {
     }
 }
 
-@Suite struct RetentionSchedulerTests {
+@Suite(.temporaryFiles) struct RetentionSchedulerTests {
     final class FakeTimer: @unchecked Sendable {
         var interval: TimeInterval?
         var fire: (@Sendable () -> Void)?

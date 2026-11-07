@@ -1,9 +1,10 @@
 import Foundation
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkCore
 
 /// §7.5 StartupCheck framework, engine items 1–2 and permissions item 5 (m1-engine).
-@Suite struct StartupCheckTests {
+@Suite(.temporaryFiles) struct StartupCheckTests {
     struct Fixed: StartupCheckItem {
         let id: String
         let level: StartupCheckResult.Level
@@ -67,8 +68,7 @@ import Testing
     }
 
     @Test func engineUnfinishedNeedsAction() async throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tt-sc-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dir = try TestTemporaryDirectory.make(prefix: "tt-sc")
         try Data("{}".utf8).write(to: dir.appendingPathComponent("install.json.prev"))
         let r = await EngineStartupCheck(installation: EngineInstallation(engineHome: dir)).run()
         #expect(r.level == .action)

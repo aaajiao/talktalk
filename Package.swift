@@ -11,6 +11,9 @@ let package = Package(
         .executable(name: "TalkTalk", targets: ["TalkTalkApp"]),
     ],
     targets: [
+        // Test-only filesystem scopes; never linked into the application.
+        .target(name: "TalkTalkTestSupport", path: "Tests/TalkTalkTestSupport"),
+        .testTarget(name: "TalkTalkTestSupportTests", dependencies: ["TalkTalkTestSupport"]),
         .target(name: "TalkTalkCore"),
         .target(name: "TalkTalkCloud", dependencies: ["TalkTalkCore"]),
         .target(name: "TalkTalkAudio", dependencies: ["TalkTalkCore", "CAudioCore"]),
@@ -21,7 +24,7 @@ let package = Package(
             // The dev-only entry points (--bench store-key) compile only with -DTALKTALK_DEV,
             // which scripts/build-app.sh passes for TalkTalk-Dev.app and never for TalkTalk.app.
         ),
-        .testTarget(name: "TalkTalkCoreTests", dependencies: ["TalkTalkCore"]),
+        .testTarget(name: "TalkTalkCoreTests", dependencies: ["TalkTalkCore", "TalkTalkTestSupport"]),
         // Settings visual system (docs/decisions/2026-11-06-settings-visual-system.md §3.0): the
         // status vocabulary, icon buttons, fact chips, section headers and row style, the card
         // navigation and ReturnPill, and the subtitle window's own capsule, keycap and style
@@ -40,7 +43,7 @@ let package = Package(
         // voice-m2: the engine half of enrollment (build/load/audition/read-back) talks to the engine host.
         .target(name: "TalkTalkVoice", dependencies: ["TalkTalkCore", "TalkTalkAudio", "TalkTalkEngineHost", "TalkTalkSettingsUI"]),
         .testTarget(name: "TalkTalkAudioTests", dependencies: ["TalkTalkAudio", "CAudioCore"]),
-        .testTarget(name: "TalkTalkVoiceTests", dependencies: ["TalkTalkVoice", "TalkTalkAudio", "TalkTalkCore", "TalkTalkEngineHost"]),
+        .testTarget(name: "TalkTalkVoiceTests", dependencies: ["TalkTalkVoice", "TalkTalkAudio", "TalkTalkCore", "TalkTalkEngineHost", "TalkTalkTestSupport"]),
         // m0-swift: Apple SpeechAnalyzer / Translation wrappers and the T10/T11 benches (§13).
         .target(name: "TalkTalkApple", dependencies: ["TalkTalkCore"]),
         .testTarget(name: "TalkTalkAppleTests", dependencies: ["TalkTalkApple", "TalkTalkCore"]),
@@ -54,12 +57,12 @@ let package = Package(
         // m1-engine: the engine host (§7.3–§7.6, §13): EngineProcess, PosixSpawnLauncher,
         // ServerHandshake, EngineClient, EnginePaths, EngineInstaller, ServerLog.
         .target(name: "TalkTalkEngineHost", dependencies: ["TalkTalkCore"]),
-        .testTarget(name: "EngineHostTests", dependencies: ["TalkTalkEngineHost", "TalkTalkCore"],
+        .testTarget(name: "EngineHostTests", dependencies: ["TalkTalkEngineHost", "TalkTalkCore", "TalkTalkTestSupport"],
                     exclude: ["Fixtures"]),
-        .testTarget(name: "InstallerTests", dependencies: ["TalkTalkEngineHost"]),
+        .testTarget(name: "InstallerTests", dependencies: ["TalkTalkEngineHost", "TalkTalkTestSupport"]),
         // m2 sysinput: default-input switch, record, lock and guard (§8.6). Fake-HAL tests always run;
         // the on-device ones (they change the real default input) only with TALKTALK_TEST_AUDIO=1.
-        .testTarget(name: "SysInputTests", dependencies: ["TalkTalkAudio", "TalkTalkCore"]),
+        .testTarget(name: "SysInputTests", dependencies: ["TalkTalkAudio", "TalkTalkCore", "TalkTalkTestSupport"]),
         // m2 driver: DriverInstallation, DriverInstaller, the driver self-test and FullUninstaller
         // (§8.4, §13), plus the settings › 组件 driver section. CDriverSelfTest holds the self-test
         // IOProcs (real-time C, checked like CAudioCore). DriverTests: the on-device cases run only

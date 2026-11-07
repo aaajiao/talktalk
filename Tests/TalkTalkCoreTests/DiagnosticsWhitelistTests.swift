@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkCore
 
 /// A fake key: key-shaped, never a real one. Planted all over a fake log tree; the bundle must
@@ -63,7 +64,7 @@ private struct Tree {
     var whitelist: DiagnosticsWhitelist { DiagnosticsWhitelist(home: home, logs: logs, userHome: user) }
 }
 
-@Suite struct DiagnosticsWhitelistPathTests {
+@Suite(.temporaryFiles) struct DiagnosticsWhitelistPathTests {
     @Test func verdicts() throws {
         let t = try Tree()
         defer { try? FileManager.default.removeItem(at: t.root) }
@@ -109,7 +110,7 @@ private struct Tree {
     }
 }
 
-@Suite struct DiagnosticsWhitelistContentTests {
+@Suite(.temporaryFiles) struct DiagnosticsWhitelistContentTests {
     @Test func eventLinesMustBeFlatTags() {
         #expect(DiagnosticsWhitelist.scrubEventLine(#"{"ev":"mt.final","t":3,"sentence":1,"approx":false}"#) != nil)
         #expect(DiagnosticsWhitelist.scrubEventLine(#"{"ev":"mt.final","t":3,"text":"hello world"}"#) == nil)
@@ -140,7 +141,7 @@ private struct Tree {
     }
 }
 
-@Suite struct DiagnosticsBundleTests {
+@Suite(.temporaryFiles) struct DiagnosticsBundleTests {
     @Test func fakeKeyScanFindsNothingAndNoTextLeaves() throws {
         let t = try Tree()
         defer { try? FileManager.default.removeItem(at: t.root) }

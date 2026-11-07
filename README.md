@@ -41,6 +41,8 @@ scripts/build-app.sh release
 
 开发环境使用仓库内 `.venv`，解释器固定在 `.build/dev-python`；Python 版本由 `.python-version` 与安装器共用的 pins 同步，依赖使用 App 相同的两份锁文件。开发时可执行 `source .venv/bin/activate`，或直接用 `.venv/bin/python3`。检查与打包脚本会验证并使用该环境，不借用已安装 App 的运行时；缺失或版本不符时会提示重新运行 setup。
 
+`scripts/check.sh` 为每次运行创建独立临时目录，成功、失败或 Ctrl-C／TERM 结束后自动清理。Swift 文件夹具使用测试专用的 `@Suite(.temporaryFiles)` 与 `TestTemporaryDirectory.make(prefix:)`，直接运行 `swift test` 也会在每个测试结束时清理；异步任务和子进程应先等待退出。新测试请沿用该方式，Python 使用 `TemporaryDirectory` 配合 `addCleanup`／上下文管理器。清理只针对该次测试创建的文件，不扫描用户模型或声音目录。
+
 生成的正式应用位于 `build/TalkTalk.app`，安装和启动方式同上。每次运行打包脚本都会自动递增构建号（例如 `1.0.15 (30)` 中的 `30`），并同步 `scripts/lib/versions.sh` 与生成的 `EnginePins.swift`；正式发布版本号单独维护。
 
 ## 模型与隐私

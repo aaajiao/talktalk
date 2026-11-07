@@ -3,8 +3,9 @@ import Foundation
 import Testing
 import TalkTalkAudio
 import TalkTalkCore
+import TalkTalkTestSupport
 
-@Suite struct RecordStoreTests {
+@Suite(.temporaryFiles) struct RecordStoreTests {
     private func sample() -> SysInputRecord {
         SysInputRecord(original: .init(Devs.usb), writerBundleID: BuildFlavor.dev.rawValue,
                        executablePath: "/Applications/TalkTalk-Dev.app/Contents/MacOS/TalkTalk", guardPID: 77,
@@ -12,7 +13,7 @@ import TalkTalkCore
     }
 
     @Test func writesMode0600AtomicallyWithFsync() throws {
-        let paths = tempPaths()
+        let paths = try tempPaths()
         let synced = EventTrail()
         let store = SysInputRecordStore(paths: paths, onFsync: { synced.add($0) })
         #expect(!store.exists)
@@ -40,7 +41,7 @@ import TalkTalkCore
     }
 
     @Test func atomicRenameNeverLeavesAPartialRecord() throws {
-        let paths = tempPaths()
+        let paths = try tempPaths()
         let store = SysInputRecordStore(paths: paths)
         try store.write(sample())
         let before = try Data(contentsOf: paths.record)
@@ -56,7 +57,7 @@ import TalkTalkCore
     }
 
     @Test func unreadableRecordStillCountsAsARecord() throws {
-        let paths = tempPaths()
+        let paths = try tempPaths()
         try Data("{not json".utf8).write(to: paths.record)
         let r = SysInputRecordStore(paths: paths).read()
         #expect(r == .unreadable())
@@ -73,9 +74,9 @@ import TalkTalkCore
     }
 }
 
-@Suite struct LockTests {
-    @Test func exclusiveAcrossOpenFileDescriptions() {
-        let paths = tempPaths()
+@Suite(.temporaryFiles) struct LockTests {
+    @Test func exclusiveAcrossOpenFileDescriptions() throws {
+        let paths = try tempPaths()
         let a = SysInputLock(path: paths.lock.path)
         let b = SysInputLock(path: paths.lock.path)
         #expect(SysInputLock.isAvailable(path: paths.lock.path))
@@ -91,7 +92,7 @@ import TalkTalkCore
     }
 
     @Test func descriptorIsCloseOnExecSoChildrenDoNotInheritIt() throws {
-        let paths = tempPaths()
+        let paths = try tempPaths()
         let lock = SysInputLock(path: paths.lock.path)
         #expect(lock.tryAcquire())
         defer { lock.release() }
@@ -106,7 +107,7 @@ import TalkTalkCore
     }
 
     @Test func childKeepsTheFlockAfterTheParentIsKilled() throws {
-        let paths = tempPaths()
+        let paths = try tempPaths()
         let lock = SysInputLock(path: paths.lock.path)
         #expect(lock.tryAcquire())
         // "app" = sh, "guard" = its sleep child; both share our open file description.
@@ -124,7 +125,7 @@ import TalkTalkCore
     }
 
     @Test func verifyInheritedRejectsStrangers() throws {
-        let paths = tempPaths()
+        let paths = try tempPaths()
         let lock = SysInputLock(path: paths.lock.path)
         #expect(lock.tryAcquire())
         #expect(SysInputLock.verifyInherited(fd: lock.fd, path: paths.lock.path))

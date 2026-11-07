@@ -1,15 +1,14 @@
 import Foundation
 import Testing
+import TalkTalkTestSupport
 @testable import TalkTalkCore
 
-/// A fresh directory under the test temp dir, removed by the caller.
+/// A fresh directory owned by the current test scope (explicit removal is also allowed).
 func makeScratchDir(_ tag: String) throws -> URL {
-    let u = FileManager.default.temporaryDirectory.appendingPathComponent("tt-\(tag)-\(UUID().uuidString)", isDirectory: true)
-    try FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
-    return u
+    try TestTemporaryDirectory.make(prefix: "tt-\(tag)")
 }
 
-@Suite struct FileSystemTests {
+@Suite(.temporaryFiles) struct FileSystemTests {
     @Test func createsNestedPrivateDirectoriesExcludedFromBackup() throws {
         let root = try makeScratchDir("fs")
         defer { try? FileManager.default.removeItem(at: root) }

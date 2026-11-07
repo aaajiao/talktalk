@@ -4,6 +4,7 @@ import Testing
 import TalkTalkAudio
 import TalkTalkCore
 import TalkTalkEngineHost
+import TalkTalkTestSupport
 @testable import TalkTalkVoice
 
 // voice-m2: engine half of enrollment (build per model × mode, audition checks with one
@@ -390,7 +391,7 @@ final class Flag: @unchecked Sendable {
     var values: [SpeakVoiceRouting.Source] { lock.withLock { v } }
 }
 
-@Suite struct DeletionTests {
+@Suite(.temporaryFiles) struct DeletionTests {
     @Test func deleteSwitchesSpeakToTheSystemVoiceInTheSameSessionAndClearsGains() async throws {
         let store = VoiceStore(root: try tempRoot())
         let b = FakeBackend()
@@ -442,7 +443,7 @@ final class Flag: @unchecked Sendable {
     }
 }
 
-@Suite struct CandidateTests {
+@Suite(.temporaryFiles) struct CandidateTests {
     @Test func buildAuditionCommitSwapsOverTheOldProfileWithAttributes() async throws {
         let store = VoiceStore(root: try tempRoot())
         let old = try await saveProfile(store)
@@ -516,7 +517,7 @@ final class Flag: @unchecked Sendable {
     }
 }
 
-@Suite struct TranscriptRecheckTests {
+@Suite(.temporaryFiles) struct TranscriptRecheckTests {
     struct FixedTranscriber: EnrollmentTranscriber {
         let text: String?
         let name = "qwen3-asr"
@@ -565,7 +566,7 @@ final class Flag: @unchecked Sendable {
     }
 }
 
-@Suite struct VoiceLifecycleTests {
+@Suite(.temporaryFiles) struct VoiceLifecycleTests {
     @Test func savedSamplingIdentitySurvivesRebuildAndAudition() async throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -881,7 +882,7 @@ final class Flag: @unchecked Sendable {
 
 /// voice-m2 review fixes on the 保存 path (`EnrollmentController` statics; the instance methods
 /// only add the machine and the generation counter around them).
-@Suite struct SaveAttemptTests {
+@Suite(.temporaryFiles) struct SaveAttemptTests {
     private func candidate(_ store: VoiceStore) throws -> EnrollmentController.Candidate {
         try EnrollmentController.prepareCandidate(take: Synth.take(segments: [6.1, 6.6], pauses: [0.6]), sampleRate: Synth.rate,
                                                   report: savedReport(), micUID: "USB-MIC-2", script: .zhV1, store: store)
@@ -1078,7 +1079,7 @@ final class Flag: @unchecked Sendable {
 }
 
 /// Second review of voice-m2 (items 1, 2, 3, 6, 7), one test each.
-@Suite struct SecondReviewTests {
+@Suite(.temporaryFiles) struct SecondReviewTests {
     private func candidate(_ store: VoiceStore) throws -> EnrollmentController.Candidate {
         try EnrollmentController.prepareCandidate(take: Synth.take(segments: [6.3, 6.2], pauses: [0.6]), sampleRate: Synth.rate,
                                                   report: savedReport(), micUID: "USB-MIC-3", script: .zhV1, store: store)
@@ -1099,7 +1100,6 @@ final class Flag: @unchecked Sendable {
                                   passthroughGains: InMemoryPassthroughGainStore())
         let (updates, cont) = AsyncStream<Bool>.makeStream()
         let follower = life.follow(engineReady: updates)
-        defer { follower.cancel() }
         cont.yield(true)
         await until { if case .myVoice = routing.source { return true } else { return false } }
         #expect(routing.cloneAvailability != .down)
@@ -1116,6 +1116,11 @@ final class Flag: @unchecked Sendable {
         await b.releaseLoads()
         await until { if case .myVoice = routing.source { return true } else { return false } }
         #expect(routing.hudLabel == "我的声音")
+        cont.finish()
+        follower.cancel()
+        await follower.value
+        // Finish the cancelled READY work before the test's temporary directory is removed.
+        await life.queue.runAlways {}
     }
 
     // 2: the engine stopping mid-save (CancellationError from EngineProcess.stop / awaitReady) is
@@ -1141,9 +1146,11 @@ final class Flag: @unchecked Sendable {
         let c = try await EnrollmentController.buildAndAudition(try candidate(store), engine: services(b), script: .zhV1, store: store)
         let routing = SpeakVoiceRouting(clone: NamedTTS("q"), system: NamedTTS("s"))
         let loadsBefore = await b.loads.count
-        EnrollmentController.dropLate(c.staging, store: store, engine: services(b), routing: routing, queue: VoiceSlotQueue())
+        let queue = VoiceSlotQueue()
+        EnrollmentController.dropLate(c.staging, store: store, engine: services(b), routing: routing, queue: queue)
         #expect(!FileManager.default.fileExists(atPath: c.staging.path))
         await until { await b.loads.count > loadsBefore }
+        await queue.runAlways {}
         #expect(await b.loads.last == saved.conditioningEntries?.first?.key)
     }
 
@@ -1183,7 +1190,7 @@ final class Flag: @unchecked Sendable {
 }
 
 /// Third review of voice-m2: epoch, no double restore, save() driven end to end.
-@Suite struct ThirdReviewTests {
+@Suite(.temporaryFiles) struct ThirdReviewTests {
     private func until(_ cond: @escaping @Sendable () async -> Bool) async {
         for _ in 0..<5000 where !(await cond()) { try? await Task.sleep(for: .milliseconds(1)) }
     }
@@ -1272,10 +1279,12 @@ final class Flag: @unchecked Sendable {
         let c = EnrollmentController(store: store, transcriber: nil, engine: services(b), routing: routing)
         c.seedReview(take: Synth.take(segments: [6.0, 6.4], pauses: [0.6]), report: savedReport(), device: Self.device)
         c.save()
-        await until { @MainActor in if case .auditionReview = c.phase { return true } else { return false } }
+        await c.lastSaveAttempt?.value
         guard case .auditionReview = c.phase else { Issue.record("\(c.phase)"); return }
         c.save()
-        await until { @MainActor in c.phase == .saved && routing.voice != nil }
+        // The phase changes before alignment finishes; savedProfile is set after all disk work.
+        await until { @MainActor in c.savedProfile != nil }
+        #expect(c.savedProfile != nil)
         let p = try store.loadProfile()
         #expect(c.phase == .saved && p.audition == "passed")
         #expect(routing.voice?.conditioningKey == p.conditioningEntries?.first?.key)
@@ -1285,7 +1294,7 @@ final class Flag: @unchecked Sendable {
 /// `VoiceLifecycle.readyStream` and `init(engineProcess:)` against the real EngineProcess and the
 /// EngineHost tests' stdlib-only fake engine (needs 127.0.0.1 binding: run outside the sandbox,
 /// as check.sh does).
-@Suite(.serialized) struct EngineFollowTests {
+@Suite(.serialized, .temporaryFiles) struct EngineFollowTests {
     static let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("EngineHostTests/Fixtures/fake_engine")
 
@@ -1330,35 +1339,45 @@ final class Flag: @unchecked Sendable {
 
     @Test func readyStreamMapsEngineStatus() async throws {
         let e = try Self.engine()
-        var it = VoiceLifecycle.readyStream(e).makeAsyncIterator()
-        #expect(await it.next() == false)               // stopped
-        try await e.start()
-        var sawReady = false
-        while let r = await it.next() { if r { sawReady = true; break } }
-        #expect(sawReady)
-        await e.stop()
-        #expect(await it.next() == false)
+        do {
+            var it = VoiceLifecycle.readyStream(e).makeAsyncIterator()
+            #expect(await it.next() == false)               // stopped
+            try await e.start()
+            var sawReady = false
+            while let r = await it.next() { if r { sawReady = true; break } }
+            #expect(sawReady)
+            await e.stop()
+            #expect(await it.next() == false)
+        } catch {
+            await e.stop()
+            throw error
+        }
     }
 
     @Test func auditionRequiresItsLoadedIdentityAndClearsItOnUnload() async throws {
         let e = try Self.engine(extra: ["--require-voice-key", "--tts-chunks", "1", "--tts-chunk-ms", "1"])
-        let backend = RemoteQwenVoiceBackend(engine: e)
-        await #expect(throws: RemoteEngineError.voiceNotReady) {
-            _ = try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1)
-        }
-        #expect(await e.launches == 0)
-        try await backend.load(blob: Data([1]), model: "tts-x", key: "voice-a", mode: .icl, profileID: UUID())
-        #expect(try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1).samples.count == 1920)
+        do {
+            let backend = RemoteQwenVoiceBackend(engine: e)
+            await #expect(throws: RemoteEngineError.voiceNotReady) {
+                _ = try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1)
+            }
+            #expect(await e.launches == 0)
+            try await backend.load(blob: Data([1]), model: "tts-x", key: "voice-a", mode: .icl, profileID: UUID())
+            #expect(try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1).samples.count == 1920)
 
-        // A different client replaces the slot: the audition must still request voice-a.
-        let client = try #require(await e.client)
-        try await client.loadVoice(blob: Data([2]), model: "tts-x", key: "voice-b")
-        await #expect(throws: EngineAPIError.http(status: 409, code: "voice_key_mismatch", message: "loaded voice does not match the requested voice")) {
-            _ = try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1)
-        }
-        #expect(try await backend.unload())
-        await #expect(throws: RemoteEngineError.voiceNotReady) {
-            _ = try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1)
+            // A different client replaces the slot: the audition must still request voice-a.
+            let client = try #require(await e.client)
+            try await client.loadVoice(blob: Data([2]), model: "tts-x", key: "voice-b")
+            await #expect(throws: EngineAPIError.http(status: 409, code: "voice_key_mismatch", message: "loaded voice does not match the requested voice")) {
+                _ = try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1)
+            }
+            #expect(try await backend.unload())
+            await #expect(throws: RemoteEngineError.voiceNotReady) {
+                _ = try await backend.synthesize(text: "Hello there.", lang: .en, seed: 1)
+            }
+        } catch {
+            await e.stop()
+            throw error
         }
         await e.stop()
     }
@@ -1370,22 +1389,31 @@ final class Flag: @unchecked Sendable {
         let routing = SpeakVoiceRouting(clone: NamedTTS("q"), system: NamedTTS("s"))
         let life = VoiceLifecycle(store: store, engineProcess: e, monitor: RecordingAuditionMonitor(), routing: routing,
                                   passthroughGains: InMemoryPassthroughGainStore())
-        #expect(routing.source == .myVoicePending)
-        try await e.start()
-        // READY → voiceReady: built, loaded, routed (the fake engine's audition fails its checks; the
-        // voice is still the saved one).
-        await until { if case .myVoice = routing.source { return true } else { return false } }
-        guard case .myVoice = routing.source else { Issue.record("not routed: \(routing.source)"); await e.stop(); return }
-        #expect(try store.loadProfile().conditioning == "built")
+        do {
+            #expect(routing.source == .myVoicePending)
+            try await e.start()
+            // READY → voiceReady: built, loaded, routed (the fake engine's audition fails its checks; the
+            // voice is still the saved one).
+            await until { if case .myVoice = routing.source { return true } else { return false } }
+            if case .myVoice = routing.source {
+                #expect(try store.loadProfile().conditioning == "built")
+            } else {
+                Issue.record("not routed: \(routing.source)")
+            }
+        } catch {
+            await e.stop()
+            await life.queue.runAlways {}
+            throw error
+        }
         await e.stop()                                   // idle exit / crash
         await until { routing.cloneAvailability == .down }
         #expect(routing.cloneAvailability == .down)
-        _ = life
+        await life.queue.runAlways {}
     }
 }
 
 // Third review item 2: reopening within the idle window cancels the scheduled idle exit.
-@Suite struct IdleHookTests {
+@Suite(.temporaryFiles) struct IdleHookTests {
     private static let device = InputDeviceInfo(objectID: 1, uid: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone",
                                                 transport: "bltn", nominalSampleRate: Synth.rate, inputChannels: 1,
                                                 isAlive: true, isAggregate: false)
@@ -1405,5 +1433,6 @@ final class Flag: @unchecked Sendable {
         let hooks = await b.events.filter { $0 == "started" || $0 == "finished" }
         #expect(hooks == ["finished", "started", "finished"])
         c.cancel()
+        await c.lastSaveAttempt?.value
     }
 }

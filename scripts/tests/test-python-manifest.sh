@@ -14,6 +14,8 @@ pybin="$root/.venv/bin/python3"
 
 work="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tt-pymanifest-test.XXXXXX")"
 trap '/bin/rm -rf "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 py="$work/python"
 /bin/mkdir -p "$py/bin" "$py/lib/python3.12/encodings/__pycache__"
 printf 'print("hi")\n' > "$py/lib/python3.12/encodings/aliases.py"

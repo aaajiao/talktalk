@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import TalkTalkAudio
 import TalkTalkCore
+import TalkTalkTestSupport
 
 /// On-device acceptance (§13 SysInputTests, §14 M2). These write the REAL system default input,
 /// so they only run with TALKTALK_TEST_AUDIO=1 and each run needs the user's OK. They record the
@@ -14,7 +15,7 @@ import TalkTalkCore
 /// write 'ttmm', and the test runner is not one: entry would end in `.micNotSelectable`. So this
 /// suite runs only on a driver without 'ttmm'; on 0.2.0 the same acceptance runs through the app
 /// (a dev `--bench` entry started with `open -W -n -a build/TalkTalk-Dev.app`, scheduled with M2).
-@MainActor @Suite(.serialized, .enabled(if: DeviceGate.enabled,
+@MainActor @Suite(.serialized, .temporaryFiles, .enabled(if: DeviceGate.enabled,
                                         "needs TALKTALK_TEST_AUDIO=1 and a driver without 'ttmm' (0.1.0)"))
 struct DeviceSysInputTests {
 
@@ -28,7 +29,7 @@ struct DeviceSysInputTests {
             // Whatever happened, put the original back.
             if hal.defaultInputUID() != inputBefore.uid { _ = hal.writeAndConfirm(uid: inputBefore.uid) }
         }
-        let paths = tempPaths()
+        let paths = try tempPaths()
         let sw = SystemInputSwitcher(.init(hal: hal, processes: FakeProcesses([]), paths: paths,
                                            launcher: FakeLauncher(), autoRefresh: false))
         sw.start()

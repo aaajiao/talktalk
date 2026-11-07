@@ -21,6 +21,9 @@ case "$version" in
 esac
 # The dev hooks (store-key) must be compiled into dev and absent from release.
 out="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/tt-smoke.XXXXXX")"
+trap '/bin/rm -f "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 if [ "$flavor" = "release" ]; then
   case "$version" in *"dev hooks: none"*) ;; *) tt_die "smoke: release build has dev hooks ($version)" ;; esac
   if "$exe" --bench store-key --out "$out" 2>/dev/null; then tt_die "smoke: release build accepted --bench store-key"; fi

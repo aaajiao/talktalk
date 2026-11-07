@@ -53,6 +53,7 @@ class FakeEngineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.tmp.cleanup)
         root = Path(cls.tmp.name)
         models = root / "models"
         for key in ("tts-fake", "asr-fake"):
@@ -67,12 +68,8 @@ class FakeEngineTests(unittest.TestCase):
         cls.log = root / "engine.log"
         cls.eng = Engine(sys.executable, ENGINE, [models], roles="tts,asr", tts="tts-fake", asr="asr-fake",
                          warmup_dir=warm, cache_dir=root / "cache", log_path=cls.log, entry=FAKE_ENTRY)
+        cls.addClassCleanup(cls.eng.stop)
         cls.eng.start(timeout=30)
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.eng.stop()
-        cls.tmp.cleanup()
 
     def test_1_ready_without_voice(self):
         self.assertEqual(self.eng.ready["voice"]["state"], "absent")
@@ -147,6 +144,7 @@ class FakeEngineLifecycleTests(unittest.TestCase):
         p = subprocess.Popen([sys.executable, "-I", "-B", str(FAKE_ENTRY), "--models-dir", "/nonexistent",
                               "--roles", "tts", "--tts", "tts-fake"], stdin=subprocess.PIPE, stdout=w,
                              stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+        self.addCleanup(p.stdin.close)
         os.close(w)
         return p, r
 
@@ -178,6 +176,7 @@ class FakeEngineLifecycleTests(unittest.TestCase):
 
     def test_topology_b_separate_asr_thread(self):
         tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
         models = Path(tmp.name) / "models"
         for key in ("tts-fake", "asr-fake"):
             d = models / f"{key}@000000000000"
@@ -185,36 +184,34 @@ class FakeEngineLifecycleTests(unittest.TestCase):
             (d / ".talktalk-verified").write_text(f"{'0' * 40}\nkey={key} repo=fake/{key} verified_at=now\n")
         eng = Engine(sys.executable, ENGINE, [models], roles="tts,asr", tts="tts-fake", asr="asr-fake",
                      cache_dir=Path(tmp.name) / "c", entry=FAKE_ENTRY, extra_args=["--asr-thread", "separate"])
-        try:
-            eng.start(timeout=30)
-            eng.wait_asr(timeout=10)
-            self.assertEqual(eng.health()["asr_thread"], "separate")
-            pcm = np.zeros(24000 * 2, np.float32)
-            _, blob = eng.build_voice(pcm + 0.1, "大家好")
-            eng.load_voice(blob)
-            r = eng.asr(np.zeros(16000, np.float32), hint="zh")
-            self.assertTrue(r["text"])
-            _, _, timing = eng.tts({"text": "Thanks, everyone.", "lang": "en"})
-            self.assertGreater(timing["audio_s"], 0)
-            self.assertIn("asr", eng.json("GET", "/v1/stats")["steps"])
-        finally:
-            eng.stop()
-            tmp.cleanup()
+        self.addCleanup(eng.stop)
+        eng.start(timeout=30)
+        eng.wait_asr(timeout=10)
+        self.assertEqual(eng.health()["asr_thread"], "separate")
+        pcm = np.zeros(24000 * 2, np.float32)
+        _, blob = eng.build_voice(pcm + 0.1, "大家好")
+        eng.load_voice(blob)
+        r = eng.asr(np.zeros(16000, np.float32), hint="zh")
+        self.assertTrue(r["text"])
+        _, _, timing = eng.tts({"text": "Thanks, everyone.", "lang": "en"})
+        self.assertGreater(timing["audio_s"], 0)
+        self.assertIn("asr", eng.json("GET", "/v1/stats")["steps"])
 
     def test_exit_within_1s_after_stdin_eof(self):
         tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
         models = Path(tmp.name) / "models"
         d = models / "tts-fake@000000000000"
         d.mkdir(parents=True)
         (d / ".talktalk-verified").write_text(f"{'0' * 40}\nkey=tts-fake repo=fake/tts verified_at=now\n")
         eng = Engine(sys.executable, ENGINE, [models], roles="tts", tts="tts-fake", cache_dir=Path(tmp.name) / "c",
                      entry=FAKE_ENTRY)
+        self.addCleanup(eng.stop)
         eng.start(timeout=30)
         t = time.perf_counter()
         eng.proc.stdin.close()
         eng.proc.wait(1.0)
         self.assertLess(time.perf_counter() - t, 1.0)
-        tmp.cleanup()
 
 
 if __name__ == "__main__":
