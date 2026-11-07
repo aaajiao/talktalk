@@ -69,6 +69,7 @@ final class SpeakController {
     private(set) var warming = false
     private var closed = false
     private var sessionTarget: Lang?
+    private var sessionRecognitionEngine: SpeechRecognitionEngine?
     private var translationRefusal: String?
     /// Start-up waits read "未发送", not "音频不可用", until ready or 3 s (SpeakStartupWait).
     private var startupWait = SpeakStartupWait()
@@ -352,8 +353,14 @@ final class SpeakController {
             let translator = FallbackMT(cloud: cloud.speak, apple: apple, profile: profile, gate: gate,
                                        glossary: { AppGlossary.store.snapshot() },
                                        prepareApple: prepareApple, log: log)
+            // The Apple profile has no Qwen ASR by design. A nil primary uses the existing
+            // Apple-final path, including pausing its live preview before clip recognition.
+            let recognitionEngine = state.effectiveSpeakASREngine
+            sessionRecognitionEngine = recognitionEngine
+            let primaryASR: (any ClipASREngine)? = recognitionEngine == .apple
+                ? nil : SpeakEngineBridge.ASR(bridge: bridge)
             let pipeline = SpeakPipeline(profile: profile, mic: mic, playout: output, queue: queue,
-                primaryASR: SpeakEngineBridge.ASR(bridge: bridge), fallbackASR: AppleFinalizeASR(),
+                primaryASR: primaryASR, fallbackASR: AppleFinalizeASR(),
                 translator: translator, voice: { bridge.snapshot() }, engine: bridge, echo: echo,
                 previewASR: AppleSpeechASR(), target: state.speakLanguage.lang, jobs: jobs, log: log,
                 speakerMode: { links.value.withLock { $0.speakerMode } },
@@ -511,7 +518,8 @@ final class SpeakController {
                     // visual capture feedback even though it does not create a transcript.
                     hud.inputActivity(mic.inputLevel())
                     await updateFloorAndLoad(token: token)
-                    if !restartQueued, sessionTarget != state.speakLanguage.lang {
+                    if !restartQueued, sessionTarget != state.speakLanguage.lang
+                        || sessionRecognitionEngine != state.effectiveSpeakASREngine {
                         restartQueued = true
                         keys.systemEvent(.meetingModeEnded, at: HostClock.now())
                         lifecycleEvents?.yield(.configurationChanged)
@@ -828,7 +836,8 @@ final class SpeakController {
         transcript?.finish(); transcript = nil
         actionEvents = nil; actionTask = nil; feedConfirmed = false
         phoneBoundary.invalidate()
-        sessionTarget = nil; restartQueued = false; announcementEnabled = nil
+        sessionTarget = nil; sessionRecognitionEngine = nil
+        restartQueued = false; announcementEnabled = nil
         speaking = false; passthroughOpen = false; degraded = false; warming = false
         translationRefusal = nil; hud.meetingAudio(nil)
         startupWait.reset(); startupTimer?.invalidate(); startupTimer = nil

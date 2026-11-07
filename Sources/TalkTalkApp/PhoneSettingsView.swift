@@ -5,8 +5,8 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkSettingsUI
 
-/// 使用场景 › 电话同传 (settings visual system §7.2). Phone has its own preparation and dialing
-/// workflow; the system Phone app owns the call. Opening this scene only changes the settings
+/// 使用场景 › 电话同传 (settings visual system §7.2). TalkTalk prepares interpretation; the
+/// system Phone app owns dialing, answering and hanging up. Opening this scene only changes the settings
 /// view, never the current audio session. The page opens with the live voice row, the speech
 /// flow (the meeting's, with Phone as the app) and the three steps; ① is the bottom bar's 准备.
 struct PhoneSettingsView: View {
@@ -25,15 +25,8 @@ struct PhoneSettingsView: View {
     private var checklist: PhoneChecklist {
         PhoneChecklist.make(phoneSession: facts.phoneSession, starting: state.meetingStarting,
                             stopping: state.meetingStopping, active: state.meetingActive,
-                            readyToDial: state.phoneReadyToDial, dialing: state.phoneDialing,
+                            readyToDial: state.phoneReadyToDial, dialing: false,
                             callAudioActive: state.phoneAudioActive)
-    }
-
-    private var canDial: Bool {
-        state.meetingMode == .phone && state.meetingActive && state.phoneReadyToDial
-            && !state.meetingStarting && !state.meetingStopping
-            && !state.phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && state.onDialPhone != nil && !state.phoneDialing && !state.phoneAudioActive
     }
 
     var body: some View {
@@ -46,7 +39,7 @@ struct PhoneSettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 FlowGrid.phone(facts, driver: driver, links: links)
                 FlowGrid.phoneSteps(checklist, problem: state.phoneProblem,
-                                    dial: NodeLink(String(localized: "拨号")) { scrollTo(SettingsAnchor.phoneDial) })
+                                    dial: NodeLink(String(localized: "打开 Phone")) { scrollTo(SettingsAnchor.phoneDial) })
                 if let problem = facts.problem {
                     StatusLabel(problem.text, problem.status, help: problem.help)
                 }
@@ -57,7 +50,7 @@ struct PhoneSettingsView: View {
         }
 
         Section {
-            dialRow(enabled: checklist.dialEnabled)
+            openPhoneRow
                 .flowFlash(SettingsAnchor.phoneDial, in: navigation.flow)
         }
         .id(SettingsAnchor.phoneDial)
@@ -100,43 +93,21 @@ struct PhoneSettingsView: View {
         }, set: { navigation.phoneSetupExpanded = $0 })
     }
 
-    // MARK: ② dial
+    // MARK: ② Phone
 
-    private func dialRow(enabled: Bool) -> some View {
-        HStack(spacing: 8) {
-            // The field's own title would render as a wrapped Form label beside a squeezed field
-            // (seen in the release app): hide it and show the hint as the prompt inside the field.
-            Image(systemName: SubtitleTokens.SceneIcon.phone)
-                .font(.system(size: Ladder.row))
-                .foregroundStyle(.secondary)
-                .frame(width: Ladder.rowColumn)
-                .accessibilityHidden(true)
-            TextField(String(localized: "电话号码"), text: $state.phoneNumber,
-                      prompt: Text(String(localized: "+49 …（可选）")))
-                .labelsHidden()
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 160)
-                .accessibilityLabel(String(localized: "电话号码"))
-                .onSubmit { if canDial { state.onDialPhone?(state.phoneNumber) } }
-            if state.phoneDialing {
-                ProgressView().controlSize(.small).frame(width: Ladder.hitArea, height: Ladder.hitArea)
-                    .help(String(localized: "正在打开 Phone…"))
-                    .accessibilityLabel(String(localized: "正在打开 Phone…"))
-            } else {
-                IconButton(Icon.dial, help: String(localized: "拨打"), accessibilityLabel: String(localized: "拨打此号码")) {
-                    state.onDialPhone?(state.phoneNumber)
-                }
-                .disabled(!canDial)
-            }
-            Spacer(minLength: 8)
+    private var openPhoneRow: some View {
+        LabeledContent {
             Button {
                 state.onOpenPhone?()
             } label: {
                 Label("打开 Phone", systemImage: Icon.openApp).labelStyle(.titleAndIcon)
             }
             .disabled(state.onOpenPhone == nil)
+            .help(String(localized: "拨号、接听和挂断都在系统 Phone 中完成"))
+            .accessibilityLabel(String(localized: "打开 Phone"))
+        } label: {
+            Label("在 Phone 中拨号或接听", systemImage: SubtitleTokens.SceneIcon.phone)
         }
-        .disabled(!enabled)
     }
 
     // MARK: live voice

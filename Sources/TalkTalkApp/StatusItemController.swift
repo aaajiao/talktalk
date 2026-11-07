@@ -204,6 +204,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         f.systemInputSwitched = actions.systemInputSwitched()
         f.meetingAvailable = state.meetingAvailable
         f.devBuild = BuildFlavor.current == .dev
+        let version = AppVersion.current
+        f.appName = version.name
+        f.appVersion = version.displayString
         return f
     }
 
@@ -362,7 +365,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .toggleGlobalFallback: actions.setGlobalListenFallback(!actions.usesGlobalListenFallback())
         case .playAnnouncement: actions.playAnnouncement()
         case .settings: actions.openSettings(nil)
-        // The standard About item: no version (the panel shows it) and no ellipsis.
+        // The app identity row also keeps access to the standard About panel.
         case .about: NSApp.orderFrontStandardAboutPanel(nil)
         case .quit: actions.quit()
         }

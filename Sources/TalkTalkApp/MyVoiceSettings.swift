@@ -319,12 +319,11 @@ struct MyVoiceSettingsView: View {
             if model.hasProfile {
                 Section {
                     LabeledContent {
-                        Button("删除…", role: .destructive) { model.confirmDelete = true }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                        SettingsDestructiveButton(String(localized: "删除…"), help: String(localized: "删除声音档案"),
+                                                  accessibilityLabel: String(localized: "删除声音档案")) {
+                            model.confirmDelete = true
+                        }
                             .disabled(model.deleting || !model.canRecord)
-                            .help(String(localized: "删除声音档案"))
-                            .accessibilityLabel(String(localized: "删除声音档案"))
                     } label: {
                         Label("声音档案", systemImage: Icon.myVoice)
                     }

@@ -17,16 +17,18 @@ import Testing
         #expect(approval.isOn && approval.notice == .awaitingApproval)
         let off = P.present(.notRegistered, bundleSigned: true, stronglyRecommended: false)
         #expect(!off.isOn && off.notice == nil)
-        #expect(P.present(.notFound, bundleSigned: true, stronglyRecommended: true).notice == .serviceUnavailable)
+        #expect(P.present(.notFound, bundleSigned: true, stronglyRecommended: true).notice == .recommended)
     }
 
-    @Test func missingServiceDoesNotInferWhereTheAppIsInstalled() {
-        // SMAppService.notFound can occur for an app already in Applications. It must report
-        // the missing service rather than tell the user to move a correctly installed app.
+    @Test func missingMainAppLoginRecordIsAnAvailableOffSwitch() {
+        // A valid signed main app can report notFound before its first successful register.
+        // Neither a path warning nor an unavailable-service warning belongs on that switch.
         for recommended in [false, true] {
             let presentation = P.present(.notFound, bundleSigned: true, stronglyRecommended: recommended)
-            #expect(presentation == .init(isOn: false, canToggle: true, notice: .serviceUnavailable))
+            #expect(presentation == P.present(.notRegistered, bundleSigned: true, stronglyRecommended: recommended))
+            #expect(presentation == .init(isOn: false, canToggle: true, notice: recommended ? .recommended : nil))
         }
+        #expect(P.present(.notFound, bundleSigned: false, stronglyRecommended: false).notice == .unsigned)
         #expect(P.action(wantOn: true, current: .notFound) == .register)
         #expect(P.action(wantOn: false, current: .notFound) == .none)
     }

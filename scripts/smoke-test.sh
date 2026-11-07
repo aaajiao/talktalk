@@ -13,7 +13,12 @@ exe="$app/Contents/MacOS/TalkTalk"
 req="$(/usr/bin/codesign -d -r- "$app" 2>&1 | /usr/bin/sed -n 's/^designated => //p')"
 [ "$req" = "identifier \"$id\"" ] || tt_die "smoke: designated requirement is '$req'"
 version="$("$exe" --version)"
-case "$version" in "TalkTalk "*) ;; *) tt_die "smoke: --version printed '$version'" ;; esac
+app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+app_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
+case "$version" in
+  "TalkTalk $app_version ($app_build) ("*) ;;
+  *) tt_die "smoke: --version '$version' disagrees with Info.plist $app_version ($app_build)" ;;
+esac
 # The dev hooks (store-key) must be compiled into dev and absent from release.
 out="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/tt-smoke.XXXXXX")"
 if [ "$flavor" = "release" ]; then

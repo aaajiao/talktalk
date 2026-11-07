@@ -78,6 +78,30 @@ installed_field() {
   /usr/bin/jq -r "$1 // empty" "$f" 2>/dev/null || true
 }
 
+matching_profile() {
+  # Classify active role IDs only. Downloading an extra model never selects it.
+  local roles="$1" declared="$2" actual expected prof k role
+  actual="$(printf '%s' "$roles" | /usr/bin/jq -cS 'map_values(.id)')"
+  for prof in "$declared" standard max compact24 compact16; do
+    case "$prof" in max|standard|compact24|compact16) ;; *) continue ;; esac
+    expected="{}"
+    for k in $(profile_models "$prof"); do
+      role="$(tt_model_field "$k" ROLE)"
+      expected="$(printf '%s' "$expected" | /usr/bin/jq -cS --arg role "$role" --arg id "$k" '. + {($role):$id}')"
+    done
+    if [ "$actual" = "$expected" ]; then printf '%s' "$prof"; return 0; fi
+  done
+  printf 'custom'
+}
+
+installed_profile() {
+  [ -f "$INSTALL_JSON" ] || [ -f "$INSTALL_JSON.prev" ] || return 0
+  local roles
+  roles="$(installed_field .roles)"
+  [ -n "$roles" ] || roles="{}"
+  matching_profile "$roles" "$(installed_field .profile)"
+}
+
 acquire_lock() {
   /bin/mkdir -p "$ENGINE_HOME"
   /bin/chmod 700 "$TT_HOME" 2>/dev/null || true
@@ -183,17 +207,35 @@ install_venv() {
 }
 
 write_install_json() {
-  # write_install_json <profile> <models...>; atomic tmp + rename, written last.
+  # --preserve-roles is for add/remove only: retain active revisions and existing
+  # model entries instead of reinterpreting an old profile label with today's presets.
   local prof="$1"; shift
+  local preserve=0 old_roles="{}" old_models="[]" entry
+  if [ "${1:-}" = "--preserve-roles" ]; then
+    preserve=1; shift
+    old_roles="$(installed_field .roles)"; old_models="$(installed_field .models)"
+  fi
   local tmp="$INSTALL_JSON.tmp-$$" roles="{}" models="[]" k role rev repo
   for k in "$@"; do
     role="$(tt_model_field "$k" ROLE)"; rev="$(tt_model_field "$k" REVISION)"; repo="$(tt_model_field "$k" REPO)"
-    models="$(printf '%s' "$models" | /usr/bin/jq -c --arg id "$k" --arg repo "$repo" --arg rev "$rev" --arg role "$role" \
-      --arg dir "$(tt_model_dirname "$k")" '. + [{id:$id, repo:$repo, rev:$rev, role:$role, dir:$dir}]')"
-    if tt_in_list "$k" "$(profile_models "$prof")"; then
+    entry=""
+    if [ "$preserve" = "1" ]; then
+      entry="$(printf '%s' "$old_models" | /usr/bin/jq -c --arg id "$k" '[.[] | select(.id == $id)][0] // empty')"
+    fi
+    if [ -z "$entry" ]; then
+      entry="$(/usr/bin/jq -nc --arg id "$k" --arg repo "$repo" --arg rev "$rev" --arg role "$role" \
+        --arg dir "$(tt_model_dirname "$k")" '{id:$id, repo:$repo, rev:$rev, role:$role, dir:$dir}')"
+    fi
+    models="$(printf '%s' "$models" | /usr/bin/jq -c --argjson entry "$entry" '. + [$entry]')"
+    if [ "$preserve" = "0" ] && tt_in_list "$k" "$(profile_models "$prof")"; then
       roles="$(printf '%s' "$roles" | /usr/bin/jq -c --arg role "$role" --arg id "$k" --arg rev "$rev" '. + {($role): {id:$id, rev:$rev}}')"
     fi
   done
+  if [ "$preserve" = "1" ]; then
+    roles="$(printf '%s' "$old_roles" | /usr/bin/jq -c --argjson models "$models" \
+      'with_entries(select(.value.id as $id | any($models[]; .id == $id)))')"
+    prof="$(matching_profile "$roles" "$prof")"
+  fi
   /usr/bin/jq -n --arg profile "$prof" --argjson api "$TT_ENGINE_API" --arg lock "$TT_LOCK_SHA256" \
     --arg block "$TT_BUILD_LOCK_SHA256" --arg pyv "$TT_PY_VERSION" --arg pyr "$TT_PY_RELEASE" \
     --arg pysha "$TT_PY_SHA256" --arg mla "$TT_MLX_AUDIO_COMMIT" --argjson recipe "$TT_ENGINE_RECIPE" \
@@ -263,8 +305,10 @@ check_space() {
 # ---------------------------------------------------------------- operations
 
 do_install() {
-  local prof="${profile:-$(installed_field .profile)}"
-  prof="${prof:-max}"
+  local prof="${profile:-$(installed_profile)}"
+  [ "$prof" != "custom" ] || tt_die "active models form a custom combination; choose an explicit --profile to change it"
+  # Preserve the former default's actual model combination; Max now opts into ASR 1.7B.
+  prof="${prof:-standard}"
   local models k extra
   models="$(profile_models "$prof")"
   # keep models added earlier with --add-model
@@ -298,10 +342,10 @@ do_add() {
   install_model "$model_arg"
   if [ -f "$INSTALL_JSON" ]; then
     local prof models
-    prof="$(installed_field .profile)"; models="$(installed_field '.models[]?.id' | /usr/bin/tr '\n' ' ')"
+    prof="$(installed_profile)"; models="$(installed_field '.models[]?.id' | /usr/bin/tr '\n' ' ')"
     tt_in_list "$model_arg" "$models" || models="$models $model_arg"
     # shellcheck disable=SC2086
-    write_install_json "$prof" $models
+    write_install_json "$prof" --preserve-roles $models
   fi
   tt_event "done" model "$model_arg"
 }
@@ -309,8 +353,8 @@ do_add() {
 do_remove() {
   check_model_key "$model_arg"
   local prof d allow foreign models k keep=""
-  prof="$(installed_field .profile)"
-  if [ -n "$prof" ] && tt_in_list "$model_arg" "$(profile_models "$prof")"; then
+  prof="$(installed_profile)"
+  if [ -n "$prof" ] && [ "$prof" != "custom" ] && tt_in_list "$model_arg" "$(profile_models "$prof")"; then
     tt_die "$model_arg is used by the current profile ($prof)"
   fi
   acquire_lock
@@ -327,19 +371,20 @@ do_remove() {
     models="$(installed_field '.models[]?.id')"
     for k in $models; do [ "$k" = "$model_arg" ] || keep="$keep $k"; done
     # shellcheck disable=SC2086
-    write_install_json "$prof" $keep
+    write_install_json "$prof" --preserve-roles $keep
   fi
   tt_event "done" model "$model_arg" removed 1
 }
 
 do_check() {
   local prof k bad=0 models
-  prof="$(installed_field .profile)"; prof="${prof:-${profile:-max}}"
+  prof="$(installed_profile)"; prof="${prof:-${profile:-standard}}"
   [ -f "$INSTALL_JSON.prev" ] && { tt_log "unfinished: install.json.prev exists"; bad=1; }
   [ -f "$INSTALL_JSON" ] || { tt_log "install.json missing"; bad=1; }
   python_ok || { tt_log "python: not ok"; bad=1; }
   venv_ok || { tt_log "venv: not ok"; bad=1; }
-  models="$(installed_field '.models[]?.id')"; models="${models:-$(profile_models "$prof")}"
+  models="$(installed_field '.models[]?.id')"
+  if [ -z "$models" ] && [ "$prof" != "custom" ]; then models="$(profile_models "$prof")"; fi
   for k in $models; do
     tt_event step step "check" model "$k"
     if model_full_verify "$k"; then tt_log "$k: ok"; else bad=1; fi

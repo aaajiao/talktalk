@@ -323,7 +323,9 @@ public struct OpenAIKeySection: View {
                     Task { await model.verify() }
                 }
                 .disabled(isRunning(model.verification))
-                IconButton(Icon.delete, help: String(localized: "删除 key")) { model.keyDeletionAskedBy = host }
+                IconButton(Icon.delete, help: String(localized: "删除 OpenAI key"), isDestructive: true) {
+                    model.keyDeletionAskedBy = host
+                }
             }
         } label: {
             Label {
@@ -335,11 +337,11 @@ public struct OpenAIKeySection: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "已存入钥匙串的 key"))
         // OpenAI shows a secret key once: a slip beside 验证 must not cost the key.
-        .confirmationDialog(String(localized: "删除 key？"), isPresented: confirmsDeletion) {
-            Button(String(localized: "删除"), role: .destructive) { model.deleteKey() }
+        .alert(String(localized: "删除 OpenAI key？"), isPresented: confirmsDeletion) {
             Button(String(localized: "取消"), role: .cancel) {}
+            Button(String(localized: "删除 OpenAI key")) { model.deleteKey() }
         } message: {
-            Text(String(localized: "key 会从钥匙串删除；OpenAI 不会再显示它，之后要新建一个。"))
+            Text(String(localized: "只从这台 Mac 的钥匙串删除，不会撤销 OpenAI 账户中的 key。之后需要重新输入 key 才能使用云端翻译。"))
         }
     }
 

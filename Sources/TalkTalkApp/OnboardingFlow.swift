@@ -1185,7 +1185,7 @@ extension FlowGrid {
             FlowLane(String(localized: "识别"), cells: [
                 .node(FlowNode(String(localized: "声音"), glyph: .symbol(Icon.recognition), badge: recognition?.status,
                                badgeReason: recognition?.text,
-                               satellite: FlowSatellite("Qwen3-ASR", symbol: Icon.Page.models,
+                               satellite: FlowSatellite(engine.usesAppleRecognition ? "Apple Speech" : "Qwen3-ASR", symbol: Icon.Page.models,
                                                         help: String(localized: "识别声音")))),
                 .node(FlowNode(String(localized: "原文"), glyph: .symbol(Icon.sourceText))),
                 .empty, .empty

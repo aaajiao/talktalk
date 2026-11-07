@@ -95,37 +95,44 @@ struct ModelSettingsView: View {
 /// The recognition diagram; synthesis is part of 我的声音.
 @MainActor
 extension FlowGrid {
-    /// 听对方: 应用声音 → 识别 ‹Qwen3-ASR ▾› (备用 Apple) → 原文; 我说话: 说中文 (右⌥) → 识别
-    /// (Qwen3-ASR, 术语表 ›) → 原文.
+    /// Both recognition lanes follow the installed resource profile; the Apple profile has
+    /// no missing-Qwen warning. The LISTEN chip retains the user's independent preference.
     static func recognition(_ state: AppState, engine: EngineComponentsModel, links: ScenarioLinks) -> FlowGrid {
         typealias Icon = SubtitleTokens.SettingsIcon
         let problem = engine.recognitionProblem(state)
-        let missing = engine.record?.roles["asr"] == nil
-        let qwen = state.listenASREngine == .qwen
+        let appleProfile = engine.usesAppleRecognition
+        let configuredForApple = engine.installedProfile?.usesAppleRecognition == true
+        let missing = engine.record?.roles["asr"] == nil && !configuredForApple
+        let qwen = state.effectiveListenASREngine == .qwen
         let fellBack = state.meetingActive && state.listenASRFallback
-        let manage = missing ? links.node(String(localized: "安装与维护 · 语音资源"), .components, .components(.engine)) : nil
+        let manage = missing || configuredForApple
+            ? links.node(String(localized: "安装与维护 · 语音资源"), .components, .components(.engine)) : nil
         let model = engine.modelName(role: "asr")
+        let speakProblem = configuredForApple && !engine.installed ? engine.problem
+            : missing ? SettingsProblem(.pending, String(localized: "识别模型未安装")) : nil
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
         let listen = FlowNode(String(localized: "识别"), glyph: .symbol(Icon.recognition),
                               badge: problem?.status, badgeReason: problem?.text, link: manage,
-                              accessory: .controls { ListenASRChip(state: state) },
+                              accessory: .controls { ListenASRChip(state: state, engine: engine) },
                               // Apple stands by for Qwen; solid once it took over.
                               satellite: qwen ? FlowSatellite(String(localized: "备用 Apple"), symbol: Icon.thisMac,
                                                               help: fellBack ? String(localized: "Apple Speech 已接管")
                                                                              : String(localized: "Qwen 不可用时接管"),
                                                               dashed: !fellBack) : nil,
-                              help: qwen ? model : nil)
+                              help: appleProfile ? ListenASRChip.appleProfileHelp : qwen ? model : nil)
         let speak = FlowNode(String(localized: "识别"), glyph: .symbol(Icon.recognition),
-                             badge: missing ? .pending : nil,
-                             badgeReason: missing ? String(localized: "识别模型未安装") : nil,
+                             badge: speakProblem?.status,
+                             badgeReason: speakProblem?.text,
                              link: manage,
                              accessory: .display {
-                                 Text(verbatim: "Qwen3-ASR").font(.caption2).foregroundStyle(.secondary)
+                                 Text(verbatim: state.effectiveSpeakASREngine.title)
+                                     .font(.caption2).foregroundStyle(.secondary)
                              },
                              satellite: FlowSatellite(String(localized: "术语表"), symbol: Icon.glossary,
                                                       help: String(localized: "常用中英文名称帮助识别"),
                                                       link: links.node(String(localized: "术语表"), .glossary)),
-                             help: [model, String(localized: "Apple Speech 备用")].compactMap { $0 }.joined(separator: " · "))
+                             help: state.effectiveSpeakASREngine == .apple ? ListenASRChip.appleProfileHelp
+                                : [model, String(localized: "Apple Speech 备用")].compactMap { $0 }.joined(separator: " · "))
         let source = FlowNode(String(localized: "原文"), glyph: .symbol(Icon.sourceText))
         return FlowGrid(String(localized: "语音识别路径"), lanes: [
             FlowLane(String(localized: "听对方"), gutter: .symbol(Icon.listen), cells: [
@@ -146,13 +153,21 @@ extension FlowGrid {
 /// rebuilds its recognition).
 private struct ListenASRChip: View {
     @Bindable var state: AppState
+    let engine: EngineComponentsModel
+
+    static var appleProfileHelp: String {
+        String(localized: "\(EngineProfile.compact16.title)档使用 Apple Speech；如需 Qwen3-ASR，请在“安装与维护”的语音资源中切换档位。")
+    }
 
     var body: some View {
-        let qwen = state.listenASREngine == .qwen
-        let title = qwen ? "Qwen3-ASR" : "Apple Speech"
-        NodeChip(title, accessibilityLabel: String(localized: "识别引擎"), help: String(localized: "\(title) · 立即生效"),
+        let appleProfile = engine.usesAppleRecognition
+        let qwen = state.effectiveListenASREngine == .qwen
+        let title = state.effectiveListenASREngine.title
+        NodeChip(title, accessibilityLabel: String(localized: "识别引擎"),
+                 help: appleProfile ? Self.appleProfileHelp : String(localized: "\(title) · 立即生效"),
                  items: [
-                     NodeChipItem("Qwen3-ASR", isOn: qwen) { state.listenASREngine = .qwen },
+                     NodeChipItem(appleProfile ? String(localized: "Qwen3-ASR（当前档位未包含）") : "Qwen3-ASR",
+                                  isOn: qwen, isEnabled: !appleProfile) { state.listenASREngine = .qwen },
                      NodeChipItem("Apple Speech", isOn: !qwen) { state.listenASREngine = .apple }
                  ])
     }

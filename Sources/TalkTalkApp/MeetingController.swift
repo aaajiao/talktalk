@@ -24,7 +24,6 @@ final class MeetingController {
     /// The concrete process used by this session's Qwen factory, including a failed start.
     private var listenEngine: EngineProcess?
     private var phoneReadinessDetail: String?
-    private var phoneDialRequestID = UUID()
     private let engineProcess: @Sendable () -> EngineProcess?
     private let defaults: UserDefaults
     var onActiveChange: ((Bool) -> Void)?
@@ -56,7 +55,6 @@ final class MeetingController {
         panel.onPresentationChange = { [weak self] in self?.applySubtitleAppearance() }
         state.onSubtitleVisibilityChange = { [weak self] on in self?.setSubtitlesVisible(on) }
         state.onOpenPhone = { [weak self] in self?.openPhone() }
-        state.onDialPhone = { [weak self] number in self?.dialPhone(number) }
         state.onRefreshSources = { [weak self] in self?.refreshSourceOptions() }
         panel.openPhone = { [weak self] in self?.openPhone() }
         panel.onLockRequest = { [weak self] in self?.state.videoSubtitleLocked = true }
@@ -195,32 +193,6 @@ final class MeetingController {
         }
     }
 
-    private func dialPhone(_ number: String) {
-        guard state.meetingMode == .phone, state.meetingActive, state.phoneReadyToDial,
-              !state.phoneAudioActive, !state.meetingStopping, !state.phoneDialing,
-              let session, case .running = session.state else { return }
-        guard let url = PhoneDialRequest.url(for: number) else {
-            state.phoneProblem = String(localized: "请输入一个有效电话号码，可包含开头的 +、空格、括号或连字符。")
-            refreshPhoneContext()
-            return
-        }
-        state.phoneProblem = nil
-        refreshPhoneContext()
-        state.phoneDialing = true
-        let requestID = UUID(); phoneDialRequestID = requestID
-        Task {
-            defer { if phoneDialRequestID == requestID { state.phoneDialing = false } }
-            guard self.session === session, case .running = session.state,
-                  state.phoneReadyToDial, !state.meetingStopping, !state.phoneAudioActive else { return }
-            do { try await NativePhone.open(dialURL: url) }
-            catch {
-                guard self.session === session else { return }
-                state.phoneProblem = String(localized: "未能把号码交给 Phone，请在 Phone 中手动拨号。")
-                refreshPhoneContext()
-            }
-        }
-    }
-
     /// Readiness is reported by the actual SPEAK/Feed and input path, never by a timer.
     func updatePhoneReadiness(_ ready: Bool, detail: String? = nil) {
         guard state.meetingMode == .phone else { return }
@@ -304,7 +276,7 @@ final class MeetingController {
                 // coalesces changes during startup/suspension without touching SPEAK or input.
                 try await session.switchListenLanguage(to: language, forceRebuild: true)
                 guard self.session === session, listenRequestID == requestID, !Task.isCancelled else { return }
-                if state.listenASREngine == .apple, session.listenLanguage == language, case .running = session.state {
+                if state.effectiveListenASREngine == .apple, session.listenLanguage == language, case .running = session.state {
                     state.listenASRStatus = "Apple Speech"
                 }
             } catch {
@@ -322,7 +294,7 @@ final class MeetingController {
                                jobs: JobIDSequence) -> any StreamingASREngine {
         state.listenASRFallback = false
         state.listenASRFailure = nil
-        if state.listenASREngine == .apple {
+        if state.effectiveListenASREngine == .apple {
             state.listenASRStatus = String(localized: "Apple Speech（准备中）")
             return AppleSpeechASR()
         }
@@ -421,7 +393,6 @@ final class MeetingController {
         if mode == .phone {
             state.phoneProblem = nil; phoneReadinessDetail = nil
             state.phoneReadyToDial = false; state.phoneAudioActive = false
-            phoneDialRequestID = UUID(); state.phoneDialing = false
             refreshPhoneContext()
             do {
                 try await NativePhone.open(activates: false)
@@ -503,7 +474,7 @@ final class MeetingController {
             self.state.phoneAudioActive = active
             self.refreshPhoneContext()
         }
-        if mode == .captions, let engine = engineProcess() {
+        if mode == .captions, state.effectiveListenASREngine == .qwen, let engine = engineProcess() {
             captionsEngine = engine
             await engine.setMeetingMode(true)
             captionsWarmup = Task { _ = try? await engine.start() }
@@ -522,7 +493,7 @@ final class MeetingController {
             lastStartSucceeded = true
             state.lastScenario = mode
             if s.listenLanguage != state.remoteLanguage.lang { listenConfigurationChanged() }
-            else if state.listenASREngine == .apple { state.listenASRStatus = "Apple Speech" }
+            else if state.effectiveListenASREngine == .apple { state.listenASRStatus = "Apple Speech" }
             cloudReminder()
             if retiredModel { hud?.post(.modelRetired) }
         case .noMeetingApp:
@@ -606,7 +577,7 @@ final class MeetingController {
     private func sessionState(_ st: MeetingSession.State) {
         switch st {
         case .running(let name), .suspended(let name):
-            if case .running = st, state.listenASREngine == .apple, session?.listenLanguage == state.remoteLanguage.lang {
+            if case .running = st, state.effectiveListenASREngine == .apple, session?.listenLanguage == state.remoteLanguage.lang {
                 state.listenASRStatus = "Apple Speech"
             }
             state.meetingActive = true
@@ -633,7 +604,6 @@ final class MeetingController {
             state.meetingHint = nil
             state.listenTranslation = nil
             state.phoneReadyToDial = false; state.phoneAudioActive = false
-            phoneDialRequestID = UUID(); state.phoneDialing = false
             if state.meetingMode == .phone {
                 state.phoneStatus = String(localized: "电话同传已结束；如仍在通话，请在 Phone 中挂断。")
             }

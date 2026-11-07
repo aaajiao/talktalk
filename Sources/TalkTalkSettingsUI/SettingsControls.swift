@@ -160,31 +160,35 @@ public struct InfoButton: NSViewRepresentable {
 /// An icon-only action (§3.10): borderless, 13 pt regular, 22 × 22 click area, secondary. Use
 /// the fixed glyph for the action (`SettingsIcon.refresh`, `.reset`, `.remove`, `.add`,
 /// `.close`, `.copy`, `.finder`, `.verify`, `.delete`, `.cancel`, `.openApp`). `help` is the
-/// tooltip and, unless `accessibilityLabel` names more, the VoiceOver label. Destructive actions
-/// turn red only in their confirmation.
+/// tooltip and, unless `accessibilityLabel` names more, the VoiceOver label. Deletion
+/// uses the explicit destructive role and system red; other actions retain their neutral style.
 public struct IconButton: View {
     private let symbol: String
     private let help: String
     private let label: String
+    private let isDestructive: Bool
     private let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
 
     /// `accessibilityLabel`: when the help alone does not name the object ("关闭" → "关闭返回提示").
-    public init(_ symbol: String, help: String, accessibilityLabel: String? = nil, action: @escaping () -> Void) {
+    public init(_ symbol: String, help: String, accessibilityLabel: String? = nil,
+                isDestructive: Bool = false, action: @escaping () -> Void) {
         self.symbol = symbol
         self.help = help
         self.label = accessibilityLabel ?? help
+        self.isDestructive = isDestructive
         self.action = action
     }
 
     public var body: some View {
-        Button(action: action) {
+        Button(role: isDestructive ? .destructive : nil, action: action) {
             Image(systemName: symbol)
                 .font(.system(size: IconSize.inline, weight: .regular))
                 .frame(width: IconSize.hitArea, height: IconSize.hitArea)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(isDestructive && isEnabled ? Color(nsColor: .systemRed) : Color.secondary)
         .help(help)
         .accessibilityLabel(label)
     }
@@ -196,12 +200,15 @@ public struct IconMenuItem {
     fileprivate let title: String
     fileprivate let symbol: String
     fileprivate let isEnabled: Bool
+    fileprivate let isDestructive: Bool
     fileprivate let action: (() -> Void)?
 
-    public init(_ title: String, symbol: String, isEnabled: Bool = true, action: @escaping () -> Void) {
+    public init(_ title: String, symbol: String, isEnabled: Bool = true,
+                isDestructive: Bool = false, action: @escaping () -> Void) {
         self.title = title
         self.symbol = symbol
         self.isEnabled = isEnabled
+        self.isDestructive = isDestructive
         self.action = action
     }
 
@@ -209,6 +216,7 @@ public struct IconMenuItem {
         title = ""
         symbol = ""
         isEnabled = false
+        isDestructive = false
         action = nil
     }
 
@@ -266,7 +274,12 @@ public struct IconMenuButton: NSViewRepresentable {
             entry.target = coordinator
             entry.tag = index
             entry.image = Self.image(item.symbol)
-            entry.isEnabled = item.isEnabled
+            entry.isEnabled = item.isEnabled && context.environment.isEnabled
+            if item.isDestructive {
+                entry.attributedTitle = NSAttributedString(string: item.title, attributes: [
+                    .foregroundColor: entry.isEnabled ? NSColor.systemRed : NSColor.disabledControlTextColor
+                ])
+            }
             actions[index] = action
             menu.addItem(entry)
         }

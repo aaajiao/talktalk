@@ -282,6 +282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func engineChanged() {
         let engine = engineHost.engine()
+        state.installedEngineProfile = engineHost.installedProfile
         let components = AppUIModels.shared.engine
         // nil on success; EngineFailure's description already says "去设置 › 组件 修复".
         // restartFromSettings also schedules the §7.6 idle exit after the restart.

@@ -186,7 +186,8 @@ struct GlossarySettingsView: View {
                                                          set: { row.wrappedValue.entry.note = $0.isEmpty ? nil : $0 }),
                   prompt: String(localized: "备注"), missing: false)
             IconButton(Icon.remove, help: String(localized: "删除这条术语"),
-                       accessibilityLabel: term.isEmpty ? String(localized: "删除这条术语") : String(localized: "删除术语“\(term)”")) {
+                       accessibilityLabel: term.isEmpty ? String(localized: "删除这条术语") : String(localized: "删除术语“\(term)”"),
+                       isDestructive: true) {
                 model.remove(row.wrappedValue.id)
             }
         }

@@ -3,7 +3,7 @@
 
 public enum EnginePins {
     public static let appVersion = "1.0.15"
-    public static let appBuild = "29"
+    public static let appBuild = "33"
     public static let engineAPI = 2
     public static let engineRecipe = 1
     public static let pythonVersion = "3.12.15"
@@ -91,7 +91,7 @@ public enum EnginePins {
     ]
 
     public static let profiles: [String: [String]] = [
-        "max": ["tts-qwen3-1.7b-base-8bit", "asr-qwen3-0.6b-8bit"],
+        "max": ["tts-qwen3-1.7b-base-8bit", "asr-qwen3-1.7b-8bit"],
         "standard": ["tts-qwen3-1.7b-base-8bit", "asr-qwen3-0.6b-8bit"],
         "compact24": ["tts-qwen3-0.6b-base-8bit", "asr-qwen3-0.6b-8bit"],
         "compact16": ["tts-qwen3-0.6b-base-8bit"],

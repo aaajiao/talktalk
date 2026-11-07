@@ -2,7 +2,8 @@
 import Foundation
 
 /// Settings › 通用 › 登录时启动 (ARCHITECTURE.md §11), the logic behind `LaunchAtLogin`
-/// (SMAppService.mainApp). Registration needs a signed bundle; the unit tests cover only this.
+/// (SMAppService.mainApp). A signed main app can register even before it has a system record.
+/// This policy is not for helper apps or agents, whose `.notFound` can mean a missing file.
 public enum LaunchAtLoginPolicy {
     /// SMAppService.Status, mirrored so Core does not import ServiceManagement.
     public enum Status: String, Sendable, Equatable {
@@ -19,9 +20,6 @@ public enum LaunchAtLoginPolicy {
         case recommended
         /// Registered, waiting for the user in 系统设置 › 通用 › 登录项与扩展: 待系统允许 and 登录项….
         case awaitingApproval
-        /// The system cannot find this service. This does not establish an installation-path
-        /// problem, so report only the unavailable login item and keep registration retryable.
-        case serviceUnavailable
         /// An unsigned build cannot register: the switch is disabled, the reason in help.
         case unsigned
     }
@@ -42,10 +40,11 @@ public enum LaunchAtLoginPolicy {
             return Presentation(isOn: true, canToggle: true, notice: nil)
         case .requiresApproval:
             return Presentation(isOn: true, canToggle: true, notice: .awaitingApproval)
-        case .notRegistered:
+        case .notRegistered, .notFound:
+            // mainApp can return notFound before its first registration: the missing object
+            // is its login record, not the running app. Keep the switch normally available;
+            // a real register/unregister failure is reported by LaunchAtLogin.lastError.
             return Presentation(isOn: false, canToggle: true, notice: stronglyRecommended ? .recommended : nil)
-        case .notFound:
-            return Presentation(isOn: false, canToggle: true, notice: .serviceUnavailable)
         }
     }
 

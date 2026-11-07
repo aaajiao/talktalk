@@ -70,13 +70,16 @@ public struct EngineInstallation: Sendable {
     public let lockCompat: [String]
     public let engineAPI: Int
     public let pins: [EnginePins.Model]
+    public let profiles: [String: [String]]
 
     public init(engineHome: URL, lockCompat: [String] = EnginePins.lockCompat,
-                engineAPI: Int = EnginePins.engineAPI, pins: [EnginePins.Model] = EnginePins.models) {
+                engineAPI: Int = EnginePins.engineAPI, pins: [EnginePins.Model] = EnginePins.models,
+                profiles: [String: [String]] = EnginePins.profiles) {
         self.engineHome = engineHome
         self.lockCompat = lockCompat
         self.engineAPI = engineAPI
         self.pins = pins
+        self.profiles = profiles
     }
 
     public var recordURL: URL { engineHome.appendingPathComponent("install.json") }
@@ -155,8 +158,13 @@ public struct EngineInstallation: Sendable {
         }
         if !missing.isEmpty { return (.incomplete(missing: missing, bytes: missingBytes), record) }
         let ids = record.roles.values.map(\.id).sorted()
-        if !outdated.isEmpty { return (.outdated(profile: record.profile, models: outdated.sorted()), record) }
-        return (.installed(profile: record.profile, models: ids), record)
+        // Old releases called TTS 1.7B + ASR 0.6B "max". Report what is active without
+        // rewriting the record or changing the roles the engine will load. Valid custom
+        // combinations remain runnable under the same runtime/revision/file checks.
+        let profile = EngineProfile.matchingID(activeRoles: record.roles.mapValues(\.id),
+            declaredID: record.profile, profiles: profiles, pins: pins) ?? EngineProfile.customID
+        if !outdated.isEmpty { return (.outdated(profile: profile, models: outdated.sorted()), record) }
+        return (.installed(profile: profile, models: ids), record)
     }
 
     enum ModelCheck: Equatable {

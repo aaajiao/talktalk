@@ -31,6 +31,9 @@ final class EngineHost {
     private var process: EngineProcess?
     /// install.json the instance was built from.
     private var processRecord: EngineInstallation.Record?
+    /// Effective resource profile of the current validated instance. Creating that instance
+    /// is lazy: this is available at app launch without starting Python or loading a model.
+    var installedProfile: EngineProfile? { processRecord.flatMap { EngineProfile.matching(record: $0) } }
     private var stopping = false
     /// Rebuilt with the engine instance (and only then).
     private(set) var routing: SpeakVoiceRouting

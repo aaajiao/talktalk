@@ -141,7 +141,7 @@ public final class FullUninstaller {
     /// and delete the installer's TMPDIR and log under it).
     public var isEngineBusy: Bool { deps.engineBusy() }
 
-    public static let engineBusyText = String(localized: "引擎正在安装或校验：请在“组件”页取消或等它结束，再完全卸载。")
+    public static let engineBusyText = String(localized: "引擎正在安装或校验：请在“安装与维护”页取消或等它结束，再完全卸载。")
 
     /// The exact files and directories step 4 removes (only those that exist).
     public nonisolated static func fileTargets(home: URL, logs: URL, caches: URL) -> [URL] {

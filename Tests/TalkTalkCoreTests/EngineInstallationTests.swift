@@ -64,8 +64,51 @@ import Testing
         func remove() { try? FileManager.default.removeItem(at: url) }
     }
 
-    func inst(_ h: Home) -> EngineInstallation {
-        EngineInstallation(engineHome: h.url, lockCompat: [Self.lock], engineAPI: 2, pins: Self.pins)
+    func inst(_ h: Home, profiles: [String: [String]] = ["max": ["tts-x", "asr-y"]]) -> EngineInstallation {
+        EngineInstallation(engineHome: h.url, lockCompat: [Self.lock], engineAPI: 2, pins: Self.pins,
+                           profiles: profiles)
+    }
+
+    @Test func oldLabelIsClassifiedByActiveRolesWithoutRewritingRecord() throws {
+        let h = try Home(); defer { h.remove() }
+        let url = h.url.appendingPathComponent("install.json")
+        let before = try Data(contentsOf: url)
+        let result = inst(h, profiles: ["max": ["tts-x"], "standard": ["tts-x", "asr-y"]]).check()
+        #expect(result.state == .installed(profile: "standard", models: ["asr-y", "tts-x"]))
+        #expect(result.state.canStartEngine)
+        #expect(result.record?.profile == "max")
+        #expect(result.record?.roles["asr"]?.id == "asr-y")
+        #expect(try Data(contentsOf: url) == before)
+    }
+
+    @Test func outdatedInstallAlsoUsesEffectiveProfile() throws {
+        let h = try Home(ttsRev: Self.ttsOldRev); defer { h.remove() }
+        let state = inst(h, profiles: ["standard": ["tts-x", "asr-y"]]).check().state
+        #expect(state == .outdated(profile: "standard", models: ["tts-x"]))
+        #expect(state.canStartEngine)
+    }
+
+    @Test func customCompositionIsRunnableWithoutClaimingTheDeclaredPreset() throws {
+        let h = try Home(); defer { h.remove() }
+        let state = inst(h, profiles: ["max": ["tts-x"]]).check().state
+        #expect(state == .installed(profile: EngineProfile.customID, models: ["asr-y", "tts-x"]))
+        #expect(state.canStartEngine)
+    }
+
+    @Test func intentionalAppleRecognitionIgnoresUnusedDownloadedASR() throws {
+        let h = try Home(); defer { h.remove() }
+        let url = h.url.appendingPathComponent("install.json")
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var roles = try #require(json["roles"] as? [String: Any])
+        roles.removeValue(forKey: "asr")
+        json["roles"] = roles
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+        let result = inst(h, profiles: ["max": ["tts-x", "asr-y"], "compact16": ["tts-x"]]).check()
+        #expect(result.state == .installed(profile: "compact16", models: ["tts-x"]))
+        #expect(result.record?.models.count == 2)
+        #expect(result.record?.roles["asr"] == nil)
+        // Removing a role can also create a legal custom composition.
+        #expect(inst(h).check().state == .installed(profile: EngineProfile.customID, models: ["tts-x"]))
     }
 
     @Test func completeInstallIsInstalled() throws {

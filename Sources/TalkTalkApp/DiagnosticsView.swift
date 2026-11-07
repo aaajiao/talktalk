@@ -81,11 +81,17 @@ struct DiagnosticsView: View {
             translation.model?.trackSession(session)
         }
         .onChange(of: session) { _, start in translation.model?.trackSession(start) }
-        .confirmationDialog(String(localized: "删除本场诊断录音？"), isPresented: $model.confirmDiscardRecording) {
-            Button(String(localized: "删除"), role: .destructive) { model.recorder.discardCurrent() }
+        .alert(String(localized: "删除本场诊断录音？"), isPresented: $model.confirmDiscardRecording) {
             Button(String(localized: "取消"), role: .cancel) {}
+            Button(String(localized: "删除本场诊断录音")) { model.recorder.discardCurrent() }
         } message: {
-            Text(String(localized: "本场已录的诊断音频会从这台 Mac 上删除。"))
+            Text(String(localized: "停止本场诊断录音，并从这台 Mac 删除本场已录的诊断音频。此操作无法撤销。"))
+        }
+        .alert(String(localized: "清理过期数据？"), isPresented: $model.confirmSweep) {
+            Button(String(localized: "取消"), role: .cancel) {}
+            Button(String(localized: "清理过期数据")) { model.sweepNow() }
+        } message: {
+            Text(String(localized: "只删除按现有保留规则已过期或超出数量、容量限制的诊断录音、字幕分析、文字记录和延迟事件；不会清空全部数据，删除后无法撤销。"))
         }
         .alert(String(localized: "会议没有在进行"), isPresented: $model.showRemoteRefused) {
             Button(String(localized: "好")) {}
@@ -162,17 +168,16 @@ struct DiagnosticsView: View {
                 }
                 .help("最近 20 场、14 天内、合计不超过 200 MB")
                 HStack(spacing: 8) {
-                    Button { model.sweepNow() } label: {
-                        Label("立即清理", systemImage: Icon.delete).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("按以上期限清理")
+                    Label("过期数据", systemImage: Icon.delete)
                     Spacer(minLength: 8)
                     if let t = model.lastSweep {
                         Text(String(localized: "\(t.formatted(date: .omitted, time: .shortened)) · 删除 \(model.lastSweepRemoved)"))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                             .help("上次清理的时间和删除的项数")
+                    }
+                    SettingsDestructiveButton(String(localized: "清理过期数据…"), help: String(localized: "按现有保留规则清理过期数据")) {
+                        model.confirmSweep = true
                     }
                 }
             } header: {
@@ -527,14 +532,13 @@ struct DiagnosticsView: View {
             }
         }
         HStack(spacing: 8) {
-            Button(role: .destructive) { model.confirmDiscardRecording = true } label: {
-                Label("删除本场录音…", systemImage: Icon.delete).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .labelStyle(.settingsRowDestructive)
-            .disabled(r.sessionDirectory == nil)
-            .help("停止并删除本场诊断录音")
+            Label("本场诊断录音", systemImage: Icon.delete)
             Spacer(minLength: 8)
+            SettingsDestructiveButton(String(localized: "删除…"), help: String(localized: "停止并删除本场诊断录音"),
+                                      accessibilityLabel: String(localized: "删除本场诊断录音")) {
+                model.confirmDiscardRecording = true
+            }
+            .disabled(r.sessionDirectory == nil)
             IconButton(Icon.finder, help: String(localized: "在 Finder 中显示"),
                        accessibilityLabel: String(localized: "在 Finder 中显示诊断录音")) { model.revealDiagnostics() }
                 .disabled(!model.hasDiagnostics)
@@ -689,7 +693,7 @@ struct DiagnosticsView: View {
                 commandButton(String(localized: "驱动"), "--driver", help: String(localized: "复制驱动自检命令"))
                 commandButton(String(localized: "声音"), "--voice", help: String(localized: "复制声音自检命令"))
                 commandButton(String(localized: "回环"), "--loop", help: String(localized: "复制回环自检命令"))
-                commandButton(String(localized: "直通"), "--passthrough", help: String(localized: "仅离线独占；会中检查在“组件”页"))
+                commandButton(String(localized: "直通"), "--passthrough", help: String(localized: "仅离线独占；会中检查在“安装与维护”页"))
                 Spacer(minLength: 8)
                 if status.copied {
                     StatusLabel(String(localized: "已复制"), .ok,

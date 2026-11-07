@@ -42,6 +42,8 @@ final class PrivacySettings {
     var showRemoteRefused = false
     /// The "停止并删除本场录音…" confirmation dialog.
     var confirmDiscardRecording = false
+    /// Manual cleanup only; automatic retention continues without a dialog.
+    var confirmSweep = false
 
     init(paths: EnginePaths = .standard(), defaults: UserDefaults = .standard, startRetention: Bool = true) {
         self.home = paths.home

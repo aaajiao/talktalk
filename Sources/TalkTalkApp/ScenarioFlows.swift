@@ -161,9 +161,13 @@ struct ScenarioFacts {
 /// The recognition and synthesis models' state, shared by the 模型 cards and the flow nodes.
 extension EngineComponentsModel {
     @MainActor func recognitionProblem(_ state: AppState) -> SettingsProblem? {
-        SettingsProblem.mostSevere([
-            state.meetingActive && state.listenASRFallback ? SettingsProblem(.warn, String(localized: "已转 Apple 备用")) : nil,
-            record?.roles["asr"] == nil ? SettingsProblem(.pending, String(localized: "识别模型未安装")) : nil
+        let appleProfile = installedProfile?.usesAppleRecognition == true
+        return SettingsProblem.mostSevere([
+            state.meetingActive && state.effectiveListenASREngine == .qwen && state.listenASRFallback
+                ? SettingsProblem(.warn, String(localized: "已转 Apple 备用")) : nil,
+            record?.roles["asr"] == nil && !appleProfile
+                ? SettingsProblem(.pending, String(localized: "识别模型未安装")) : nil,
+            appleProfile && !installed ? problem : nil
         ])
     }
 
@@ -247,8 +251,8 @@ extension FlowGrid {
 
     /// The phone page's three steps (§3.5, §7.2): one lane, no gutter.
     static func phoneSteps(_ checklist: PhoneChecklist, problem: String?, dial: NodeLink) -> FlowGrid {
-        // ② waits for ① (dimmed, and no link while its row is disabled); ③ also waits, but not
-        // while it is the step in progress.
+        // ② waits for interpretation preparation; opening Phone itself remains available in
+        // its row. ③ also waits, but not while it is the step in progress.
         let dialState: NodeState = checklist.dialEnabled ? .ready : .dimmed
         let finishState: NodeState = checklist.dialEnabled || checklist.finish != .pending ? .ready : .dimmed
         let headline = problem.map { SettingsProblem(.warn, sentence: $0).text }
@@ -258,7 +262,8 @@ extension FlowGrid {
                                badge: problem == nil ? nil : .warn, badgeReason: headline,
                                help: String(localized: "用底栏的“准备”"))),
                 .node(FlowNode(String(localized: "拨号／接听"), glyph: .step(2, StepState(checklist.dial)),
-                               state: dialState, link: checklist.dialEnabled ? dial : nil)),
+                               state: dialState, link: checklist.dialEnabled ? dial : nil,
+                               help: String(localized: "在系统 Phone 中拨号或接听"))),
                 .node(FlowNode(String(localized: "挂断后结束"), glyph: .step(3, StepState(checklist.finish)),
                                state: finishState, help: String(localized: "结束同传不会挂断电话"))),
                 .empty

@@ -28,10 +28,13 @@ step "generated pins in sync"
 scripts/gen-pins.sh --check
 scripts/tests/test-gen-pins.sh
 
+step "application build-number reservation (isolated fixtures; no compilation)"
+python3 -I -B scripts/tests/test-app-build.py
+
 step "python compiles"
 python3 -I -B -c 'import sys; [compile(open(f, encoding="utf-8").read(), f, "exec") for f in sys.argv[1:]]' \
   engine/talktalk_engine.py engine/smoke_engine.py engine/talktalk_engine/*.py \
-  engine/tests/*.py tools/bench/*.py tools/*.py tools/tests/*.py
+  engine/tests/*.py tools/bench/*.py tools/*.py tools/tests/*.py scripts/*.py scripts/tests/*.py
 echo "ok"
 
 step "engine unit tests"

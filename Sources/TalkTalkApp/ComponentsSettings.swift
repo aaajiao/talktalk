@@ -82,7 +82,7 @@ struct ComponentsSettingsView: View {
                 }
                 .id(SettingsAnchor.engine)
                 Section {
-                    EngineModelRows(model: engine, openModels: { navigation.open(.translation) })
+                    EngineModelRows(model: engine)
                 } header: {
                     SectionHeader(String(localized: "模型"), symbol: Icon.Page.models)
                 }

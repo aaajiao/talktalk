@@ -4,8 +4,8 @@ import TalkTalkCore
 import TalkTalkSettingsUI
 
 /// Settings › 通用's last, destructive section (settings visual system §7.5 Z4; ARCHITECTURE.md
-/// §8.4): the red "完全卸载…" row and, after a run, its result rows. Put it alone in a Form
-/// Section. The row's end shows the running step, or waiting "引擎安装中" with a link to 组件
+/// §8.4): a native "完全卸载…" button and, after a run, its result rows. Put it alone in a Form
+/// Section. The row's end shows the running step, or waiting "引擎安装中" with a maintenance link
 /// while the engine installer runs. The confirmation lists what goes in one line. After a run:
 /// "已删除 N 项" (the full sentence with what to do next in help), what was not removed one per
 /// line behind a failure glyph, and when a run stopped early, what it had already done.
@@ -19,7 +19,7 @@ public struct FullUninstallSection: View {
     private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 
     /// `model` nil: this run cannot uninstall (a binary without a bundle id, the smoke run); the
-    /// row stays, disabled, with `unavailable` as its help. `openComponents`: the "组件 ›" link
+    /// row stays, disabled, with `unavailable` as its help. `openComponents`: the maintenance link
     /// shown while the engine installer runs.
     public init(model: DriverComponentModel?, unavailable: String? = nil, openComponents: (() -> Void)? = nil) {
         self.model = model
@@ -40,21 +40,18 @@ public struct FullUninstallSection: View {
         }
     }
 
-    /// The red row: the label is the button, the end shows progress or why it waits.
+    /// A neutral label with a separate native destructive button; progress stays alongside it.
     static func row(enabled: Bool, action: @escaping () -> Void = {},
                     @ViewBuilder trailing: () -> some View) -> some View {
         HStack(spacing: 8) {
-            Button(action: action) {
-                // A disabled plain button dims its label itself.
-                Label("完全卸载…", systemImage: Icon.delete)
-                    .labelStyle(.settingsRowDestructive)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!enabled)
-            .accessibilityHint(Text(explanation))
+            Label("TalkTalk 与本机数据", systemImage: Icon.delete)
+                .labelStyle(.settingsRow)
             Spacer(minLength: 8)
             trailing()
+            SettingsDestructiveButton(String(localized: "完全卸载…"), help: explanation,
+                                      accessibilityLabel: String(localized: "完全卸载 TalkTalk"), action: action)
+                .disabled(!enabled)
+                .accessibilityHint(Text(explanation))
         }
     }
 
@@ -68,8 +65,8 @@ public struct FullUninstallSection: View {
                 trailing
             }
             .alert("完全卸载 TalkTalk？", isPresented: $model.confirmingFullUninstall) {
-                Button("全部删除", role: .destructive) { Task { await model.confirm(.fullUninstall) } }
                 Button("取消", role: .cancel) {}
+                Button("卸载并删除本机数据") { Task { await model.confirm(.fullUninstall) } }
             } message: {
                 Text(FullUninstallSection.explanation)
             }
@@ -84,9 +81,9 @@ public struct FullUninstallSection: View {
             } else if model.fullUninstaller?.isEngineBusy == true {
                 StatusLabel(String(localized: "引擎安装中"), .waiting, help: FullUninstaller.engineBusyText)
                 if let openComponents {
-                    Button("组件 ›", action: openComponents)
+                    Button("安装与维护 ›", action: openComponents)
                         .buttonStyle(.link)
-                        .help("打开组件页")
+                        .help("打开安装与维护页")
                 }
             }
         }

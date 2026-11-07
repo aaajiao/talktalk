@@ -225,7 +225,8 @@ public struct DriverComponentRows: View {
         }
         if model.state != .notInstalled {
             items.append(.separator)
-            items.append(IconMenuItem(String(localized: "卸载…"), symbol: Icon.delete) { model.requestUninstall() })
+            items.append(IconMenuItem(String(localized: "卸载 TalkTalk Mic…"), symbol: Icon.delete,
+                                      isDestructive: true) { model.requestUninstall() })
         }
         return items
     }
@@ -314,10 +315,10 @@ private struct DriverComponentLifecycle: ViewModifier {
                          primaryButton: .default(Text(update ? String(localized: "重新安装") : String(localized: "安装"))) { Task { await model.confirm(c) } },
                          secondaryButton: .cancel(Text("取消")))
         case .uninstall(let w):
-            return Alert(title: Text("卸载虚拟麦克风？"),
+            return Alert(title: Text("卸载 TalkTalk Mic？"),
                          message: Text([String(localized: "卸载后，会议 App 会切回实体麦克风。"), warn(w)].filter { !$0.isEmpty }
                              .joined(separator: "\n\n")),
-                         primaryButton: .destructive(Text("卸载")) { Task { await model.confirm(c) } },
+                         primaryButton: .default(Text("卸载 TalkTalk Mic")) { Task { await model.confirm(c) } },
                          secondaryButton: .cancel(Text("取消")))
         case .restartAudio(let w):
             return Alert(title: Text("重启音频服务？"),
@@ -328,7 +329,7 @@ private struct DriverComponentLifecycle: ViewModifier {
         case .fullUninstall:
             return Alert(title: Text("完全卸载 TalkTalk？"),
                          message: Text(FullUninstallSection.explanation),
-                         primaryButton: .destructive(Text("全部删除")) { Task { await model.confirm(c) } },
+                         primaryButton: .default(Text("卸载并删除本机数据")) { Task { await model.confirm(c) } },
                          secondaryButton: .cancel(Text("取消")))
         }
     }

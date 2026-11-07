@@ -191,6 +191,9 @@ public struct StatusMenuFacts: Sendable, Equatable {
     public var systemInputSwitched = false
     public var meetingAvailable = true
     public var devBuild = false
+    /// The running app bundle's identity; the status item supplies its full version and build.
+    public var appName = "TalkTalk"
+    public var appVersion = "\(EnginePins.appVersion) (\(EnginePins.appBuild))"
 
     public init() {}
 
@@ -239,7 +242,7 @@ public enum StatusMenu {
         rows += [.separator,
                  StatusMenuRow(.action(.settings), String(localized: "设置…"), symbol: SubtitleTokens.ActionIcon.settings,
                                keyEquivalent: ","),
-                 StatusMenuRow(.action(.about), String(localized: "关于 TalkTalk")),
+                 StatusMenuRow(.action(.about), "\(f.appName) \(f.appVersion)", symbol: "bubble.left.and.bubble.right"),
                  StatusMenuRow(.action(.quit), f.devBuild ? String(localized: "退出 TalkTalk Dev") : String(localized: "退出 TalkTalk"),
                                keyEquivalent: "q")]
         return rows

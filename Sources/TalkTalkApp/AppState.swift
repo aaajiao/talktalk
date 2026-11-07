@@ -34,11 +34,7 @@ final class AppState {
         }
     }
 
-    enum ListenASREngine: String, CaseIterable, Identifiable {
-        case qwen, apple
-        var id: String { rawValue }
-        var title: String { self == .qwen ? "Qwen3-ASR" : "Apple Speech" }
-    }
+    typealias ListenASREngine = SpeechRecognitionEngine
 
     private enum Key {
         static let remoteLanguage = "listen.remoteLanguage"
@@ -71,8 +67,23 @@ final class AppState {
     var listenASREngine: ListenASREngine {
         didSet {
             defaults.set(listenASREngine.rawValue, forKey: Key.listenASREngine)
-            if listenASREngine != oldValue { onListenConfigurationChange?() }
+            let previous = EngineRecognitionPolicy.listening(preferred: oldValue, installedProfile: installedEngineProfile)
+            if effectiveListenASREngine != previous { onListenConfigurationChange?() }
         }
+    }
+    /// The active, validated installation supplied by EngineHost, never the picker’s pending
+    /// choice. Applying a profile must not overwrite the user's saved recognition preference.
+    var installedEngineProfile: EngineProfile? {
+        didSet {
+            let previous = EngineRecognitionPolicy.listening(preferred: listenASREngine, installedProfile: oldValue)
+            if effectiveListenASREngine != previous { onListenConfigurationChange?() }
+        }
+    }
+    var effectiveListenASREngine: ListenASREngine {
+        EngineRecognitionPolicy.listening(preferred: listenASREngine, installedProfile: installedEngineProfile)
+    }
+    var effectiveSpeakASREngine: ListenASREngine {
+        EngineRecognitionPolicy.speaking(installedProfile: installedEngineProfile)
     }
     /// Selected engine and actual backend may differ when Qwen falls back to Apple.
     var listenASRStatus: String?
@@ -237,8 +248,6 @@ final class AppState {
         case .captions: videoSourceID = id
         }
     }
-    /// Phone numbers are an in-memory dialing draft, never a saved preference or event field.
-    var phoneNumber = ""
     var phoneStatus: String?
     var phoneProblem: String?
     var phoneReadyToDial = false {
@@ -250,7 +259,6 @@ final class AppState {
         didSet { if phonePreparedOnce != oldValue { defaults.set(phonePreparedOnce, forKey: Key.phonePreparedOnce) } }
     }
     var phoneAudioActive = false
-    var phoneDialing = false
     /// The subtitle titlebar's voice state (HUDModel.voiceState), from the real speech gate,
     /// the Phone reader and the microphone guard's raw-audio risk; never inferred from
     /// opening Phone or preparing the local engine.
@@ -260,7 +268,6 @@ final class AppState {
     /// The phone page's live row popover (closed by AppDelegate when the voice state goes).
     var phoneStatusDetailsPresented = false
     @ObservationIgnored var onOpenPhone: (() -> Void)?
-    @ObservationIgnored var onDialPhone: ((String) -> Void)?
     @ObservationIgnored var onToggleListening: ((MeetingMode) -> Void)?
     /// True while meeting mode (LISTEN) runs (also while suspended by sleep / lock).
     var meetingActive = false

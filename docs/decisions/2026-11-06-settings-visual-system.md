@@ -14,6 +14,10 @@
 
 ---
 
+### 2026-11-07 删除操作统一补充
+
+数据删除与卸载的入口统一使用动态系统红色：文字入口用共享 `SettingsDestructiveButton` 的原生 small push 按钮，图标与维护菜单用显式 `isDestructive`；禁用时灰显且不执行动作。声音档案、本场诊断录音、过期数据清理、完全卸载采用正常标签加右侧按钮。API key、声音档案、本地模型、引擎、TalkTalk Mic、本场诊断录音、手动过期清理与完全卸载均使用明确对象与后果的原生确认、保留取消；用户已主动选择的最终删除确认由 macOS 画普通系统按钮，不手动染红。术语表移除只改未保存编辑，保留立即移除的轻量行为；忘记耳机类型、恢复默认、停止、关闭不作为数据删除染红。所有实际删除 owner、会话阻断、管理员授权及自动清理规则保持。
+
 ## 0. 裁决摘要
 
 ### 0.1 一句话
@@ -36,7 +40,7 @@
 | 10 | 语音合成页的场景条：纯图标（DaI）还是文字 | **图标 + 最短文字**：“会议·电话生成译音”“视频不生成” | 它说明对方能否听到声音，属于安全语义 |
 | 11 | 字幕窗口行为：DaI 用纯图标 chip | **图标 + 最短文字**：可拖动 / 不抢焦点 / 收起后继续 / 共享屏幕不可见 | 同 #9 |
 | 12 | 视频样式缩略图要不要文字 | **缩略图下方加 caption2 名称**（≤4 字） | DaI 自己在风险里写的回退方案；没有悬停也能看懂 |
-| 13 | 菜单中“关于”是否配 info.circle | **“关于 TalkTalk”和“退出”都不配图** | 一义一形：info.circle 只表示“打开说明” |
+| 13 | 菜单中“关于”是否配 info.circle | **菜单应用信息行使用单色双对话框图标，软件名与完整版本号同处一行；“退出”不配图** | 一义一形：info.circle 只表示“打开说明” |
 | 14 | 音频、我的声音是否加 PageHero（DF） | **不加**，直接以流程图开头 | 避免 Hero 状态与节点角标重复显示同一事实（评审 2） |
 | 15 | 共享组件放在哪里 | **新库 target `TalkTalkSettingsUI`**，第一次提交就建 | 否则文本翻译、虚拟麦克风、录音窗口无法复用，各模块尺寸会再次漂移 |
 | 16 | 弹层里能放什么 | **主控件永不进弹层**；弹层只放次要操作和安全长句（SB）。API key 输入、同意按钮留在 Form 行里 | 涉及同意和计费的流程不能藏起来（评审 2） |
@@ -349,7 +353,7 @@
 
 ### 3.10 IconButton / IconMenuButton
 
-- **IconButton**：`.borderless`，13pt regular，点击区 22×22，secondary 颜色。破坏性动作只在确认弹窗里用红色。必须同时设 `.help` 和 `accessibilityLabel`。
+- **IconButton**：`.borderless`，13pt regular，点击区 22×22，secondary 颜色。真正删除数据的入口使用系统红色，禁用时灰色；已主动选择删除后的确认弹窗采用 macOS 系统普通确认样式。必须同时设 `.help` 和 `accessibilityLabel`。
 - **固定图形**
 
   | 动作 | 符号 |
@@ -369,7 +373,7 @@
 - 统一替换：`TranslationSettingsView.swift:115` 的 bordered 24×24 刷新、`GlossarySettings.swift:79` 的固定 24×24 `minus.circle`、`AudioSettings.swift:339` 的 `minus.circle`。
 - **IconMenuButton**：`Menu`，label 为 `ellipsis.circle` 13pt，`.menuStyle(.button)`、`.buttonStyle(.borderless)`、`.menuIndicator(.hidden)`；菜单项都带 13pt 图标；`.help` 为“维护引擎”或“维护”。
 - **实现记录（第 1 次提交实测改写）**
-  - `IconButton(_ symbol:, help:, accessibilityLabel: String? = nil, action:)`：AX 标签默认等于 help，help 说不出对象时另传。没有 ButtonRole 参数，破坏性动作的红色只在确认弹窗里。
+  - `IconButton(_ symbol:, help:, accessibilityLabel: String? = nil, isDestructive: Bool = false, action:)`：AX 标签默认等于 help，help 说不出对象时另传。`isDestructive` 明确标记删除入口的语义与红色，其他动作保留 secondary；`IconMenuItem` 同样支持该标记，卸载菜单项使用系统红字。
   - IconMenuButton 不是 SwiftUI `Menu`：macOS 不管 label 或菜单给多大的 frame，都把 SwiftUI `Menu` 画成按自身大小（约 21×15）的弹出按钮，点击区达不到其他纯图标控件的 22×22。它改为 AppKit 下拉按钮（`NSPopUpButton` pull-down，无边框、无箭头）：`IconMenuButton(help:, items: [IconMenuItem])`，菜单项为 `IconMenuItem(_ title:, symbol:, isEnabled:, action:)` 与 `.separator`，遵守 `.disabled`。每次 SwiftUI 更新都重建一份 NSMenu，动作按序号查找，所以菜单项顺序要固定。菜单项没有破坏性样式（AppKit 常规），破坏性动作必须保留确认弹窗。
 
 ### 3.11 FactChip / FactRow
@@ -573,7 +577,7 @@
 - 会话结束一律叫“结束”，不叫“停止”。录音和分析的停止叫“停止”。
 - 开始叫“开始”，电话叫“准备”。
 - “对方语言”和“我的译音”是同一个 state 在各处的唯一名称。
-- 菜单与设置共用的写法：“使用引导…”“关于 TalkTalk”“设置…”。
+- 菜单与设置共用“使用引导…”“设置…”。设置保留“关于 TalkTalk”入口；状态栏菜单直接单行显示双对话框图标、软件名、版本与构建号。
 
 ### 5.6 执行方式
 
@@ -717,7 +721,7 @@
 3. **StepTrack**（第二张小图，单泳道，无 gutter，节点高 60）：`[①准备]`（有问题时 warn 角标，问题行显示 phoneProblem 短句）→ `[②拨号／接听]`（①未完成时 50%）→ `[③挂断后结束]`。下方 FactRow：`[stop.circle 结束同传不会挂断电话]`。
 
 **Z3**
-- Section（无 header，锚定②）：一行 `[phone]` TextField，占位“+49 …（可选）”（AX“电话号码”），宽 160；IconButton `phone.arrow.up.right`（help“拨打”）；按钮 `[arrow.up.forward.app 打开 Phone]`。①未完成时整行禁用。
+- Section（无 header，锚定②）：普通 `[phone] 在 Phone 中拨号或接听` 标签，右侧 `[arrow.up.forward.app 打开 Phone]` 按钮；准备前也可打开 Phone。无号码输入、拨打按钮或号码校验，只打开系统应用，拨号、接听和挂断在 Phone 内完成。
 - Section `[iphone] 首次连接`（DisclosureGroup，**从未成功准备过时默认展开**，之后默认收起）。内容是一张小图：
   - `[iphone iPhone]` ⇄ `[laptopcomputer Mac]`，卫星 `[person.crop.circle 同一账户]` 和 `[wifi 同一网络]`；iPhone 节点 help:“在其他设备上通话”。
   - `[Phone 应用图标 Phone]`，附件 caption2“麦克风：使用系统设置”，下方 FactRow：`[mic.circle Phone 麦克风：使用系统设置]` 和 risk `[否则对方听到原声]`。
@@ -726,7 +730,7 @@
 
 **Z5** 底栏：`[play.fill 准备]` / `[stop.fill 结束]`（help“结束同传，不会挂断电话”）；运行中左侧“● [phone] Phone · 12:03”加 chip `[phone 通话不会挂断]`。
 
-**保留可见中文**：已送入 Phone / 仅本机 · Phone 未接收 / 未发送 / 接通后对方才能听到你 / 音频设置… / 对方 EN DE 识别与翻译 双语字幕 麦克风 TalkTalk Mic Phone 对方听到原声 播完回到原声 右⌥ 说中文 开始翻译 我的声音 对方听到译音 / 准备 拨号／接听 挂断后结束 结束同传不会挂断电话 / +49 …（可选） 打开 Phone / 首次连接 iPhone Mac 同一账户 同一网络 麦克风：使用系统设置 Phone 麦克风：使用系统设置 否则对方听到原声 用耳机 / 准备 结束 准备中… 结束中… 通话不会挂断。
+**保留可见中文**：已送入 Phone / 仅本机 · Phone 未接收 / 未发送 / 接通后对方才能听到你 / 音频设置… / 对方 EN DE 识别与翻译 双语字幕 麦克风 TalkTalk Mic Phone 对方听到原声 播完回到原声 右⌥ 说中文 开始翻译 我的声音 对方听到译音 / 准备 拨号／接听 挂断后结束 结束同传不会挂断电话 / 在 Phone 中拨号或接听 打开 Phone / 首次连接 iPhone Mac 同一账户 同一网络 麦克风：使用系统设置 Phone 麦克风：使用系统设置 否则对方听到原声 用耳机 / 准备 结束 准备中… 结束中… 通话不会挂断。
 
 **删除**：
 - 分组标题“电话同传”及 InfoButton 两句（“TalkTalk 专门收听 Phone…”“准备好后即可收音…”）。
@@ -842,7 +846,7 @@
 - Toggle `[power] 登录时启动`。行尾按状态显示其一：
   - warn“建议开启” + ⓘ“异常退出后，默认输入可能停在 TalkTalk Mic，直到下次启动才还原。”
   - waiting“待系统允许” + 按钮 `[arrow.up.forward.app 登录项…]`
-  - warn“登录项暂不可用”（系统未找到登录项，可尝试开启以重新注册；不推断 App 的安装目录）
+  - 尚未登记的主应用 `.notFound` 与 `.notRegistered` 都是正常关闭、可开启；不显示目录错误或“不可用”。真正的注册／注销失败由下方错误状态显示。
   - failed“未能更改”（help 放 error）
   - 未签名构建时禁用，help“未签名构建不可用”
 - Toggle `[bell] 会议结束通知`（help“会议似乎结束时提醒你”）。行尾：
@@ -856,7 +860,7 @@ Section（无 header）：
 - 按钮行 `[arrow.clockwise.circle] 使用引导…`。引导未完成时行尾 caption 显示“第 N 步，共 M 步”。help“保留已装模型与声音档案”。
 - 按钮行 `[App 图标 15pt] 关于 TalkTalk`，行尾 secondary 版本号“1.0 (29)”，可选中复制。
 
-**Z4** 破坏性 Section：行 `[trash] 完全卸载…`（红色）。
+**Z4** 破坏性 Section：普通 `[trash] TalkTalk 与本机数据` 标签，右侧原生小按钮“完全卸载…”（红字），不再整行可点击。
 - 进行中：行尾显示进度和步骤名。
 - 引擎安装中：行禁用，行尾 waiting“引擎安装中” + 链接“安装与维护 ›”。
 - 确认弹窗：标题“完全卸载 TalkTalk？”；正文“将删除：虚拟麦克风 · 引擎与识别与翻译 · 我的声音 · 术语表 · 日志缓存 · 设置与登录项 · 钥匙串中的 OpenAI key。需管理员密码，声音中断约 1 秒；通话中不可卸载。完成后退出并移到废纸篓。”；按钮“全部删除”“取消”。
@@ -864,7 +868,7 @@ Section（无 header）：
 
 整节删除“会议与电话发言方式”（与场景页的泳道重复；列入 §9.6 待确认）。本页只有 1 个 ⓘ。
 
-**保留可见中文**：已就绪 / 登录时启动 建议开启 待系统允许 登录项… 登录项暂不可用 未能更改 / 会议结束通知 需允许通知 允许… 系统已拒绝 系统设置… / 首次翻译前播放告知语 / 使用引导… 第 N 步，共 M 步 / 关于 TalkTalk 1.0 (29) / 完全卸载… 引擎安装中 安装与维护 › / 弹窗与结果文字。
+**保留可见中文**：已就绪 / 登录时启动 建议开启 待系统允许 登录项… 未能更改 / 会议结束通知 需允许通知 允许… 系统已拒绝 系统设置… / 首次翻译前播放告知语 / 使用引导… 第 N 步，共 M 步 / 关于 TalkTalk 1.0 (29) / 完全卸载… 引擎安装中 安装与维护 › / 弹窗与结果文字。
 
 **删除**：
 - 节标题“启动 / 会议与电话发言方式 / 通知 / 告知对方 / 首次引导 / 关于 / 应用管理”。
@@ -954,7 +958,7 @@ FactRow：
 - `[laptopcomputer 本机播放]`（help“试听不发送到会议”）。
 - 没有档案时加 `[speaker.wave.2 未录制时用系统声音]`。
 
-**Z4**（有档案时）：普通“声音档案”标签，行尾为原生 small bordered“删除…”按钮（destructive role），不再将整行画为红色点击区。点按打开系统 alert“删除声音档案？”，正文“参考音、稿子和声音缓存从这台 Mac 删除；之后译音用系统声音。”，按钮为“取消”和“删除声音档案”。后者是对用户主动删除请求的普通确认按钮，遵循 macOS 系统样式，不手工染红或指定默认快捷键；删除模型逻辑不变。
+**Z4**（有档案时）：普通“声音档案”标签，行尾为原生 small push“删除…”按钮（`SettingsDestructiveButton`，启用时系统红字、禁用时系统灰字），不再将整行画为红色点击区。点按打开系统 alert“删除声音档案？”，正文“参考音、稿子和声音缓存从这台 Mac 删除；之后译音用系统声音。”，按钮为“取消”和“删除声音档案”。后者是对用户主动删除请求的普通确认按钮，遵循 macOS 系统样式，不手工染红或指定默认快捷键；删除模型逻辑不变。
 
 档案详情（参考音、语速、自动检查、声音缓存）**移到** 隐私与诊断 › 故障检查 › 技术详情 › 声音档案。
 
@@ -1082,6 +1086,8 @@ FactRow：`[laptopcomputer 本机识别]`（help“声音在这台 Mac 上转成
 
 ### 7.11 安装与维护 · 语音资源
 
+**2026-11-07 档位修正**：统一使用 Max（TTS 1.7B＋ASR 1.7B，5.6 GB）、标准（1.7B＋0.6B，4.1 GB，默认）、轻量（0.6B＋0.6B，3.0 GB）、Apple 识别（TTS 0.6B＋Apple，2.0 GB）。名称、容量与组成帮助由同一 catalog 给出。容量是文件下载量，不是内存档；旧 compact24/compact16 仅保留内部 ID。实际档位按 active roles 判断，旧 Max 的标准组合不下载、不换角色，直接按标准显示；未知组合诚实显示自定义。健康且所选档位等于已安装档位时，不再独占一行重复“已安装”；就绪图保留状态标记。待换档明确实际→目标，不能把选中选项误报成已安装。模型列表尾部重复的“识别与翻译”链接删除。
+
 **Z1** CardRow：`[cpu 引擎与模型]` `[mic.circle 虚拟麦克风]`；需要安装、更新或修复时显示 warn 或 failed 角标。
 
 **Z2** FlowGrid（单泳道，无 gutter，节点高 82，表示安装生命周期）：
@@ -1191,11 +1197,11 @@ FactRow：`[lock.fill 需管理员授权]` + ⓘ“TalkTalk Mic 仅在 TalkTalk 
   - 行 `[record.circle] 诊断录音 · 字幕分析`，值“24 小时”。
   - 行 `[text.document] 文字记录`，值“30 天”。
   - 行 `[gauge.with.needle] 延迟事件`，值“20 场 · 14 天 · 200 MB”。
-  - 按钮行 `[trash] 立即清理` + secondary“09:12 · 删除 3”。
+  - 普通 `[trash] 过期数据` 标签、secondary“09:12 · 删除 3”与右侧红字“清理过期数据…”按钮；原生 alert 说明仅按现有期限／数量／容量规则清理，不清空全部数据，取消不做删除。自动定时清理不新增弹窗、不改保留规则。
 
 本页 ⓘ：cloudNotice + 文字记录 + 自动清理，共 3 个，正好是上限。
 
-**保留可见中文**：数据与隐私 字幕分析 故障检查 / 录音中：我 · 译音 · 对方 正在保存字幕文字 本场将录音 下场将录音 / DataBoundary 文字 / 保存文字记录 本机 30 天 不进诊断包 / Key：仅钥匙串 日志：不含文字和音频 / 自动清理 诊断录音 · 字幕分析 24 小时 文字记录 30 天 延迟事件 20 场 · 14 天 · 200 MB 立即清理 HH:mm · 删除 N。
+**保留可见中文**：数据与隐私 字幕分析 故障检查 / 录音中：我 · 译音 · 对方 正在保存字幕文字 本场将录音 下场将录音 / DataBoundary 文字 / 保存文字记录 本机 30 天 不进诊断包 / Key：仅钥匙串 日志：不含文字和音频 / 自动清理 诊断录音 · 字幕分析 24 小时 文字记录 30 天 延迟事件 20 场 · 14 天 · 200 MB 清理过期数据… HH:mm · 删除 N。
 
 **实现记录（第 4e 次提交 0f655a8）**：DataBoundary 右栏用 `link` 链接到识别与翻译 › 文本翻译（§3.6）。保存文字记录开启时 Finder 按钮总是可用，文件夹还不存在时先按 TranscriptWriter 的同样权限建好再显示；关闭且没有文件夹时禁用。
 
@@ -1325,7 +1331,7 @@ FactRow：`[text.quote 仅文字]` `[mic.slash 不录音]` `[1.circle 仅本次]
 
 - **没有“更多”子菜单**，也没有 340pt 的说明子菜单（detailItem）。只保留两个语言子菜单。
 - 问题行的写法：一行不可点的着色状态行，紧跟一行缩进 1 级（`indentationLevel = 1`）的操作项。完整说明放在状态行的 `toolTip`。
-- 所有可操作项都配 13pt 模板图（`NSFont.menuFont(ofSize: 0).pointSize`，现状正确，不改）。状态行着色。“关于 TalkTalk”和“退出”不配图（§0.2 #13）。现在缺图的项要补上：切回 TalkTalk Mic 用 `mic.circle`，收听所有应用用 `ear`，会中标题用场景图标，phoneStatus 用送达图形。
+- 所有可操作项都配 13pt 模板图（`NSFont.menuFont(ofSize: 0).pointSize`，现状正确，不改）。状态行着色。应用信息行使用与其它菜单项相同的 13pt 模板 SF Symbol `bubble.left.and.bubble.right`，软件名与 `AppVersion.current.displayString` 合为单行标题，无副标题；点击仍打开标准 About 面板。“退出”不配图（§0.2 #13）。现在缺图的项要补上：切回 TalkTalk Mic 用 `mic.circle`，收听所有应用用 `ear`，会中标题用场景图标，phoneStatus 用送达图形。
 - 问题行点击后进入设置的精确 Section，并闪烁（复用 §6.3 的锚点）。
 
 ### 8.2 状态 A：引导未完成（放在所有其他状态之前）

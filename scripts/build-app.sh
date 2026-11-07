@@ -17,16 +17,35 @@ case "$flavor" in
   *) tt_die "usage: build-app.sh [dev|release]" ;;
 esac
 
+# Dev and release share generated source and driver output. Keep one project-wide lock
+# through reservation, compilation, signing and the final swap; no existing build-slot lock
+# is acquired here. The private second argument is used only by this locked re-execution.
+if [ "${2:-}" != "--package-lock-held" ]; then
+  [ $# -le 1 ] || tt_die "usage: build-app.sh [dev|release]"
+  /bin/mkdir -p "$root/build"
+  exec /usr/bin/lockf -k "$root/build/.package.lock" "$here/build-app.sh" "$flavor" --package-lock-held
+fi
+[ $# -eq 2 ] || tt_die "usage: build-app.sh [dev|release]"
+
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Library/Developer/CommandLineTools}"   # SwiftPM + CLT (§2.2)
 scratch="$root/.build/$flavor"
-version="$(/usr/bin/sed -n 's/.*appVersion = "\(.*\)".*/\1/p' "$root/Sources/TalkTalkCore/Generated/EnginePins.swift")"
-build_number="$(/usr/bin/sed -n 's/.*appBuild = "\(.*\)".*/\1/p' "$root/Sources/TalkTalkCore/Generated/EnginePins.swift")"
+# Preflight happens before changing the number: unrelated generated-pin drift must fail,
+# not be silently repaired by the build. A reserved number is never rolled back on failure.
+python3 "$here/reserve-app-build.py"
+# shellcheck source=lib/versions.sh
+. "$here/lib/versions.sh"
+version="$TT_APP_VERSION"
+build_number="$TT_APP_BUILD"
 
-"$here/gen-pins.sh" --check
-tt_log "swift build ($flavor)"
+tt_log "swift build ($flavor, $version ($build_number))"
 (cd "$root" && swift build -c release --scratch-path "$scratch" ${defines[@]+"${defines[@]}"} --product TalkTalk) >&2
 bin="$scratch/release/TalkTalk"
 [ -x "$bin" ] || tt_die "build produced no binary at $bin"
+binary_version="$("$bin" --version)"
+case "$binary_version" in
+  "TalkTalk $version ($build_number) ("*) ;;
+  *) tt_die "compiled binary version does not match reserved $version ($build_number): $binary_version" ;;
+esac
 
 out_dir="$root/build"
 stage="$out_dir/.staging-$flavor"
@@ -110,4 +129,4 @@ if [ -e "$out_dir/$app_name.app" ]; then
 fi
 /bin/mv "$app" "$out_dir/$app_name.app"
 /bin/rm -rf "$stage"
-tt_log "built $out_dir/$app_name.app ($bundle_id, $version)"
+tt_log "built $out_dir/$app_name.app ($bundle_id, $version ($build_number))"

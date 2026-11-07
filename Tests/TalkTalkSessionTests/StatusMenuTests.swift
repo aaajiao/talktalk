@@ -34,7 +34,7 @@ import Testing
         let rows = StatusMenu.rows(StatusMenuFacts())
         #expect(titles(rows) == ["开始会议同传 · 自动", "会议同传…", "电话同传…", "视频字幕…", "—",
                                  "字幕：英语 → 中文", "我说话：中文 → 英语", "显示字幕", "耳机译音", "—",
-                                 "设置…", "关于 TalkTalk", "退出 TalkTalk"])
+                                 "设置…", "TalkTalk \(EnginePins.appVersion) (\(EnginePins.appBuild))", "退出 TalkTalk"])
         let start = rows[0]
         #expect(start.kind == .action(.quickStart(.meeting)) && start.bold && start.isEnabled)
         #expect(start.subtitle == "英语 → 中文" && start.symbol == MenuQuickStart.symbol && start.help == nil)
@@ -42,8 +42,21 @@ import Testing
         #expect(row(rows, "显示字幕")?.kind == .toggle(.toggleSubtitles, on: true))
         #expect(row(rows, "耳机译音")?.kind == .toggle(.toggleMonitor, on: false))
         #expect(row(rows, "设置…")?.keyEquivalent == "," && row(rows, "退出 TalkTalk")?.keyEquivalent == "q")
-        // §0.2 #13: neither 关于 nor 退出 carries a glyph.
-        #expect(row(rows, "关于 TalkTalk")?.symbol == nil && row(rows, "退出 TalkTalk")?.symbol == nil)
+        // The app identity stays on one line with the menu's standard monochrome glyph.
+        let about = rows.first { $0.command == .about }
+        #expect(about?.subtitle == nil && about?.symbol == "bubble.left.and.bubble.right")
+        #expect(row(rows, "退出 TalkTalk")?.symbol == nil)
+    }
+
+    @Test func appIdentityShowsTheVersionAndBuildOnOneLineAndKeepsAbout() {
+        var f = StatusMenuFacts()
+        f.appName = "TalkTalk Dev"
+        f.appVersion = "2.3.4 (567)"
+        let about = StatusMenu.rows(f).first { $0.command == .about }
+        #expect(about?.title == "TalkTalk Dev 2.3.4 (567)")
+        #expect(about?.subtitle == nil)
+        #expect(about?.kind == .action(.about) && about?.isEnabled == true)
+        #expect(about?.symbol == "bubble.left.and.bubble.right" && about?.tone == nil && about?.keyEquivalent == nil)
     }
 
     @Test func quickStartNamesTheLastSceneItsSourceAndLanguages() {

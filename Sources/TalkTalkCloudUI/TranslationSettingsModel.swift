@@ -53,9 +53,8 @@ public final class TranslationSettingsModel {
     public var pasteField = ""
     public private(set) var pasteProblem: SettingsProblem?
     public private(set) var savedHint: String?
-    /// Which `OpenAIKeySection` asked 删除 key (§3.10: a destructive icon button turns red only in
-    /// its confirmation). Settings › 模型 and onboarding step 5 share this model, so only the
-    /// asking one shows the dialog; nil while none asks.
+    /// Which `OpenAIKeySection` asked to delete the key. Settings › 识别与翻译 and onboarding
+    /// step 5 share this model, so only the asking window shows the alert; nil while none asks.
     public enum KeySectionHost: Sendable { case settings, onboarding }
     public var keyDeletionAskedBy: KeySectionHost?
 

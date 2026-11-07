@@ -6,7 +6,7 @@
 
 # Application identity; independent of engine API/recipe and model revisions.
 TT_APP_VERSION="1.0.15"
-TT_APP_BUILD="29"
+TT_APP_BUILD="33"
 
 # Standalone CPython (astral-sh/python-build-standalone). Size and sha256 checked against the
 # GitHub release asset digest on 2026-11-04 (identical to the values readread uses).
@@ -25,7 +25,7 @@ TT_LOCK_COMPAT="349c6c6ca785f6e2717caba43f4bdf336c42264c9a442468205bcc62e925cdd7
 TT_RUNTIME_FLAVOURS="main"   # reserved: "alt-tts" (§7.6), not installed in v1
 
 TT_MODELS="tts-qwen3-1.7b-base-8bit tts-qwen3-0.6b-base-8bit asr-qwen3-0.6b-8bit asr-qwen3-1.7b-8bit"   # no MT (§16 decision 12)
-TT_PROFILE_MAX="tts-qwen3-1.7b-base-8bit asr-qwen3-0.6b-8bit"   # 0.6B hot spare only if M0 proves it
+TT_PROFILE_MAX="tts-qwen3-1.7b-base-8bit asr-qwen3-1.7b-8bit"
 TT_PROFILE_STANDARD="tts-qwen3-1.7b-base-8bit asr-qwen3-0.6b-8bit"
 TT_PROFILE_COMPACT24="tts-qwen3-0.6b-base-8bit asr-qwen3-0.6b-8bit"
 TT_PROFILE_COMPACT16="tts-qwen3-0.6b-base-8bit"                     # no ASR: SPEAK final via Apple

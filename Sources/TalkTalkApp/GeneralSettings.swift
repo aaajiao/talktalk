@@ -275,7 +275,7 @@ struct GeneralSettingsView: View {
 }
 
 /// Settings › 通用 › 登录时启动 (§7.5): the switch, and at the row's end only what needs the
-/// user: warn 建议开启 with its ⓘ, waiting 待系统允许 with 登录项…, warn 登录项暂不可用,
+/// user: warn 建议开启 with its ⓘ, waiting 待系统允许 with 登录项…,
 /// failed 未能更改. Unsigned builds disable the switch with the reason in help. The switch lives
 /// only here; 音频 has a status-only row with a link to 通用 (§7.6, `recommendedProblem`).
 struct LaunchAtLoginRow: View {
@@ -326,10 +326,6 @@ extension LaunchAtLogin {
         case .awaitingApproval?:
             let problem = SettingsProblem(.waiting, String(localized: "待系统允许"),
                                           help: String(localized: "在系统设置的登录项中允许 TalkTalk"))
-            return (problem, problem)
-        case .serviceUnavailable?:
-            let problem = SettingsProblem(.warn, String(localized: "登录项暂不可用"),
-                                          help: String(localized: "系统未找到 TalkTalk 的登录项。可尝试开启以重新注册。"))
             return (problem, problem)
         case .unsigned?, nil:
             return nil

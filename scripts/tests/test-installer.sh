@@ -64,6 +64,8 @@ mk_model() {  # mk_model <repo> <rev> -> prints the FILES block
   printf 'sub/model.safetensors %s %s\n' "$(tt_fsize "$d/sub/model.safetensors")" "$(tt_sha256 "$d/sub/model.safetensors")"
 }
 files_t="$(mk_model acme/Fake-TTS "$rev_t")"; files_a="$(mk_model acme/Fake-ASR "$rev_a")"
+rev_large="3333333333333333333333333333333333333333"
+files_large="$(mk_model acme/Fake-ASR-Large "$rev_large")"
 
 /bin/cat > "$tree/scripts/lib/versions.sh" <<EOF
 # shellcheck shell=bash
@@ -75,7 +77,7 @@ TT_ENGINE_RECIPE=1; TT_ENGINE_API=2; TT_MLX_AUDIO_COMMIT="f65753b55f011f4cc8b1db
 TT_LOCK_SHA256="$(tt_sha256 "$tree/engine/requirements-engine.lock")"
 TT_BUILD_LOCK_SHA256="$(tt_sha256 "$tree/engine/requirements-build.lock")"
 TT_LOCK_COMPAT="\$TT_LOCK_SHA256"; TT_RUNTIME_FLAVOURS="main"
-TT_MODELS="fake-tts fake-asr"
+TT_MODELS="fake-tts fake-asr fake-asr-large"
 TT_PROFILE_MAX="fake-tts fake-asr"; TT_PROFILE_STANDARD="fake-tts fake-asr"
 TT_PROFILE_COMPACT24="fake-tts fake-asr"; TT_PROFILE_COMPACT16="fake-tts"
 TT_LICENSE_ALLOW="Apache-2.0 MIT"; TT_MODEL_DENY="tencent/HY-MT"
@@ -86,6 +88,10 @@ $files_t
 TT_M_FAKE_ASR_REPO="acme/Fake-ASR"; TT_M_FAKE_ASR_REVISION="$rev_a"; TT_M_FAKE_ASR_ROLE="asr"; TT_M_FAKE_ASR_LICENSE="MIT"
 TT_M_FAKE_ASR_FILES="
 $files_a
+"
+TT_M_FAKE_ASR_LARGE_REPO="acme/Fake-ASR-Large"; TT_M_FAKE_ASR_LARGE_REVISION="$rev_large"; TT_M_FAKE_ASR_LARGE_ROLE="asr"; TT_M_FAKE_ASR_LARGE_LICENSE="MIT"
+TT_M_FAKE_ASR_LARGE_FILES="
+$files_large
 "
 EOF
 
@@ -111,7 +117,7 @@ inst --json-progress && ok "fresh install exits 0" || no "fresh install"
 all_json && ok "--json-progress: stdout is JSON events only" || no "stdout JSON"
 [ "$(last_event)" = "done" ] && ok "last event is done" || no "last event"
 /usr/bin/grep -q '"event":"download"' "$work/out" && ok "download events emitted" || no "download events"
-/usr/bin/grep -q 'engine installed (profile max)' "$work/err" && ok "human messages on stderr" || no "stderr text"
+/usr/bin/grep -q 'engine installed (profile standard)' "$work/err" && ok "default retains standard model combination" || no "default profile"
 [ "$(/usr/bin/jq -r '.roles.tts.id + " " + .roles.asr.rev' "$eng/install.json")" = "fake-tts $rev_a" ] \
   && ok "install.json records roles" || no "install.json roles"
 [ ! -e "$eng/install.json.prev" ] && [ ! -e "$eng/.lock" ] && ok "no .prev, lock released" || no ".prev/lock"
@@ -156,6 +162,42 @@ app="$work/TalkTalk.app/Contents/Resources/installer"; /bin/mkdir -p "$app"; /bi
 # 7. removing a model the profile uses is refused
 inst --remove-model fake-asr && no "profile model removal refused" || ok "profile model removal refused"
 [ -d "$eng/models/Fake-ASR@222222222222" ] && ok "profile model kept" || no "profile model kept"
+
+# 7b. A new app changes Max's composition; old labels must not select the new ASR.
+set_record() {
+  /usr/bin/jq "$1" "$eng/install.json" > "$work/record.json"
+  /bin/mv "$work/record.json" "$eng/install.json"
+}
+printf '\nTT_PROFILE_MAX="fake-tts fake-asr-large"\n' >> "$tree/scripts/lib/versions.sh"
+set_record '.profile = "max"'
+inst && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = standard ] \
+  && [ ! -d "$eng/models/Fake-ASR-Large@333333333333" ] \
+  && ok "implicit repair of old Max keeps standard roles" || no "legacy Max repair"
+set_record '.profile = "max"'
+roles_before="$(/usr/bin/jq -cS .roles "$eng/install.json")"
+inst --add-model fake-asr-large && [ "$(/usr/bin/jq -cS .roles "$eng/install.json")" = "$roles_before" ] \
+  && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = standard ] \
+  && ok "adding larger ASR does not activate it under old Max label" || no "legacy Max add"
+inst --remove-model fake-asr && no "actual standard ASR removal refused" || ok "actual standard ASR removal refused"
+inst --remove-model fake-asr-large && [ "$(/usr/bin/jq -cS .roles "$eng/install.json")" = "$roles_before" ] \
+  && ok "unused larger ASR can be removed without changing roles" || no "unused ASR removal"
+inst --profile compact16 && inst --add-model fake-asr-large \
+  && [ "$(/usr/bin/jq -r '.roles | has("asr")' "$eng/install.json")" = false ] \
+  && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = compact16 ] \
+  && ok "Apple recognition preset stays without active ASR after model add" || no "Apple preset add"
+inst --profile standard
+set_record 'del(.roles.tts) | .profile = "max"'
+before_custom="$(tt_sha256 "$eng/install.json")"
+inst && no "custom repair requires explicit target" || ok "custom repair requires explicit target"
+[ "$(tt_sha256 "$eng/install.json")" = "$before_custom" ] && ok "refused custom repair leaves record unchanged" || no "custom record changed"
+roles_before="$(/usr/bin/jq -cS .roles "$eng/install.json")"
+inst --add-model fake-asr-large && [ "$(/usr/bin/jq -cS .roles "$eng/install.json")" = "$roles_before" ] \
+  && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = custom ] \
+  && ok "adding a model preserves custom active roles" || no "custom add"
+inst --remove-model fake-asr && [ "$(/usr/bin/jq -r '.roles | length' "$eng/install.json")" = 0 ] \
+  && ok "custom role removal does not activate another downloaded model" || no "custom remove"
+inst --profile standard
+inst --remove-model fake-asr-large
 
 # 8. uninstall keeps foreign files
 printf 'mine' > "$eng/models/Fake-TTS@111111111111/notes.txt"

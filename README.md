@@ -35,9 +35,20 @@ cd talktalk
 scripts/build-app.sh release
 ```
 
-生成的正式应用位于 `build/TalkTalk.app`，安装和启动方式同上。
+生成的正式应用位于 `build/TalkTalk.app`，安装和启动方式同上。每次运行打包脚本都会自动递增构建号（例如 `1.0.15 (30)` 中的 `30`），并同步 `scripts/lib/versions.sh` 与生成的 `EnginePins.swift`；正式发布版本号单独维护。
 
 ## 模型与隐私
+
+当前源码的语音资源提供四种组合（模型文件体积，不含运行时）：
+
+| 档位 | 语音合成 | 语音识别 | 文件体积 |
+|---|---|---|---:|
+| Max | Qwen3-TTS 1.7B | Qwen3-ASR 1.7B | 5.6 GB |
+| 标准（默认） | Qwen3-TTS 1.7B | Qwen3-ASR 0.6B | 4.1 GB |
+| 轻量 | Qwen3-TTS 0.6B | Qwen3-ASR 0.6B | 3.0 GB |
+| Apple 识别 | Qwen3-TTS 0.6B | Apple Speech | 2.0 GB |
+
+本地 Qwen 模型均采用当前固定的 8bit 版本。旧 Max 若实际使用 1.7B 合成＋0.6B 识别，会显示为“标准”，保留已有模型；选择另一档并确认换档后才会安装对应组合。
 
 | 环节 | 使用的模型或服务 |
 |---|---|

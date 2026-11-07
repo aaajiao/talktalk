@@ -1,7 +1,7 @@
 import Foundation
 
-/// Version metadata from the running app bundle. Bare development binaries use the pinned
-/// app version and omit an unknown build number rather than inventing one.
+/// Version metadata from the running app bundle. Bare development binaries use the version
+/// and build compiled from the same pins that the packaging script reserves.
 public struct AppVersion: Sendable, Equatable {
     public let name: String
     public let version: String
@@ -17,7 +17,7 @@ public struct AppVersion: Sendable, Equatable {
         }
         name = text("CFBundleDisplayName") ?? text("CFBundleName") ?? "TalkTalk"
         version = text("CFBundleShortVersionString") ?? EnginePins.appVersion
-        build = text("CFBundleVersion")
+        build = text("CFBundleVersion") ?? EnginePins.appBuild
     }
 
     public var displayString: String {
