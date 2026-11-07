@@ -369,7 +369,8 @@ struct SettingsView: View {
             .frame(width: 190)
             Divider()
             // The detail container's fixed slots (settings visual system §2, §7.0): Z0 ReturnPill,
-            // Z1 the page's card row, then the page itself, whose Form alone scrolls.
+            // Z1 the page's card row, Z1b 隐私与诊断's recording banner, then the page itself,
+            // whose Form alone scrolls.
             VStack(spacing: 0) {
                 if let target = navigation.returnTarget {
                     ReturnPill(target.title, symbol: target.symbol, back: {
@@ -383,6 +384,10 @@ struct SettingsView: View {
                 }
                 SettingsNavigationBand(state: state, navigation: navigation, translation: translation, driver: driver,
                                        subtitles: subtitles)
+                if navigation.selection == .privacy {
+                    // Z1b: the recording banner, outside the scroll view like the cards.
+                    DiagnosticsBanners(model: PrivacySettings.shared, navigation: navigation)
+                }
                 detail
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -408,7 +413,8 @@ struct SettingsView: View {
         case .glossary:
             GlossarySettingsView(model: glossary, translation: translation)
         case .privacy:
-            DiagnosticsView(model: PrivacySettings.shared, navigation: navigation, voice: voice)
+            DiagnosticsView(model: PrivacySettings.shared, navigation: navigation, state: state,
+                            translation: translation, voice: voice)
         }
     }
 }

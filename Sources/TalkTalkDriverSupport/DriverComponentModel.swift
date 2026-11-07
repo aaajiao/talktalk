@@ -1,8 +1,10 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import AppKit
 import Foundation
 import Observation
 import TalkTalkAudio
 import TalkTalkEngineHost
+import TalkTalkSettingsUI
 
 /// State behind settings › 组件 › 虚拟麦克风 (ARCHITECTURE.md §11: 状态、安装、自检、卸载、谁在用)
 /// and the 完全卸载 button. The app's components page (TalkTalkApp's DriverComponentsPage) builds
@@ -11,7 +13,8 @@ import TalkTalkEngineHost
 ///     let driver = DriverComponentModel.forCurrentApp(isMeetingModeOn: { switcher.isMeetingModeOn },
 ///                                                     engine: engineInstaller,
 ///                                                     restoreWithSwitcher: SysInputRestore.withSwitcher(switcher))
-///     DriverComponentSection(model: driver)     // 组件 › 虚拟麦克风
+///     Section { DriverComponentRows(model: driver) }   // 组件 › 虚拟麦克风
+///         .driverComponentLifecycle(driver)            // once, on the Form
 ///     Section { FullUninstallSection(model: driver) }   // 通用, last
 @Observable @MainActor
 public final class DriverComponentModel {
@@ -34,10 +37,13 @@ public final class DriverComponentModel {
     public private(set) var state: DriverInstallation.State = .notInstalled
     public private(set) var record: DriverInstallation.Record?
     /// "谁在用": apps with IO running on TalkTalk Mic right now.
-    public private(set) var users: [String] = []
+    public private(set) var users: [DriverUser] = []
     public private(set) var selfTest: DriverSelfTestReport?
     public private(set) var selfTestRunning = false
+    /// The last action's outcome as a sentence (the result row's help).
     public private(set) var notice: String?
+    /// The same outcome in the settings vocabulary, shortest words first (§7.12): the result row.
+    public private(set) var result: SettingsProblem?
     public var confirmation: Confirmation?
     /// FullUninstallSection's own confirmation (kept apart from `confirmation`, which the driver
     /// section's alert presents).
@@ -117,40 +123,32 @@ public final class DriverComponentModel {
         state = s
         record = r
         let diag = installer.hal.diagnostics()
-        users = (diag?.micUsers ?? []).filter { $0.pid != getpid() }.map(Self.appName).uniqued()
+        users = (diag?.micUsers ?? []).filter { $0.pid != getpid() }.map(Self.user).uniqued()
     }
 
-    static func appName(_ c: DriverDiagnostics.Client) -> String {
-        if let app = NSRunningApplication(processIdentifier: c.pid), let name = app.localizedName { return name }
-        return c.bundleID ?? "pid \(c.pid)"
+    static func user(_ c: DriverDiagnostics.Client) -> DriverUser {
+        let app = NSRunningApplication(processIdentifier: c.pid)
+        let name = app?.localizedName ?? c.bundleID ?? "pid \(c.pid)"
+        return DriverUser(name: name, bundleID: c.bundleID ?? app?.bundleIdentifier)
     }
 
     // MARK: actions
 
     public func requestInstall() {
         let pre = installer.preflight()
-        guard pre.canProceed else {
-            notice = pre.blockers.map(\.text).joined(separator: "\n")
-            return
-        }
+        guard pre.canProceed else { return blocked(pre) }
         confirmation = .install(warnings: pre.warnings, update: state != .notInstalled)
     }
 
     public func requestUninstall() {
         let pre = installer.preflight()
-        guard pre.canProceed else {
-            notice = pre.blockers.map(\.text).joined(separator: "\n")
-            return
-        }
+        guard pre.canProceed else { return blocked(pre) }
         confirmation = .uninstall(warnings: pre.warnings)
     }
 
     public func requestRestartAudio() {
         let pre = installer.preflight()
-        guard pre.canProceed else {
-            notice = pre.blockers.map(\.text).joined(separator: "\n")
-            return
-        }
+        guard pre.canProceed else { return blocked(pre) }
         confirmation = .restartAudio(warnings: pre.warnings)
     }
 
@@ -159,20 +157,33 @@ public final class DriverComponentModel {
         confirmingFullUninstall = true
     }
 
+    /// A blocker stops the action before its confirmation: the reasons are the notice.
+    private func blocked(_ pre: DriverPreflight) {
+        let text = pre.blockers.map(\.text).joined(separator: "\n")
+        notice = text
+        result = SettingsProblem(.warn, sentence: text)
+    }
+
+    private func finished(_ p: DriverInstaller.Phase) {
+        notice = Self.text(p)
+        result = Self.result(p)
+    }
+
     public func confirm(_ c: Confirmation) async {
         confirmation = nil
         notice = nil
+        result = nil
         switch c {
         case .install:
             let p = await installer.install()
             refresh()
-            notice = Self.text(p)
+            finished(p)
             if case .finished(.installed) = p { await runSelfTest() }
         case .uninstall:
-            notice = Self.text(await installer.uninstall())
+            finished(await installer.uninstall())
             refresh()
         case .restartAudio:
-            notice = Self.text(await installer.restartAudio())
+            finished(await installer.restartAudio())
             refresh()
         case .fullUninstall:
             // The result is FullUninstallSection's (`fullUninstallSummary`), not a notice.
@@ -196,8 +207,9 @@ public final class DriverComponentModel {
         selfTest = report
         if !report.isConclusive {
             // nothing is written: an earlier result (or none) stays in driver.json
-            let line = "自检没有跑完，上次的结果保留。\(report.incompleteText)"
+            let line = String(localized: "自检没有跑完，上次的结果保留。\(report.incompleteText)")
             notice = [notice, line].compactMap { $0 }.joined(separator: "\n")
+            result = SettingsProblem.mostSevere([result, SettingsProblem(.warn, sentence: line)]) ?? result
         } else {
             try? installer.installation.record(report)
         }
@@ -209,54 +221,58 @@ public final class DriverComponentModel {
         DriverSelfTest(hal: installer.hal, expectedVersion: bundledVersion, restoreRecordExists: restoreRecordExists)
     }
 
-    public func dismissNotice() { notice = nil }
+    public func dismissNotice() {
+        notice = nil
+        result = nil
+    }
 
     // MARK: texts
 
     public var statusText: String {
         switch state {
-        case .notInstalled: carriesDriver ? "未安装" : "这个版本没有带虚拟麦克风"
-        case .onDiskNotLoaded: "已安装，需要重启音频服务才生效"
-        case .loaded(let v): "已安装 \(v)"
-        case .outdated(let i, let b): "已安装 \(i)，App 带的是 \(b)：请更新"
-        case .damaged(let why): "有问题：\(why)"
-        case .selfTestFailed(let v, let f): "已安装 \(v)，上次自检没通过（\(f.joined(separator: "、"))）"
-        }
-    }
-
-    public enum Tone: Sendable { case ok, warning, error, neutral }
-
-    public var statusTone: Tone {
-        switch state {
-        case .loaded: .ok
-        case .notInstalled: .neutral
-        case .onDiskNotLoaded, .outdated: .warning
-        case .damaged, .selfTestFailed: .error
+        case .notInstalled: carriesDriver ? String(localized: "未安装") : String(localized: "这个版本没有带虚拟麦克风")
+        case .onDiskNotLoaded: String(localized: "已安装，需要重启音频服务才生效")
+        case .loaded(let v): String(localized: "已安装 \(v)")
+        case .outdated(let i, let b): String(localized: "已安装 \(i)，App 带的是 \(b)：请更新")
+        case .damaged(let why): String(localized: "有问题：\(why)")
+        case .selfTestFailed(let v, let f):
+            String(localized: "已安装 \(v)，上次自检没通过（\(f.joined(separator: String(localized: "、")))）")
         }
     }
 
     static func text(_ p: DriverInstaller.Phase) -> String? {
         switch p {
-        case .finished(.installed(let v)): "虚拟麦克风 \(v) 已安装。"
-        case .finished(.uninstalled): "虚拟麦克风已卸载。会议 App 会切回实体麦克风。"
-        case .finished(.restarted): "音频服务已重启。"
-        case .finished(.needsLogout): "文件已更新，但音频服务没能重启：注销或重启 Mac 后生效。"
+        case .finished(.installed(let v)): String(localized: "虚拟麦克风 \(v) 已安装。")
+        case .finished(.uninstalled): String(localized: "虚拟麦克风已卸载。会议 App 会切回实体麦克风。")
+        case .finished(.restarted): String(localized: "音频服务已重启。")
+        case .finished(.needsLogout): String(localized: "文件已更新，但音频服务没能重启：注销或重启 Mac 后生效。")
         case .blocked(let pre): pre.blockers.map(\.text).joined(separator: "\n")
-        case .failed(let m): "没有成功：\(m)"
-        case .cancelled: "已取消。"
+        case .failed(let m): String(localized: "没有成功：\(m)")
+        case .cancelled: String(localized: "已取消。")
         default: nil
         }
     }
 
     public static func checkTitle(_ n: DriverSelfTestReport.Check.Name) -> String {
         switch n {
-        case .properties: "设备属性"
-        case .loopback: "回环（第 2 声道 → Test Mic）"
-        case .isolation: "隔离（TalkTalk Mic 全零）"
-        case .replay: "防重放"
-        case .gate: "门禁（其他 App 写不进 Feed）"
-        case .meetingPath: "会议声道（第 1 声道 → TalkTalk Mic）"
+        case .properties: String(localized: "设备属性")
+        case .loopback: String(localized: "回环（第 2 声道 → Test Mic）")
+        case .isolation: String(localized: "隔离（TalkTalk Mic 全零）")
+        case .replay: String(localized: "防重放")
+        case .gate: String(localized: "门禁（其他 App 写不进 Feed）")
+        case .meetingPath: String(localized: "会议声道（第 1 声道 → TalkTalk Mic）")
         }
+    }
+}
+
+/// An app reading TalkTalk Mic now: its name for help and VoiceOver, its bundle id for the icon.
+public struct DriverUser: Sendable, Hashable {
+    public var name: String
+    public var bundleID: String?
+
+    public init(name: String, bundleID: String?) {
+        self.name = name
+        self.bundleID = bundleID
     }
 }
 

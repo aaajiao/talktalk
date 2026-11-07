@@ -153,21 +153,12 @@ extension EngineComponentsModel {
     }
 }
 
-/// TalkTalk Mic's state, shared by the 虚拟麦克风 card and the flow nodes; nil until the page
-/// has built the driver model, and while the driver is loaded.
+/// TalkTalk Mic's state (`DriverComponentModel.status`), shared by the 虚拟麦克风 card and the
+/// flow nodes; nil until the page has built the driver model, and while the driver is loaded.
 extension DriverComponentsPage {
     var driverProblem: SettingsProblem? {
-        guard let model else { return nil }
-        switch model.state {
-        case .loaded: return nil
-        case .notInstalled:
-            return SettingsProblem(.pending, model.carriesDriver ? String(localized: "未安装")
-                                                                 : String(localized: "此版本未带驱动"))
-        case .onDiskNotLoaded: return SettingsProblem(.warn, String(localized: "需重启音频服务"))
-        case .outdated: return SettingsProblem(.warn, String(localized: "可更新"))
-        case .selfTestFailed: return SettingsProblem(.warn, String(localized: "自检未通过"))
-        case .damaged: return SettingsProblem(.failed, String(localized: "有问题"))
-        }
+        guard let status = model?.status, status.status != .ok else { return nil }
+        return status
     }
 }
 

@@ -33,7 +33,8 @@ final class DiagnosticsStatus {
     private(set) var refreshedAt: Date?
     private(set) var runningPart: String?
     private(set) var report: SelfTestReport?
-    private(set) var notice: String?
+    /// An offline command is on the pasteboard (故障检查 › 离线命令 shows "已复制").
+    private(set) var copied = false
     @ObservationIgnored var canRunAudioSelfTest: @MainActor () -> Bool = { true }
     @ObservationIgnored var beforeAudioSelfTest: (@MainActor () async -> Void)?
 
@@ -59,7 +60,7 @@ final class DiagnosticsStatus {
 
     private func run(_ part: String, before: (@MainActor () async -> Void)? = nil) {
         guard runningPart == nil, let runner = selfTestRunners[part] else { return }
-        runningPart = part; report = nil; notice = nil
+        runningPart = part; report = nil; copied = false
         Task {
             if let before { await before() }
             report = await runner()
@@ -78,7 +79,7 @@ final class DiagnosticsStatus {
         let command = "open -W -n -a \(quote(app)) --args --self-test \(part) --out \(quote(output))"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
-        notice = String(localized: "命令已复制。先退出 TalkTalk，再在终端执行；结果写入命令指定的文件。")
+        copied = true
     }
 
     func percentile(_ kind: Latency.Kind, _ fraction: Double) -> Double? {

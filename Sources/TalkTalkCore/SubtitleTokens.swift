@@ -414,6 +414,43 @@ public enum SubtitleTokens {
         /// Nothing is synthesized (视频不生成), as the titlebar's nothing-sent glyph.
         public static let noSpeech = VoiceIcon.localOnly
 
+        // 组件 (§7.11, §7.12): the engine's install lifecycle (下载 → 安装 → 校验 `verify` → 就绪
+        // `engine`) and its maintenance, the driver's.
+        public static let download = "arrow.down.circle"
+        /// The package that gets installed, as the 组件 sidebar glyph.
+        public static let install = Page.components
+        public static let repair = "wrench.and.screwdriver"
+        /// 重启引擎.
+        public static let restartEngine = "power"
+        /// 查看日志, and 字幕分析's 记录 node: a file to look into.
+        public static let inspectFile = "doc.text.magnifyingglass"
+        /// The audio service restarting after a driver install.
+        public static let audioRestart = "arrow.triangle.2.circlepath"
+        /// Check results: the driver's 详情 and 故障检查's 结果 node.
+        public static let results = "list.bullet.rectangle"
+        /// Apps using TalkTalk Mic (会议应用).
+        public static let meetingApps = SceneIcon.meeting
+
+        // 隐私与诊断 (§7.14–§7.16).
+        /// 文字记录 (saved transcripts).
+        public static let transcripts = "text.document"
+        /// The ordinary event log (日志：不含文字和音频).
+        public static let logs = "doc.text"
+        /// 自动清理 (retention).
+        public static let autoCleanup = "clock.arrow.circlepath"
+        /// The diagnostics bundle (不进诊断包).
+        public static let diagnosticsBundle = "shippingbox"
+        /// 仅文字: subtitle analysis keeps text only.
+        public static let textOnly = "text.quote"
+        /// 仅本次 / 仅本场: one session only.
+        public static let oneSession = "1.circle"
+        /// 需全员同意（§201）.
+        public static let consent = "checkmark.seal"
+        /// 故障检查 › 技术详情 › 离线命令 (Terminal self-tests).
+        public static let offlineCommands = "terminal"
+        /// A self-test's raw values (数值).
+        public static let checkValues = "number"
+
         // Navigation (§3.1, §3.13): the arrow between the model page's cards and the ReturnPill's
         // leading chevron.
         public static let flowArrow = "arrow.right"

@@ -3,6 +3,7 @@ import AppKit
 import Foundation
 import TalkTalkCore
 import TalkTalkEngineHost
+import TalkTalkSettingsUI
 import UniformTypeIdentifiers
 
 /// Model of Settings › 隐私与诊断 (ARCHITECTURE.md §11, §12): the transcript switch (§16
@@ -36,7 +37,8 @@ final class PrivacySettings {
     private(set) var lastSweep: Date?
     private(set) var lastSweepRemoved = 0
     private(set) var exporting = false
-    private(set) var exportMessage: String?
+    /// The last export, as a status row (§7.16): the counts and the file name in its help.
+    private(set) var exportResult: SettingsProblem?
     var showRemoteRefused = false
     /// The "停止并删除本场录音…" confirmation dialog.
     var confirmDiscardRecording = false
@@ -54,6 +56,16 @@ final class PrivacySettings {
 
     var diagnosticsDirectory: URL { recorder.root }
     var transcriptsDirectory: URL { home.appendingPathComponent("transcripts", isDirectory: true) }
+    /// The diagnostics Finder button is enabled once its folder exists (a stat, read when the
+    /// page draws; `recorder.sessionDirectory` is observed).
+    var hasTranscripts: Bool { FileManager.default.fileExists(atPath: transcriptsDirectory.path) }
+    /// The transcripts Finder button: while saving is on, or once the folder exists. The writer
+    /// creates the folder on a meeting's first line, which nothing observed reports, so the
+    /// observed switch decides while it is on.
+    var canRevealTranscripts: Bool { saveTranscripts || hasTranscripts }
+    var hasDiagnostics: Bool {
+        FileManager.default.fileExists(atPath: (recorder.sessionDirectory ?? diagnosticsDirectory).path)
+    }
 
     // MARK: - retention
 
@@ -90,6 +102,14 @@ final class PrivacySettings {
         if let consent = recorder.confirmRemoteConsent() { recorder.startRemote(consent) }
     }
 
+    /// Saving on and no line written yet: the folder is created as TranscriptWriter would
+    /// (private, not backed up), so Finder shows where the records go.
+    func revealTranscripts() {
+        if !hasTranscripts, saveTranscripts { try? FileSystem.ensurePrivateDirectory(transcriptsDirectory) }
+        guard hasTranscripts else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([transcriptsDirectory])
+    }
+
     func revealDiagnostics() {
         let dir = recorder.sessionDirectory ?? diagnosticsDirectory
         guard FileManager.default.fileExists(atPath: dir.path) else { return }
@@ -106,26 +126,27 @@ final class PrivacySettings {
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let dest = panel.url else { return }
         exporting = true
-        exportMessage = nil
+        exportResult = nil
         let exporter = DiagnosticsBundleExporter(home: home, logs: logs)
         Task.detached(priority: .userInitiated) {
-            let message: String
+            let result: SettingsProblem
             do {
                 let r = try exporter.export(to: dest)
-                message = String(localized: "已导出 \(r.files) 个文件到 \(dest.lastPathComponent)；过滤掉 \(r.droppedLines) 行")
+                let details = String(localized: "\(dest.lastPathComponent)：过滤掉 \(r.droppedLines) 行")
                     + (r.skippedTooLarge > 0 ? String(localized: "，跳过 \(r.skippedTooLarge) 个过大的文件") : "")
                     + String(localized: "。已检查：包里没有 key、请求头和文字内容。")
+                result = SettingsProblem(.ok, String(localized: "已导出 \(r.files) 个文件 · 已确认无 key 和文字"), help: details)
             } catch let e as DiagnosticsBundleExporter.Failure {
-                message = e.description
+                result = SettingsProblem(.failed, String(localized: "导出失败"), help: e.description)
             } catch {
-                message = String(localized: "导出失败：\(error)")
+                result = SettingsProblem(.failed, String(localized: "导出失败"), help: error.localizedDescription)
             }
-            await self.exportFinished(message)
+            await self.exportFinished(result)
         }
     }
 
-    private func exportFinished(_ message: String) {
+    private func exportFinished(_ result: SettingsProblem) {
         exporting = false
-        exportMessage = message
+        exportResult = result
     }
 }

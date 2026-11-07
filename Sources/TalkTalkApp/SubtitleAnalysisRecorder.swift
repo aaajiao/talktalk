@@ -8,10 +8,15 @@ import TalkTalkSession
 /// whose default no-text policy and diagnostics export whitelist remain unchanged.
 @MainActor @Observable
 final class SubtitleAnalysisRecorder {
+    /// The last state change, drawn as the 分析 node's badge (settings visual system §7.15).
+    enum Outcome: Sendable, Equatable {
+        case off, starting, recording, stopped, sessionEnded, limitReached, failed
+    }
+
     private(set) var isRecording = false
     private(set) var isStarting = false
     private(set) var fileURL: URL?
-    private(set) var status = String(localized: "未开启")
+    private(set) var outcome = Outcome.off
     private(set) var recordCount = 0
     @ObservationIgnored private let writer: SubtitleAnalysisTrace
     @ObservationIgnored private let queue = DispatchQueue(label: "talktalk.subtitle-analysis", qos: .utility)
@@ -26,14 +31,14 @@ final class SubtitleAnalysisRecorder {
         runID = UUID(); let token = runID
         enabledAt = HostClock.now(); let start = enabledAt
         isStarting = true; fileURL = nil; recordCount = 0; reservedBytes = 0
-        status = String(localized: "正在创建分析文件…")
+        outcome = .starting
         queue.async { [weak self, writer] in
             do {
                 let url = try writer.start(at: start)
                 Task { @MainActor [weak self] in
                     guard let self, self.runID == token, self.isStarting else { return }
                     self.fileURL = url; self.isStarting = false; self.isRecording = true
-                    self.status = String(localized: "正在记录本次字幕分析")
+                    self.outcome = .recording
                     self.write(["event": "trace_started", "schema": 1,
                                 "wall_time": ISO8601DateFormatter().string(from: Date()),
                                 "text_included": true, "audio_included": false,
@@ -51,13 +56,13 @@ final class SubtitleAnalysisRecorder {
         guard isRecording || isStarting else { return }
         if isRecording { write(["event": "trace_stopped", "reason": reason], at: HostClock.now()) }
         // A full file may have stopped itself while appending the terminal row; keep that
-        // explicit limit status instead of replacing it with the ordinary stop message.
+        // explicit limit outcome instead of replacing it with the ordinary stop message.
         guard isRecording || isStarting else { return }
         isRecording = false; isStarting = false
         // Invalidate delayed create/write failure callbacks, including when the session ends
         // while its trace file is being opened. Already accepted rows drain before close.
         runID = UUID()
-        status = reason == "session_ended" ? String(localized: "本次会话已结束，分析已停止") : String(localized: "分析已停止")
+        outcome = reason == "session_ended" ? .sessionEnded : .stopped
         queue.async { [writer] in writer.stop() }
     }
 
@@ -148,14 +153,14 @@ final class SubtitleAnalysisRecorder {
 
     private func limitReached() {
         isRecording = false; isStarting = false; runID = UUID()
-        status = String(localized: "已达到 8 MiB 或 10,000 行上限，分析自动停止")
+        outcome = .limitReached
         queue.async { [writer] in writer.stop() }
     }
 
     private func failed(token: UUID) {
         guard runID == token else { return }
         isRecording = false; isStarting = false; runID = UUID()
-        status = String(localized: "无法写入分析文件，分析已停止")
+        outcome = .failed
         queue.async { [writer] in writer.stop() }
     }
 }

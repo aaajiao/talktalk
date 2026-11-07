@@ -5,6 +5,7 @@ import Testing
 @testable import TalkTalkAudio
 @testable import TalkTalkDriverSupport
 import TalkTalkEngineHost
+import TalkTalkSettingsUI
 
 /// Settings › 组件 as the app wires it (TalkTalkApp's DriverComponentsPage → `forCurrentApp`):
 ///  - the switcher's meeting mode feeds the driver preflight;
@@ -292,6 +293,18 @@ struct ComponentsWiringTests {
         let test = m.makeSelfTest()
         #expect(test.restoreRecordExists())
         #expect(DriverSelfTest.meetingPathBlocker(hal: hal, restoreRecordExists: test.restoreRecordExists()) == "有默认输入还原记录")
+    }
+
+    /// One status for the flow node, the 虚拟麦克风 card and the 驱动 row, and the results in the
+    /// settings vocabulary (§7.12): after an uninstall the meeting hears the physical microphone.
+    @Test func statusAndResultsInSettingsWords() {
+        let m = model(restore: nil)
+        #expect(m.status == SettingsProblem(.pending, "未安装"))
+        #expect(DriverComponentModel.result(.finished(.uninstalled))
+            == SettingsProblem(.risk, "已卸载 · 会议改用实体麦（对方听到原声）"))
+        #expect(DriverComponentModel.result(.finished(.installed(version: "9.9.9"))) == SettingsProblem(.ok, "已安装 9.9.9"))
+        #expect(DriverComponentModel.result(.failed("退出码 1")) == SettingsProblem(.failed, "未成功", help: "退出码 1"))
+        #expect(DriverComponentModel.result(.staging) == nil)
     }
 
     // MARK: rendering (for review: TALKTALK_RENDER_DIR=<dir> swift test --filter ComponentsWiringTests)

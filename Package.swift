@@ -72,7 +72,8 @@ let package = Package(
         .target(name: "TalkTalkDriverSupport",
                 dependencies: ["TalkTalkCore", "TalkTalkAudio", "TalkTalkEngineHost", "TalkTalkCloud", "CDriverSelfTest",
                                "TalkTalkSettingsUI"]),
-        .testTarget(name: "DriverTests", dependencies: ["TalkTalkDriverSupport", "TalkTalkAudio", "TalkTalkCore", "TalkTalkEngineHost", "CDriverSelfTest"]),
+        .testTarget(name: "DriverTests", dependencies: ["TalkTalkDriverSupport", "TalkTalkAudio", "TalkTalkCore", "TalkTalkEngineHost",
+                                                     "TalkTalkSettingsUI", "CDriverSelfTest"]),
     ],
     swiftLanguageModes: [.v6]
 )

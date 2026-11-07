@@ -4,9 +4,9 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkSettingsUI
 
-// The old flow pieces still drawn by onboarding, 音频, 我的声音, 模型 and 诊断 (redesign §7):
-// flow node cards and the two speaking lanes. The scene pages use TalkTalkSettingsUI's FlowGrid;
-// these go when the last page moves to it (settings visual system §9.1 commit 5).
+// The old flow pieces still drawn by onboarding (redesign §7): flow node cards and the two
+// speaking lanes. The settings pages use TalkTalkSettingsUI's FlowGrid; these go when onboarding
+// moves to it (settings visual system §9.1 commit 5).
 
 /// A link under a flow node ("模型设置 ›").
 struct FlowLink {
@@ -70,20 +70,18 @@ struct FlowArrow: View {
 
 /// A short, accessible diagram made from system symbols rather than decorative artwork.
 struct SpeechFlow: View {
-    typealias Link = FlowLink
     let steps: [(symbol: String, title: String)]
-    var links: [Int: FlowLink] = [:]
 
     var body: some View {
         HStack(spacing: 8) {
             ForEach(steps.indices, id: \.self) { index in
                 if index > 0 { FlowArrow() }
-                FlowNodeCard(symbol: steps[index].symbol, title: steps[index].title, link: links[index])
+                FlowNodeCard(symbol: steps[index].symbol, title: steps[index].title)
             }
         }
         .padding(.vertical, 4)
-        .accessibilityElement(children: links.isEmpty ? .ignore : .contain)
-        .accessibilityLabel(links.isEmpty ? steps.map(\.title).joined(separator: String(localized: "，然后")) : String(localized: "声音处理流程"))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(steps.map(\.title).joined(separator: String(localized: "，然后")))
     }
 }
 

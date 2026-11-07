@@ -32,7 +32,8 @@ final class EngineComponentsModel {
     @ObservationIgnored var blockedBy: (@MainActor () -> Bool)?
     var blocked: Bool { blockedBy?() ?? false }
     private(set) var restarting = false
-    private(set) var lastMessage: String?
+    /// The last install, check, model or restart run's outcome (the 引擎 section's result row).
+    private(set) var lastResult: SettingsProblem?
 
     static let profiles = ["max", "standard", "compact24", "compact16"]
 
@@ -54,6 +55,9 @@ final class EngineComponentsModel {
 
     var installed: Bool { state.canStartEngine }
     var running: Bool { installer?.state.isRunning ?? false }
+    /// No engine action can start now: one runs, the engine restarts, 完全卸载 runs, or this
+    /// build has no installer.
+    var busy: Bool { running || restarting || installer == nil || blocked }
 
     /// Pinned model bytes of a profile (the runtime comes on top).
     static func modelBytes(_ profile: String) -> Int64 {
@@ -74,25 +78,26 @@ final class EngineComponentsModel {
             NSApp.activate()
             guard a.runModal() == .alertFirstButtonReturn else { return }
         }
-        lastMessage = nil
+        lastResult = nil
         Task {
             let s = await installer.run(op)
             switch s {
-            case .finished: lastMessage = String(localized: "完成")
-            case let .failed(why): lastMessage = String(localized: "没有完成：\(why)")
-            case .cancelled: lastMessage = String(localized: "已取消")
+            case .finished: lastResult = SettingsProblem(.ok, String(localized: "完成"))
+            case let .failed(why): lastResult = SettingsProblem(.failed, String(localized: "未完成"), help: why)
+            case .cancelled: lastResult = SettingsProblem(.pending, String(localized: "已取消"))
             case .idle, .running: break
             }
             reload()
         }
     }
 
+    /// The confirmations (§7.11), shortened to what the run costs.
     private func confirmation(_ op: InstallerOp) -> (String, String, String)? {
         switch op {
         case let .install(p):
             let prof = p ?? profile
             return (String(localized: "安装引擎（\(prof)）？"),
-                    String(localized: "要从 Hugging Face 和 python-build-standalone 下载运行时和模型，模型约 \(Self.gb(Self.modelBytes(prof)))，另加运行时。可以随时取消，下次接着下。"),
+                    String(localized: "从 Hugging Face 等下载约 \(Self.gb(Self.modelBytes(prof)))（另加运行时），可随时取消。"),
                     String(localized: "下载并安装"))
         case let .addModel(k):
             let b = EnginePins.models.first { $0.key == k }?.bytes ?? 0
@@ -101,7 +106,7 @@ final class EngineComponentsModel {
             return (String(localized: "删除模型 \(k)？"), String(localized: "以后要用时需要重新下载。"), String(localized: "删除"))
         case .uninstall:
             return (String(localized: "卸载引擎？"),
-                    String(localized: "删除运行时和全部模型；“我的声音”、术语表和设置保留。"), String(localized: "卸载"))
+                    String(localized: "删除运行时和全部模型；我的声音、术语表和设置保留。"), String(localized: "卸载"))
         case .check:
             return nil
         }
@@ -109,14 +114,17 @@ final class EngineComponentsModel {
 
     func cancel() { installer?.cancel() }
 
+    func dismissResult() { lastResult = nil }
+
     func doRestart() {
         guard let restart, !restarting, !running, !blocked else { return }
         restarting = true
-        lastMessage = nil
+        lastResult = nil
         Task {
             let failure = await restart()
             restarting = false
-            lastMessage = failure.map { String(localized: "引擎没能重启：\($0)") } ?? String(localized: "引擎已重启")
+            lastResult = failure.map { SettingsProblem(.failed, String(localized: "引擎未能重启"), help: $0) }
+                ?? SettingsProblem(.ok, String(localized: "引擎已重启"))
         }
     }
 
@@ -129,17 +137,31 @@ final class EngineComponentsModel {
         }
     }
 
-    var stateText: String {
+    /// The installation in the settings vocabulary (§7.11): one source for the 引擎与模型 card,
+    /// the flow's badge and the 引擎 section's status row. Not installed is something to do
+    /// (warn), a damaged record a failure; the full reason is the help.
+    var status: SettingsProblem {
         switch state {
-        case .notInstalled: String(localized: "未安装")
-        case let .installed(p, _): String(localized: "已安装（\(p)）")
-        case let .outdated(p, _): String(localized: "已安装（\(p)），有新的推荐版本")
-        case let .incompatible(r): String(localized: "运行时与这个版本的 App 不兼容，需要更新：\(r)")
-        case let .incomplete(missing, bytes): String(localized: "缺 \(missing.count) 个模型文件，修复需下载约 \(Self.gb(bytes))")
-        case .unfinished: String(localized: "上次安装没有完成")
-        case let .damaged(r): String(localized: "安装记录损坏：\(r)")
+        case let .installed(p, _):
+            SettingsProblem(.ok, String(localized: "已安装 · \(p)"))
+        case .notInstalled:
+            SettingsProblem(.warn, String(localized: "未安装"))
+        case let .outdated(p, _):
+            SettingsProblem(.warn, String(localized: "可更新"), help: String(localized: "已安装 \(p)，有新的推荐版本"))
+        case let .incompatible(r):
+            SettingsProblem(.warn, String(localized: "需更新运行时"), help: r)
+        case let .incomplete(missing, bytes):
+            SettingsProblem(.warn, String(localized: "缺 \(missing.count) 个文件 · \(Self.gb(bytes))"),
+                            help: missing.joined(separator: "\n"))
+        case .unfinished:
+            SettingsProblem(.warn, String(localized: "未完成"), help: String(localized: "上次安装没有完成"))
+        case let .damaged(r):
+            SettingsProblem(.failed, String(localized: "记录损坏"), help: r)
         }
     }
+
+    /// The card's corner: nothing once installed and current (no badge = ready).
+    var problem: SettingsProblem? { status.status == .ok ? nil : status }
 
     /// The installed model of a role ("asr", "tts") by its repository name, for help texts; nil
     /// while that role has no model.
@@ -154,142 +176,370 @@ final class EngineComponentsModel {
         default: false
         }
     }
+
+    /// The install lifecycle's steps (§7.11): 下载 → 安装 → 校验 → 就绪.
+    enum Stage: Sendable {
+        case download, install, verify, ready
+    }
+
+    /// The node that carries the installation's state: not installed starts at 下载, missing
+    /// files and a damaged record are 校验's, the rest is 就绪's.
+    var statusStage: Stage {
+        switch state {
+        case .notInstalled: .download
+        case .incomplete, .damaged: .verify
+        case .installed, .outdated, .incompatible, .unfinished: .ready
+        }
+    }
+
+    /// The running step, from the installer's step names: the runtime and the models download,
+    /// the packages install, the smoke test and --check verify.
+    var activeStage: Stage? {
+        guard case let .running(op, p)? = installer?.state else { return nil }
+        switch p.step {
+        case "python", "model": return .download
+        case "venv": return .install
+        case "smoke", "check": return .verify
+        default:
+            switch op {
+            case .install, .addModel: return .download
+            case .check: return .verify
+            case .removeModel, .uninstall: return .install
+            }
+        }
+    }
+
+    /// The running step's progress; nil while nothing runs.
+    var progress: InstallerProgress? {
+        guard case let .running(_, p)? = installer?.state else { return nil }
+        return p
+    }
+
+    /// "2/5 · 1.2/4.9 GB": the step count and the current file; the model's name is the help.
+    static func progressText(_ p: InstallerProgress) -> String {
+        var parts: [String] = []
+        if let d = p.stepDone, let c = p.stepCount { parts.append("\(d)/\(c)") }
+        if p.fileTotal > 0 { parts.append(fileText(p)) }
+        return parts.isEmpty ? String(localized: "准备中") : parts.joined(separator: " · ")
+    }
+
+    /// "1.2/4.9 GB" of the file downloading now.
+    static func fileText(_ p: InstallerProgress) -> String {
+        "\(String(format: "%.1f", Double(p.fileHave) / 1e9))/\(gb(p.fileTotal))"
+    }
 }
 
-struct EngineComponentsRows: View {
+private typealias Icon = SubtitleTokens.SettingsIcon
+private typealias Ladder = SubtitleTokens.SettingsIcon.Size
+
+/// The 引擎 section's rows (§7.11): 档位 with its actions (下载; or 修复 and/or 换档 / 更新) and the
+/// 维护引擎 menu, the state, the running step's progress and the last outcome. Several rows: a
+/// Form Section or a VStack lays them out.
+struct EngineControlRows: View {
     @Bindable var model: EngineComponentsModel
-    var refreshOnAppear = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "cpu").font(.title2).foregroundStyle(.secondary).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("引擎与模型").font(.headline)
-                    Text(model.stateText).font(.callout)
-                        .foregroundStyle(model.needsRepair ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            if model.installer == nil {
-                SettingsNote("这个构建里没有安装器（直接运行的二进制）：用 TalkTalk.app / TalkTalk-Dev.app。")
-            }
-            progress
-            actions
-            roleSummary("asr", title: String(localized: "语音识别"), symbol: "waveform", purpose: String(localized: "Qwen3-ASR · 把听到的声音转成原文"))
-            roleSummary("tts", title: String(localized: "语音合成"), symbol: SubtitleTokens.SettingsIcon.myVoice, purpose: String(localized: "Qwen3-TTS · 用你的声音朗读译文"))
-            DisclosureGroup(String(localized: "模型、版本与单独下载")) { models.padding(.top, 8) }
-            if let m = model.lastMessage {
-                Text(m).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .onAppear { if refreshOnAppear { model.reload() } }
+        profileRow
+        statusRow
+        progressRow
+        resultRow
     }
 
-    @ViewBuilder private var progress: some View {
-        if case let .running(op, p)? = model.installer?.state {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(stepText(op, p)).font(.callout)
-                if p.fileTotal > 0 {
-                    ProgressView(value: Double(p.fileHave), total: Double(p.fileTotal)).frame(maxWidth: 420)
-                } else {
-                    ProgressView().controlSize(.small)
-                }
-                Button("取消") { model.cancel() }
-            }
-        }
-    }
-
-    private func stepText(_ op: InstallerOp, _ p: InstallerProgress) -> String {
-        var s = p.step ?? String(localized: "准备中")
-        if let d = p.stepDone, let c = p.stepCount { s += " \(d)/\(c)" }
-        if let m = p.model { s += " · \(m)" }
-        if p.fileTotal > 0 { s += " · \(EngineComponentsModel.gb(p.fileHave))/\(EngineComponentsModel.gb(p.fileTotal))" }
-        return s
-    }
-
-    private var actions: some View {
-        let busy = model.running || model.restarting || model.installer == nil || model.blocked
-        return VStack(alignment: .leading, spacing: 8) {
-            if model.blocked, !model.running {
-                SettingsNote("完全卸载正在进行：引擎的操作要等它结束。")
-            }
-            HStack {
-                Picker("档位", selection: $model.profile) {
+    private var profileRow: some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                Picker(String(localized: "档位"), selection: $model.profile) {
                     ForEach(EngineComponentsModel.profiles, id: \.self) { p in
                         Text(verbatim: "\(p) · \(EngineComponentsModel.gb(EngineComponentsModel.modelBytes(p)))").tag(p)
                     }
                 }
-                .frame(maxWidth: 260)
-                Button(model.installed ? String(localized: "换档并安装") : String(localized: "下载并安装")) { model.confirmAndRun(.install(profile: model.profile)) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(busy)
-            }
-            HStack {
-                if model.needsRepair {
-                    Button { model.confirmAndRun(.install(profile: model.record?.profile ?? model.profile)) }
-                    label: { Label("修复安装", systemImage: "wrench.and.screwdriver") }
-                }
-                Menu("维护引擎") {
-                    Button("校验安装") { model.confirmAndRun(.check) }
-                    Button("重启引擎") { model.doRestart() }
-                        .disabled(model.restart == nil || model.restarting || model.running || !model.installed)
-                    Button("查看日志") { model.revealLogs() }
-                    Divider()
-                    Button("卸载引擎…", role: .destructive) { model.confirmAndRun(.uninstall) }
-                        .disabled(model.state == .notInstalled)
-                }
+                .labelsHidden()
+                .pickerStyle(.menu)
                 .fixedSize()
+                .disabled(model.busy)
+                primaryButton
+                IconMenuButton(help: String(localized: "维护引擎"), items: maintenance)
+                    .disabled(model.busy)
             }
-            .disabled(busy)
+        } label: {
+            Label("档位", systemImage: Icon.engine)
         }
     }
 
-    private func roleSummary(_ role: String, title: String, symbol: String,
-                             purpose: String) -> some View {
-        let installed = model.record?.roles[role] != nil && model.installed
-        return HStack(spacing: 12) {
-            Image(systemName: symbol).font(.title2).foregroundStyle(.secondary).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.headline)
-                Text(purpose).font(.callout).foregroundStyle(.secondary)
+    /// 下载 while nothing is installed. Otherwise 修复 when the installation needs it (it
+    /// reinstalls the recorded profile) and, independently, 换档 once the picker differs from the
+    /// recorded profile (also in the repair states), else 更新 for an outdated installation.
+    @ViewBuilder private var primaryButton: some View {
+        let recorded = model.record?.profile
+        let installing = InstallerOp.install(profile: model.profile)
+        if model.state == .notInstalled {
+            Button { model.confirmAndRun(installing) } label: {
+                Label("下载", systemImage: Icon.download).labelStyle(.titleAndIcon)
             }
-            Spacer()
-            StatusLabel(installed ? String(localized: "已安装") : (model.needsRepair ? String(localized: "待修复") : String(localized: "未安装")),
-                        installed ? .ok : (model.needsRepair ? .warn : .pending))
-        }
-        .padding(.vertical, 6)
-    }
-
-    private var models: some View {
-        let installedKeys = Set(model.record?.models.map(\.id) ?? [])
-        return VStack(alignment: .leading, spacing: 4) {
-            ForEach(EnginePins.models, id: \.key) { m in
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(verbatim: m.key).font(.callout.monospaced())
-                        Text(m.role == "asr" ? String(localized: "语音识别 · 声音转成原文") : String(localized: "语音合成 · 用我的声音读出译文"))
-                            .font(.caption).foregroundStyle(.secondary)
-                        Text(verbatim: "\(EngineComponentsModel.gb(m.bytes)) · \(m.revision.prefix(7))")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if installedKeys.contains(m.key) {
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text(model.installed ? String(localized: "已安装") : String(localized: "待校验"))
-                                .font(.caption).foregroundStyle(model.installed ? Color.green : Color.orange)
-                            Button("删除", role: .destructive) { model.confirmAndRun(.removeModel(m.key)) }
-                        }
-                    } else {
-                        Button("下载") { model.confirmAndRun(.addModel(m.key)) }
-                            .disabled(!model.installed)
-                    }
+            .buttonStyle(.borderedProminent)
+            .disabled(model.busy)
+            .help(String(localized: "约 \(EngineComponentsModel.gb(EngineComponentsModel.modelBytes(model.profile)))，另加运行时"))
+        } else {
+            if model.needsRepair {
+                Button { model.confirmAndRun(.install(profile: recorded ?? model.profile)) } label: {
+                    Label("修复", systemImage: Icon.repair).labelStyle(.titleAndIcon)
                 }
-                .frame(maxWidth: 640)
-                .padding(.vertical, 5)
+                .disabled(model.busy)
+                .help(String(localized: "重新安装 \(recorded ?? model.profile)"))
+            }
+            if let recorded, recorded != model.profile {
+                Button("换档") { model.confirmAndRun(installing) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.busy)
+                    .help(String(localized: "安装 \(model.profile)"))
+            } else if case .outdated = model.state {
+                Button { model.confirmAndRun(installing) } label: {
+                    Label("更新", systemImage: Icon.download).labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.busy)
             }
         }
-        .disabled(model.running || model.restarting || model.installer == nil || model.blocked)
+    }
+
+    private var maintenance: [IconMenuItem] {
+        let present = model.state != .notInstalled
+        return [
+            IconMenuItem(String(localized: "校验安装"), symbol: Icon.verify, isEnabled: present) { model.confirmAndRun(.check) },
+            IconMenuItem(String(localized: "重启引擎"), symbol: Icon.restartEngine,
+                         isEnabled: model.restart != nil && model.installed) { model.doRestart() },
+            IconMenuItem(String(localized: "查看日志"), symbol: Icon.inspectFile) { model.revealLogs() },
+            .separator,
+            IconMenuItem(String(localized: "卸载引擎…"), symbol: Icon.delete, isEnabled: present) { model.confirmAndRun(.uninstall) }
+        ]
+    }
+
+    private var statusRow: some View {
+        let status = model.status
+        return StatusLabel(status.text, status.status, help: status.help)
+            .padding(.leading, Ladder.rowTextInset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// While a run goes: the bar (or a spinner) and "2/5 · 1.2/4.9 GB", and 取消. While 完全卸载
+    /// runs: waiting.
+    @ViewBuilder private var progressRow: some View {
+        if let p = model.progress {
+            HStack(spacing: 8) {
+                if p.fileTotal > 0 {
+                    ProgressView(value: Double(p.fileHave), total: Double(p.fileTotal))
+                        .progressViewStyle(.linear)
+                        .frame(width: 120)
+                        .accessibilityLabel(String(localized: "下载进度"))
+                } else {
+                    StatusGlyph(.busy)
+                }
+                Text(verbatim: EngineComponentsModel.progressText(p))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .help(ifPresent: p.model)
+                Spacer(minLength: 8)
+                IconButton(Icon.cancel, help: String(localized: "取消")) { model.cancel() }
+            }
+            .padding(.leading, Ladder.rowTextInset)
+        } else if model.blocked {
+            StatusLabel(String(localized: "完全卸载中"), .waiting, help: String(localized: "结束后才能操作引擎"))
+                .padding(.leading, Ladder.rowTextInset)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if model.restarting {
+            StatusLabel(String(localized: "引擎重启中"), .busy)
+                .padding(.leading, Ladder.rowTextInset)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private var resultRow: some View {
+        if let result = model.lastResult {
+            HStack(spacing: 8) {
+                StatusLabel(result.text, result.status, help: result.help)
+                Spacer(minLength: 8)
+                IconButton(Icon.close, help: String(localized: "知道了"),
+                           accessibilityLabel: String(localized: "关闭结果")) { model.dismissResult() }
+            }
+            .padding(.leading, Ladder.rowTextInset)
+        }
+    }
+}
+
+/// The 模型 section's rows (§7.11): each pinned model with its size and revision, whether it is
+/// installed, and delete or download; then `模型设置 ›` when `openModels` is given.
+struct EngineModelRows: View {
+    @Bindable var model: EngineComponentsModel
+    var openModels: (() -> Void)?
+
+    var body: some View {
+        let installedKeys = Set(model.record?.models.map(\.id) ?? [])
+        ForEach(EnginePins.models, id: \.key) { m in
+            row(m, installed: installedKeys.contains(m.key))
+        }
+        if let openModels {
+            Button(action: openModels) {
+                HStack(spacing: 8) {
+                    Label("模型设置", systemImage: SubtitleTokens.SettingsIcon.Page.models)
+                    Spacer(minLength: 8)
+                    Image(systemName: Icon.link)
+                        .font(.system(size: Ladder.micro, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "选择识别与合成用的模型"))
+        }
+    }
+
+    private func row(_ m: EnginePins.Model, installed: Bool) -> some View {
+        let role = m.role == "asr" ? String(localized: "语音识别") : String(localized: "语音合成")
+        return LabeledContent {
+            HStack(spacing: 8) {
+                Text(verbatim: "\(EngineComponentsModel.gb(m.bytes)) · \(m.revision.prefix(7))")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                if installed {
+                    let word = model.installed ? String(localized: "已安装") : String(localized: "待校验")
+                    StatusGlyph(model.installed ? .ok : .warn)
+                        .help(word)
+                        .accessibilityLabel(word)
+                    IconButton(Icon.delete, help: String(localized: "删除 \(m.key)")) { model.confirmAndRun(.removeModel(m.key)) }
+                } else {
+                    IconButton(Icon.download, help: String(localized: "下载 \(m.key)")) { model.confirmAndRun(.addModel(m.key)) }
+                        .disabled(!model.installed)
+                }
+            }
+            .disabled(model.busy)
+        } label: {
+            Label {
+                Text(verbatim: m.key).monospaced()
+            } icon: {
+                Image(systemName: m.role == "asr" ? Icon.recognition : Icon.speech)
+            }
+            .help(role)
+            .accessibilityHint(role)
+        }
+    }
+}
+
+/// Onboarding step 2's engine block: the same rows in a VStack (row 7 of the settings visual
+/// system moves that step onto the engine flow).
+struct EngineComponentsRows: View {
+    @Bindable var model: EngineComponentsModel
+
+    var body: some View {
+        Group {
+            if model.installer == nil {
+                EngineUnavailableView()
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    EngineControlRows(model: model)
+                    EngineModelRows(model: model)
+                }
+                .labelStyle(.settingsRow)
+            }
+        }
+        .onAppear { model.reload() }
+    }
+}
+
+/// A development binary without the installer (§5.2, §7.11): the reason is the help.
+struct EngineUnavailableView: View {
+    var body: some View {
+        ContentUnavailableView(String(localized: "此构建不可用"), systemImage: Icon.unavailable)
+            .help(String(localized: "这个构建里没有安装器（直接运行的二进制）：用 TalkTalk.app / TalkTalk-Dev.app。"))
+    }
+}
+
+/// 组件 › 引擎与模型's graphic (§7.11): the install lifecycle in one lane, every node leading to
+/// the 引擎 section (`link`). The installation's state sits on its step (`statusStage`); the
+/// running step shows a spinner badge and 取消, 下载 its file's progress, 就绪 the 档位 chip.
+@MainActor
+extension FlowGrid {
+    static func engine(_ model: EngineComponentsModel, link: NodeLink) -> FlowGrid {
+        let active = model.activeStage
+        let status = model.status
+        func node(_ stage: EngineComponentsModel.Stage, _ title: String, _ symbol: String) -> FlowNode {
+            let running = stage == active
+            let badge: SettingsProblem? = running ? SettingsProblem(.busy, String(localized: "进行中"))
+                : model.statusStage == stage ? status : nil
+            let accessory: NodeAccessory? = running ? .controls { EngineStageProgress(model: model, stage: stage) }
+                : stage == .ready ? .controls { EngineProfileChip(model: model) } : nil
+            return FlowNode(title, glyph: .symbol(symbol),
+                            state: badge.map { $0.status == .warn || $0.status == .failed } == true ? .needsAction : .ready,
+                            badge: badge?.status, badgeReason: badge?.text,
+                            // The running step keeps its width for progress and 取消: no chevron.
+                            link: running ? nil : link, accessory: accessory, help: badge?.help)
+        }
+        return FlowGrid(String(localized: "引擎安装步骤"), lanes: [
+            FlowLane(String(localized: "引擎"), cells: [
+                .node(node(.download, String(localized: "下载"), Icon.download)),
+                .node(node(.install, String(localized: "安装"), Icon.install)),
+                .node(node(.verify, String(localized: "校验"), Icon.verify)),
+                .node(node(.ready, String(localized: "就绪"), Icon.engine))
+            ])
+        ])
+    }
+}
+
+/// The running step's accessory: 下载's progress ring and "1.2/4.9 GB" while a file downloads
+/// (the ring alone when the node is narrow), and 取消.
+private struct EngineStageProgress: View {
+    let model: EngineComponentsModel
+    let stage: EngineComponentsModel.Stage
+
+    var body: some View {
+        let p = model.progress
+        let downloading = stage == .download && (p?.fileTotal ?? 0) > 0
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 3) {
+                if downloading, let p { ring(p); file(p) }
+                cancel
+            }
+            HStack(spacing: 3) {
+                if downloading, let p { ring(p) }
+                cancel
+            }
+        }
+    }
+
+    private func ring(_ p: InstallerProgress) -> some View {
+        ProgressView(value: Double(p.fileHave), total: Double(p.fileTotal))
+            .progressViewStyle(.circular)
+            .controlSize(.mini)
+            .help(EngineComponentsModel.fileText(p))
+            .accessibilityLabel(String(localized: "下载进度"))
+    }
+
+    private func file(_ p: InstallerProgress) -> some View {
+        Text(verbatim: EngineComponentsModel.fileText(p))
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private var cancel: some View {
+        IconButton(Icon.cancel, help: String(localized: "取消")) { model.cancel() }
+    }
+}
+
+/// 就绪's 档位 chip (§3.4), the same choice as the 档位 row's picker.
+private struct EngineProfileChip: View {
+    @Bindable var model: EngineComponentsModel
+
+    var body: some View {
+        NodeChip(model.profile, accessibilityLabel: String(localized: "档位"),
+                 help: "\(model.profile) · \(EngineComponentsModel.gb(EngineComponentsModel.modelBytes(model.profile)))",
+                 items: EngineComponentsModel.profiles.map { p in
+                     NodeChipItem("\(p) · \(EngineComponentsModel.gb(EngineComponentsModel.modelBytes(p)))",
+                                  isOn: p == model.profile) { model.profile = p }
+                 })
+            .disabled(model.busy)
     }
 }
 

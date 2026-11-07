@@ -125,17 +125,10 @@ struct SettingsNavigationBand: View {
                  badge: tab == .engine ? engineBadge : driverBadge)
     }
 
-    /// Install, update or repair needed: warn; a damaged record: failed.
+    /// Install, update or repair needed: warn; a damaged record: failed. The flow and the 引擎
+    /// section read the same (`EngineComponentsModel.status`).
     private var engineBadge: CardBadge? {
-        switch engine.state {
-        case .installed: nil
-        case .notInstalled: .status(.warn, String(localized: "未安装"))
-        case .outdated: .status(.warn, String(localized: "可更新"))
-        case .incompatible: .status(.warn, String(localized: "需更新运行时"))
-        case let .incomplete(missing, _): .status(.warn, String(localized: "缺 \(missing.count) 个文件"))
-        case .unfinished: .status(.warn, String(localized: "未完成"))
-        case .damaged: .status(.failed, String(localized: "记录损坏"))
-        }
+        engine.problem.map { .status($0.status, $0.text) }
     }
 
     /// Read once a page has built the driver model (its first appearance); the flow nodes
