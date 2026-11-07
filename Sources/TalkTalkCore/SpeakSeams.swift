@@ -79,15 +79,16 @@ public struct SpeakMTRequest: Sendable {
     public var clause, press: UInt64
     public var job: JobID
     public var text: String
+    public var source: Lang
     public var target: Lang
     public var history: [MTTurn]
     public var mode: MTMode
     public var appleLate: Bool
     public var precedingAudioMs, maskedMs, ttsFirstChunkP95Ms: Int
-    public init(clause: UInt64, press: UInt64, job: JobID, text: String, target: Lang,
+    public init(clause: UInt64, press: UInt64, job: JobID, text: String, source: Lang = .zh, target: Lang,
                 history: [MTTurn] = [], precedingAudioMs: Int = 0, maskedMs: Int = 0,
                 ttsFirstChunkP95Ms: Int = 400, mode: MTMode = .normal, appleLate: Bool = false) {
-        self.clause = clause; self.press = press; self.job = job; self.text = text; self.target = target
+        self.clause = clause; self.press = press; self.job = job; self.text = text; self.source = source; self.target = target
         self.history = history; self.mode = mode; self.appleLate = appleLate; self.precedingAudioMs = precedingAudioMs
         self.maskedMs = maskedMs; self.ttsFirstChunkP95Ms = ttsFirstChunkP95Ms
     }
@@ -105,6 +106,11 @@ public protocol SpeakTranslator: Sendable {
     func cancel(_ job: JobID) async
     func pressBegan() async
     func prepare(targets: [Lang]) async
+    func prepare(source: Lang, targets: [Lang]) async
+}
+
+extension SpeakTranslator {
+    public func prepare(source: Lang, targets: [Lang]) async { await prepare(targets: targets) }
 }
 
 /// Extra SPEAK facts passed into the existing cloud translator. Apple starts exactly when

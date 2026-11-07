@@ -233,7 +233,7 @@ public actor OpenAIMT: SpeakCloudMT {
                 }
             }
             if retryReason == nil, let t2 = text, !t2.isEmpty, t2 != TargetTextGate.noneMarker {
-                let c = NumberGuard.check(source: r.text, target: t2, targetLang: target, glossary: glossaries[r.session] ?? [])
+                let c = NumberGuard.check(source: r.text, sourceLang: r.session.direction.source, target: t2, targetLang: target, glossary: glossaries[r.session] ?? [])
                 if NumberGuard.action(c, backend: .openAI, maskedMs: speak?.maskedMs ?? 0, alreadyRetried: false, policy: policy) == .retry {
                     retryReason = "numberGuard"
                 }
@@ -246,7 +246,7 @@ public actor OpenAIMT: SpeakCloudMT {
                                                          ttsFirstChunkP95Ms: speak?.ttsFirstChunkP95Ms ?? 400)
                 var rr = r
                 rr.deadline = HostClock.now() + UInt64(max(0, retryMs)) * 1_000_000
-                rr.strictTerms = Array(Set(r.strictTerms + NumberGuard.sourceMentions(in: r.text).map(\.text)))
+                rr.strictTerms = Array(Set(r.strictTerms + NumberGuard.sourceMentions(in: r.text, language: r.session.direction.source).map(\.text)))
                 // A failed number retry retains the first translation with a warning. A text
                 // gate retry can still recover short Han names locally before giving up.
                 let firstOutcome = outcome
@@ -265,7 +265,7 @@ public actor OpenAIMT: SpeakCloudMT {
                 acceptedDeadline = rr.deadline
                 if let candidate = text, let gate {
                     var verdict = gate.check(candidate, target: target)
-                    if verdict == .reject(.containsCJK), let recovered = gate.transliterateShortHanRuns(candidate) {
+                    if target != .zh, verdict == .reject(.containsCJK), let recovered = gate.transliterateShortHanRuns(candidate) {
                         verdict = gate.check(recovered, target: target)
                     }
                     switch verdict {

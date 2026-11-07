@@ -148,6 +148,7 @@ public struct StatusMenuFacts: Sendable, Equatable {
     /// 对方语言 and 我的译音 by name ("英语").
     public var listenLanguage = String(localized: "英语")
     public var speakLanguage = String(localized: "英语")
+    public var speakSourceLanguage = String(localized: "中文")
     public var meetingApp: String?
     public var elapsed: TimeInterval?
     /// The titlebar's voice capsule.
@@ -391,7 +392,7 @@ public enum StatusMenu {
         var rows = [StatusMenuRow(.languages(.listen), String(localized: "字幕：\(f.listenLanguage) → 中文"),
                                   symbol: SubtitleTokens.MenuIcon.subtitles)]
         if !f.videoBusy {
-            rows.append(StatusMenuRow(.languages(.speak), String(localized: "我说话：中文 → \(f.speakLanguage)"),
+            rows.append(StatusMenuRow(.languages(.speak), String(localized: "我说话：\(f.speakSourceLanguage) → \(f.speakLanguage)"),
                                       symbol: SubtitleTokens.SettingsIcon.me))
         }
         return rows

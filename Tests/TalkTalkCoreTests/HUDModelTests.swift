@@ -291,6 +291,40 @@ import Testing
         #expect(m.lines(now: 0)[1] == HUDLine("备用模型", .secondary))
     }
 
+    @Test func speakingEndClearsLiveSpeechButPreservesListeningAndExternalFacts() {
+        var baseline = HUDModel()
+        baseline.meetingStarted()
+        baseline.scene = .phone
+        baseline.phoneInputConfirmed = true
+        baseline.cloudPrivacyPending = true
+        baseline.post(.meetingSilent, now: 0)
+        baseline.post(.speakerMode, now: 0)
+        baseline.post(.remoteHearsYourVoice, now: 0)
+        baseline.post(.openAIKeyInvalid, now: 0)
+        baseline.post(.defaultInputChanged(to: "Headset"), now: 0)
+        let external = HUDChip("字幕需要检查", symbol: "captions.bubble", tone: .warn, detail: "Listen issue")
+        baseline.setExternalIssue(.subtitles, external)
+        baseline.show(external, now: 0)
+        for isFinal in [false, true] {
+            var model = baseline
+            model.meetingAudio = .draining
+            model.pushToTalkAvailable = true
+            model.pushToTalk = .playing(lang: .zh, voice: .mine, source: .apple, queued: 2)
+            model.outputPlaying = true; model.speechWorkPending = true
+            model.receiveTranscript(.init(press: 99, source: "Old source", target: "旧译文", isFinal: isFinal), now: 0)
+            model.passthrough(.opened, now: 0)
+            model.post(.floorPaused(segments: 2), now: 0)
+            model.post(.segmentNotSent, now: 0)
+            model.speakingEnded()
+            #expect(model == baseline)
+            #expect(model.visibleTranscript(at: 0) == nil)
+            #expect(model.activityDetails(now: 0).isEmpty)
+            // The replacement owns a new press sequence; the old press ID cannot veto it.
+            model.receiveTranscript(.init(press: 1, source: "New source", target: "", isFinal: false), now: 1)
+            #expect(model.visibleTranscript(at: 1)?.source == "New source")
+        }
+    }
+
     @Test func meetingEndClearsEverythingButSysInputNotices() {
         var m = HUDModel()
         m.meetingStarted()

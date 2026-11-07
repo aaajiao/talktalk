@@ -35,9 +35,9 @@ public enum NumberGuard {
         public var sourceTexts: [String] { source.map(\.text) }
     }
 
-    public static func check(source: String, target: String, targetLang: Lang,
+    public static func check(source: String, sourceLang: Lang = .zh, target: String, targetLang: Lang,
                              glossary: [GlossaryEntry] = []) -> Check {
-        let s = sourceMentions(in: source)
+        let s = sourceMentions(in: source, language: sourceLang)
         let t = TargetNumerals.mentions(in: target, lang: targetLang)
         var remaining = t.map(\.value)
         var missing: [Double] = []
@@ -46,7 +46,10 @@ public enum NumberGuard {
             else { missing.append(m.value) }
         }
         let lowered = target.lowercased()
-        let terms = glossary.filter { !$0.zh.isEmpty && source.contains($0.zh) }
+        let terms = glossary.filter {
+            let term = $0.rendering(for: sourceLang)
+            return !term.isEmpty && source.range(of: term, options: .caseInsensitive) != nil
+        }
             .map { $0.rendering(for: targetLang) }
             .filter { !$0.isEmpty && !lowered.contains($0.lowercased()) }
         return Check(source: s, target: t, missing: missing, extra: remaining, missingTerms: terms)
@@ -56,7 +59,10 @@ public enum NumberGuard {
     /// mixed utterance use the same reader as English targets, without counting Arabic digits
     /// twice (for example 20万 must remain 200000, not also 20). Han/digit/punctuation boundaries
     /// separate runs so adjacent "two个、twenty台" cannot become one English number phrase.
-    public static func sourceMentions(in text: String) -> [Mention] {
+    /// Explicit English sources use the complete English parser so "1.5 million" retains
+    /// its scale rather than being split into an Arabic digit and an unattached word.
+    public static func sourceMentions(in text: String, language: Lang = .zh) -> [Mention] {
+        if language != .zh { return TargetNumerals.mentions(in: text, lang: language) }
         var mentions = ChineseNumerals.mentions(in: text)
         var english = ""
         func flush() {
@@ -303,6 +309,7 @@ public enum TargetNumerals {
     struct Token { var text: String; var isNumber: Bool }
 
     public static func mentions(in text: String, lang: Lang) -> [NumberGuard.Mention] {
+        if lang == .zh { return NumberGuard.sourceMentions(in: text) }
         let tokens = tokenize(text)
         var out: [NumberGuard.Mention] = []
         var i = 0

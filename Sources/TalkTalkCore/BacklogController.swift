@@ -57,7 +57,7 @@ public struct DurationCalibration: Sendable {
 
     public mutating func record(voice: VoiceHandle, language: Lang, text: String,
                                 summary: TTSSummary, completed: Bool) {
-        guard completed, !summary.runaway, !summary.short, ExpectedDuration.words(text) >= 5,
+        guard completed, !summary.runaway, !summary.short, ExpectedDuration.units(text, language) >= 5,
               summary.audioS.isFinite, summary.audioS > 0 else { return }
         let key = Key(voice: voice, language: language)
         ratios[key, default: []].append(summary.audioS / ExpectedDuration.seconds(text, language))

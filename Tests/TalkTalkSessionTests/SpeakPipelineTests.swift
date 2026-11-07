@@ -95,9 +95,11 @@ private struct SpeakTestLivePreview: StreamingASREngine {
 private final class SpeakTestRestartingPreview: StreamingASREngine, Sendable {
     let id = EngineID(name: "restarting-preview-test", revision: "1", placement: .cpu)
     private let streams = Mutex<[SpeakTestPreviewStream]>([])
+    let languages = Mutex<[Lang]>([])
     var stream: SpeakTestPreviewStream? { streams.withLock { $0.last } }
     var openCount: Int { streams.withLock { $0.count } }
     func open(_ lang: Lang, highPriority: Bool) async throws -> any ASRStream {
+        languages.withLock { $0.append(lang) }
         let analyzers = SpeakTestAnalyzers(); analyzers.opened()
         let stream = SpeakTestPreviewStream(analyzers: analyzers)
         streams.withLock { $0.append(stream) }
@@ -116,6 +118,7 @@ private actor SpeakTestASR: ClipASREngine {
     private(set) var calls = 0
     private(set) var cancellations = 0
     private(set) var contexts: [String?] = []
+    private(set) var hints: [Lang] = []
     init(text: String = "你好世界", fails: Bool = false, delay: Duration = .zero,
          analyzers: SpeakTestAnalyzers? = nil, texts: [String] = [], repeatsFirstFromContextOnShortClip: Bool = false) {
         self.text = text; self.fails = fails; self.delay = delay; self.analyzers = analyzers
@@ -125,7 +128,7 @@ private actor SpeakTestASR: ClipASREngine {
     func transcribe(_ clip: PCMClip16k, hint: Lang, context: String?, job: JobID,
                     priority: Priority, deadline: HostTime?) async throws -> ASRFinal {
         calls += 1
-        contexts.append(context)
+        contexts.append(context); hints.append(hint)
         var recognized = texts.isEmpty ? text : texts[min(calls - 1, texts.count - 1)]
         if repeatsFirstFromContextOnShortClip, clip.samples.count < 16_000,
            let previous = texts.first, context?.contains(previous) == true { recognized = previous }
@@ -133,7 +136,7 @@ private actor SpeakTestASR: ClipASREngine {
         defer { analyzers?.closed() }
         try await Task.sleep(for: delay)
         if fails { throw CancellationTestError.failure }
-        return ASRFinal(text: recognized, language: .zh,
+        return ASRFinal(text: recognized, language: hint,
                         timing: .init(received: 0, started: 0, firstOutput: nil, finished: 0))
     }
     func cancel(_ job: JobID) async { cancellations += 1 }
@@ -147,6 +150,7 @@ private actor SpeakTestMT: SpeakTranslator {
     let cancelDelay: Duration
     private(set) var calls = 0
     private(set) var requests: [SpeakMTRequest] = []
+    private(set) var preparations: [Direction] = []
     private var active = 0
     private(set) var peak = 0
     private(set) var cancellations = 0
@@ -168,6 +172,9 @@ private actor SpeakTestMT: SpeakTranslator {
     }
     func pressBegan() async {}
     func prepare(targets: [Lang]) async {}
+    func prepare(source: Lang, targets: [Lang]) async {
+        preparations += targets.map { Direction(source: source, target: $0) }
+    }
 }
 
 private final class SpeakTestTTS: TTSEngine, Sendable {
@@ -222,7 +229,7 @@ private struct SpeakTestEcho: SpeakEchoSink {
 struct SpeakPipelineTests {
     private func fixture(asr: SpeakTestASR = .init(), mt: SpeakTestMT = .init(),
                          primary: SpeakTestASR? = nil, ttsFailures: Int = 0, clone: Bool = false, holdTTS: Bool = false,
-                         preview: (any StreamingASREngine)? = nil, whileHeld: Bool = false, target: Lang = .en,
+                         preview: (any StreamingASREngine)? = nil, whileHeld: Bool = false, source: Lang = .zh, target: Lang = .en,
                          captureFromKeyDown: Bool = false, log: EventLog? = nil,
                          asrContext: @escaping @Sendable () -> String? = { nil },
                          onCommit: @escaping @Sendable () -> Void = {},
@@ -239,7 +246,7 @@ struct SpeakPipelineTests {
             voice: { .init(clone: clone ? tts : nil, system: tts, systemHandle: handle,
                            cloneAvailability: clone ? .ready(handle) : .noProfile,
                            playoutGainDb: 0, hudVoice: clone ? .mine : .system) },
-            engine: SpeakTestControl(), echo: SpeakTestEcho(), previewASR: preview, target: target, jobs: JobIDSequence(),
+            engine: SpeakTestControl(), echo: SpeakTestEcho(), previewASR: preview, source: source, target: target, jobs: JobIDSequence(),
             log: log ?? EventLog(inMemory: HostClock.now), speakerMode: { false }, captureFromKeyDown: captureFromKeyDown,
             ui: onUI, onCommit: onCommit, onWorkChange: onWorkChange, onSpoken: onSpoken,
             asrContext: asrContext, commitWhileHeld: whileHeld)
@@ -263,6 +270,38 @@ struct SpeakPipelineTests {
         #expect(await primary.calls == 1)
         #expect(await fallback.calls == 1)
         #expect(tts.requests.withLock { $0[0].text == "Hello world." && $0[0].language == .en })
+        #expect(await until { (try? host.queue.pump(at: HostClock.now())) != nil && host.ring.availableFrames > 0 })
+        await pipeline.stop()
+    }
+
+    @Test(arguments: [Direction(source: .zh, target: .en), Direction(source: .zh, target: .de),
+                      Direction(source: .en, target: .zh), Direction(source: .en, target: .de)], [false, true])
+    func selectedDirectionReachesBothRecognizersTranslationAndVoice(direction: Direction, clone: Bool) async throws {
+        let input = direction.source == .zh ? "我们明天继续讨论。" : "We will continue the discussion tomorrow."
+        let output: String = switch direction.target {
+        case .zh: "我们明天继续讨论。"
+        case .en: "We will continue the discussion tomorrow."
+        case .de: "Wir setzen das Gespräch morgen fort."
+        }
+        let primary = SpeakTestASR(fails: true), fallback = SpeakTestASR(text: input)
+        let mt = SpeakTestMT(text: output), transcript = Mutex<SpeakTranscript?>(nil)
+        let (pipeline, mic, host, tts) = try fixture(asr: fallback, mt: mt, primary: primary, clone: clone,
+            source: direction.source, target: direction.target, onUI: { event in
+                if case .transcript(let value) = event { transcript.withLock { $0 = value } }
+            })
+        let now = HostClock.now()
+        await pipeline.start(); await pipeline.handle(.began(at: now))
+        mic.press.cc.yield(clip(at: now))
+        await pipeline.handle(.released(at: now + 1_000_000_000, reason: .keyUp))
+        #expect(await until { tts.requests.withLock { $0.count == 1 } })
+        #expect(await primary.hints == [direction.source])
+        #expect(await fallback.hints == [direction.source])
+        #expect(await mt.requests.first?.source == direction.source)
+        #expect(await mt.requests.first?.target == direction.target)
+        #expect(await mt.preparations == [direction])
+        #expect(tts.requests.withLock { $0.first?.language == direction.target && $0.first?.text == output })
+        #expect(tts.requests.withLock { $0.first?.voice.mode == (clone ? .icl : .system) })
+        #expect(transcript.withLock { $0?.source == input && $0?.target == output })
         #expect(await until { (try? host.queue.pump(at: HostClock.now())) != nil && host.ring.availableFrames > 0 })
         await pipeline.stop()
     }
@@ -615,6 +654,24 @@ struct SpeakPipelineTests {
         #expect(analyzers.active == 1 && analyzers.peak == 1)
         await preview.stop()
         #expect(analyzers.active == 0)
+    }
+
+    @Test func englishPreviewKeepsWordBoundariesAndSourceWhenReopened() async throws {
+        let engine = SpeakTestRestartingPreview(), snapshots = Mutex<[SpeakPreview.Snapshot]>([])
+        let live = SpeakPreview(engine: engine, source: .en)
+        let frames = AsyncStream<SpeakPreviewFrame>.makeStream(), now = HostClock.now()
+        await live.start(frames: frames.stream) { value in snapshots.withLock { $0.append(value) } }
+        frames.continuation.yield(.init(samples: Array(repeating: 1, count: 160), at: now, level: 0.1))
+        #expect(await until { snapshots.withLock { $0.last?.from == now } })
+        engine.stream?.emit(.final("Hello everyone.", range: now...(now + 100_000_000)))
+        #expect(await until { snapshots.withLock { $0.last?.text == "Hello everyone." } })
+        engine.stream?.emit(.volatile("We will begin", through: now + 200_000_000))
+        #expect(await until { snapshots.withLock { $0.last?.text == "Hello everyone. We will begin" } })
+        await live.pauseForFinalASR(); await live.resumeAfterFinalASR()
+        #expect(engine.languages.withLock { $0 == [.en, .en] })
+        engine.stream?.emit(.volatile("A fresh preview", through: now + 300_000_000))
+        #expect(await until { snapshots.withLock { $0.last?.text == "A fresh preview" } })
+        await live.stop()
     }
 
     @Test func previewShowsFullRevisionsAndUncommittedTailStaysLabelled() async throws {

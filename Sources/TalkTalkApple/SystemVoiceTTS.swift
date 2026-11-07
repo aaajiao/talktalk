@@ -3,8 +3,8 @@ import Foundation
 import TalkTalkCore
 
 /// The system-voice fallback (ARCHITECTURE.md C8, §9, §16 decision 5): `AVSpeechSynthesizer.write`
-/// with the best installed en-US / de-DE voice (Ava Premium, Anna), never a Personal Voice and never
-/// Chinese. Output: 24 kHz f32 mono in 0.16 s chunks (§1.3), like RemoteQwenTTS, so it goes through
+/// with the best installed zh-CN / en-US / de-DE voice, never a Personal Voice.
+/// Output: 24 kHz f32 mono in 0.16 s chunks (§1.3), like RemoteQwenTTS, so it goes through
 /// the same PlayoutStage. Licence: personal, non-commercial use only (SLA §2.F, licensing.md).
 ///
 /// There is no conditioning: `buildConditioning` throws, `load` accepts only `CloneMode.system`.
@@ -31,9 +31,9 @@ public actor SystemVoiceTTS: TTSEngine {
         }
     }
 
-    public static let locales: [Lang: String] = [.en: "en-US", .de: "de-DE"]
+    public static let locales: [Lang: String] = [.zh: "zh-CN", .en: "en-US", .de: "de-DE"]
     /// Preferred names per language at equal quality (§9: Ava Premium, Anna).
-    public static let preferred: [Lang: [String]] = [.en: ["Ava"], .de: ["Anna"]]
+    public static let preferred: [Lang: [String]] = [.zh: ["Tingting", "婷婷"], .en: ["Ava"], .de: ["Anna"]]
     public static let chunkSamples = 3840                  // 0.16 s at 24 kHz
 
     /// Highest quality first, then the preferred name, then the identifier (stable). Personal and
@@ -112,7 +112,7 @@ public actor SystemVoiceTTS: TTSEngine {
     public nonisolated func speak(_ r: TTSRequest) -> AsyncThrowingStream<TTSChunk, any Error> {
         AsyncThrowingStream { cont in
             let task = Task {
-                guard r.language != .zh, Self.locales[r.language] != nil else {
+                guard Self.locales[r.language] != nil else {
                     cont.finish(throwing: Failure.unsupportedLanguage(r.language.rawValue)); return
                 }
                 guard let info = Self.pickVoice(for: r.language, among: Self.installedVoices()),

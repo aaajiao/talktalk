@@ -38,8 +38,8 @@ public struct NLLanguageIdentifier: LanguageIdentifying {
     }
 }
 
-/// TargetTextGate (ARCHITECTURE.md §5.4): the cloned voice never speaks Chinese, empty text or
-/// meta-talk. Runs on every MT result (OpenAI, Apple, future backends) before TTS.
+/// TargetTextGate (ARCHITECTURE.md §5.4): speak only text suitable for the selected target,
+/// never empty text or meta-talk. Runs on every MT result (OpenAI, Apple, future backends) before TTS.
 public struct TargetTextGate: Sendable {
     public enum Verdict: Sendable, Equatable {
         case pass(String)
@@ -73,15 +73,31 @@ public struct TargetTextGate: Sendable {
         if t == Self.noneMarker { return .skip }
         t = t.replacingOccurrences(of: Self.noneMarker, with: "").trimmingCharacters(in: .whitespaces)
         if t.isEmpty { return .reject(.empty) }
-        if t.unicodeScalars.contains(where: TextScript.isCJK) { return .reject(.containsCJK) }
+        if t.unicodeScalars.contains(where: { TextScript.isKana($0) || TextScript.isHangul($0)
+            || (target != .zh && TextScript.isHan($0)) }) { return .reject(.containsCJK) }
         let ns = t as NSString
         for r in metaRegexes where r.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)) != nil {
             return .reject(.metaTalk)
         }
-        let latin = t.unicodeScalars.filter(TextScript.isLatinLetter).count
-        if latin < config.minLatinLetters { return .reject(.tooFewLatin) }
         let words = Self.words(t)
         let fillers = Set((patterns.fillers[target.rawValue] ?? []).map { $0.lowercased() })
+        if target == .zh {
+            // One Han character can be a complete answer. Short Latin names/identifiers and
+            // bare numbers may be the entire translation; as with en/de, short output cannot
+            // reliably prove its language. Reject long untranslated Latin sentences.
+            let content = t.filter { $0.isLetter || $0.isNumber }
+            let borrowedFillers = Set(patterns.fillers.values.flatMap { $0 }.map { $0.lowercased() })
+            if !words.isEmpty, words.allSatisfy({ word in
+                borrowedFillers.contains(word.lowercased()) || word.allSatisfy({ fillers.contains(String($0)) })
+            }) { return .reject(.onlyFillers) }
+            if t.unicodeScalars.contains(where: TextScript.isHan) { return .pass(t) }
+            if !content.isEmpty, content.allSatisfy(\.isNumber) { return .pass(t) }
+            let latin = t.unicodeScalars.filter(TextScript.isLatinLetter).count
+            if words.count < config.langIdMinWords, latin >= config.minLatinLetters { return .pass(t) }
+            return .reject(.wrongLanguage)
+        }
+        let latin = t.unicodeScalars.filter(TextScript.isLatinLetter).count
+        if latin < config.minLatinLetters { return .reject(.tooFewLatin) }
         if !words.isEmpty, words.allSatisfy({ fillers.contains($0.lowercased()) }) { return .reject(.onlyFillers) }
         if words.count >= config.langIdMinWords, let (lang, p) = identifier.identify(t), lang != target,
            p >= config.langIdMinConf {

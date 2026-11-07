@@ -192,6 +192,22 @@ extension AppState.RemoteLanguage {
     var code: String { rawValue.uppercased() }
 }
 
+extension SpeakSourceLanguage {
+    var title: String { self == .zh ? String(localized: "中文") : String(localized: "英语") }
+    var code: String { self == .zh ? String(localized: "中") : "EN" }
+}
+
+extension SpeakTargetLanguage {
+    var title: String {
+        switch self {
+        case .zh: String(localized: "中文")
+        case .en: String(localized: "英语")
+        case .de: String(localized: "德语")
+        }
+    }
+    var code: String { self == .zh ? String(localized: "中") : rawValue.uppercased() }
+}
+
 /// What the scene diagrams link to: another page (with ReturnPill) and a section of it.
 @MainActor
 struct ScenarioLinks {
@@ -329,9 +345,13 @@ extension FlowGrid {
         let remoteSymbol = facts.mode == .phone ? SubtitleTokens.ConversationIcon.phoneRemote : Icon.remote
         let profile = state.voiceProfilePresent
         return FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
-            .node(FlowNode(String(localized: "说中文"), glyph: .symbol(Icon.me),
-                           accessory: .keycap(TitlebarKey(action: String(localized: "开始翻译"), style: .idle)),
-                           help: String(localized: "可夹英语"))),
+            .node(FlowNode(String(localized: "我说"), glyph: .symbol(Icon.me),
+                           accessory: .controls {
+                               HStack(spacing: 4) {
+                                   SpeakSourceChip(state: state, paired: false, mode: facts.mode)
+                                   Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle), showsAction: false)
+                               }
+                           }, help: String(localized: "按选定语言识别；点按右⌥开始或结束翻译"))),
             .node(FlowNode(String(localized: "识别与翻译"), glyph: .symbol(Icon.translation),
                            link: links?.node(String(localized: "识别与翻译 · 文本翻译"), .translation, .model(.translation)))),
             .node(FlowNode(String(localized: "我的声音"), glyph: .symbol(Icon.myVoice),
@@ -340,9 +360,8 @@ extension FlowGrid {
                            satellite: profile ? nil : FlowSatellite(String(localized: "系统声音"), symbol: Icon.speech,
                                                                     help: String(localized: "未录制时用系统声音"),
                                                                     dashed: true))),
-            .node(FlowNode(String(localized: "对方听到译音"), glyph: .symbol(remoteSymbol), accessory: links == nil ? nil : .controls {
-                LanguageChip(state: state, speak: true, paired: false,
-                             lockedBy: facts.mode == .phone ? facts.lockedBy : nil)
+            .node(FlowNode(String(localized: "对方听到译音"), glyph: .symbol(remoteSymbol), accessory: .controls {
+                LanguageChip(state: state, speak: true, paired: false, mode: facts.mode)
             }))
         ])
     }
@@ -438,8 +457,8 @@ private struct SourceChip: View {
     }
 }
 
-/// 对方语言 or 我的译音 (§3.4, §5.5): one state each, the same name everywhere (the scene pages
-/// and 模型 › 文本翻译). Paired with the source chip, or beside a node's other control, it is
+/// 对方语言 or 我的译音 (§3.4, §5.5). Speaking choices belong to the supplied scene (or the
+/// current speaking scene on shared model pages). Paired with another control, it is
 /// 34 pt wide ("EN ▾"). `lockedBy`: the running scene that holds it now (the chip shows the lock
 /// and says which scene to end first).
 struct LanguageChip: View {
@@ -447,16 +466,39 @@ struct LanguageChip: View {
     let speak: Bool
     let paired: Bool
     var lockedBy: MeetingMode?
+    var mode: MeetingMode?
 
     var body: some View {
-        let current = speak ? state.speakLanguage : state.remoteLanguage
-        NodeChip(current.code, width: paired ? 34 : nil, locked: lockedBy != nil,
+        let mode = mode ?? state.speakLanguageMode
+        let selection = state.speakLanguages(for: mode)
+        let code = speak ? selection.target.code : state.remoteLanguage.code
+        let title = speak ? selection.target.title : state.remoteLanguage.title
+        let items = speak ? selection.source.targets.map { language in
+            NodeChipItem(language.title, isOn: language == selection.target) {
+                state.setSpeakTarget(language, for: mode)
+            }
+        } : AppState.RemoteLanguage.allCases.map { language in
+            NodeChipItem(language.title, isOn: language == state.remoteLanguage) { state.remoteLanguage = language }
+        }
+        NodeChip(paired ? code : title, width: paired ? 34 : nil, locked: lockedBy != nil,
                  accessibilityLabel: speak ? String(localized: "我的译音") : String(localized: "对方语言"),
-                 help: lockedBy.map { String(localized: "\(current.title) · 先结束\($0.scene.title)") } ?? current.title,
-                 items: AppState.RemoteLanguage.allCases.map { language in
-                     NodeChipItem(language.title, isOn: language == current) {
-                         if speak { state.speakLanguage = language } else { state.remoteLanguage = language }
-                     }
+                 help: lockedBy.map { String(localized: "\(title) · 先结束\($0.scene.title)") } ?? title, items: items)
+    }
+}
+
+struct SpeakSourceChip: View {
+    @Bindable var state: AppState
+    var paired = true
+    var mode: MeetingMode?
+
+    var body: some View {
+        let mode = mode ?? state.speakLanguageMode
+        let source = state.speakLanguages(for: mode).source
+        NodeChip(paired ? source.code : source.title, width: paired ? 34 : nil,
+                 accessibilityLabel: String(localized: "我说的语言"),
+                 help: String(localized: "按\(source.title)识别"),
+                 items: SpeakSourceLanguage.allCases.map { language in
+                     NodeChipItem(language.title, isOn: language == source) { state.setSpeakSource(language, for: mode) }
                  })
     }
 }

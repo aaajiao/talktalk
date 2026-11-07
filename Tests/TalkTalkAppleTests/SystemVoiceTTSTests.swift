@@ -22,7 +22,7 @@ import TalkTalkCore
         ]
         #expect(SystemVoiceTTS.pickVoice(for: .en, among: voices)?.identifier == "b")
         #expect(SystemVoiceTTS.pickVoice(for: .de, among: voices)?.identifier == "f")
-        #expect(SystemVoiceTTS.pickVoice(for: .zh, among: voices) == nil)
+        #expect(SystemVoiceTTS.pickVoice(for: .zh, among: voices)?.identifier == "h")
         #expect(SystemVoiceTTS.pickVoice(for: .en, among: [voices[3], voices[4]]) == nil)
     }
 
@@ -32,11 +32,17 @@ import TalkTalkCore
                           seed: TTSSeed.make(voice: voice, text: text), wholeClause: true)
     }
 
-    @Test func neverChinese() async {
+    @Test(.enabled(if: SystemVoiceTTS.pickVoice(for: .zh, among: SystemVoiceTTS.installedVoices()) != nil))
+    func rendersChineseThroughTheSameChunkContract() async throws {
         let tts = SystemVoiceTTS()
-        await #expect(throws: SystemVoiceTTS.Failure.unsupportedLanguage("zh")) {
-            for try await _ in tts.speak(request(.zh, "你好")) {}
-        }
+        var chunks: [TTSChunk] = []
+        for try await chunk in tts.speak(request(.zh, "我们下周三再讨论项目预算。")) { chunks.append(chunk) }
+        let last = try #require(chunks.last)
+        #expect(last.isLast)
+        #expect(chunks.count > 2)
+        #expect(chunks.dropLast().allSatisfy { $0.samples24k.count == SystemVoiceTTS.chunkSamples && !$0.isLast })
+        #expect(last.summary?.frames == chunks.reduce(0) { $0 + $1.samples24k.count })
+        #expect(chunks.flatMap(\.samples24k).contains { abs($0) > 0.01 })
     }
 
     @Test func noConditioning() async {

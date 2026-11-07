@@ -3,9 +3,9 @@ import TalkTalkCore
 import Translation
 
 /// T11 (ARCHITECTURE.md §14), the part that needs no engine: Apple Translation latency for the
-/// SPEAK fallback directions zh→en and zh→de, cold and hot, 30 sentences each, p50 / p95, for
+/// SPEAK fallback directions zh→en/de and en→zh/de, cold and hot, 30 sentences each, p50 / p95, for
 /// each strategy (`lowLatency`, and `highFidelity` on macOS 26.4+); plus the LISTEN draft
-/// directions en→zh / de→zh hot. NumberGuard runs on every zh→en/de output (the F7 30万→3万
+/// directions en→zh / de→zh hot. NumberGuard runs on every SPEAK output (the F7 30万→3万
 /// risk); only counts are kept, never text. Pairs that are not installed are reported, not
 /// downloaded (System Settings › General › Language & Region › Translation Languages).
 /// TTS RTF under translation load needs the engine and is not measured here.
@@ -32,7 +32,7 @@ public struct TranslationBench: Sendable {
 
     public func run() async -> [String: Any] {
         var out: [String: Any] = ["op": "bench-translation", "os": ProcessInfo.processInfo.operatingSystemVersionString]
-        let pairs: [(Lang, Lang, Bool)] = [(.zh, .en, true), (.zh, .de, true), (.en, .zh, false), (.de, .zh, false)]
+        let pairs: [(Lang, Lang, Bool)] = [(.zh, .en, true), (.zh, .de, true), (.en, .zh, true), (.en, .de, true), (.de, .zh, false)]
         var results: [String: Any] = [:]
         for (src, tgt, speak) in pairs {
             let key = "\(src.rawValue)-\(tgt.rawValue)"
@@ -74,8 +74,8 @@ public struct TranslationBench: Sendable {
                 if target.trimmingCharacters(in: .whitespaces).isEmpty { empty += 1 }
                 var missing: Int?
                 var fields: [String: Any] = ["pair": "\(src.rawValue)-\(tgt.rawValue)", "strategy": st.rawValue, "cold": cold, "i": i, "ms": d]
-                if src == .zh {
-                    let chk = NumberGuard.check(source: t, target: target, targetLang: tgt, glossary: glossary)
+                if src == .zh || src == .en {
+                    let chk = NumberGuard.check(source: t, sourceLang: src, target: target, targetLang: tgt, glossary: glossary)
                     missing = chk.missing.count
                     if chk.missing.count > 0 {
                         numberMissing += 1

@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import TalkTalkCore
 
@@ -66,6 +67,48 @@ struct FallbackMTTests {
         #expect(await apple.starts == 1)
     }
 
+    @Test func allSpeakingDirectionsReachCloudAndAppleWithTheirOwnSessions() async throws {
+        let profile = try TestResources.profile()
+        let gate = try TargetTextGate(config: profile.speak.mt.targetGate,
+            patterns: TestResources.gatePatterns(), identifier: FixedLanguage(result: nil))
+        let pairs: [(Lang, Lang, MTSession, String, String)] = [
+            (.zh, .en, .speakZhEn, "预算三十万。", "The budget is 300000."),
+            (.zh, .de, .speakZhDe, "预算三十万。", "Das Budget ist 300000."),
+            (.en, .zh, .speakEnZh, "The budget is three hundred thousand.", "预算是三十万。"),
+            (.en, .de, .speakEnDe, "The budget is three hundred thousand.", "Das Budget ist 300000.")
+        ]
+        for (source, target, session, input, output) in pairs {
+            for offline in [false, true] {
+                let apple = Apple(output), cloud = Cloud(offline ? .unavailable : .text(output))
+                let prepared = Mutex<[MTSession]>([])
+                let translator = FallbackMT(cloud: cloud, apple: apple, profile: profile, gate: gate,
+                    prepareApple: { session in prepared.withLock { $0.append(session) } })
+                await translator.prepare(source: source, targets: [target])
+                #expect(prepared.withLock { $0 } == [session])
+                let request = SpeakMTRequest(clause: 1, press: 1, job: 1, text: input, source: source, target: target)
+                guard case let .text(text, backend, warning, _) = try await translator.translate(request) else {
+                    Issue.record("valid translation blocked for \(session)"); continue
+                }
+                #expect(text == output && warning == nil && backend == (offline ? .apple : .openAI))
+                #expect(await cloud.lastSession == session)
+                #expect(await apple.lastSession == (offline ? session : nil))
+            }
+        }
+    }
+
+    @Test func englishAppleFallbackBlocksChangedChineseNumbersAndMissingGlossary() async throws {
+        let profile = try TestResources.profile()
+        let gate = try TargetTextGate(config: profile.speak.mt.targetGate, patterns: TestResources.gatePatterns())
+        let glossary = [GlossaryEntry(zh: "延迟", en: "latency", de: "Latenz")]
+        for output in ["延迟降低了30%。", "延时降低了20%。"] {
+            let translator = FallbackMT(cloud: nil, apple: Apple(output), profile: profile, gate: gate,
+                                        glossary: { glossary })
+            let request = SpeakMTRequest(clause: 1, press: 1, job: 1,
+                text: "Latency decreased by twenty percent.", source: .en, target: .zh)
+            #expect(try await translator.translate(request) == .blocked(.numberMismatch))
+        }
+    }
+
     static func result(_ text: String, apple: Bool) -> MTResult {
         MTResult(text: text, tokens: 0, reasoningTokens: 0,
                  engine: EngineID(name: "fake", revision: "1", placement: apple ? .systemService : .network),
@@ -80,12 +123,13 @@ struct FallbackMTTests {
         let text: String
         let wait: Bool
         var starts = 0, cancels = 0
+        var lastSession: MTSession?
         init(_ text: String, wait: Bool = false) {
             self.text = text; self.wait = wait
             (started, signal) = AsyncStream.makeStream()
         }
         func translate(_ r: MTRequest) async throws -> MTResult {
-            starts += 1; signal.yield(())
+            starts += 1; lastSession = r.session; signal.yield(())
             if wait { try await Task.sleep(for: .seconds(60)) }
             return FallbackMTTests.result(text, apple: true)
         }
@@ -99,10 +143,11 @@ struct FallbackMTTests {
         let mode: Mode
         var cancels = 0
         var lastMode: MTMode?
+        var lastSession: MTSession?
         var lastAppleLate: Bool?
         init(_ mode: Mode) { self.mode = mode }
         func translate(_ r: MTRequest, speak: SpeakCloudContext) async throws -> MTResult {
-            lastMode = r.mode; lastAppleLate = speak.appleLate
+            lastMode = r.mode; lastSession = r.session; lastAppleLate = speak.appleLate
             switch mode {
             case .unavailable: throw MTError.cloudUnavailable("offline")
             case .text(let t): return FallbackMTTests.result(t, apple: false)

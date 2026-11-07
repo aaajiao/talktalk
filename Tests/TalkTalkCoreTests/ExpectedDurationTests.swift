@@ -36,6 +36,19 @@ import Testing
         #expect(ExpectedDuration.words("well-known, isn't it?") == 3)
     }
 
+    @Test func chineseCountsCharactersDigitsAndLatinWords() {
+        #expect(ExpectedDuration.units("你好，世界！", .zh) == 4)
+        #expect(ExpectedDuration.units("我们讨论OpenAI API 2026。", .zh) == 10)
+        #expect(ExpectedDuration.units("〇二六 don't stop", .zh) == 5)
+        #expect(ExpectedDuration.units("，。！", .zh) == 1)
+        let text = "我们明天继续讨论下一步的工作计划。"
+        let characters = text.unicodeScalars.filter(TextScript.isHan).count
+        let c = ExpectedDuration.coefficients(.zh)
+        #expect(ExpectedDuration.seconds(text, .zh) == c.baseS + c.perWordS * Double(characters))
+        #expect(ExpectedDuration.seconds(text, .zh) > 3)
+        #expect(ExpectedDuration.seconds(text, .zh) > ExpectedDuration.seconds("好。", .zh))
+    }
+
     @Test func runawayLimit() {
         let e = ExpectedDuration.seconds("a b", .en)
         #expect(abs(ExpectedDuration.runawayLimitS("a b", .en, factor: 2.0, extraS: 0.6) - (2 * e + 0.6)) < 1e-12)

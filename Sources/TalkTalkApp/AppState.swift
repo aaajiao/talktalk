@@ -52,7 +52,6 @@ final class AppState {
         static let announceNewTranslations = "ui.announceNewTranslations"
         static let videoSubtitleLocked = "ui.videoSubtitleLocked"
         static let videoLongSilenceDim = "ui.videoLongSilenceDim"
-        static let speakLanguage = "speak.targetLanguage"
         static let phonePreparedOnce = "ui.phonePreparedOnce"
     }
 
@@ -210,8 +209,37 @@ final class AppState {
         }
     }
 
-    var speakLanguage: RemoteLanguage {
-        didSet { defaults.set(speakLanguage.rawValue, forKey: Key.speakLanguage) }
+    private var meetingSpeakLanguages: SpeakLanguageSelection {
+        didSet { SpeakLanguagePreferences.save(meetingSpeakLanguages, for: .meeting, defaults: defaults) }
+    }
+    private var phoneSpeakLanguages: SpeakLanguageSelection {
+        didSet { SpeakLanguagePreferences.save(phoneSpeakLanguages, for: .phone, defaults: defaults) }
+    }
+    /// A running session keeps its own scene even while the user browses another settings page.
+    var speakLanguageMode: MeetingMode {
+        let mode = meetingActive || meetingStarting || meetingStopping ? meetingMode : requestedScenario
+        return mode == .phone ? .phone : .meeting
+    }
+    var speakSourceLanguage: SpeakSourceLanguage {
+        get { speakLanguages(for: speakLanguageMode).source }
+        set { setSpeakSource(newValue, for: speakLanguageMode) }
+    }
+    var speakLanguage: SpeakTargetLanguage {
+        get { speakLanguages(for: speakLanguageMode).target }
+        set { setSpeakTarget(newValue, for: speakLanguageMode) }
+    }
+    func speakLanguages(for mode: MeetingMode) -> SpeakLanguageSelection {
+        mode == .phone ? phoneSpeakLanguages : meetingSpeakLanguages
+    }
+    func setSpeakSource(_ source: SpeakSourceLanguage, for mode: MeetingMode) {
+        guard mode.supportsSpeaking else { return }
+        if mode == .phone { phoneSpeakLanguages = phoneSpeakLanguages.selectingSource(source) }
+        else { meetingSpeakLanguages = meetingSpeakLanguages.selectingSource(source) }
+    }
+    func setSpeakTarget(_ target: SpeakTargetLanguage, for mode: MeetingMode) {
+        guard mode.supportsSpeaking else { return }
+        if mode == .phone { phoneSpeakLanguages = phoneSpeakLanguages.selectingTarget(target) }
+        else { meetingSpeakLanguages = meetingSpeakLanguages.selectingTarget(target) }
     }
 
     /// Meeting mode (LISTEN) can be started from the menu.
@@ -320,7 +348,8 @@ final class AppState {
         remoteLanguage = RemoteLanguage(rawValue: defaults.string(forKey: Key.remoteLanguage) ?? "") ?? .en
         listenASREngine = ListenASREngine(rawValue: defaults.string(forKey: Key.listenASREngine) ?? "") ?? .qwen
         speakASREngine = SpeechRecognitionEngine(rawValue: defaults.string(forKey: Key.speakASREngine) ?? "") ?? .qwen
-        speakLanguage = RemoteLanguage(rawValue: defaults.string(forKey: Key.speakLanguage) ?? "") ?? .en
+        meetingSpeakLanguages = SpeakLanguagePreferences.load(.meeting, defaults: defaults)
+        phoneSpeakLanguages = SpeakLanguagePreferences.load(.phone, defaults: defaults)
         subtitlesVisible = defaults.object(forKey: Key.subtitlesVisible) as? Bool ?? true
         let savedSize = defaults.object(forKey: Key.subtitleFontSize) as? Double ?? 22
         storedSubtitleFontSize = savedSize.isFinite ? min(36, max(16, savedSize)) : 22

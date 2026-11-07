@@ -68,6 +68,24 @@ extension FakeServerCloudTests {
         #expect(FakeServer.requests(.A).count == 3)
     }
 
+    @Test func englishToChineseCloudOutputAndGuardRetryKeepChineseText() async throws {
+        var p = profile
+        p.speak.mt.hedge.enabled = false
+        p.speak.mt.guardRetry.floorMs = 500
+        p.speak.mt.guardRetry.maxMs = 500
+        FakeServer.enqueue(.A, FakeServer.good("延迟降低了30%。"), FakeServer.good("延迟降低了20%。"))
+        FakeServer.enqueue(.B, .hang())
+        let engine = try speakMT(p)
+        try await engine.setContext(.speakEnZh, glossary: [.init(zh: "延迟", en: "latency", de: "Latenz")])
+        let request = MTRequest(job: 201, session: .speakEnZh, text: "Latency decreased by twenty percent.",
+                                isFinalChunk: true, priority: .p1Speak, maxOutputTokens: 96)
+        let result = try await engine.translate(request, speak: .init(
+            precedingAudioMs: 0, maskedMs: 0, ttsFirstChunkP95Ms: 400, onStartApple: {}))
+        #expect(result.text == "延迟降低了20%。")
+        #expect(result.hedge.reason == .guardRetry)
+        #expect(FakeServer.requests(.A).count == 2)
+    }
+
     @Test func speakFailedNumberRetryRetainsTheFirstTranslation() async throws {
         var p = profile
         p.speak.mt.guardRetry.floorMs = 70

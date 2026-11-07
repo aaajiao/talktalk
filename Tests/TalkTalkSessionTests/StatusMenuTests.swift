@@ -48,6 +48,16 @@ import Testing
         #expect(row(rows, "退出 TalkTalk")?.symbol == nil)
     }
 
+    @Test func speakingMenuShowsTheSelectedSourceAndChineseTarget() {
+        var facts = StatusMenuFacts()
+        facts.speakSourceLanguage = "英语"
+        facts.speakLanguage = "中文"
+        #expect(row(StatusMenu.rows(facts), "我说话：英语 → 中文")?.kind == .languages(.speak))
+        facts.phase = .running
+        facts.mode = .captions
+        #expect(!StatusMenu.rows(facts).contains { $0.kind == .languages(.speak) })
+    }
+
     @Test func appIdentityShowsTheVersionAndBuildOnOneLineAndKeepsAbout() {
         var f = StatusMenuFacts()
         f.appName = "TalkTalk Dev"

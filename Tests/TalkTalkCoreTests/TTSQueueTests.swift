@@ -94,6 +94,20 @@ private func ms(_ v: Int) -> HostTime { HostTime(v) * 1_000_000 }
         #expect(got == want)
     }
 
+    @Test func chineseClausesUseCharacterBudgetsAndExplicitLanguage() {
+        var q = TTSQueue(config: cfg)
+        q.enqueue(clause: 1, text: "我们明天继续讨论下一步的工作计划。", lang: .zh, at: 0)
+        let mergedAfterLongClause = q.enqueue(clause: 2, text: "好的。", lang: .zh, at: ms(10))
+        #expect(!mergedAfterLongClause)
+        let first = q.next(job: 1, voice: Self.voice)!
+        #expect(first.request.language == .zh && !first.request.wholeClause)
+        #expect(first.item.expectedS > 3)
+        let mergedShortClauses = q.enqueue(clause: 3, text: "谢谢。", lang: .zh, at: ms(20))
+        #expect(mergedShortClauses)
+        #expect(q.items.first?.text == "好的。谢谢。")
+        #expect(q.items.first?.words == 4)
+    }
+
     @Test func pendingRemoveAndDrop() {
         var q = TTSQueue(config: cfg)
         q.enqueue(clause: 1, text: "a", lang: .en, at: 0)

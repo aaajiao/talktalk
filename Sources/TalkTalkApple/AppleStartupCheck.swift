@@ -33,7 +33,7 @@ public enum AppleStartupCheck {
     }
 
     public static let locales: [Lang] = [.zh, .en, .de]
-    static let pairs: [(MTSession, String)] = [(.listenEnZh, "en-zh"), (.listenDeZh, "de-zh"), (.speakZhEn, "zh-en"), (.speakZhDe, "zh-de")]
+    static let pairs: [(MTSession, String)] = [(.listenEnZh, "en-zh"), (.listenDeZh, "de-zh"), (.speakZhEn, "zh-en"), (.speakZhDe, "zh-de"), (.speakEnDe, "en-de")]
 
     public static func evaluate(_ r: Report) -> Verdict {
         guard r.transcriberAvailable else { return .unavailable(["这台 Mac 不支持系统语音识别（SpeechTranscriber）"]) }

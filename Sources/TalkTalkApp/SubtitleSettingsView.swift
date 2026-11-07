@@ -115,7 +115,8 @@ struct SubtitleSettingsView: View {
         SubtitleLayoutPreview(configuration: .init(
             scene: scene, fontSize: fontSize.wrappedValue, opacity: opacity.wrappedValue,
             videoStyle: state.videoCaptionStyle, videoArrangement: state.videoCaptionArrangement,
-            darkBackdrop: colorScheme == .dark, display: display))
+            darkBackdrop: colorScheme == .dark, display: display,
+            speakingLanguages: state.speakLanguages(for: state.requestedScenario)))
             .overlay(alignment: .topLeading) {
                 Text("示例")
                     .font(.caption2)

@@ -113,10 +113,8 @@ private func appleTranslationGoldenChecks() async -> [SelfTestCheck] {
                 let start = HostClock.now()
                 let output = try await apple.translate(.init(job: job, session: session, text: source,
                     isFinalChunk: true, priority: .p3Background, maxOutputTokens: 128)).text
-                // NumberGuard's source parser is Chinese; reverse LISTEN's pair for that check.
-                let numbers = direction.target == .zh
-                    ? NumberGuard.check(source: output, target: source, targetLang: direction.source)
-                    : NumberGuard.check(source: source, target: output, targetLang: direction.target)
+                let numbers = NumberGuard.check(source: source, sourceLang: direction.source,
+                                                target: output, targetLang: direction.target)
                 let sample = name + "." + String(index + 1)
                 checks.append(.init(sample + ".numbers", ok: numbers.numbersMatch,
                     values: ["missing": Double(numbers.missing.count), "extra": Double(numbers.extra.count),

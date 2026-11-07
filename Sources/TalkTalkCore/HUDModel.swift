@@ -551,6 +551,20 @@ public struct HUDModel: Sendable, Equatable {
         transcript = nil; latestTranscriptPress = nil; transcriptUntil = nil; speechWorkPending = false
     }
 
+    /// A SPEAK replacement invalidates its callbacks before async shutdown. Clear its live
+    /// presentation explicitly without ending LISTEN or discarding route/privacy warnings.
+    /// A draft disappears here; this transition never promotes it to a finished transcript.
+    public mutating func speakingEnded() {
+        pushToTalk = .idle; pushToTalkAvailable = false
+        meetingAudio = nil; outputPlaying = false; speechWorkPending = false
+        transcript = nil; latestTranscriptPress = nil; transcriptUntil = nil
+        passthrough = .none
+        for warning in [Warning.floorPaused(segments: 0), .numberMaybeWrong(""), .skipped(segments: 0),
+                        .segmentNotSent, .sentenceMaybeIncomplete, .unsupportedTextNotSent] {
+            clear(warning)
+        }
+    }
+
     public mutating func meetingEnded() {
         meetingActive = false
         outputPlaying = false

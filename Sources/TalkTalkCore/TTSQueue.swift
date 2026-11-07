@@ -34,7 +34,7 @@ public struct TTSQueue: Sendable {
         /// Arrival of the newest clause merged into this item (the merge window runs from here).
         public var lastArrival: HostTime
         public var clause: UInt64 { clauses[0] }
-        public var words: Int { ExpectedDuration.words(text) }
+        public var words: Int { ExpectedDuration.units(text, lang) }
         public var expectedS: Double { ExpectedDuration.seconds(text, lang) }
     }
 
@@ -54,9 +54,9 @@ public struct TTSQueue: Sendable {
     public mutating func enqueue(clause: UInt64, text: String, lang: Lang, at now: HostTime) -> Bool {
         if var last = items.last, last.lang == lang,
            now >= last.lastArrival, HostClock.ms(last.lastArrival, to: now) <= config.mergeWindowMs,
-           last.words < config.mergeMaxWords, ExpectedDuration.words(text) < config.mergeMaxWords {
+           last.words < config.mergeMaxWords, ExpectedDuration.units(text, lang) < config.mergeMaxWords {
             last.clauses.append(clause)
-            last.text = Self.join(last.text, text)
+            last.text = Self.join(last.text, text, lang: lang)
             last.lastArrival = now
             items[items.count - 1] = last
             return true
@@ -125,10 +125,10 @@ public struct TTSQueue: Sendable {
         return removed
     }
 
-    static func join(_ a: String, _ b: String) -> String {
+    static func join(_ a: String, _ b: String, lang: Lang) -> String {
         let l = a.trimmingCharacters(in: .whitespaces), r = b.trimmingCharacters(in: .whitespaces)
         if l.isEmpty { return r }
         if r.isEmpty { return l }
-        return l + " " + r
+        return l + (lang == .zh ? "" : " ") + r
     }
 }

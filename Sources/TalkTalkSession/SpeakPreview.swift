@@ -14,6 +14,7 @@ public actor SpeakPreview {
         public var isFinal: Bool
     }
     private let engine: any StreamingASREngine
+    private let source: Lang
     private var stream: (any ASRStream)?
     private var frameReader: Task<Void, Never>?
     private var readers: [Task<Void, Never>] = []
@@ -29,7 +30,9 @@ public actor SpeakPreview {
     private var hypothesis = ""
     private var finalizedThrough: HostTime = 0
     private var update: @Sendable (Snapshot) -> Void = { _ in }
-    public init(engine: any StreamingASREngine) { self.engine = engine }
+    public init(engine: any StreamingASREngine, source: Lang = .zh) {
+        self.engine = engine; self.source = source
+    }
 
     public func start(frames: AsyncStream<SpeakPreviewFrame>,
                       update: @escaping @Sendable (Snapshot) -> Void) async {
@@ -78,7 +81,7 @@ public actor SpeakPreview {
         if let stream, let frame = clipped(input) {
             frame.samples.withUnsafeBufferPointer { stream.feed($0, at: frame.at) }
         }
-        update(.init(level: level, text: finals + hypothesis, stableText: finals + stable.committedText, from: floor,
+        update(.init(level: level, text: join(finals, hypothesis), stableText: join(finals, stable.committedText), from: floor,
                      through: recognizedThrough, isFinal: false))
     }
     private func clipped(_ frame: SpeakPreviewFrame) -> SpeakPreviewFrame? {
@@ -111,7 +114,7 @@ public actor SpeakPreview {
     }
     private func open(token: UInt64) async {
         guard token == generation, active, !paused, !Task.isCancelled else { return }
-        guard let opened = try? await engine.open(.zh, highPriority: true) else { return }
+        guard let opened = try? await engine.open(source, highPriority: true) else { return }
         guard token == generation, active, !paused, !Task.isCancelled else { await Self.cancel(opened); return }
         stream = opened; stable.reset(); finals = ""; hypothesis = ""
         recognizedThrough = floor; finalizedThrough = floor
@@ -138,13 +141,21 @@ public actor SpeakPreview {
             _ = stable.update(hypothesis: text); through = end; final = false
         case .final(let text, let range):
             guard range.upperBound > max(floor, finalizedThrough) else { return }
-            finals += text; stable.reset(); hypothesis = ""
+            finals = join(finals, text); stable.reset(); hypothesis = ""
             through = range.upperBound; finalizedThrough = through; final = true
         }
         recognizedThrough = through
-        update(.init(level: level, text: finals + hypothesis, stableText: finals + stable.committedText,
+        update(.init(level: level, text: join(finals, hypothesis), stableText: join(finals, stable.committedText),
                      from: floor, through: through, isFinal: final))
     }
+    /// Apple may deliver multiple final spans without leading spaces. Keep English word
+    /// boundaries across final/draft spans while retaining Chinese character adjacency.
+    private func join(_ left: String, _ right: String) -> String {
+        guard source != .zh, !left.isEmpty, !right.isEmpty,
+              left.last?.isWhitespace != true, right.first?.isWhitespace != true else { return left + right }
+        return left + " " + right
+    }
+
     private func closeCurrent() async {
         readers.forEach { $0.cancel() }; readers.removeAll()
         let old = stream; stream = nil

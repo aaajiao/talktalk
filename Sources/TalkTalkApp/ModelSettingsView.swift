@@ -136,9 +136,9 @@ extension FlowGrid {
                 .node(FlowNode(String(localized: "应用声音"), glyph: .symbol(Icon.remote))), .node(listen), .node(source), .empty
             ]),
             FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
-                .node(FlowNode(String(localized: "说中文"), glyph: .symbol(Icon.me),
-                               accessory: .keycap(TitlebarKey(action: String(localized: "开始翻译"), style: .idle)),
-                               help: String(localized: "可夹英语"))),
+                .node(FlowNode(String(localized: "我说"), glyph: .symbol(Icon.me),
+                               accessory: .controls { SpeakSourceChip(state: state, paired: false) },
+                               help: String(localized: "按选定语言识别；点按右⌥开始或结束翻译"))),
                 .node(speak), .node(source), .empty
             ])
         ])

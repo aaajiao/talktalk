@@ -11,11 +11,15 @@ public struct MTPrompts: Codable, Sendable, Equatable {
     public struct Speak: Codable, Sendable, Equatable {
         public var zhDe: String
         public var zhEn: String
+        public var enZh: String
+        public var enDe: String
         public var concise: String
         public var summarize: [String: String]
         public var strictTerms: String
+        public var strictTermsZh: String
         enum CodingKeys: String, CodingKey {
-            case zhDe = "zh-de", zhEn = "zh-en", concise, summarize, strictTerms
+            case zhDe = "zh-de", zhEn = "zh-en", enZh = "en-zh", enDe = "en-de"
+            case concise, summarize, strictTerms, strictTermsZh
         }
     }
     public struct Glossary: Codable, Sendable, Equatable { public var header: String; public var line: String }
@@ -67,7 +71,13 @@ public struct OpenAIRequestBuilder: Sendable {
                 guard let s = prompts.speak.summarize[key] else { throw PromptError.missingPrompt("summarize." + key) }
                 parts.append(s)
             case .normal, .concise:
-                parts.append(d.target == .de ? prompts.speak.zhDe : prompts.speak.zhEn)
+                switch session {
+                case .speakZhEn: parts.append(prompts.speak.zhEn)
+                case .speakZhDe: parts.append(prompts.speak.zhDe)
+                case .speakEnZh: parts.append(prompts.speak.enZh)
+                case .speakEnDe: parts.append(prompts.speak.enDe)
+                case .listenEnZh, .listenDeZh: preconditionFailure("LISTEN prompt in SPEAK branch")
+                }
                 if mode == .concise { parts.append(prompts.speak.concise) }
             }
         } else {
@@ -77,16 +87,18 @@ public struct OpenAIRequestBuilder: Sendable {
         let entries = glossary.sorted { ($0.zh, $0.en, $0.de) < ($1.zh, $1.en, $1.de) }.prefix(Self.maxGlossaryEntries)
         if !entries.isEmpty {
             let lines = entries.map { e -> String in
-                let target = d.target == .zh ? e.rendering(for: d.source) : e.rendering(for: d.target)
-                let (zh, other) = d.target == .zh ? (e.zh, target) : (e.zh, target)
-                return prompts.glossary.line.replacingOccurrences(of: "{zh}", with: zh)
-                    .replacingOccurrences(of: "{target}", with: other)
+                // Existing Chinese-source and LISTEN prompts retain their stable rendering;
+                // English-source SPEAK needs the English term, including for English → German.
+                let source = session.isSpeak ? e.rendering(for: d.source) : e.zh
+                let target = session.isSpeak ? e.rendering(for: d.target) : e.rendering(for: d.source)
+                return prompts.glossary.line.replacingOccurrences(of: "{zh}", with: source)
+                    .replacingOccurrences(of: "{target}", with: target)
             }
             parts.append(([prompts.glossary.header] + lines).joined(separator: "\n"))
         }
         if !strictTerms.isEmpty {
             let lang = prompts.languageNames[d.target.rawValue] ?? d.target.rawValue
-            parts.append(prompts.speak.strictTerms
+            parts.append((d.target == .zh ? prompts.speak.strictTermsZh : prompts.speak.strictTerms)
                 .replacingOccurrences(of: "{terms}", with: strictTerms.joined(separator: ", "))
                 .replacingOccurrences(of: "{language}", with: lang))
         }

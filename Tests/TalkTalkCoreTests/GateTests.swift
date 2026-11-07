@@ -43,6 +43,26 @@ struct FixedLanguage: LanguageIdentifying {
         #expect(real.check("Wir planen, das vor nächstem Mittwoch zu beheben.", target: .en) == .reject(.wrongLanguage))
     }
 
+    @Test func chineseTargetsKeepHanAndNamesWithoutWeakeningLatinTargets() throws {
+        let g = try gate(FixedLanguage(result: (.en, 1)))
+        for text in ["好。", "预算是 300000 欧元。", "请用 OpenAI API 检查延迟。"] {
+            #expect(g.check(text, target: .zh) == .pass(text))
+            #expect(g.check(text, target: .en) == .reject(.containsCJK))
+            #expect(g.check(text, target: .de) == .reject(.containsCJK))
+        }
+        for text in ["OpenAI", "Atlas/API", "John Smith", "300,000", "20%", "1.5"] {
+            #expect(g.check(text, target: .zh) == .pass(text))
+        }
+        #expect(g.check("The budget is 300000 euros.", target: .zh) == .reject(.wrongLanguage))
+        #expect(g.check("中文 テスト", target: .zh) == .reject(.containsCJK))
+        #expect(g.check("中文 한국어", target: .zh) == .reject(.containsCJK))
+        #expect(g.check("嗯，啊。", target: .zh) == .reject(.onlyFillers))
+        #expect(g.check("Um, uh.", target: .zh) == .reject(.onlyFillers))
+        #expect(g.check("以下是中文翻译：你好。", target: .zh) == .reject(.metaTalk))
+        #expect(g.check("<none>", target: .zh) == .skip)
+        #expect(g.check(" ", target: .zh) == .reject(.empty))
+    }
+
     @Test func transliteratesShortHanRunsOnly() throws {
         let g = try gate()
         #expect(g.transliterateShortHanRuns("Ich habe mit 张总 gesprochen.") == "Ich habe mit Zhang Zong gesprochen.")
@@ -140,6 +160,23 @@ struct FixedLanguage: LanguageIdentifying {
         let g = [GlossaryEntry(zh: "延迟", en: "latency", de: "Latenz")]
         #expect(NumberGuard.check(source: "延迟很高", target: "Latency is high.", targetLang: .en, glossary: g).isOK)
         #expect(NumberGuard.check(source: "延迟很高", target: "The delay is high.", targetLang: .en, glossary: g).missingTerms == ["latency"])
+    }
+
+    @Test func englishSourcesCheckChineseUnitsAndEnglishGlossaryEntries() {
+        let glossary = [GlossaryEntry(zh: "延迟", en: "latency", de: "Latenz")]
+        let source = "Latency improved by twenty percent. The budget is 1.5 million euros."
+        let good = NumberGuard.check(source: source, sourceLang: .en,
+            target: "延迟降低百分之二十，预算为150万欧元。", targetLang: .zh, glossary: glossary)
+        #expect(good.isOK)
+        #expect(good.source.map(\.value) == [20, 1_500_000])
+        let wrong = NumberGuard.check(source: source, sourceLang: .en,
+            target: "延时降低20%，预算为15万欧元。", targetLang: .zh, glossary: glossary)
+        #expect(wrong.hardMismatch && wrong.missing == [1_500_000] && wrong.extra == [150_000])
+        #expect(wrong.missingTerms == ["延迟"])
+        #expect(NumberGuard.check(source: "Latency is high.", sourceLang: .en,
+            target: "Die Verzögerung ist hoch.", targetLang: .de, glossary: glossary).missingTerms == ["Latenz"])
+        #expect(NumberGuard.check(source: "Latency is high.", sourceLang: .en,
+            target: "Die Latenz ist hoch.", targetLang: .de, glossary: glossary).isOK)
     }
 
     @Test func actions() throws {

@@ -3,7 +3,7 @@ import TalkTalkCore
 import Translation
 
 /// Apple Translation as an `MTEngine` (§4.1, §4.2): LISTEN drafts and the final-MT fallback
-/// (en→zh-Hans, de→zh-Hans), and the SPEAK fallback (zh→en, zh→de). `.highFidelity` (26.4+; the
+/// (en→zh-Hans, de→zh-Hans), and the SPEAK fallback (zh→en/de, en→zh/de). `.highFidelity` (26.4+; the
 /// installed packs on this Mac, M0-T11). One warm session per direction. Language packs are
 /// system-managed and never downloaded from here: a missing pack throws `.notInstalled`.
 /// Glossary and history are not supported by the framework; `setContext` is a no-op and the

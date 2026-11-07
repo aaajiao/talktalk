@@ -23,6 +23,7 @@ struct SubtitleLayoutPreview: NSViewRepresentable {
         var darkBackdrop: Bool
         /// Passed in (not read inside) so SwiftUI's accessibility environment refreshes it.
         var display: SubtitleStyle.Display
+        var speakingLanguages = SpeakLanguageSelection()
     }
 
     let configuration: Configuration
@@ -362,7 +363,7 @@ final class SubtitlePreviewCanvas: NSView {
         let language = String(localized: "英语")
         timeline.setHeader(source: phone ? String(localized: "通话对方 · \(language)") : String(localized: "原文 · \(language)"),
                            translation: String(localized: "译文 · 中文"))
-        timeline.apply(rows: Self.sampleRows(phone: phone), style: style,
+        timeline.apply(rows: Self.sampleRows(phone: phone, speakingLanguages: configuration.speakingLanguages), style: style,
                        lastRowOnly: rules.lastRowOnly, showsHeader: rules.showsColumnHeader)
         dock.apply(.init(presentation: MicDockPresentation.make(voice, scene: scene), turn: nil,
                          expanded: false, showsStartHint: false), style: style, compact: rules.compactDock)
@@ -385,13 +386,13 @@ final class SubtitlePreviewCanvas: NSView {
     }
 
     /// Two remote pairs (the second still a draft) around one of my turns.
-    private static func sampleRows(phone: Bool) -> [ConversationTimeline.Row] {
+    private static func sampleRows(phone: Bool, speakingLanguages: SpeakLanguageSelection) -> [ConversationTimeline.Row] {
+        let speaking = SubtitleSpeakingSample(phone: phone, languages: speakingLanguages)
         if phone {
             return [
                 row(.remote(1), .remote, source: "Hi, I'm calling to confirm your appointment. Would Tuesday morning work for you?",
                     translation: String(localized: "您好，我打电话来确认您的预约。周二上午您方便吗？"), order: 1),
-                row(.me(1), .me, source: String(localized: "周二上午可以，谢谢。请再告诉我一下具体地址。"),
-                    translation: "Tuesday morning works, thank you. Could you give me the address again?",
+                row(.me(1), .me, source: speaking.source, translation: speaking.translation,
                     delivery: .phoneSent, order: 2),
                 row(.remote(2), .remote, source: "Of course. We're on Market Street, on the second floor.",
                     translation: String(localized: "当然。我们在市场街，二楼"), final: false, order: 3),
@@ -400,8 +401,7 @@ final class SubtitlePreviewCanvas: NSView {
         return [
             row(.remote(1), .remote, source: "Let's confirm the plan for next week. Would Tuesday morning work for you?",
                 translation: String(localized: "我们确认一下下周的安排。周二上午你方便吗？"), order: 1),
-            row(.me(1), .me, source: String(localized: "周二上午可以。我们可以先看演示，再讨论接下来的安排。"),
-                translation: "Tuesday morning works. Let's start with the demo, then talk about next steps.",
+            row(.me(1), .me, source: speaking.source, translation: speaking.translation,
                 delivery: .sent, order: 2),
             row(.remote(2), .remote, source: "Great. I'll send the agenda and the meeting link this afternoon.",
                 translation: String(localized: "好的。我今天下午把议程和"), final: false, order: 3),

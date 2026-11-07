@@ -1,3 +1,6 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
+import Foundation
+
 /// Settings › 字幕 (redesign §7 字幕页): the layout preview's geometry and the rules that
 /// enable or explain its controls. Pure values; the App target draws the preview over a
 /// backdrop that follows the system appearance.
@@ -94,4 +97,25 @@ public struct SubtitleOpacityControl: Sendable, Equatable {
     /// Every scene's background starts at 85 % (the stored default, the slider's tick and
     /// "恢复默认 85%").
     public static let defaultOpacity: Double = 0.85
+}
+
+/// The settings example follows the scene's speaking direction without starting audio.
+public struct SubtitleSpeakingSample: Equatable, Sendable {
+    public let source: String
+    public let translation: String
+
+    public init(phone: Bool, languages: SpeakLanguageSelection) {
+        let zh = phone ? String(localized: "周二上午可以，谢谢。请再告诉我一下具体地址。")
+            : String(localized: "周二上午可以。我们可以先看演示，再讨论接下来的安排。")
+        let en = phone ? "Tuesday morning works, thank you. Could you give me the address again?"
+            : "Tuesday morning works. Let's start with the demo, then talk about next steps."
+        let de = phone ? "Dienstagvormittag passt, danke. Können Sie mir die Adresse noch einmal nennen?"
+            : "Dienstagvormittag passt. Wir können zuerst die Demo ansehen und dann die nächsten Schritte besprechen."
+        source = languages.source == .zh ? zh : en
+        switch languages.target {
+        case .zh: translation = zh
+        case .en: translation = en
+        case .de: translation = de
+        }
+    }
 }

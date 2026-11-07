@@ -13,7 +13,7 @@ class ExpectedDurationTests(unittest.TestCase):
     def test_file_shape(self):
         d = json.loads(DATA.read_text(encoding="utf-8"))
         self.assertEqual(d["version"], 1)
-        self.assertEqual(set(d["languages"]), {"en", "de"})
+        self.assertEqual(set(d["languages"]), {"en", "de", "zh"})
         self.assertIn(d["default"], d["languages"])
 
     def test_values(self):
@@ -23,6 +23,14 @@ class ExpectedDurationTests(unittest.TestCase):
         # at least one word; extra whitespace does not count
         self.assertAlmostEqual(tts.expected_seconds("", "en"), 0.391 + 0.340)
         self.assertAlmostEqual(tts.expected_seconds("  Guten   Morgen ", "de"), 0.134 + 0.430 * 2)
+
+    def test_chinese_units_and_duration(self):
+        self.assertEqual(tts.duration_units("你好，世界！", "zh"), 4)
+        self.assertEqual(tts.duration_units("我们讨论OpenAI API 2026。", "zh"), 10)
+        self.assertEqual(tts.duration_units("〇二六 don't stop", "zh"), 5)
+        self.assertEqual(tts.duration_units("，。！", "zh"), 1)
+        self.assertAlmostEqual(tts.expected_seconds("你好，世界！", "zh"), 0.4 + 0.25 * 4)
+        self.assertGreater(tts.expected_seconds("我们明天继续讨论下一步的工作计划。", "zh"), 3)
 
     def test_other_languages_use_the_default(self):
         self.assertAlmostEqual(tts.expected_seconds("a b", "fr"), tts.expected_seconds("a b", "de"))

@@ -5,7 +5,7 @@ import Testing
     func report(speech: [String: String], reserved: [String] = ["zh-CN", "en-US", "de-DE"],
                 translation: [String: String]? = nil, available: Bool = true) -> AppleStartupCheck.Report {
         .init(transcriberAvailable: available, speech: speech, reserved: reserved, maxReserved: 5,
-              translation: translation ?? ["en-zh": "installed", "de-zh": "installed", "zh-en": "installed", "zh-de": "installed"])
+              translation: translation ?? ["en-zh": "installed", "de-zh": "installed", "zh-en": "installed", "zh-de": "installed", "en-de": "installed"])
     }
     let all = ["zh-CN": "installed", "en-US": "installed", "de-DE": "installed"]
 
@@ -25,7 +25,7 @@ import Testing
     }
 
     @Test func unreservedAndMissingTranslationPacksAreListed() {
-        let r = report(speech: all, reserved: ["en-US"], translation: ["en-zh": "installed", "de-zh": "supported", "zh-en": "installed", "zh-de": "unsupported"])
+        let r = report(speech: all, reserved: ["en-US"], translation: ["en-zh": "installed", "de-zh": "supported", "zh-en": "installed", "zh-de": "unsupported", "en-de": "installed"])
         guard case let .degraded(p) = AppleStartupCheck.evaluate(r) else { Issue.record("not degraded"); return }
         #expect(p.contains("zh-CN 语音资源没有预留，系统可能清理它"))
         #expect(p.contains { $0.hasPrefix("de-zh 翻译语言包未下载") })
@@ -39,7 +39,7 @@ import Testing
 
 @Suite struct AppleStartupCheckItemTests {
     let speech = ["zh-CN": "installed", "en-US": "installed", "de-DE": "installed"]
-    let tr = ["en-zh": "installed", "de-zh": "installed", "zh-en": "installed", "zh-de": "installed"]
+    let tr = ["en-zh": "installed", "de-zh": "installed", "zh-en": "installed", "zh-de": "installed", "en-de": "installed"]
 
     @Test func levelsFollowTheVerdict() {
         let ok = AppleStartupCheckItem.result(.init(transcriberAvailable: true, speech: speech, reserved: ["zh-CN", "en-US", "de-DE"], maxReserved: 5, translation: tr))

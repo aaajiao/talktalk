@@ -79,6 +79,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private let onWorkChange: @Sendable (Bool) -> Void
     private let onDegradation: @Sendable (DegradationLadder.Tier) -> Void
     private let asrContext: @Sendable () -> String?
+    private let source: Lang
     private let target: Lang
     private let session: MTSession
     private let gate: SpeakLanguageGate
@@ -149,7 +150,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 queue: ClauseQueue, primaryASR: (any ClipASREngine)?, fallbackASR: any ClipASREngine,
                 translator: any SpeakTranslator, voice: @escaping @Sendable () -> SpeakVoiceSnapshot,
                 engine: any SpeakEngineControl, echo: any SpeakEchoSink,
-                previewASR: (any StreamingASREngine)? = nil, target: Lang,
+                previewASR: (any StreamingASREngine)? = nil, source: Lang = .zh, target: Lang,
                 jobs: JobIDSequence, log: EventLog,
                 speakerMode: @escaping @Sendable () -> Bool,
                 passthroughClosedAt: @escaping @Sendable () -> HostTime? = { nil },
@@ -164,12 +165,14 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 asrContext: @escaping @Sendable () -> String? = { nil },
                 commitWhileHeld: Bool = true,
                 clock: @escaping @Sendable () -> HostTime = HostClock.now) {
-        precondition(target != .zh)
+        guard let session = MTSession.speak(source: source, target: target) else {
+            preconditionFailure("Unsupported SPEAK language direction")
+        }
         self.profile = profile; self.mic = mic; host = playout; self.queue = queue
         self.primaryASR = primaryASR; self.fallbackASR = fallbackASR; self.translator = translator
         self.voice = voice; self.engine = engine; self.echo = echo
-        preview = previewASR.map { SpeakPreview(engine: $0) }
-        self.target = target; session = target == .de ? .speakZhDe : .speakZhEn
+        preview = previewASR.map { SpeakPreview(engine: $0, source: source) }
+        self.source = source; self.target = target; self.session = session
         self.jobs = jobs; self.log = log; self.speakerMode = speakerMode
         self.passthroughClosedAt = passthroughClosedAt; self.ttsFailureReason = ttsFailureReason
         self.captureFromKeyDown = captureFromKeyDown
@@ -208,7 +211,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 await self?.tick()
             }
         }]
-        services.append(Task { [translator, target] in await translator.prepare(targets: [target]) })
+        services.append(Task { [translator, source, target] in await translator.prepare(source: source, targets: [target]) })
     }
 
     public func setYieldHandler(_ handler: @escaping @Sendable (HostTime) -> Void) { yielded = handler }
@@ -273,7 +276,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             + (final ? [display.preview] : [])).filter { !$0.isEmpty }.joined(separator: "\n")
         let snapshot = SpeakTranscript(press: display.id,
             source: source.filter { !$0.isEmpty }.joined(separator: "\n"),
-            target: rows.map(\.target).filter { !$0.isEmpty }.joined(separator: " "),
+            target: rows.map(\.target).filter { !$0.isEmpty }.joined(separator: target == .zh ? "" : " "),
             isFinal: final, unsubmittedSource: unsubmitted)
         guard snapshot != lastTranscript else { return }
         lastTranscript = snapshot
@@ -471,7 +474,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             do {
                 // The 600 ms budget begins when this clip actually reaches the recognizer,
                 // not while it waits behind preceding clips from the same long press.
-                return try await primaryASR.transcribe(clip.pcm, hint: .zh,
+                return try await primaryASR.transcribe(clip.pcm, hint: source,
                     context: context.isEmpty ? nil : context,
                     job: job, priority: .p1Speak, deadline: clock() + 600_000_000)
             } catch {
@@ -482,7 +485,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         await preview?.pauseForFinalASR()
         do {
             try Task.checkCancellation()
-            let result = try await fallbackASR.transcribe(clip.pcm, hint: .zh, context: nil, job: job,
+            let result = try await fallbackASR.transcribe(clip.pcm, hint: source, context: nil, job: job,
                 priority: .p1Speak, deadline: nil)
             await preview?.resumeAfterFinalASR()
             return result
@@ -546,7 +549,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             let mode: MTMode = row.summary ? .summarize : backlogDecision.mtMode
             clauses[id]?.mode = mode
             let outcome = try await translator.translate(.init(clause: id, press: row.press, job: row.mtJob,
-                text: row.source, target: target, history: context, precedingAudioMs: preceding,
+                text: row.source, source: source, target: target, history: context, precedingAudioMs: preceding,
                 maskedMs: max(queue.drainableMs, preceding), ttsFirstChunkP95Ms: Int(firstChunk.value ?? 400),
                 mode: mode, appleLate: degradation.tier.appleStartsAtDeadline))
             try Task.checkCancellation()
@@ -556,7 +559,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             case .text(let translated, let backend, let warning, _):
                 guard !translated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { discard(id, warning: nil); return }
                 let normalized = TextNormalizer.normalize(translated, lang: target)
-                guard !normalized.unicodeScalars.contains(where: TextScript.isCJK) else { discard(id, warning: .segmentNotSent); return }
+                guard target == .zh || !normalized.unicodeScalars.contains(where: TextScript.isCJK) else { discard(id, warning: .segmentNotSent); return }
                 if let warning { ui(.post(.numberMaybeWrong(warning))) }
                 clauses[id]?.target = normalized; clauses[id]?.backend = backend; clauses[id]?.readyAt = clock()
                 displayPress?.clauses[id]?.target = normalized
@@ -1025,7 +1028,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         announcementCache = nil
         let job = jobs.next(), token = epoch
         let normalized = TextNormalizer.normalize(text, lang: target)
-        guard !normalized.unicodeScalars.contains(where: TextScript.isCJK) else { return }
+        guard target == .zh || !normalized.unicodeScalars.contains(where: TextScript.isCJK) else { return }
         let request = TTSRequest(job: job, clause: job, text: normalized, language: target, voice: handle,
                                  seed: TTSSeed.make(voice: handle, language: target), wholeClause: true)
         announcementEngine = selected; announcementJob = job

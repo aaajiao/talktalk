@@ -95,6 +95,30 @@ import Testing
         #expect(capped.components(separatedBy: " = ").count - 1 == 30)
     }
 
+    @Test func englishSpeakingDirectionsHaveTheirOwnPromptsAndGlossaries() throws {
+        #expect(MTSession.speak(source: .zh, target: .en) == .speakZhEn)
+        #expect(MTSession.speak(source: .zh, target: .de) == .speakZhDe)
+        #expect(MTSession.speak(source: .en, target: .zh) == .speakEnZh)
+        #expect(MTSession.speak(source: .en, target: .de) == .speakEnDe)
+        #expect(MTSession.speak(source: .en, target: .en) == nil)
+        #expect(MTSession.speak(source: .de, target: .zh) == nil)
+        for session in [MTSession.speakEnZh, .speakEnDe] {
+            #expect(session.isSpeak && session.direction.source == .en)
+            for mode in [MTMode.normal, .concise, .summarize] {
+                let prompt = try builder.instructions(session: session, mode: mode, glossary: glossary)
+                #expect(prompt.contains("English"))
+                #expect(prompt.contains(session == .speakEnZh ? "latency = 延迟" : "latency = Latenz"))
+                #expect(prompt.contains(session == .speakEnZh ? "Simplified Chinese" : "German"))
+                if session == .speakEnZh { #expect(!prompt.contains("never output Chinese characters")) }
+            }
+        }
+        let retry = try builder.instructions(session: .speakEnZh, mode: .normal, glossary: glossary,
+                                             strictTerms: ["1.5 million", "latency"])
+        #expect(retry.contains("1.5 million, latency"))
+        #expect(retry.contains("Output Simplified Chinese only"))
+        #expect(!retry.contains("never output Chinese characters"))
+    }
+
     @Test func chunkIsEscapedAndMarked() {
         #expect(OpenAIRequestBuilder.chunk("a<b>&c", final: false) == "<chunk final=\"false\">a&lt;b&gt;&amp;c</chunk>")
         #expect(OpenAIRequestBuilder.chunk("好", final: true) == "<chunk final=\"true\">好</chunk>")

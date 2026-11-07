@@ -7,23 +7,23 @@ import Foundation
 /// - the target language itself is always passed to TTS explicitly (not done here).
 public enum TextNormalizer {
     public static func normalize(_ text: String, lang: Lang) -> String {
-        terminalStop(spellOutNumbers(text, lang: lang))
+        terminalStop(spellOutNumbers(text, lang: lang), lang: lang)
     }
 
     // MARK: terminal_stop
 
-    static let finalMarks: Set<Character> = [".", "!", "?", "…"]
+    static let finalMarks: Set<Character> = [".", "!", "?", "…", "。", "！", "？"]
     static let clauseMarks: Set<Character> = [",", ";", ":", "，", "；", "：", "-", "–", "—"]
-    static let closers: Set<Character> = ["\"", "'", "”", "’", ")", "»", "«"]
+    static let closers: Set<Character> = ["\"", "'", "”", "’", ")", "»", "«", "）", "」", "』", "】", "》"]
 
-    public static func terminalStop(_ text: String) -> String {
+    public static func terminalStop(_ text: String, lang: Lang = .en) -> String {
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return t }
         var tail = ""
         while let last = t.last, closers.contains(last) { tail = String(last) + tail; t.removeLast() }
         while let last = t.last, clauseMarks.contains(last) || last == " " { t.removeLast() }
         guard let last = t.last else { return text }
-        if !finalMarks.contains(last) { t.append(".") }
+        if !finalMarks.contains(last) { t.append(lang == .zh ? "。" : ".") }
         return t + tail
     }
 

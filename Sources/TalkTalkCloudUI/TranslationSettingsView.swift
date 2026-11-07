@@ -8,10 +8,12 @@ import TalkTalkSettingsUI
 public struct TranslationLanguageChips {
     let speak: AnyView
     let listen: AnyView
+    let source: AnyView
 
-    public init<Speak: View, Listen: View>(speak: Speak, listen: Listen) {
+    public init<Speak: View, Listen: View, Source: View>(speak: Speak, listen: Listen, source: Source) {
         self.speak = AnyView(speak)
         self.listen = AnyView(listen)
+        self.source = AnyView(source)
     }
 }
 
@@ -85,9 +87,9 @@ public struct TranslationSettingsView: View {
     /// 我说的话 → engine → 译文 ‹我的译音›; 听到的话 ‹对方语言› → engine → 中文字幕.
     private func flow(_ facts: TranslationFlowFacts) -> FlowGrid {
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
-        let said = FlowNode(String(localized: "我说的话"), glyph: .symbol(Icon.physicalMic), accessory: .display {
-            Text("中").font(.caption2).foregroundStyle(.secondary)
-        }, help: String(localized: "中文，可夹英语"))
+        let said = FlowNode(String(localized: "我说的话"), glyph: .symbol(Icon.physicalMic),
+                            accessory: languages.map { chips in NodeAccessory.controls { chips.source } },
+                            help: String(localized: "按选定的中文或英语识别"))
         let target = FlowNode(String(localized: "译文"), glyph: .symbol(Icon.translation),
                               accessory: languages.map { chips in NodeAccessory.controls { chips.speak } })
         let heard = FlowNode(String(localized: "听到的话"), glyph: .symbol(Icon.remote),

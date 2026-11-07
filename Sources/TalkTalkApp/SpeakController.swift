@@ -69,6 +69,7 @@ final class SpeakController {
     private(set) var warming = false
     private var closed = false
     private var sessionTarget: Lang?
+    private var sessionSource: Lang?
     private var sessionRecognitionEngine: SpeechRecognitionEngine?
     private var translationRefusal: String?
     /// Start-up waits read "未发送", not "音频不可用", until ready or 3 s (SpeakStartupWait).
@@ -254,6 +255,7 @@ final class SpeakController {
         if !demo { beginStartupWait() }
         phoneBoundary.invalidate()
         sessionTarget = state.speakLanguage.lang
+        sessionSource = state.speakSourceLanguage.lang
         translationRefusal = nil
         output.monitor.setMeetingMode(true)
         onMonitorAvailabilityChange?()
@@ -313,8 +315,11 @@ final class SpeakController {
                 $0.micUID = micUID; $0.gainDb = audio.passthroughGainDb ?? 0; $0.cueDbfs = audio.cueDbfs
                 $0.generation = token
             }
-            let speechRate = (try? state.voiceStore.loadProfile())?.speakingRateCharsPerSecond
+            let source = state.speakSourceLanguage.lang
+            // Enrollment measures Chinese characters per second; it is not an English rate.
+            let speechRate = source == .zh ? (try? state.voiceStore.loadProfile())?.speakingRateCharsPerSecond : nil
             let target = state.speakLanguage.lang
+            sessionSource = source; sessionTarget = target
             let mic = try MicIngest(profile: profile.speak, target: target, charactersPerSecond: { speechRate },
                 userUID: { links.value.withLock { $0.micUID } },
                 onBlock: { block in
@@ -363,7 +368,7 @@ final class SpeakController {
             let pipeline = SpeakPipeline(profile: profile, mic: mic, playout: output, queue: queue,
                 primaryASR: primaryASR, fallbackASR: AppleFinalizeASR(),
                 translator: translator, voice: { bridge.snapshot() }, engine: bridge, echo: echo,
-                previewASR: AppleSpeechASR(), target: state.speakLanguage.lang, jobs: jobs, log: log,
+                previewASR: AppleSpeechASR(), source: source, target: target, jobs: jobs, log: log,
                 speakerMode: { links.value.withLock { $0.speakerMode } },
                 passthroughClosedAt: { links.value.withLock { $0.keys }?.lastCloseHostTime },
                 captureFromKeyDown: !demo,
@@ -503,9 +508,10 @@ final class SpeakController {
                 default: break
                 }
                 Task { @MainActor in
+                    guard let self, self.generation == token else { return }
                     if demo, event == .willSleep || event == .sessionResigned {
-                        self?.stopDemo(reason: String(localized: "系统已暂停，说话测试已停止。"))
-                    } else { self?.devicesChanged(event) }
+                        self.stopDemo(reason: String(localized: "系统已暂停，说话测试已停止。"))
+                    } else { self.devicesChanged(event) }
                 }
             }
             watching = true
@@ -519,7 +525,8 @@ final class SpeakController {
                     // visual capture feedback even though it does not create a transcript.
                     hud.inputActivity(mic.inputLevel())
                     await updateFloorAndLoad(token: token)
-                    if !restartQueued, sessionTarget != state.speakLanguage.lang
+                    if !restartQueued, sessionSource != state.speakSourceLanguage.lang
+                        || sessionTarget != state.speakLanguage.lang
                         || sessionRecognitionEngine != state.effectiveSpeakASREngine {
                         restartQueued = true
                         keys.systemEvent(.meetingModeEnded, at: HostClock.now())
@@ -800,13 +807,16 @@ final class SpeakController {
         demoWorkspaceObservers.removeAll()
         generation &+= 1
         keys?.stop(); actionEvents?.finish(); actionTask?.cancel()
+        meterTask?.cancel(); meterTask = nil
+        watcher.stop(); watching = false; observedUIDs.removeAll(); meetingOutputUIDs = nil
+        startupWait.reset(); startupTimer?.invalidate(); startupTimer = nil
+        // Old pipeline callbacks are now rejected by the generation guard. Clear its HUD
+        // synchronously before any await so drafts/playback cannot survive a language change.
+        hud.speakingEnded()
         if let start = passthroughStart, let owner {
             passthroughStart = nil
             await owner.recordPassthrough(startHost: start, endHost: HostClock.now())
         }
-        meterTask?.cancel(); meterTask = nil
-        hud.inputActivity(nil)
-        watcher.stop(); watching = false; observedUIDs.removeAll(); meetingOutputUIDs = nil
         await pipeline?.stop()
         await owner?.setDraftsPaused(false)
         if let stats = mic?.stats {
@@ -837,12 +847,11 @@ final class SpeakController {
         transcript?.finish(); transcript = nil
         actionEvents = nil; actionTask = nil; feedConfirmed = false
         phoneBoundary.invalidate()
-        sessionTarget = nil; sessionRecognitionEngine = nil
+        sessionSource = nil; sessionTarget = nil; sessionRecognitionEngine = nil
         restartQueued = false; announcementEnabled = nil
         speaking = false; passthroughOpen = false; degraded = false; warming = false
-        translationRefusal = nil; hud.meetingAudio(nil)
-        startupWait.reset(); startupTimer?.invalidate(); startupTimer = nil
-        hud.setPushToTalkAvailable(false); onChange?()
+        translationRefusal = nil
+        onChange?()
         if wasDemo, !state.meetingActive { hud.meetingEnded() }
     }
 
@@ -872,7 +881,11 @@ final class SpeakController {
     private func announcementText() -> String {
         let prefs = TranslationPreferences.load(.standard)
         let cloud = prefs.cloudConsentGiven && (prefs.listenCloudEnabled || prefs.speakCloudEnabled)
-        if state.speakLanguage.lang == .de {
+        if (sessionTarget ?? state.speakLanguage.lang) == .zh {
+            return String(localized: "我正在使用实时机器翻译和合成声音。")
+                + (cloud ? String(localized: "说话内容会以文字发送给 OpenAI 进行翻译。") : "")
+        }
+        if (sessionTarget ?? state.speakLanguage.lang) == .de {
             return "Ich nutze maschinelle Live-Übersetzung und eine synthetische Stimme."
                 + (cloud ? " Gesprochene Inhalte werden als Text zur Übersetzung an OpenAI gesendet." : "")
         }

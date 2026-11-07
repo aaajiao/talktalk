@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "comment": "TargetTextGate (ARCHITECTURE.md §5.4): meta-talk and refusal patterns, matched case-insensitively against the whole first line (ICU regex). Fillers: a line made only of these words and punctuation is rejected.",
   "meta": [
     "^here(?:'s| is) (?:the|my|your) translation\\b",
@@ -18,10 +18,15 @@
     "^(?:note|hinweis|anmerkung)\\s*:",
     "^\\[[^\\]]*\\]$",
     "^\\([^)]*\\)$",
-    "^<(?!none>)[^>]*>$"
+    "^<(?!none>)[^>]*>$",
+    "^(?:以下是|这是)(?:中文)?(?:翻译|译文)",
+    "^(?:翻译|译文)\\s*[:：]",
+    "^(?:没有|无)(?:可供|需要)?(?:翻译的)?(?:内容|文本)[。.!！]?$",
+    "^作为(?:一个|一名)?(?:AI|人工智能)"
   ],
   "fillers": {
     "en": ["um", "uh", "er", "erm", "hmm", "hm", "mm", "uhm"],
-    "de": ["äh", "ähm", "öh", "hm", "hmm", "mhm"]
+    "de": ["äh", "ähm", "öh", "hm", "hmm", "mhm"],
+    "zh": ["嗯", "啊", "呃", "唔"]
   }
 }

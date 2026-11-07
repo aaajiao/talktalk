@@ -19,6 +19,7 @@ class FakeState:
         self.asr = None
         self.asr_state = "absent"
         self.tts_requests = 0
+        self.last_tts_request = None
 
     def health(self):
         return {"ok": True}
@@ -27,6 +28,8 @@ class FakeState:
         return self.sched.cancel(job_id=job_id, scope=scope)
 
     def tts_job(self, req, out):
+        self.tts_requests += 1
+        self.last_tts_request = req
         def gen():
             out.put(("pcm", b"\x00" * 16))
             out.put(("tail", {"timing": {"total_ms": 1.0}}))
@@ -89,6 +92,18 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(st, 200)
         kinds = [k for k, _ in frames.decode_all(data)]
         self.assertEqual(kinds, [frames.JSON_HEAD, frames.PCM_F32_24K, frames.JSON_TAIL])
+
+    def test_chinese_tts_streams_and_preserves_request_language(self):
+        for text in ("好。", "我们明天继续讨论。"):
+            with self.subTest(text=text):
+                status, data = self.req("POST", "/v1/tts", {"text": text, "lang": "zh"})
+                self.assertEqual(status, 200)
+                kinds = [kind for kind, _ in frames.decode_all(data)]
+                self.assertEqual(kinds, [frames.JSON_HEAD, frames.PCM_F32_24K, frames.JSON_TAIL])
+                self.assertEqual(self.state.last_tts_request["lang"], "zh")
+                self.assertEqual(self.state.last_tts_request["text"], text)
+        status, data = self.req("POST", "/v1/tts", {"text": "。", "lang": "zh"})
+        self.assertEqual((status, json.loads(data)["error"]["code"]), (400, "text_too_short"))
 
     def test_voice_load_forwards_identity_and_rejects_superseded_load(self):
         body = frames.encode(frames.JSON_HEAD, {"key": "voice-A", "model": "model-A"}) + frames.encode(frames.BLOB, b"blob")

@@ -56,6 +56,28 @@ struct SpeakStrategyTests {
         #expect(delayedCapture.releaseThrough == ns(1.15)) // unobserved time is not silence
     }
 
+    @Test func englishPunctuationCanCommitBeforeHardCapForChineseOutput() throws {
+        var profile = try TestResources.profile().speak
+        profile.boundary.stallMs = 10_000
+        var segmenter = SpeakSegmenter(profile: profile, target: .zh, start: 0)
+        #expect(segmenter.audio(.init(start: 0, end: ns(2), speech: true, energy: 1)).isEmpty)
+        #expect(segmenter.preview(stableText: "We will continue tomorrow.", through: ns(2), at: ns(2)).isEmpty)
+        let cuts = segmenter.audio(.init(start: ns(2), end: ns(2.3), speech: true, energy: 1))
+        #expect(cuts.count == 1 && cuts.first?.reason == .punctuation && cuts.first?.end == ns(2))
+    }
+
+    @Test func chineseDurationCalibrationUsesCharactersAndStaysLanguageScoped() {
+        let voice = VoiceHandle(profileID: UUID(), conditioningKey: "v1", mode: .icl,
+                                model: .init(name: "test", revision: "1", placement: .engineGPU))
+        let text = "我们明天继续讨论。", expected = ExpectedDuration.seconds("我们明天继续讨论。", .zh)
+        var calibration = DurationCalibration()
+        let summary = TTSSummary(audioS: expected * 1.5, frames: 100,
+                                 timing: .init(received: 0, started: 0, firstOutput: 0, finished: 0))
+        calibration.record(voice: voice, language: .zh, text: text, summary: summary, completed: true)
+        #expect(calibration.expectedSeconds(text: text, voice: voice, language: .zh) == expected * 1.5)
+        #expect(calibration.scale(voice: voice, language: .en) == 1)
+    }
+
     @Test func backlogChangesOncePerThresholdAndUsesDownwardDeadband() throws {
         var b = BacklogController(config: try TestResources.profile().speak.backlog, language: .en)
         #expect(b.update(renderedS: 3, unrenderedS: 0, inFlightSourceS: 0).level == .normal)

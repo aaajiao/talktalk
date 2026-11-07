@@ -152,7 +152,7 @@ struct TryItStep: View {
         let active = state == .preparing || state == .listening || state == .played
         return Section {
             VStack(alignment: .leading, spacing: 10) {
-                FlowGrid.speakDemo(state)
+                FlowGrid.speakDemo(state, appState: model.appState)
                 FactRow([FactChip(String(localized: "戴耳机 · 先结束其他麦克风测试"), symbol: Icon.headphones, tone: .warn,
                                   help: String(localized: "先结束通话和其他 App 的麦克风测试"),
                                   spoken: String(localized: "先结束通话和其他 App 的麦克风测试，再戴耳机试说"))])
@@ -327,20 +327,25 @@ extension FlowGrid {
         ])
     }
 
-    /// Step 8's 我说话 (§7.17): 说中文 with the 右⌥ keycap → 翻译与合成 → 耳机听译音, in the
+    /// Step 8's 我说话 (§7.17): the selected source with 右⌥ → 翻译与合成 → 耳机听译音, in the
     /// translated lane (译音). The speaker is live while the demo listens.
-    static func speakDemo(_ state: OnboardingFlowModel.SpeakDemoState) -> FlowGrid {
+    static func speakDemo(_ state: OnboardingFlowModel.SpeakDemoState, appState: AppState) -> FlowGrid {
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
         return FlowGrid(String(localized: "试说路径"), lanes: [
             FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
-                .node(FlowNode(String(localized: "说中文"), glyph: .symbol(Icon.me), state: state == .listening ? .live : .ready,
-                               accessory: .keycap(TitlebarKey(action: String(localized: "开始翻译"), style: .idle)),
-                               help: String(localized: "可夹英语；说完再点按右⌥结束"))),
+                .node(FlowNode(String(localized: "我说"), glyph: .symbol(Icon.me), state: state == .listening ? .live : .ready,
+                               accessory: .controls {
+                                   HStack(spacing: 4) {
+                                       SpeakSourceChip(state: appState, paired: false)
+                                       Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle), showsAction: false)
+                                   }
+                               }, help: String(localized: "按选定语言识别；说完再点按右⌥结束"))),
                 .node(FlowNode(String(localized: "翻译与合成"), glyph: .symbol(Icon.translation),
                                help: String(localized: "原文和译文显示在“我的发言”区"))),
                 .node(FlowNode(String(localized: "耳机听译音"), glyph: .symbol(Icon.headphones),
                                badge: state == .played ? .ok : nil,
                                badgeReason: state == .played ? String(localized: "已播放译音") : nil,
+                               accessory: .controls { LanguageChip(state: appState, speak: true, paired: false) },
                                help: String(localized: "译音在耳机里播放"))),
                 .empty
             ])

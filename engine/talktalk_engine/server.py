@@ -206,10 +206,11 @@ class Handler(BaseHTTPRequestHandler):
     def r_tts(self, q):
         b = self._json_body()
         text = str(b.get("text") or "")
-        if len(_ALNUM.findall(text)) < 2:
-            raise ApiError(400, "text_too_short", "fewer than 2 letters or digits")
-        if b.get("lang") not in ("en", "de"):
-            raise ApiError(400, "bad_request", "lang must be en or de")
+        if b.get("lang") not in ("zh", "en", "de"):
+            raise ApiError(400, "bad_request", "lang must be zh, en or de")
+        minimum = 1 if b["lang"] == "zh" else 2
+        if len(_ALNUM.findall(text)) < minimum:
+            raise ApiError(400, "text_too_short", f"fewer than {minimum} letters or digits")
         if self.state.voice is None:
             raise ApiError(409, "voice_absent", "no voice loaded")
         out = queue.Queue()

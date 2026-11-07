@@ -114,6 +114,17 @@ final class PTTHUD {
         change { $0.meetingStarted() }
     }
 
+    /// Drop the old speech generation immediately during a language/engine replacement.
+    /// Existing timeline rows stay intact; an uncommitted live turn is discarded, not sent.
+    func speakingEnded() {
+        inputActivity(nil)
+        playingPresses = []
+        resetTurn()
+        model.speakingEnded()
+        redrawTimer?.invalidate(); redrawTimer = nil
+        redraw()
+    }
+
     func meetingEnded() {
         inputActivity(nil)
         playingPresses = []

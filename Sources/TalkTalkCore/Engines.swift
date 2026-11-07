@@ -45,18 +45,36 @@ public struct StageTiming: Codable, Sendable {
 // MT ───────────────────────────────────────────────
 
 public enum MTSession: String, Codable, Sendable, CaseIterable {
-    case speakZhEn, speakZhDe, listenEnZh, listenDeZh
+    case speakZhEn, speakZhDe, speakEnZh, speakEnDe, listenEnZh, listenDeZh
 
     public var direction: Direction {
         switch self {
         case .speakZhEn: Direction(source: .zh, target: .en)
         case .speakZhDe: Direction(source: .zh, target: .de)
+        case .speakEnZh: Direction(source: .en, target: .zh)
+        case .speakEnDe: Direction(source: .en, target: .de)
         case .listenEnZh: Direction(source: .en, target: .zh)
         case .listenDeZh: Direction(source: .de, target: .zh)
         }
     }
 
-    public var isSpeak: Bool { self == .speakZhEn || self == .speakZhDe }
+    public var isSpeak: Bool {
+        switch self {
+        case .speakZhEn, .speakZhDe, .speakEnZh, .speakEnDe: true
+        case .listenEnZh, .listenDeZh: false
+        }
+    }
+
+    /// Explicit speaking directions. German is a target only, never a microphone source.
+    public static func speak(source: Lang, target: Lang) -> MTSession? {
+        switch (source, target) {
+        case (.zh, .en): .speakZhEn
+        case (.zh, .de): .speakZhDe
+        case (.en, .zh): .speakEnZh
+        case (.en, .de): .speakEnDe
+        default: nil
+        }
+    }
 }
 
 public enum MTMode: String, Codable, Sendable { case normal, concise, summarize }

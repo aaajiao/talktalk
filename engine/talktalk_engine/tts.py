@@ -35,10 +35,31 @@ def _load_expected_duration():
 _EXPECTED, _EXPECTED_DEFAULT = _load_expected_duration()
 
 
+def duration_units(text, lang):
+    """Shared with Swift ExpectedDuration.units; Chinese has no word-delimiting spaces."""
+    if lang != "zh":
+        return max(1, len(text.split()))
+    count, in_word = 0, False
+    for char in text:
+        code = ord(char)
+        han = (0x3400 <= code <= 0x4DBF or 0x4E00 <= code <= 0x9FFF
+               or 0xF900 <= code <= 0xFAFF or 0x20000 <= code <= 0x2FA1F or code == 0x3007)
+        if han or "0" <= char <= "9":
+            count += 1
+            in_word = False
+        elif char.isalpha():
+            if not in_word:
+                count += 1
+            in_word = True
+        elif char not in "'-’":
+            in_word = False
+    return max(1, count)
+
+
 def expected_seconds(text, lang):
-    """Expected spoken duration for the runaway cap and the `short` flag:
-    intercept + per_word x max(1, whitespace words), coefficients from expected_duration.json."""
-    words = max(1, len(text.split()))
+    """Expected spoken duration for runaway and short checks, from shared coefficients.
+    zh uses character units and an initial heuristic; en/de retain their measured word fit."""
+    words = duration_units(text, lang)
     intercept, per_word = _EXPECTED.get(lang, _EXPECTED[_EXPECTED_DEFAULT])
     return intercept + per_word * words
 

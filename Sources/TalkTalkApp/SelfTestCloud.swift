@@ -4,7 +4,7 @@ import TalkTalkCloudUI
 import TalkTalkCore
 import TalkTalkEngineHost
 
-/// Explicit --cloud only. Five tiny synthetic requests, no microphone, user text or key in the report.
+/// Explicit --cloud only. Tiny synthetic requests for every direction; no microphone, user text or key in the report.
 func cloudSelfTest() async -> SelfTestReport {
     var report = SelfTestReport(suite: "cloud")
     let preferences = TranslationPreferences.load(.standard)
@@ -19,11 +19,13 @@ func cloudSelfTest() async -> SelfTestReport {
         let ports = CloudSelfTestPorts()
         let client = OpenAIClient(cloud: profile.cloud, keyProvider: { String(decoding: try secret.read(), as: UTF8.self) }, sink: { ports.observe($0) })
         let builder = OpenAIRequestBuilder(cloud: profile.cloud, prompts: try MTPrompts.loadDefault())
+        let gate = try TargetTextGate(config: profile.speak.mt.targetGate, patterns: GatePatterns.loadDefault())
         let cases: [(MTSession, String)] = [(.speakZhEn, "预算是三百欧元。"), (.speakZhDe, "周一开会。"),
+                                           (.speakEnZh, "The budget is three hundred euros."), (.speakEnDe, "We meet on Monday."),
                                            (.listenEnZh, "The budget is three hundred euros."), (.listenDeZh, "Wir treffen uns am Montag.")]
         var responseID: String?
         for (index, sample) in (cases + [cases[0]]).enumerated() {
-            let leg: Leg = index == 4 ? .B : .A
+            let leg: Leg = index == cases.count ? .B : .A
             let request = MTRequest(job: UInt64(index + 1), session: sample.0, text: sample.1, isFinalChunk: true,
                                     priority: .p3Background, maxOutputTokens: 64)
             let body = try builder.body(for: request, glossary: [], options: .init(model: preferences.model, effort: preferences.effort,
@@ -44,6 +46,15 @@ func cloudSelfTest() async -> SelfTestReport {
                          "firstTokenMs": first.map { Double(HostClock.ms(start, to: $0)) } ?? -1,
                          "reasoningTokens": Double(echo?.reasoningTokens ?? -1),
                          "storeEchoMissing": validation?.storeEchoMissing == true ? 1 : 0]))
+            if sample.0.isSpeak {
+                let direction = sample.0.direction, text = result.firstLine.text
+                let accepted: Bool
+                if case .pass = gate.check(text, target: direction.target) { accepted = true } else { accepted = false }
+                let numbers = NumberGuard.check(source: sample.1, sourceLang: direction.source,
+                                                target: text, targetLang: direction.target)
+                report.checks.append(.init("cloud.\(sample.0.rawValue).\(leg.rawValue).content",
+                                           ok: accepted && numbers.numbersMatch))
+            }
             responseID = responseID ?? echo?.id
         }
         if let responseID {
