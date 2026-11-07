@@ -68,7 +68,7 @@ public struct SubtitlePreviewLayout: Sendable, Equatable {
 public struct SubtitleOpacityControl: Sendable, Equatable {
     public enum Note: Sendable, Equatable {
         case reduceTransparency
-        /// "描边样式不使用背景".
+        /// The stroke style draws no background ("描边样式没有背景").
         case strokeHasNoBackground
     }
 
@@ -88,4 +88,8 @@ public struct SubtitleOpacityControl: Sendable, Equatable {
     public static func defaultFontSize(for scene: SubtitleScene) -> Double {
         scene == .video ? VideoCaptionTypography.defaultBase : ConversationTypography.defaultBase
     }
+
+    /// Every scene's background starts at 85 % (the stored default, the slider's tick and
+    /// "恢复默认 85%").
+    public static let defaultOpacity: Double = 0.85
 }

@@ -42,5 +42,7 @@ import Testing
         #expect(SubtitleOpacityControl.defaultFontSize(for: .video) == 26)
         #expect(SubtitleOpacityControl.defaultFontSize(for: .meeting) == 22)
         #expect(SubtitleOpacityControl.defaultFontSize(for: .phone) == 22)
+        // The reset button's help says "恢复默认 85%".
+        #expect(SubtitleOpacityControl.defaultOpacity == 0.85)
     }
 }

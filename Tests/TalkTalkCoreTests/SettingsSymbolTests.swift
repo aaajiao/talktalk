@@ -28,7 +28,11 @@ import TalkTalkCore
         let steps = (1...3).map { "\($0).circle" }
         let status = [S.statusWarn, S.statusFailed, S.statusOK, S.statusPending, S.statusWaiting,
                       S.statusRecording]
-        for name in pages + meanings + actions + flow + steps + status {
+        let subtitles = [S.fontSize, S.fontSmaller, S.fontLarger, S.background, S.backgroundClear,
+                         S.backgroundSolid, S.reduceTransparency, S.captionArrangement, S.silenceDim,
+                         S.subtitleWindow, S.windowMovable, S.windowNoFocus, S.windowMinimize,
+                         S.windowNotShared, S.hoverOnly, S.callsInPhone]
+        for name in pages + meanings + actions + flow + steps + status + subtitles {
             #expect(exists(name), "\(name)")
         }
         // The sidebar no longer shares glyphs with the meeting card or with translation.

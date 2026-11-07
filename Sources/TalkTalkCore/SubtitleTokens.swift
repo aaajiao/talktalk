@@ -114,6 +114,12 @@ public enum SubtitleTokens {
         public static let keyActionMinWindowWidth: Double = 560
     }
 
+    /// The stand-in video picture behind the 字幕 page's caption thumbnails (settings visual
+    /// system §3.12), inset in their white or black backdrop. A mid tone, so the white lines,
+    /// the dark glass, the black plates and the black outline all read on it in Light and Dark
+    /// Mode; on the bare backdrop black-on-black hid the outline and the plates.
+    public static let captionThumbnailPicture = RGBA(hex: 0x4A6A8A)
+
     public enum Radius {
         public static let window: Double = 12
         public static let settingsCard: Double = 10
@@ -344,6 +350,30 @@ public enum SubtitleTokens {
         public static let troubleshooting = "stethoscope"
         /// 字幕 › 用 VoiceOver 读出新字幕.
         public static let voiceOver = "voiceover"
+
+        // 字幕 (§7.4): the size and background sliders with their end glyphs, the video style
+        // rows, the window facts and the video preview's hover hint.
+        public static let fontSize = "textformat.size"
+        public static let fontSmaller = "textformat.size.smaller"
+        public static let fontLarger = "textformat.size.larger"
+        public static let background = "circle.lefthalf.filled"
+        public static let backgroundClear = "circle.dotted"
+        public static let backgroundSolid = "circle.fill"
+        /// The system's Reduce Transparency fixes the background.
+        public static let reduceTransparency = "accessibility"
+        public static let captionArrangement = "arrow.up.arrow.down"
+        public static let silenceDim = "moon.zzz"
+        public static let subtitleWindow = "macwindow"
+        public static let windowMovable = "arrow.up.and.down.and.arrow.left.and.right"
+        public static let windowNoFocus = "keyboard"
+        /// The window's own minimize button (the yellow traffic light), drawn single-colour.
+        public static let windowMinimize = "minus.circle"
+        public static let windowNotShared = "rectangle.on.rectangle.slash"
+        /// The video window's hover bar shows only under the pointer.
+        public static let hoverOnly = "cursorarrow"
+        /// The phone preview's hotspot on the titlebar's Phone button: calls are dialled,
+        /// answered and hung up in Phone (the numbers ①②③ stay the spec's three controls).
+        public static let callsInPhone = SceneIcon.phone
         /// A feature this build lacks (ContentUnavailableView "此构建不可用").
         public static let unavailable = "xmark.circle"
 

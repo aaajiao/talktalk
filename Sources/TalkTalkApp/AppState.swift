@@ -158,7 +158,7 @@ final class AppState {
             onSubtitleAppearanceChange?()
         }
     }
-    /// "长静默时变暗" (redesign §1), on by default.
+    /// "静默变暗" (redesign §1), on by default.
     var videoLongSilenceDim: Bool {
         didSet {
             guard videoLongSilenceDim != oldValue else { return }
@@ -304,12 +304,13 @@ final class AppState {
         subtitlesVisible = defaults.object(forKey: Key.subtitlesVisible) as? Bool ?? true
         let savedSize = defaults.object(forKey: Key.subtitleFontSize) as? Double ?? 22
         storedSubtitleFontSize = savedSize.isFinite ? min(36, max(16, savedSize)) : 22
-        let savedOpacity = defaults.object(forKey: Key.subtitleBackgroundOpacity) as? Double ?? 0.85
-        storedSubtitleBackgroundOpacity = savedOpacity.isFinite ? min(1, max(0.35, savedOpacity)) : 0.85
+        let defaultOpacity = SubtitleOpacityControl.defaultOpacity
+        let savedOpacity = defaults.object(forKey: Key.subtitleBackgroundOpacity) as? Double ?? defaultOpacity
+        storedSubtitleBackgroundOpacity = savedOpacity.isFinite ? min(1, max(0.35, savedOpacity)) : defaultOpacity
         let savedVideoSize = defaults.object(forKey: Key.videoSubtitleFontSize) as? Double ?? 26
         storedVideoSubtitleFontSize = savedVideoSize.isFinite ? min(36, max(16, savedVideoSize)) : 26
-        let savedVideoOpacity = defaults.object(forKey: Key.videoSubtitleBackgroundOpacity) as? Double ?? 0.85
-        storedVideoSubtitleBackgroundOpacity = savedVideoOpacity.isFinite ? min(1, max(0.35, savedVideoOpacity)) : 0.85
+        let savedVideoOpacity = defaults.object(forKey: Key.videoSubtitleBackgroundOpacity) as? Double ?? defaultOpacity
+        storedVideoSubtitleBackgroundOpacity = savedVideoOpacity.isFinite ? min(1, max(0.35, savedVideoOpacity)) : defaultOpacity
         videoCaptionStyle = VideoCaptionStyle(rawValue: defaults.string(forKey: Key.videoCaptionStyle) ?? "") ?? .default
         videoCaptionArrangement = VideoCaptionArrangement(
             rawValue: defaults.string(forKey: Key.videoCaptionArrangement) ?? "") ?? .default
@@ -318,8 +319,8 @@ final class AppState {
         videoLongSilenceDim = defaults.object(forKey: Key.videoLongSilenceDim) as? Bool ?? true
         let phoneSize = defaults.object(forKey: Key.phoneSubtitleFontSize) as? Double ?? 22
         phoneSubtitleFontSize = phoneSize.isFinite ? min(36, max(16, phoneSize)) : 22
-        let phoneOpacity = defaults.object(forKey: Key.phoneSubtitleBackgroundOpacity) as? Double ?? 0.85
-        phoneSubtitleBackgroundOpacity = phoneOpacity.isFinite ? min(1, max(0.35, phoneOpacity)) : 0.85
+        let phoneOpacity = defaults.object(forKey: Key.phoneSubtitleBackgroundOpacity) as? Double ?? defaultOpacity
+        phoneSubtitleBackgroundOpacity = phoneOpacity.isFinite ? min(1, max(0.35, phoneOpacity)) : defaultOpacity
         phonePreparedOnce = defaults.bool(forKey: Key.phonePreparedOnce)
         voiceProfilePresent = voiceStore.hasProfile
     }

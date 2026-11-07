@@ -5,10 +5,13 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkSettingsUI
 
-/// Settings › 字幕 preview (redesign §7 字幕页). It renders the live window's own titlebar,
-/// conversation timeline, microphone dock and video caption view with fixed examples, at the
-/// real logical window size, scaled into the settings column. It never starts audio, a
-/// session or an animation timer, and it takes no clicks.
+/// Settings › 字幕 preview (settings visual system §7.4, the page's main graphic). It renders
+/// the live window's own titlebar, conversation timeline, microphone dock and video caption
+/// view with fixed examples, at the real logical window size, scaled into the settings column.
+/// Numbered hotspots on the titlebar's capsule, 右⌥ keycap and end button (phone adds a glyph
+/// dot on its Phone button; video, a pointer on the hover bar's corner) say what those do in
+/// their tooltip and VoiceOver label, in place of a caption. It never starts audio, a session or an animation timer, and it takes no
+/// clicks.
 struct SubtitleLayoutPreview: NSViewRepresentable {
     struct Configuration: Equatable {
         var scene: SubtitleScene
@@ -57,17 +60,32 @@ final class SubtitlePreviewCanvas: NSView {
     private let timeline = ConversationTimelineView()
     private let dock = MicStatusDock()
     private let videoCaption = VideoSubtitleView()
+    /// ① capsule, ② 右⌥ keycap, ③ end button (meeting and phone).
+    private let titlebarHotspots = (1...3).map { PreviewHotspotView(.number($0)) }
+    /// Phone only: the titlebar's Phone button, where calls are dialled, answered and hung up.
+    private let phoneHotspot = PreviewHotspotView(.symbol(SubtitleTokens.SettingsIcon.callsInPhone))
+    /// The video hover bar shows only under the pointer.
+    private let hoverHotspot = PreviewHotspotView(.symbol(SubtitleTokens.SettingsIcon.hoverOnly))
+    /// In titlebar reading order, for VoiceOver.
+    private var hotspots: [PreviewHotspotView] {
+        [titlebarHotspots[0], titlebarHotspots[1], phoneHotspot, titlebarHotspots[2], hoverHotspot]
+    }
     private var configuration: SubtitleLayoutPreview.Configuration?
     private var laidOut: (configuration: SubtitleLayoutPreview.Configuration, size: NSSize)?
 
     override var isFlipped: Bool { true }
-    // A picture of the window: clicks, hover and drags go nowhere.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    // A picture of the window: clicks, hover and drags go nowhere. Only the hotspots take the
+    // pointer, for their tooltips.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        return hotspots.first { !$0.isHidden && $0.frame.contains(local) }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.cornerRadius = CGFloat(SubtitleTokens.Radius.settingsCard)
+        // The preview has the subtitle window's own 12 pt corners (§7.4).
+        layer?.cornerRadius = CGFloat(SubtitleTokens.Radius.window)
         layer?.masksToBounds = true
         addSubview(backdrop)
         shadowHost.wantsLayer = true
@@ -100,19 +118,24 @@ final class SubtitlePreviewCanvas: NSView {
                      hoverStrip, lights, titleView, titlebar] as [NSView] {
             root.addSubview(view)
         }
+        // Above the window picture, in canvas points: they keep their size at any scale.
+        for hotspot in hotspots {
+            hotspot.isHidden = true
+            addSubview(hotspot)
+        }
         setAccessibilityElement(true)
-        setAccessibilityRole(.image)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(String(localized: "字幕窗口布局预览"))
     }
 
     required init?(coder: NSCoder) { nil }
 
-    // One image for VoiceOver; the sample rows are not content.
-    override func accessibilityChildren() -> [Any]? { [] }
+    // The sample rows are not content: VoiceOver reads the preview's name and its hotspots.
+    override func accessibilityChildren() -> [Any]? { hotspots.filter { !$0.isHidden } }
 
     func configure(_ next: SubtitleLayoutPreview.Configuration) {
         guard next != configuration else { return }
         configuration = next
-        setAccessibilityLabel(String(localized: "字幕窗口布局预览"))
         needsLayout = true
     }
 
@@ -136,6 +159,39 @@ final class SubtitlePreviewCanvas: NSView {
         root.frame = windowClip.bounds
         root.bounds = NSRect(x: 0, y: 0, width: logical.width, height: logical.height)
         if configuration.scene == .video { layoutVideo(configuration) } else { layoutConversation(configuration) }
+        layoutHotspots(configuration.scene)
+    }
+
+    // MARK: hotspots
+
+    /// Every dot sits on its control's top-right corner, like a badge: the numbered ones on the
+    /// titlebar's capsule, keycap and end button, phone's glyph dot on the Phone button, and the
+    /// video's pointer on the hover bar (clear of the canvas edge and of the bar's controls).
+    private func layoutHotspots(_ scene: SubtitleScene) {
+        let diameter = PreviewHotspotView.diameter
+        /// `spoken` names the subject for VoiceOver where the tooltip leaves it to the picture.
+        func place(_ hotspot: PreviewHotspotView, on control: NSView, help: String, spoken: String? = nil) {
+            let rect = convert(control.bounds, from: control)
+            hotspot.frame = NSRect(x: rect.maxX - 2 - diameter / 2, y: rect.minY - diameter / 2,
+                                   width: diameter, height: diameter)
+            hotspot.describe(help: help, spoken: spoken)
+            hotspot.isHidden = false
+        }
+        for hotspot in hotspots { hotspot.isHidden = true }
+        if scene == .video {
+            place(hoverHotspot, on: hoverStrip, help: String(localized: "悬停时显示"),
+                  spoken: String(localized: "标题栏：鼠标悬停时显示"))
+            return
+        }
+        let helps = [String(localized: "发声状态：点开看说明"), String(localized: "右⌥：开始或结束翻译"),
+                     scene == .phone ? String(localized: "结束同传，不挂断电话") : String(localized: "结束同传")]
+        for (index, control) in ([titlebar.capsule, titlebar.keycap, titlebar.end] as [NSView]).enumerated()
+        where !control.isHidden {
+            place(titlebarHotspots[index], on: control, help: helps[index])
+        }
+        if scene == .phone, !titlebar.phone.isHidden {
+            place(phoneHotspot, on: titlebar.phone, help: String(localized: "打开 Phone：拨号、接听或挂断"))
+        }
     }
 
     private func effectiveOpacity(_ configuration: SubtitleLayoutPreview.Configuration) -> Double {
@@ -315,6 +371,109 @@ private final class PreviewTrafficLightsView: NSView {
             let center = NSPoint(x: 14 + CGFloat(index) * 20, y: bounds.midY)
             NSBezierPath(ovalIn: NSRect(x: center.x - diameter / 2, y: center.y - diameter / 2,
                                         width: diameter, height: diameter)).fill()
+        }
+    }
+}
+
+/// A preview hotspot (§7.4): an 11 pt number or glyph on a 16 pt disc of thin HUD material
+/// (the dots sit on the always-dark subtitle window), with what the control does as its
+/// tooltip and VoiceOver label. It takes no clicks.
+///
+/// The tooltip is a rect tooltip, not `toolTip`: AppKit reports a view's `toolTip` as its
+/// AXHelp (even over `accessibilityHelp()`), so VoiceOver would read the same words twice.
+@MainActor
+final class PreviewHotspotView: NSView, NSViewToolTipOwner {
+    enum Mark {
+        case number(Int)
+        case symbol(String)
+    }
+
+    static let diameter: CGFloat = 16
+
+    /// The tooltip text.
+    private(set) var help = ""
+
+    /// `spoken`: the VoiceOver label where it must name the subject the picture shows; the
+    /// tooltip otherwise.
+    func describe(help: String, spoken: String? = nil) {
+        self.help = help
+        let label = spoken ?? help
+        if accessibilityLabel() != label { setAccessibilityLabel(label) }
+    }
+
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint,
+              userData data: UnsafeMutableRawPointer?) -> String {
+        help
+    }
+
+    private let material = NSVisualEffectView()
+
+    init(_ mark: Mark) {
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.diameter, height: Self.diameter))
+        wantsLayer = true
+        layer?.cornerRadius = Self.diameter / 2
+        layer?.masksToBounds = true
+        appearance = NSAppearance(named: .darkAqua)
+        material.material = .hudWindow
+        material.blendingMode = .withinWindow
+        material.state = .active
+        let face = PreviewHotspotFace(mark: mark)
+        for view in [material, face] as [NSView] {
+            view.frame = bounds
+            view.autoresizingMask = [.width, .height]
+            addSubview(view)
+        }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.image)
+        // The disc never resizes (it only moves), so one rect in its own bounds stays right.
+        addToolTip(bounds, owner: self, userData: nil)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    // A tooltip target only: a click does nothing.
+    override func mouseDown(with event: NSEvent) {}
+    override func accessibilityChildren() -> [Any]? { [] }
+}
+
+/// The dot's light tint, its hairline ring and the number or glyph, in white.
+@MainActor
+private final class PreviewHotspotFace: NSView {
+    private let mark: PreviewHotspotView.Mark
+
+    init(mark: PreviewHotspotView.Mark) {
+        self.mark = mark
+        super.init(frame: .zero)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(white: 1, alpha: 0.22).setFill()
+        NSBezierPath(ovalIn: bounds).fill()
+        NSColor(white: 0, alpha: 0.25).setStroke()
+        let ring = NSBezierPath(ovalIn: bounds.insetBy(dx: 0.5, dy: 0.5))
+        ring.lineWidth = 1
+        ring.stroke()
+        let size = CGFloat(SubtitleTokens.SettingsIcon.Size.badge)
+        switch mark {
+        case .number(let number):
+            let text = NSAttributedString(string: String(number), attributes: [
+                .font: NSFont.systemFont(ofSize: size, weight: .bold), .foregroundColor: NSColor.white,
+            ])
+            let extent = text.size()
+            text.draw(at: NSPoint(x: bounds.midX - extent.width / 2, y: bounds.midY - extent.height / 2))
+        case .symbol(let name):
+            let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+            guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                .withSymbolConfiguration(configuration) else { return }
+            let extent = image.size
+            image.draw(in: NSRect(x: bounds.midX - extent.width / 2, y: bounds.midY - extent.height / 2,
+                                  width: extent.width, height: extent.height))
         }
     }
 }
