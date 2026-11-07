@@ -255,6 +255,7 @@ struct GeneralSettingsView: View {
                 } icon: {
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
+                        .interpolation(.high)
                         .frame(width: Ladder.row, height: Ladder.row)
                 }
                 .contentShape(Rectangle())

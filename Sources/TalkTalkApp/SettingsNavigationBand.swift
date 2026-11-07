@@ -48,8 +48,9 @@ struct SettingsNavigationBand: View {
                         selection: $navigation.diagnosticsTab)
             }
         case .general, .audio, .voice, .glossary:
-            // §2 Z1c: no cards, the same divider (it separates a ReturnPill from the Form).
-            Divider()
+            // §2 Z1c: no cards, the same divider (it separates a ReturnPill from the Form), the
+            // pill's 10 pt below it as above it, as the cards' band keeps a gap under the pill.
+            Divider().padding(.top, navigation.returnTarget == nil ? 0 : 10)
         }
     }
 

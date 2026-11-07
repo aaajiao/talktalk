@@ -177,7 +177,7 @@
   - `ScenarioRunState.cardSubtitle` 随摘要行删除；`MeetingMode.sceneSummary` 与子页摘要只用于 help 和 VoiceOver 提示。
   - 新增 `AppState.listenASRFallback`，驱动语音识别卡的“已转 Apple 备用”警示。引擎卡未安装为 warn（§7.11）；语音识别卡缺 ASR 模型、虚拟麦克风卡未安装驱动为 pending。
   - 文本翻译卡的角标读本页同一份 `TranslationSettingsModel.flowFacts`（第 5 次提交）。它的 help 可能超过 20 字，例如“原文 → 译文 · key 未通过验证 · 已启用 OpenAI”：云端安全事实优先于 help 的字数预算。
-  - 没有卡片的单页（通用、音频、我的声音、术语表）也有导航带下的那条分隔线，用来隔开 ReturnPill 与 Form。
+  - 没有卡片的单页（通用、音频、我的声音、术语表）也有导航带下的那条分隔线，用来隔开 ReturnPill 与 Form。显示 ReturnPill 时分隔线上方留 10，与胶囊上方相同，胶囊不贴在线上（收尾整理提交）。
 
 ### 3.2 PageHero
 
