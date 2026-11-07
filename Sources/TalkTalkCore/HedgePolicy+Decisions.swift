@@ -197,6 +197,12 @@ extension HedgePolicy {
         actions.append(.send(.A, nil))
         switch kind {
         case .guardRetry:
+            // Prepare the same fallback while the cloud retries. Its result stays with
+            // FallbackMT; a successful retry (or retained first translation) still wins.
+            if hedge.startAppleAtHedge && !appleLate {
+                run.appleStarted = true
+                actions.append(.startApple)
+            }
             // Retries are double-sent from the start (guardRetry.hedgeAfterMs = 0), even when
             // ordinary hedging is off or paused: they are rare and a late B can never make the floor.
             if guardRetry.hedgeAfterMs == 0, hedge.maxInFlight >= 2 {

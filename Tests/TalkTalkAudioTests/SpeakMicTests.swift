@@ -101,6 +101,31 @@ import TalkTalkCore
         press.cancel(); mic.stop(); await reader.value
     }
 
+    @Test func completeShortReplyEvidenceReachesMicAndKeepsFullPCM() async throws {
+        let rig = FakeMicRig(), clips = Mutex<[SpeakClip]>([])
+        let mic = try MicIngest(profile: profile, devices: { rig.devices }, makeCapture: { rig.make($0) },
+                                watchHAL: false, vad: SpeakVAD(classify: { _ in true }))
+        let start: HostTime = 1_000_000_000
+        let press: any SpeakPressAudio = try #require(mic.beginPress(id: 1, keyDownAt: start, passthroughClosedAt: start))
+        #expect(await eventuallyMic { rig.latest != nil })
+        let reader = Task { for await clip in press.clips { clips.withLock { $0.append(clip) } } }
+        let capture = try #require(rig.latest)
+        for i in 0..<40 { capture.feed(at: start + UInt64(i) * 20_000_000, frame: UInt64(i * 320)) }
+        #expect(await eventuallyMic { mic.stats.frames16k == 12_800 })
+        press.updatePreview(stableText: "谢谢。", through: start + 800_000_000,
+                            at: start + 800_000_000, isFinal: false,
+                            boundary: .init(from: start, fullyStable: true))
+        for i in 40..<70 { capture.feed(at: start + UInt64(i) * 20_000_000, frame: UInt64(i * 320), value: 0) }
+        #expect(await eventuallyMic { clips.withLock { !$0.isEmpty } })
+        press.cancel(); mic.stop(); await reader.value
+        let captured = clips.withLock { $0 }
+        let clip = try #require(captured.first)
+        #expect(captured.count == 1 && clip.cutReason == .shortReply && !clip.isFinal)
+        #expect(clip.pcm.start == start && clip.pcm.end >= start + 1_050_000_000)
+        #expect(clip.pcm.samples.prefix(12_800).allSatisfy { abs($0 - 0.1) < 0.0001 })
+        #expect(clip.pcm.samples.dropFirst(12_800).allSatisfy { $0 == 0 })
+    }
+
     @Test func inputLevelUsesCaptureTimeWithoutRequiringASRAndClearsOnStop() async throws {
         let rig = FakeMicRig()
         let mic = try MicIngest(profile: profile, devices: { rig.devices }, makeCapture: { rig.make($0) }, watchHAL: false)

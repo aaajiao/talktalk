@@ -28,7 +28,7 @@ public struct SpeakMicState: Sendable, Equatable {
 }
 
 public struct SpeakClip: Sendable {
-    public enum CutReason: String, Sendable { case release, vadDip, energyMinimum, limit }
+    public enum CutReason: String, Sendable { case release, vadDip, energyMinimum, limit, shortReply }
     public var pcm: PCMClip16k
     public var index: Int
     public var isFinal: Bool
@@ -50,6 +50,14 @@ public struct SpeakPreviewFrame: Sendable {
     }
 }
 
+/// Evidence about the whole current hypothesis, rather than its potentially stale stable
+/// prefix. Used only to authorize the conservative short-reply boundary, never as ASR text.
+public struct SpeakPreviewBoundary: Sendable {
+    public var from: HostTime
+    public var fullyStable: Bool
+    public init(from: HostTime, fullyStable: Bool) { self.from = from; self.fullyStable = fullyStable }
+}
+
 public protocol SpeakPressAudio: AnyObject, Sendable {
     /// Single consumer, floor-clamped clips. Finishing is authoritative: a silent or cancelled
     /// press may have no final clip. M2 queues these until release; M3 can commit while held.
@@ -62,10 +70,16 @@ public protocol SpeakPressAudio: AnyObject, Sendable {
     func cancel()
     /// Stable preview for the uncommitted segment; time remains the recognizer's audio time.
     func updatePreview(stableText: String, through: HostTime, at: HostTime, isFinal: Bool)
+    func updatePreview(stableText: String, through: HostTime, at: HostTime, isFinal: Bool,
+                       boundary: SpeakPreviewBoundary)
 }
 
 extension SpeakPressAudio {
     public func updatePreview(stableText: String, through: HostTime, at: HostTime, isFinal: Bool) {}
+    public func updatePreview(stableText: String, through: HostTime, at: HostTime, isFinal: Bool,
+                              boundary: SpeakPreviewBoundary) {
+        updatePreview(stableText: stableText, through: through, at: at, isFinal: isFinal)
+    }
 }
 
 public protocol SpeakMicSource: AnyObject, Sendable {

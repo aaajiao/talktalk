@@ -122,10 +122,11 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
             return true
         }
         guard accepted else { return nil }
-        let press = Press(id: id, preview: { [weak self] text, through, at, final in
+        let press = Press(id: id, preview: { [weak self] text, through, at, final, boundary in
             self?.queue.async { [weak self] in
                 guard let self, current?.id == id else { return }
-                emit(segmenter?.preview(stableText: text, through: through, at: at, isFinal: final) ?? [])
+                emit(segmenter?.preview(stableText: text, through: through, at: at, isFinal: final,
+                                         boundary: boundary) ?? [])
             }
         }, release: { [weak self] time, _ in
             self?.requestRelease(id: id, at: time)
@@ -332,6 +333,7 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         case .silence, .forcedDip: .vadDip
         case .hardCap: .energyMinimum
         case .punctuation, .asrFinal, .stall: .limit
+        case .shortReply: .shortReply
         }
     }
     private func finishPress(cancelled: Bool) {
@@ -397,18 +399,22 @@ private final class Press: SpeakPressAudio, @unchecked Sendable {
     let preview: AsyncStream<SpeakPreviewFrame>
     let clipContinuation: AsyncStream<SpeakClip>.Continuation
     let previewContinuation: AsyncStream<SpeakPreviewFrame>.Continuation
-    private let onPreview: @Sendable (String, HostTime, HostTime, Bool) -> Void
+    private let onPreview: @Sendable (String, HostTime, HostTime, Bool, SpeakPreviewBoundary?) -> Void
     private let onRelease: @Sendable (HostTime, PushToTalkMachine.ReleaseReason) -> Void
     private let onCancel: @Sendable () -> Void
     private let lock = NSLock()
     private var ended = false, released = false
-    init(id: UInt64, preview: @escaping @Sendable (String, HostTime, HostTime, Bool) -> Void, release: @escaping @Sendable (HostTime, PushToTalkMachine.ReleaseReason) -> Void, cancel: @escaping @Sendable () -> Void) {
+    init(id: UInt64, preview: @escaping @Sendable (String, HostTime, HostTime, Bool, SpeakPreviewBoundary?) -> Void, release: @escaping @Sendable (HostTime, PushToTalkMachine.ReleaseReason) -> Void, cancel: @escaping @Sendable () -> Void) {
         self.id = id; onPreview = preview; onRelease = release; onCancel = cancel
         (clips, clipContinuation) = AsyncStream.makeStream()
         (self.preview, previewContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(100))
     }
     func updatePreview(stableText: String, through: HostTime, at: HostTime, isFinal: Bool) {
-        if !lock.withLock({ ended }) { onPreview(stableText, through, at, isFinal) }
+        if !lock.withLock({ ended }) { onPreview(stableText, through, at, isFinal, nil) }
+    }
+    func updatePreview(stableText: String, through: HostTime, at: HostTime, isFinal: Bool,
+                       boundary: SpeakPreviewBoundary) {
+        if !lock.withLock({ ended }) { onPreview(stableText, through, at, isFinal, boundary) }
     }
     func release(at: HostTime, reason: PushToTalkMachine.ReleaseReason) {
         let send = lock.withLock { () -> Bool in guard !ended, !released else { return false }; released = true; return true }

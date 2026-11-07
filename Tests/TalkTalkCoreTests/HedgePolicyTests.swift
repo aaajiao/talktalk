@@ -182,7 +182,7 @@ import Testing
         #expect(sends(log, .A).map(\.0) == [0])
         #expect(sends(log, .B).map(\.0) == [0])
         #expect(sends(log, .B).first?.1 == .guardRetry)
-        #expect(!log.contains { $0.1 == .startApple })    // a retry falls back to the first attempt, not Apple
+        #expect(log.filter { $0.1 == .startApple }.map(\.0) == [0])
         #expect(decision(r).outcome.reason == .guardRetry)
         // Masked by preceding audio: extended, at most maxMs.
         #expect(policy.guardRetryDeadlineMs(precedingAudioMs: 2200, ttsFirstChunkP95Ms: 300) == 1800)
@@ -190,6 +190,20 @@ import Testing
         let (r2, _) = run([], deadline: 1200, kind: .guardRetry)
         #expect(decision(r2).outcome.ms == 1200)
         #expect(decision(r2).fallback == .deadline)
+    }
+
+    @Test func guardRetryApplePreparationRespectsLateAndDisabledPolicies() {
+        let (_, late) = run([], deadline: 1200, kind: .guardRetry, appleLate: true)
+        #expect(!late.contains { $0.1 == .startApple })
+        var p = policy
+        p.hedge.startAppleAtHedge = false
+        let (_, disabled) = run([], deadline: 1200, kind: .guardRetry, policy: p)
+        #expect(!disabled.contains { $0.1 == .startApple })
+        p.hedge.startAppleAtHedge = true
+        p.hedge.maxInFlight = 1
+        let (_, single) = run([], deadline: 1200, kind: .guardRetry, policy: p)
+        #expect(sends(single, .B).isEmpty)
+        #expect(single.filter { $0.1 == .startApple }.map(\.0) == [0])
     }
 
     @Test func deadlineExtendsToTheDrainCappedAtFiveSeconds() {

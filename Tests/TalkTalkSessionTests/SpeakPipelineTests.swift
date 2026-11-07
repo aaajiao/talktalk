@@ -349,6 +349,37 @@ struct SpeakPipelineTests {
         }
     }
 
+    @Test func shortReplyKeepsGlossaryAndRestoresContextForTheNextOrdinaryClip() async throws {
+        let reply = "谢谢。", following = "我们明天继续讨论。"
+        for preceding in ["我们讨论竹子的材料。", reply] {
+            let primary = SpeakTestASR(texts: [preceding, reply, following],
+                                       repeatsFirstFromContextOnShortClip: true)
+            let mt = SpeakTestMT()
+            let (pipeline, mic, _, _) = try fixture(mt: mt, primary: primary, whileHeld: true,
+                                                   asrContext: { "TalkTalk" })
+            let now = HostClock.now()
+            await pipeline.handle(.began(at: now))
+            mic.press.cc.yield(clip(at: now, isFinal: false))
+            #expect(await until { await mt.calls == 1 })
+            // The early boundary remains in the same recording turn and is not a release.
+            // Its short speech plus retained tail must not borrow the previous sentence.
+            mic.press.cc.yield(.init(pcm: .init(
+                samples: Array(repeating: Float(0.1), count: 10_240) + Array(repeating: Float(0), count: 4_000),
+                start: now + 1_000_000_000, end: now + 1_890_000_000),
+                index: 1, isFinal: false, speechMs: 640, cutReason: .shortReply))
+            #expect(await until { await mt.calls == 2 })
+            #expect(await primary.contexts == ["TalkTalk", "TalkTalk"])
+            // Do not suppress an intentional repeated reply, or disable context for later
+            // ordinary speech: it should use the actual reply recognized from the short PCM.
+            #expect(await mt.requests.map(\.text) == [preceding, reply])
+            mic.press.cc.yield(clip(at: now + 1_890_000_000, isFinal: false))
+            #expect(await until { await mt.calls == 3 })
+            #expect(await primary.contexts == ["TalkTalk", "TalkTalk", reply + "\nTalkTalk"])
+            #expect(await mt.requests.map(\.text) == [preceding, reply, following])
+            await pipeline.stop()
+        }
+    }
+
     @Test func cloneContinuityWaitsForItsPredecessorAndResetsOnNewTurn() async throws {
         let mt = SpeakTestMT()
         let log = EventLog(inMemory: HostClock.now)

@@ -363,7 +363,11 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private func previewChanged(press id: UInt64, snapshot: SpeakPreview.Snapshot) {
         guard currentPress == id, let press = presses[id], snapshot.from >= press.previewFloor,
               !suspended, !ended else { return }
-        press.audio.updatePreview(stableText: snapshot.stableText, through: snapshot.through, at: clock(), isFinal: snapshot.isFinal)
+        let boundary = SpeakPreviewBoundary(from: snapshot.from,
+            fullyStable: snapshot.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                == snapshot.stableText.trimmingCharacters(in: .whitespacesAndNewlines))
+        press.audio.updatePreview(stableText: snapshot.stableText, through: snapshot.through, at: clock(),
+                                  isFinal: snapshot.isFinal, boundary: boundary)
         if displayPress?.id == id, !snapshot.text.isEmpty {
             displayPress?.preview = snapshot.text
             publishTranscript()
@@ -444,6 +448,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         log.event("speak.clip_committed", ["clause": .int(Int(id)), "press": .int(Int(press)),
             "clip_ms": .int(HostClock.ms(clip.pcm.start, to: clip.pcm.end)), "speech_ms": .int(clip.speechMs),
             "clip_overlap_ms": .int(overlapMs),
+            "boundary_wait_ms": .int(max(0, HostClock.ms(clip.pcm.end, to: committedAt))),
             "cut_reason": .tag(clip.cutReason.rawValue)], at: committedAt)
         let previous = asrTail
         let recognition = Task<ASRFinal, Error> { [weak self] in
@@ -466,9 +471,9 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private func recognize(_ clip: SpeakClip, clause id: UInt64, job: JobID, token: UInt32) async throws -> ASRFinal {
         guard active(id, token: token), let row = clauses[id] else { throw CancellationError() }
         if let primaryASR {
-            // Release tails can contain little speech: keep glossary hints, but not a full
+            // Release tails and early short replies can contain little speech: keep glossary hints, but not a full
             // preceding sentence that the recognizer could repeat in place of the remaining audio.
-            let previous = (clip.isFinal || clip.cutReason == .release) ? nil
+            let previous = (clip.isFinal || clip.cutReason == .release || clip.cutReason == .shortReply) ? nil
                 : lastSource.flatMap { $0.press == row.press ? $0.text : nil }
             let context = [previous, asrContext()].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
             do {
