@@ -231,7 +231,7 @@ public final class OnboardingState {
 
     /// Where unfinished onboarding stands: the current step in the chosen path (step 1 while
     /// the scenario page is up). nil once finished. The one source of "第 N 步，共 M 步" for
-    /// Settings › 通用 › 使用引导… (and, from settings row 6, the menu).
+    /// Settings › 通用 › 使用引导… and the menu bar menu's 继续使用引导 row.
     public var progress: OnboardingProgress? {
         guard !finished, let current, let n = position(of: current) else { return nil }
         return OnboardingProgress(step: n, count: steps.count)

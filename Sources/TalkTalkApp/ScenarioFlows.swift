@@ -1,6 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import SwiftUI
 import TalkTalkAudio
+import TalkTalkCloudUI
 import TalkTalkCore
 import TalkTalkSession
 import TalkTalkSettingsUI
@@ -12,12 +13,25 @@ import TalkTalkSettingsUI
 
 private typealias Icon = SubtitleTokens.SettingsIcon
 
-/// The sections a flow node scrolls to (§2, §6.3): on its own page, or on the page a link opens.
+/// The sections a flow node or a menu problem row scrolls to (§2, §6.3, §8.1): on its own page,
+/// or on the page a link opens.
 enum SettingsAnchor {
     static let microphone = "audio.microphone"
     static let talkTalkMic = "audio.meetingInput"
     static let playback = "audio.playback"
     static let phoneDial = "phone.dial"
+    /// 模型 › 语音识别's diagram and problem line.
+    static let recognition = "model.recognition"
+    /// 模型 › 文本翻译's diagram and problem line (TalkTalkCloudUI draws it).
+    static let translation = TranslationSettingsView.flowAnchor
+    /// 组件 › 引擎与模型 › 引擎.
+    static let engine = "components.engine"
+    static let driver = "components.driver"
+    /// 通用 › 使用引导….
+    static let onboarding = "general.onboarding"
+    /// 隐私与诊断 › 故障检查 › 诊断录音, and 字幕分析's flow.
+    static let diagnosticRecording = "diagnostics.recording"
+    static let subtitleAnalysis = "diagnostics.analysis"
 }
 
 /// What one scene's page reads from the session, the audio check and the components.

@@ -1,16 +1,5 @@
-// l10n: zh-Hans (scripts/check-strings.sh)
 import AppKit
 import TalkTalkSession
-
-extension MeetingMode {
-    var displayTitle: String {
-        switch self {
-        case .meeting: String(localized: "会议同传")
-        case .phone: String(localized: "电话同传")
-        case .captions: String(localized: "视频字幕")
-        }
-    }
-}
 
 /// The system app owns calls. TalkTalk only opens it, or hands it a validated number after
 /// an explicit user action; it never stores call history or invokes private telephony APIs.

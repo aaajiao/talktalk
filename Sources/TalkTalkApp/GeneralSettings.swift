@@ -121,35 +121,48 @@ struct GeneralSettingsView: View {
     @Bindable var model: GeneralSettingsModel
     let driver: DriverComponentsPage
     @Bindable var navigation: SettingsNavigation
+    /// Apple speech or translation resources are missing (AppState.appleCheck, §7.5 item 6): 使用引导…
+    /// runs their download again, so its row says so and the menu's problem row lands on it.
+    var appleCheck: String? = nil
 
     private typealias Icon = SubtitleTokens.SettingsIcon
     private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 
     var body: some View {
-        Form {
-            Section { hero }
-            Section {
-                LaunchAtLoginRow(launch: model.launch, stronglyRecommended: model.loginStronglyRecommended)
-                notificationRow
-                Toggle(isOn: $model.announcementEnabled) {
-                    Label("首次翻译前播放告知语", systemImage: Icon.announcement)
+        ScrollViewReader { proxy in
+            Form {
+                Section { hero }
+                Section {
+                    LaunchAtLoginRow(launch: model.launch, stronglyRecommended: model.loginStronglyRecommended)
+                    notificationRow
+                    Toggle(isOn: $model.announcementEnabled) {
+                        Label("首次翻译前播放告知语", systemImage: Icon.announcement)
+                    }
+                    .help("告诉对方你在用机器同传与合成声音")
                 }
-                .help("告诉对方你在用机器同传与合成声音")
-            }
-            Section {
-                onboardingRow
-                aboutRow
-            }
-            Section {
-                FullUninstallSection(model: driver.model, unavailable: driver.problem) {
-                    navigation.open(.components, .components(.engine))
+                Section {
+                    onboardingRow
+                        .flowFlash(SettingsAnchor.onboarding, in: navigation.flow)
+                    aboutRow
+                }
+                .id(SettingsAnchor.onboarding)
+                Section {
+                    FullUninstallSection(model: driver.model, unavailable: driver.problem) {
+                        navigation.open(.components, .components(.engine))
+                    }
                 }
             }
+            .formStyle(.grouped)
+            .labelStyle(.settingsRow)
+            .settingsPageScroll(navigation, subpage: SettingsSection.general)
+            .settingsAnchorTarget(navigation, proxy)
         }
-        .formStyle(.grouped)
-        .labelStyle(.settingsRow)
-        .settingsPageScroll(navigation, subpage: SettingsSection.general)
         .onAppear { driver.load(); model.launch.refresh(); Task { await model.refreshNotifications() } }
+    }
+
+    /// The Apple resources' status on 使用引导… and in the hero.
+    private var appleProblem: SettingsProblem? {
+        appleCheck.map { SettingsProblem(.warn, String(localized: "Apple 资源待配置"), help: $0) }
     }
 
     // MARK: Z2
@@ -158,6 +171,7 @@ struct GeneralSettingsView: View {
         let problem = SettingsProblem.mostSevere([
             model.launch.problem(stronglyRecommended: model.loginStronglyRecommended)?.page,
             model.notificationProblem?.page,
+            appleProblem,
         ])
         return PageHero(String(localized: "通用"), symbol: Icon.Page.general, help: String(localized: "启动、通知与应用管理")) {
             if let problem {
@@ -206,7 +220,8 @@ struct GeneralSettingsView: View {
         .help(unavailable ? String(localized: "当前运行方式不支持通知") : String(localized: "会议似乎结束时提醒你"))
     }
 
-    /// Continues unfinished onboarding at its step (shown at the row's end) or runs it again.
+    /// Continues unfinished onboarding at its step (shown at the row's end) or runs it again; it
+    /// ends with Apple 资源待配置 while those resources are missing (its step downloads them).
     private var onboardingRow: some View {
         let progress = model.onboarding?.progress
         return HStack(spacing: 8) {
@@ -219,6 +234,9 @@ struct GeneralSettingsView: View {
             .accessibilityValue(progress?.text ?? "")
             .accessibilityHint(String(localized: "重新检查权限、组件和声音设置，保留已装模型与声音档案"))
             Spacer(minLength: 8)
+            if let problem = appleProblem {
+                StatusLabel(problem.text, problem.status, help: problem.help)
+            }
             if let progress {
                 Text(verbatim: progress.text)
                     .font(.caption)

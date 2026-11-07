@@ -184,6 +184,36 @@ final class AudioSettingsModel {
     }
 }
 
+extension ScenarioFacts {
+    /// The running session's meeting or Phone check (§7.6), the words of 音频's node and TalkTalk
+    /// Mic row and of the menu's check line: in phone mode pending 通话前检查 before the call and
+    /// orange only while call audio runs (as `phoneCheck`); 未检查 while no speaking session runs.
+    /// Read with `mode` = the session's scene.
+    var sessionCheck: SettingsProblem {
+        let phone = state.meetingMode == .phone
+        let mic = micCheck
+        switch mic {
+        case let .physicalMic(app, _):
+            return SettingsProblem(.risk, phone ? String(localized: "对方能听到原声 · Phone 选“使用系统设置”")
+                                                : String(localized: "对方能听到原声 · 在 \(app) 选 TalkTalk Mic"),
+                                   help: mic.text)
+        case _ where risk:
+            return SettingsProblem(.risk, SettingsStatus.risk.spokenName)
+        case .green:
+            return SettingsProblem(.ok, mic.text)
+        case .nobodyReads where !phone || state.phoneAudioActive:
+            return SettingsProblem(.warn, phone ? String(localized: "Phone 尚未使用 TalkTalk Mic")
+                                                : String(localized: "会议尚未使用 TalkTalk Mic"), help: mic.text)
+        case .nobodyReads, .notChecked:
+            // 视频字幕 never uses TalkTalk Mic: its session leaves the check 未检查.
+            let speaking = running && state.meetingMode.supportsSpeaking
+            let text = !speaking ? String(localized: "未检查")
+                : phone ? String(localized: "通话前检查") : String(localized: "会议麦克风待确认")
+            return SettingsProblem(.pending, text)
+        }
+    }
+}
+
 /// What 音频's graphic, problem line and rows read (§7.6): the microphone choice, the meeting or
 /// Phone check of the running session, TalkTalk Mic and the playback route.
 @MainActor
@@ -221,32 +251,8 @@ struct AudioFacts {
         return SettingsProblem.mostSevere([pick, notice])
     }
 
-    /// The meeting or Phone check of the running session (§7.6), the words of the node, the
-    /// TalkTalk Mic row and the menu: 未检查 while no speaking session runs.
-    var check: SettingsProblem {
-        let facts = scene
-        let phone = state.meetingMode == .phone
-        let mic = facts.micCheck
-        switch mic {
-        case let .physicalMic(app, _):
-            return SettingsProblem(.risk, phone ? String(localized: "对方能听到原声 · Phone 选“使用系统设置”")
-                                                : String(localized: "对方能听到原声 · 在 \(app) 选 TalkTalk Mic"),
-                                   help: mic.text)
-        case _ where facts.risk:
-            return SettingsProblem(.risk, SettingsStatus.risk.spokenName)
-        case .green:
-            return SettingsProblem(.ok, mic.text)
-        case .nobodyReads where !phone || state.phoneAudioActive:
-            return SettingsProblem(.warn, phone ? String(localized: "Phone 尚未使用 TalkTalk Mic")
-                                                : String(localized: "会议尚未使用 TalkTalk Mic"), help: mic.text)
-        case .nobodyReads, .notChecked:
-            // 视频字幕 never uses TalkTalk Mic: its session leaves the check 未检查.
-            let speaking = facts.running && state.meetingMode.supportsSpeaking
-            let text = !speaking ? String(localized: "未检查")
-                : phone ? String(localized: "通话前检查") : String(localized: "会议麦克风待确认")
-            return SettingsProblem(.pending, text)
-        }
-    }
+    /// The meeting or Phone check of the running session (§7.6): `ScenarioFacts.sessionCheck`.
+    var check: SettingsProblem { scene.sessionCheck }
 
     /// TalkTalk Mic's node: the driver's state, else ok while 同传时设为系统默认输入 is on.
     var talkTalkMic: SettingsProblem? {
@@ -314,14 +320,10 @@ struct AudioSettingsView: View {
             }
             .formStyle(.grouped)
             .labelStyle(.settingsRow)
-            // Back from 通用 ›: the previous position. A flow link's anchor scrolls the page itself.
+            // Back from 通用 ›: the previous position. A flow link's or menu row's anchor scrolls
+            // the page itself, also while this page is already shown.
             .settingsPageScroll(navigation, subpage: SettingsSection.audio)
-            .onAppear {
-                // After the first layout: the section has to exist before it can be scrolled to.
-                DispatchQueue.main.async {
-                    if let anchor = navigation.takeAnchor() { jump(anchor, proxy) }
-                }
-            }
+            .settingsAnchorTarget(navigation, proxy)
         }
         .onAppear { model.reload(); model.launch.refresh(); driver.load() }
         // Leaving the page stops a calibration and forgets its outcome: it belonged to this visit.

@@ -51,8 +51,7 @@ import TalkTalkCore
     @Test func menuGlyphsExist() {
         typealias M = SubtitleTokens.MenuIcon
         let names = [M.standby, M.listening, M.warming, M.audioUnconfirmed, M.degraded, M.needsAttention,
-                     M.micUnused, M.subtitles, M.restoreWindow, M.restoreInput, M.announcement,
-                     M.notifications, M.about, M.onboarding]
+                     M.micUnused, M.subtitles, M.restoreWindow, M.restoreInput, M.announcement, M.onboarding]
         for name in names {
             #expect(exists(name), "\(name)")
         }

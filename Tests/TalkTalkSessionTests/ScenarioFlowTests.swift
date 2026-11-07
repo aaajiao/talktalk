@@ -7,11 +7,11 @@ import TalkTalkCore
 @Suite struct ScenarioFlowTests {
     @Test func quickStartUsesTheLastScenarioAndItsSource() {
         let first = MenuQuickStart.make(last: nil, sourceName: nil, remoteLanguage: "英语")
-        #expect(first.mode == .meeting && first.title == "开始会议同传 · 自动选择" && first.lastLine == nil)
+        #expect(first.mode == .meeting && first.title == "开始会议同传 · 自动" && first.subtitle == "英语 → 中文")
         let zoom = MenuQuickStart.make(last: .meeting, sourceName: MenuQuickStart.sourceName("us.zoom.xos"),
-                                       remoteLanguage: "英语")
+                                       remoteLanguage: "德语")
         #expect(zoom.title == "开始会议同传 · Zoom")
-        #expect(zoom.lastLine == "上次：会议同传 · 英语 → 中文")
+        #expect(zoom.subtitle == "德语 → 中文")
         #expect(MenuQuickStart.make(last: .phone, sourceName: "Zoom", remoteLanguage: "德语").title == "准备电话同传")
         #expect(MenuQuickStart.make(last: .captions, sourceName: "Safari", remoteLanguage: "英语").title
                 == "开始视频字幕 · Safari")

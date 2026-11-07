@@ -39,11 +39,6 @@ struct ComponentsSettingsView: View {
 
     private typealias Icon = SubtitleTokens.SettingsIcon
 
-    private enum Anchor {
-        static let engine = "components.engine"
-        static let driver = "components.driver"
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
@@ -54,6 +49,8 @@ struct ComponentsSettingsView: View {
                     }
                 }
                 .id(navigation.componentsTab)
+                // A menu problem row (组件未就绪) lands on 引擎 and flashes it (§8.1).
+                .settingsAnchorTarget(navigation, proxy)
             }
         }
         .settingsPageScroll(navigation, subpage: navigation.componentsTab)
@@ -74,16 +71,16 @@ struct ComponentsSettingsView: View {
         } else {
             Form {
                 Section {
-                    FlowGrid.engine(engine, link: NodeLink(String(localized: "引擎")) { jump(Anchor.engine, proxy) })
+                    FlowGrid.engine(engine, link: NodeLink(String(localized: "引擎")) { jump(SettingsAnchor.engine, proxy) })
                         .padding(.vertical, 4)
                 }
                 Section {
                     EngineControlRows(model: engine)
                 } header: {
                     SectionHeader(String(localized: "引擎"), symbol: Icon.engine)
-                        .flowFlash(Anchor.engine, in: navigation.flow)
+                        .flowFlash(SettingsAnchor.engine, in: navigation.flow)
                 }
-                .id(Anchor.engine)
+                .id(SettingsAnchor.engine)
                 Section {
                     EngineModelRows(model: engine, openModels: { navigation.open(.translation) })
                 } header: {
@@ -102,7 +99,7 @@ struct ComponentsSettingsView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
-                        FlowGrid.driver(model, talkTalkMic: NodeLink(String(localized: "驱动")) { jump(Anchor.driver, proxy) })
+                        FlowGrid.driver(model, talkTalkMic: NodeLink(String(localized: "驱动")) { jump(SettingsAnchor.driver, proxy) })
                         FactRow([FactChip(String(localized: "需管理员授权"), symbol: Icon.locked,
                                           help: String(localized: "安装、更新和卸载时输入密码"))],
                                 info: InfoButton(topic: String(localized: "虚拟麦克风"), lines: [
@@ -115,9 +112,9 @@ struct ComponentsSettingsView: View {
                     DriverComponentRows(model: model)
                 } header: {
                     SectionHeader(String(localized: "驱动"), symbol: Icon.talkTalkMic)
-                        .flowFlash(Anchor.driver, in: navigation.flow)
+                        .flowFlash(SettingsAnchor.driver, in: navigation.flow)
                 }
-                .id(Anchor.driver)
+                .id(SettingsAnchor.driver)
             }
             .formStyle(.grouped)
             .labelStyle(.settingsRow)

@@ -199,7 +199,7 @@ public struct HUDModel: Sendable, Equatable {
                                detail: String(localized: "所选应用当前没有声音"))
             case .meetingSeemsOver:
                 return HUDChip(titlebarLabel("长时间没有声音"), symbol: "waveform.slash", tone: .info,
-                               detail: String(localized: "应用长时间没有声音，视频字幕即将自动结束；要继续，请在菜单栏选择“继续收听，不自动停止”"))
+                               detail: String(localized: "应用长时间没有声音，视频字幕即将自动结束；要继续，请在菜单栏选择“继续收听”"))
             default:
                 return chip
             }

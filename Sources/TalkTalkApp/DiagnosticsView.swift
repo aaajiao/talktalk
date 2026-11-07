@@ -69,6 +69,8 @@ struct DiagnosticsView: View {
                     }
                 }
                 .id(navigation.diagnosticsTab)
+                // A menu recording row lands on 诊断录音 or 字幕分析 and flashes it (§8.1).
+                .settingsAnchorTarget(navigation, proxy)
             }
         }
         .settingsPageScroll(navigation, subpage: navigation.diagnosticsTab)
@@ -215,7 +217,9 @@ struct DiagnosticsView: View {
                     }
                 }
                 .padding(.vertical, 4)
+                .flowFlash(SettingsAnchor.subtitleAnalysis, in: navigation.flow)
             }
+            .id(SettingsAnchor.subtitleAnalysis)
         }
     }
 
@@ -334,7 +338,9 @@ struct DiagnosticsView: View {
                 SectionHeader(String(localized: "诊断录音"), symbol: Icon.recording, info: [
                     String(localized: "录音存在本机 diagnostics 文件夹，只有你能读，不进备份。")
                 ])
+                .flowFlash(SettingsAnchor.diagnosticRecording, in: navigation.flow)
             }
+            .id(SettingsAnchor.diagnosticRecording)
             Section {
                 DisclosureGroup {
                     latency

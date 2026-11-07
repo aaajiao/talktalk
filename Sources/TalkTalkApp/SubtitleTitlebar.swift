@@ -518,7 +518,7 @@ final class EndTextButton: TitlebarControl {
     }
 }
 
-/// The video hover bar's window options menu (`ellipsis.circle`, as the menu bar's "更多").
+/// The video hover bar's window options menu (`ellipsis.circle`).
 /// White 70%, 92% on hover.
 @MainActor
 final class MoreMenuButton: TitlebarControl {

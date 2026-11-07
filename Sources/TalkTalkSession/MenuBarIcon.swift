@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import TalkTalkAudio
 import TalkTalkCore
 
@@ -29,6 +30,23 @@ public enum MenuBarIcon: Sendable, Equatable, CaseIterable {
         }
     }
 
+    /// The short status word (settings visual system §8.5): the status item's tooltip and
+    /// VoiceOver description, and the menu's status line when no problem row explains the icon.
+    public func statusText(mode: MeetingMode) -> String {
+        switch self {
+        case .missing: String(localized: "组件未就绪")
+        case .standby: String(localized: "待机 · 尚未开始收听")
+        case .warming: String(localized: "准备中")
+        case .listening: String(localized: "\(mode.scene.title)运行中")
+        case .speaking: String(localized: "识别/播放译音")
+        case .passthroughOpen: String(localized: "原声中")
+        case .audioNeedsCheck: String(localized: "音频未就绪")
+        case .degraded: String(localized: "使用备用")
+        case .needsAttention: String(localized: "检查音频设备")
+        case .remoteHearsOriginal: String(localized: "对方能听到原声")
+        }
+    }
+
     public static func compute(meetingActive: Bool, systemInput: SystemInputSwitcher.Status,
                                translationDegraded: Bool, micGuard: MeetingMicGuardPlan.State = .init(),
                                mode: MeetingMode = .meeting,
@@ -44,9 +62,7 @@ public enum MenuBarIcon: Sendable, Equatable, CaseIterable {
         // The open microphone is the most immediate privacy fact, including while closing down.
         if passthroughOpen { return .passthroughOpen }
         if !meetingActive && talkTalkMicReadWhileInactive { return .needsAttention }
-        // A prepared Phone session deliberately waits without a microphone reader until
-        // dialing or answering. Only that exact fact is expected; unknown/physical input is not.
-        let waitingForPhone = mode == .phone && phonePrepared && micGuard.verdict == .noReader
+        let waitingForPhone = waitsForPhone(mode: mode, phonePrepared: phonePrepared, micGuard: micGuard)
         var inputDegraded = false
         switch systemInput {
         case .pendingFromLastRun, .noRestoreTarget: return .needsAttention
@@ -71,5 +87,45 @@ public enum MenuBarIcon: Sendable, Equatable, CaseIterable {
         let speakerNeedsCheck = speakerMode == true || (speakerMode == nil && !waitingForPhone)
         let voiceDegraded = mode.supportsSpeaking && (speakTranslationDegraded || systemVoice || speakerNeedsCheck)
         return translationDegraded || voiceDegraded ? .degraded : .listening
+    }
+
+    /// A fact that turns the icon orange or red and has no menu line of its own: the meeting
+    /// check, the default input and 字幕翻译 have theirs. The menu gives each its line, with the
+    /// sentence in the tooltip and its fix (settings visual system §8.1).
+    public enum Reason: Sendable, Equatable, CaseIterable {
+        /// An app reads TalkTalk Mic while no session runs.
+        case talkTalkMicReadWhileIdle
+        /// 我说话's translation fell back to Apple.
+        case speakTranslation
+        /// The meeting plays through a speaker: 耳机译音 and the original-voice path are off.
+        case speaker
+        /// The meeting app's playback devices are not known yet.
+        case playbackUnknown
+        /// A voice profile exists, but the translated voice is the system voice (no engine).
+        case systemVoice
+    }
+
+    /// The `Reason`s true now, from the same inputs as `compute`, whatever the icon shows.
+    public static func reasons(meetingActive: Bool, micGuard: MeetingMicGuardPlan.State = .init(),
+                               mode: MeetingMode = .meeting, phonePrepared: Bool = false,
+                               talkTalkMicReadWhileInactive: Bool = false, speakerMode: Bool? = false,
+                               systemVoice: Bool = false, speakTranslationDegraded: Bool = false) -> [Reason] {
+        var reasons: [Reason] = []
+        if !meetingActive && talkTalkMicReadWhileInactive { reasons.append(.talkTalkMicReadWhileIdle) }
+        guard meetingActive, mode.supportsSpeaking else { return reasons }
+        if speakTranslationDegraded { reasons.append(.speakTranslation) }
+        if speakerMode == true {
+            reasons.append(.speaker)
+        } else if speakerMode == nil, !waitsForPhone(mode: mode, phonePrepared: phonePrepared, micGuard: micGuard) {
+            reasons.append(.playbackUnknown)
+        }
+        if systemVoice { reasons.append(.systemVoice) }
+        return reasons
+    }
+
+    /// A prepared Phone session deliberately waits without a microphone reader until dialing or
+    /// answering. Only that exact fact is expected; unknown/physical input is not.
+    private static func waitsForPhone(mode: MeetingMode, phonePrepared: Bool, micGuard: MeetingMicGuardPlan.State) -> Bool {
+        mode == .phone && phonePrepared && micGuard.verdict == .noReader
     }
 }

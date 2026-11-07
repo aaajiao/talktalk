@@ -296,6 +296,7 @@ final class MeetingController {
         awaitingListenReset = true
         panel.clear(); state.listenTranslation = nil
         state.listenASRStatus = String(localized: "正在切换字幕识别…")
+        state.listenASRFailure = nil
         listenConfigurationTask = Task { [weak self, weak session] in
             guard let self, let session else { return }
             do {
@@ -310,6 +311,7 @@ final class MeetingController {
                 guard self.session === session, listenRequestID == requestID, !Task.isCancelled else { return }
                 let text = String(localized: "字幕识别切换未完成：\(error.localizedDescription)")
                 state.listenASRStatus = text
+                state.listenASRFailure = text
                 panel.setHint(text)
             }
             if listenRequestID == requestID { listenConfigurationTask = nil }
@@ -319,6 +321,7 @@ final class MeetingController {
     private func makeListenASR(log: EventLog, configuration: UInt64, sessionID: UUID,
                                jobs: JobIDSequence) -> any StreamingASREngine {
         state.listenASRFallback = false
+        state.listenASRFailure = nil
         if state.listenASREngine == .apple {
             state.listenASRStatus = String(localized: "Apple Speech（准备中）")
             return AppleSpeechASR()
@@ -485,6 +488,7 @@ final class MeetingController {
                 self.panel.clear()
                 self.state.listenTranslation = nil
                 self.state.listenASRStatus = String(localized: "正在切换字幕识别…")
+                self.state.listenASRFailure = nil
             }, onSubtitle: { [weak self] u in
                 guard let self, self.subtitleSessionID == sessionID, !self.awaitingListenReset else { return }
                 if let configuration = self.session?.listenConfigurationID {
@@ -577,6 +581,7 @@ final class MeetingController {
     private func showListenFailure(_ message: String) {
         let text = String(localized: "字幕识别未能恢复：\(message)")
         state.listenASRStatus = text
+        state.listenASRFailure = text
         panel.setHint(text)
     }
 
@@ -619,6 +624,7 @@ final class MeetingController {
             listenConfigurationTask?.cancel(); listenConfigurationTask = nil
             listenRequestID = UUID(); awaitingListenReset = false
             state.listenASRStatus = nil
+            state.listenASRFailure = nil
             subtitleSessionID = nil
             state.meetingActive = false
             state.meetingStopping = false

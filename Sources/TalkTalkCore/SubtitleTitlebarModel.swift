@@ -102,6 +102,9 @@ public struct VoiceState: Sendable, Equatable {
     public var symbol: String
     /// One sentence for the details popover's top row.
     public var consequence: String
+    /// The shortest consequence ("对方可听到"): after the title in the menu's voice row
+    /// ("原声 · 对方可听到") and VoiceOver's label.
+    public var shortConsequence: String
     /// Full explanation (tooltip, accessibilityHelp, details).
     public var detail: String
     /// One line for VoiceOver.
@@ -272,7 +275,7 @@ public struct VoiceState: Sendable, Equatable {
         }
         let detail = reason.map { String(localized: "\(consequence)。\($0)") } ?? consequence
         return VoiceState(kind: kind, appearance: appearance, title: title, compactTitle: compact, symbol: symbol,
-                          consequence: consequence, detail: detail,
+                          consequence: consequence, shortConsequence: short, detail: detail,
                           accessibilityLabel: String(localized: "发声：\(title)，\(short)"),
                           announcement: announcement)
     }

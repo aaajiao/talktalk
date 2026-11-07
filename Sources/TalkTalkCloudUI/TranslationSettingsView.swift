@@ -23,34 +23,42 @@ public struct TranslationLanguageChips {
 ///     TranslationSettingsView(model: try TranslationSettingsModel.forCurrentApp())
 ///
 /// `session`: when the running session started (a switch changed during it shows "下次开始生效").
-/// It holds no state of its own beyond the model.
+/// `flash`: the settings window's flash; a menu problem row (字幕翻译：Apple 备用) lands on the
+/// diagram, `.id(flowAnchor)`, and it flashes. It holds no state of its own beyond the model.
 public struct TranslationSettingsView: View {
     @Bindable var model: TranslationSettingsModel
     private let session: Date?
     private let languages: TranslationLanguageChips?
+    private let flash: FlowInteraction?
+
+    /// The diagram section's scroll id.
+    public nonisolated static let flowAnchor = "model.translation"
 
     private typealias Icon = SubtitleTokens.SettingsIcon
     private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 
-    public init(model: TranslationSettingsModel, session: Date? = nil, languages: TranslationLanguageChips? = nil) {
+    public init(model: TranslationSettingsModel, session: Date? = nil, languages: TranslationLanguageChips? = nil,
+                flash: FlowInteraction? = nil) {
         self.model = model
         self.session = session
         self.languages = languages
+        self.flash = flash
     }
 
     public var body: some View {
         let facts = model.flowFacts
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 10) {
+                flashing(VStack(alignment: .leading, spacing: 10) {
                     flow(facts)
                     if let problem = facts.problem {
                         StatusLabel(problem.text, problem.status, help: problem.help)
                     }
                     DataBoundary(cloudEnabled: facts.cloudConnected, info: [TranslationSettingsText.cloudNotice])
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, 4))
             }
+            .id(Self.flowAnchor)
             OpenAIKeySection(model: model)
             if facts.showsOpenAISection { openAISection }
         }
@@ -69,6 +77,10 @@ public struct TranslationSettingsView: View {
     }
 
     // MARK: diagram
+
+    @ViewBuilder private func flashing<Content: View>(_ content: Content) -> some View {
+        if let flash { content.flowFlash(Self.flowAnchor, in: flash) } else { content }
+    }
 
     /// 我说的话 → engine → 译文 ‹我的译音›; 听到的话 ‹对方语言› → engine → 中文字幕.
     private func flow(_ facts: TranslationFlowFacts) -> FlowGrid {

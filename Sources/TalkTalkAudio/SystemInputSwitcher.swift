@@ -23,7 +23,7 @@ import TalkTalkCore
 ///   - normal quit and logout/shutdown: `prepareForQuit(decision: .restoreNow)`.
 ///     SIGTERM / SIGINT / SIGHUP: call nothing, just exit
 ///     (the guard restores after the call, as after a crash). This class installs no signal handlers.
-///   - menu: "切回 TalkTalk Mic" → `switchBackToMic()`; "现在还原默认输入" → `restoreNow()`.
+///   - menu: "切回 TalkTalk Mic" → `switchBackToMic()`; "还原默认输入" → `restoreNow()`.
 @MainActor
 public final class SystemInputSwitcher {
     public typealias Device = MicPolicy.Device
@@ -381,7 +381,7 @@ public final class SystemInputSwitcher {
         }
     }
 
-    /// Menu "现在还原默认输入" (and "现在还原" on last run's record): restore now, call or not —
+    /// Menu "还原默认输入" (and "现在还原" on last run's record): restore now, call or not —
     /// still only when it is ours to restore.
     @discardableResult
     public func restoreNow() -> EndResult { restore(userAskedNow: true) }

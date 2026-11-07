@@ -641,7 +641,7 @@ import Testing
         model.clear(.meetingSilent); model.post(.meetingSeemsOver, now: 0)
         let over = try #require(model.issueSlot(now: 0)?.chip)
         #expect(over.label == "长时间没有声音" && over.symbol == "waveform.slash")
-        #expect(over.detail.contains("视频字幕即将自动结束") && over.detail.contains("继续收听，不自动停止"))
+        #expect(over.detail.contains("视频字幕即将自动结束") && over.detail.contains("菜单栏选择“继续收听”"))
         #expect(!over.detail.contains("会议") && !over.label.contains("对方"))
         // Meeting keeps its own wording.
         model.scene = .meeting

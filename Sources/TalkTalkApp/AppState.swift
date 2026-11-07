@@ -78,6 +78,9 @@ final class AppState {
     var listenASRStatus: String?
     /// Qwen3-ASR was chosen but Apple Speech took over (the 语音识别 card's warning).
     var listenASRFallback = false
+    /// Recognition stopped in this session (the pipeline could not recover, or a language switch
+    /// failed), with its sentence: the menu's 字幕识别出错 line. Cleared when recognition is rebuilt.
+    var listenASRFailure: String?
     @ObservationIgnored var onListenConfigurationChange: (() -> Void)?
 
     var subtitlesVisible: Bool {

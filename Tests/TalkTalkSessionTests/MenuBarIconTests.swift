@@ -117,6 +117,21 @@ import TalkTalkCore
                                     translationDegraded: false) == .degraded)
     }
 
+    /// Settings visual system §8.1: the degraded or red icon's facts that have no menu line of
+    /// their own, whatever the icon shows.
+    @Test func reasonsNameTheFactsWithoutALine() {
+        #expect(MenuBarIcon.reasons(meetingActive: false, talkTalkMicReadWhileInactive: true) == [.talkTalkMicReadWhileIdle])
+        #expect(MenuBarIcon.reasons(meetingActive: true, talkTalkMicReadWhileInactive: true).isEmpty)
+        #expect(MenuBarIcon.reasons(meetingActive: true, micGuard: green, speakerMode: true, systemVoice: true,
+                                    speakTranslationDegraded: true) == [.speakTranslation, .speaker, .systemVoice])
+        #expect(MenuBarIcon.reasons(meetingActive: true, micGuard: green, speakerMode: nil) == [.playbackUnknown])
+        // A prepared Phone waiting for the call expects no playback yet; video never speaks.
+        #expect(MenuBarIcon.reasons(meetingActive: true, micGuard: .init(verdict: .noReader), mode: .phone,
+                                    phonePrepared: true, speakerMode: nil).isEmpty)
+        #expect(MenuBarIcon.reasons(meetingActive: true, mode: .captions, speakerMode: true, systemVoice: true).isEmpty)
+        #expect(MenuBarIcon.reasons(meetingActive: true, micGuard: green).isEmpty)
+    }
+
     @Test func meetingStates() {
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "x"), translationDegraded: false, micGuard: green) == .listening)
         #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .holding(original: "x"), translationDegraded: true, micGuard: green) == .degraded)

@@ -221,7 +221,7 @@ public enum SubtitleTokens {
         /// The video window's persistent status mark: warning triangle, risk octagon.
         public static let statusWarn = "exclamationmark.triangle.fill"
         public static let statusRisk = "exclamationmark.octagon.fill"
-        /// The video hover bar's window options menu, as the menu bar's "更多".
+        /// The video hover bar's window options menu.
         public static let more = "ellipsis.circle"
     }
 
@@ -387,7 +387,8 @@ public enum SubtitleTokens {
 
         // 通用 (§7.5): one row each, the menu's glyph where the menu has the same item.
         public static let launchAtLogin = "power"
-        public static let notifications = MenuIcon.notifications
+        /// 会议结束通知 (the menu has no 通知设置…: §8.6).
+        public static let notifications = "bell"
         /// Asks macOS for notification permission ("允许…").
         public static let allowNotifications = "bell.badge"
         public static let announcement = MenuIcon.announcement
@@ -410,7 +411,7 @@ public enum SubtitleTokens {
         /// 显示固定快照: pinned model snapshots in the model menu.
         public static let snapshots = "pin"
         /// 开始时提醒：文字发给 OpenAI.
-        public static let cloudReminder = MenuIcon.notifications
+        public static let cloudReminder = notifications
         /// A model that is going away (the model menu's item glyph).
         public static let retiring = "clock.badge.exclamationmark"
         /// DataBoundary's OpenAI panel while no direction sends text there (未连接).
@@ -513,9 +514,10 @@ public enum SubtitleTokens {
         public static let statusRecording = recordingActive
     }
 
-    /// The menu bar status item and its menu. The status item keeps the captions bubble as its
-    /// identity; problems differ by shape (question, triangle, exclamation bubble), not only by
-    /// colour. Menu rows that open a settings page use that page's sidebar glyph.
+    /// The menu bar status item and its menu (settings visual system §8). The status item keeps
+    /// the captions bubble as its identity; problems differ by shape (question, triangle,
+    /// exclamation bubble), not only by colour. Menu rows that open a settings page use that
+    /// page's sidebar glyph; 关于 TalkTalk and 退出 have none (§0.2 #13).
     public enum MenuIcon {
         public static let standby = "captions.bubble"
         public static let listening = "captions.bubble.fill"
@@ -532,9 +534,7 @@ public enum SubtitleTokens {
         public static let restoreWindow = "macwindow"
         public static let restoreInput = "arrow.uturn.backward.circle"
         public static let announcement = "megaphone"
-        public static let notifications = "bell"
-        public static let about = "info.circle"
-        /// The onboarding guide, as Settings › 通用 "使用引导…".
+        /// 继续使用引导 (state A), as Settings › 通用 "使用引导…".
         public static let onboarding = "arrow.clockwise.circle"
     }
 

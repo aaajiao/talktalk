@@ -47,10 +47,16 @@ struct ModelSettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            switch navigation.modelStage {
-            case .recognition: recognition
-            case .translation: TranslationPageView(page: translation, state: state)
-            case .synthesis: synthesis
+            ScrollViewReader { proxy in
+                Group {
+                    switch navigation.modelStage {
+                    case .recognition: recognition
+                    case .translation: TranslationPageView(page: translation, state: state, flash: navigation.flow)
+                    case .synthesis: synthesis
+                    }
+                }
+                // A menu problem row lands on the stage's diagram (§8.1).
+                .settingsAnchorTarget(navigation, proxy)
             }
         }
         .settingsPageScroll(navigation, subpage: navigation.modelStage)
@@ -80,7 +86,9 @@ struct ModelSettingsView: View {
                                       help: String(localized: "声音在这台 Mac 上转成原文"))])
                 }
                 .padding(.vertical, 4)
+                .flowFlash(SettingsAnchor.recognition, in: navigation.flow)
             }
+            .id(SettingsAnchor.recognition)
         }
         .formStyle(.grouped)
     }

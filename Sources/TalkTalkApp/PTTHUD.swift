@@ -216,7 +216,7 @@ final class PTTHUD {
 
     /// LISTEN hints belong to the shared status section, never in the remote original text.
     func listen(_ hint: MeetingSession.Hint?) {
-        let next = hint.map(Self.warning)
+        let next = hint.map(\.warning)
         guard listenHint != next else { return }
         listenHint = next
         panel.setRemoteSilent(next == .meetingSilent)
@@ -272,15 +272,6 @@ final class PTTHUD {
         // No default: a new EntryResult case must be decided here. The menu says
         // .otherInstanceManages.
         case .switched, .unchanged, .otherInstanceManages: nil
-        }
-    }
-
-    static func warning(_ h: MeetingSession.Hint) -> HUDModel.Warning {
-        switch h {
-        case .meetingSilent: .meetingSilent
-        case .audioRestarting: .audioRestarting
-        case .meetingSeemsOver: .meetingSeemsOver
-        case .tccUnconfirmed: .tccUnconfirmed
         }
     }
 

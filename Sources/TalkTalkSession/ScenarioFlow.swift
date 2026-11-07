@@ -53,26 +53,27 @@ public enum ScenarioPreferences {
     }
 }
 
-/// The idle menu's bold first item (§7 菜单栏): the last scenario with its remembered source.
-/// It starts directly; the scenario page opens only on failure or when a source must be chosen.
+/// The idle menu's bold first item (settings visual system §8.3): the last scenario with its
+/// remembered source ("开始会议同传 · Zoom", "· 自动" for automatic selection) and its language
+/// pair as the native subtitle. It starts directly; the scenario page opens only on failure or
+/// when a source must be chosen.
 public struct MenuQuickStart: Sendable, Equatable {
     public var mode: MeetingMode
     public var title: String
-    /// Gray line under it ("上次：会议同传 · 英语 → 中文"); nil before the first session.
-    public var lastLine: String?
+    /// Gray line under it: "英语 → 中文".
+    public var subtitle: String
     public static let symbol = "play.fill"
 
     /// `sourceName`: the remembered source's display name; nil means automatic selection.
     public static func make(last: MeetingMode?, sourceName: String?, remoteLanguage: String) -> MenuQuickStart {
         let mode = last ?? .meeting
-        let source = sourceName ?? String(localized: "自动选择")
+        let source = sourceName ?? String(localized: "自动")
         let title: String = switch mode {
         case .meeting: String(localized: "开始会议同传 · \(source)")
         case .phone: String(localized: "准备电话同传")
         case .captions: String(localized: "开始视频字幕 · \(source)")
         }
-        let line = last.map { String(localized: "上次：\($0.scene.title) · \(remoteLanguage) → 中文") }
-        return MenuQuickStart(mode: mode, title: title, lastLine: line)
+        return MenuQuickStart(mode: mode, title: title, subtitle: String(localized: "\(remoteLanguage) → 中文"))
     }
 
     /// The display name of a remembered source id; nil for automatic selection.

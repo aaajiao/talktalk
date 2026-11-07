@@ -99,6 +99,9 @@ final class SettingsNavigation {
     /// The section a flow link scrolls to on its target page (§6.3, §6.4), taken once by the
     /// page when it appears.
     @ObservationIgnored private var pendingAnchor: String?
+    /// Counts the links that asked for an anchor: a page already on screen (a menu problem row to
+    /// the shown page) takes it on the change, as a newly shown page takes it on appearing.
+    private(set) var anchorRequest = 0
     /// 电话同传 › 首次连接: nil follows the default (open until a first successful prepare).
     var phoneSetupExpanded: Bool?
     /// That default as this visit of the phone scene first drew it; cleared when the visit ends,
@@ -150,6 +153,7 @@ final class SettingsNavigation {
     func open(_ section: SettingsSection, _ subpage: SettingsSubpage? = nil, scenario: MeetingMode? = nil,
               anchor: String? = nil) {
         pendingAnchor = anchor
+        if anchor != nil { anchorRequest &+= 1 }
         let origin = selection ?? .general
         let label = returnLabel(origin, scenario: scenario)
         let target = SettingsReturnTarget(section: origin, subpage: self.subpage(of: origin), scenario: scenario,
@@ -159,6 +163,13 @@ final class SettingsNavigation {
         selection = section
         followingLink = false
         if section != origin { returnTarget = target }
+    }
+
+    /// A menu problem row (§8.1, §8.5): the page, sub-page and section of a flow link, without
+    /// ReturnPill (the menu is not a settings page to go back to).
+    func reveal(_ section: SettingsSection, _ subpage: SettingsSubpage? = nil, anchor: String? = nil) {
+        open(section, subpage, anchor: anchor)
+        returnTarget = nil
     }
 
     /// ReturnPill's action, after the caller has put the target's scene back.
@@ -182,8 +193,9 @@ final class SettingsNavigation {
         return pendingAnchor
     }
 
-    /// Opens a model sub-page without a way back (the menu and the subtitle window's settings).
-    /// Not a flow link, so a pill from an earlier link goes, even when 模型 is already shown.
+    /// Opens a model sub-page without a way back (the subtitle window's settings; the menu's
+    /// problem rows use `reveal`). Not a flow link, so a pill from an earlier link goes, even
+    /// when 模型 is already shown.
     func openModel(_ stage: ModelSettingsStage) {
         returnTarget = nil
         modelStage = stage
@@ -251,6 +263,36 @@ private struct SettingsPageScroll<Subpage: Hashable>: ViewModifier {
     }
 }
 
+extension View {
+    /// The section a flow link or a menu problem row asked for (§6.3, §8.1): once the page has
+    /// laid out, scroll to it and flash it; again when the page is already shown (the request
+    /// token changes). `proxy` is the page's ScrollViewReader; the section carries `.id(anchor)`.
+    func settingsAnchorTarget(_ navigation: SettingsNavigation, _ proxy: ScrollViewProxy) -> some View {
+        modifier(SettingsAnchorTarget(navigation: navigation, request: navigation.anchorRequest, proxy: proxy))
+    }
+}
+
+private struct SettingsAnchorTarget: ViewModifier {
+    let navigation: SettingsNavigation
+    let request: Int
+    let proxy: ScrollViewProxy
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { reveal() }
+            .onChange(of: request) { _, _ in reveal() }
+    }
+
+    /// After the first layout: the section has to exist before it can be scrolled to.
+    private func reveal() {
+        DispatchQueue.main.async {
+            guard let anchor = navigation.takeAnchor() else { return }
+            proxy.scrollTo(anchor, anchor: .top)
+            navigation.flow.flash(anchor)
+        }
+    }
+}
+
 /// Settings live in an ordinary `NSWindow` hosting SwiftUI (§11: an accessory app's SwiftUI
 /// Settings scene does not come forward reliably — readread's experience). While the window is
 /// open the app is a regular app (Dock icon, ⌘-Tab, key focus for text fields); when it closes
@@ -277,6 +319,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     var isVisible: Bool { window?.isVisible ?? false }
+
+    /// A menu problem row's deep link (§8.5): the page, its sub-page and the section that
+    /// scrolls into view and flashes.
+    func show(_ section: SettingsSection, _ subpage: SettingsSubpage?, anchor: String?) {
+        navigation.reveal(section, subpage, anchor: anchor)
+        show()
+    }
 
     func show(_ section: SettingsSection? = nil) {
         if let section {
@@ -405,7 +454,8 @@ struct SettingsView: View {
         case .translation:
             ModelSettingsView(state: state, navigation: navigation, translation: translation, driver: driver)
         case .general:
-            GeneralSettingsView(model: AppUIModels.shared.general, driver: driver, navigation: navigation)
+            GeneralSettingsView(model: AppUIModels.shared.general, driver: driver, navigation: navigation,
+                                appleCheck: state.appleCheck)
         case .audio:
             AudioSettingsView(model: AppUIModels.shared.audio, state: state, driver: driver, navigation: navigation)
         case .components:
@@ -438,6 +488,8 @@ final class TranslationPage {
 struct TranslationPageView: View {
     let page: TranslationPage
     @Bindable var state: AppState
+    /// The window's flash, for the diagram a menu problem row lands on (§8.1).
+    var flash: FlowInteraction? = nil
 
     var body: some View {
         Group {
@@ -446,7 +498,8 @@ struct TranslationPageView: View {
                 TranslationSettingsView(model: model, session: state.meetingActive ? state.meetingStartedAt : nil,
                                         languages: TranslationLanguageChips(
                                             speak: LanguageChip(state: state, speak: true, paired: true),
-                                            listen: LanguageChip(state: state, speak: false, paired: true)))
+                                            listen: LanguageChip(state: state, speak: false, paired: true)),
+                                        flash: flash)
             } else if let problem = page.problem {
                 // A development binary without a bundle id (§5.2, §7.0): the reason is the help.
                 ContentUnavailableView(String(localized: "此构建不可用"),

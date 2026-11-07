@@ -184,11 +184,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         meeting.beforeUserEnd = { [weak systemInput] in systemInput?.confirmUserEnd() }
         let status = StatusItemController(state: state, actions: .init(
             openSettings: { [weak self] section in self?.settings?.show(section) },
+            openSettingsAt: { [weak self] section, subpage, anchor in self?.settings?.show(section, subpage, anchor: anchor) },
             toggleMeeting: { [weak meeting] in meeting?.toggle() },
             endSession: { [weak meeting] in meeting?.toggle() },
             quit: { NSApp.terminate(nil) },
             stillInMeeting: { [weak meeting] in meeting?.stillInMeeting() },
+            // 继续使用引导 opens onboarding at its saved step (§8.2).
             openOnboarding: { [weak onboarding] in onboarding?.show() },
+            onboarding: { [weak onboardingModel] in
+                guard let onboardingModel, onboardingModel.needsOnboarding else { return .finished }
+                return .unfinished(onboardingModel.progress)
+            },
             canPlayAnnouncement: { [weak speak] in speak?.canPlayAnnouncement ?? false },
             playAnnouncement: { [weak speak] in speak?.playAnnouncement() },
             usesGlobalListenFallback: { [weak meeting] in meeting?.session?.usesGlobalFallback ?? false },
@@ -208,7 +214,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             },
             voiceState: { [weak hud] in hud?.model.voiceState },
-            systemInputSwitched: { [weak self] in self?.systemInputSwitched ?? false }))
+            systemInputSwitched: { [weak self] in self?.systemInputSwitched ?? false },
+            speakUsesCloud: { [weak meeting] in meeting?.cloud.box.speak != nil },
+            recording: { [weak privacy] in
+                guard let privacy else { return (nil, false) }
+                let recorder = privacy.recorder, analysis = privacy.subtitleAnalysis
+                // RecordingBanner's words (DiagnosticsBanners): the tracks, else what is set.
+                let recording: StatusMenuFacts.Recording? = !recorder.recordingTracks.isEmpty
+                    ? .recording(tracks: DiagnosticRecorder.Track.allCases.filter(recorder.recordingTracks.contains)
+                                    .map(\.label).joined(separator: " · "))
+                    : recorder.micAndTTSArmed ? .planned(thisSession: recorder.meetingRunning) : nil
+                return (recording, analysis.isRecording || analysis.isStarting)
+            }))
         statusItem = status
         meeting.onActiveChange = { [weak self] _ in self?.updateIcon() }
         meeting.onTranslationChange = { [weak self] in self?.updateIcon() }
@@ -296,23 +313,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.systemInputHeld = systemInputSwitched
     }
 
-    /// §11 icon from the meeting, its translation and the system input's leftovers (§8.6).
+    /// §11 icon from the meeting, its translation and the system input's leftovers (§8.6), and
+    /// the facts behind it that the menu names in their own lines (§8.1).
     private func updateIcon() {
-        statusItem?.setIcon(MenuBarIcon.compute(meetingActive: state.meetingActive,
-                                                systemInput: systemInput?.switcher.status ?? .idle,
-                                                translationDegraded: state.listenTranslationDegraded && state.listenTranslation != .appleOnly,
-                                                micGuard: systemInput?.micGuard.state ?? .init(),
-                                                mode: state.meetingMode,
-                                                phonePrepared: state.phoneReadyToDial,
-                                                talkTalkMicReadWhileInactive: systemInput?.micReadWhileInactive ?? false,
-                                                componentsMissing: engineHost.engine() == nil,
-                                                listenReady: meeting?.session?.listenLanguage != nil,
-                                                warming: speak?.warming ?? false,
-                                                speaking: speak?.speaking ?? false,
-                                                passthroughOpen: speak?.passthroughOpen ?? false,
-                                                speakerMode: systemInput?.route.state.speakerMode,
-                                                systemVoice: state.voiceProfilePresent && engineHost.routing.source == .systemVoice,
-                                                speakTranslationDegraded: (speak?.degraded ?? false) && meeting?.cloud.box.speak != nil))
+        let micGuard = systemInput?.micGuard.state ?? .init()
+        let readWhileInactive = systemInput?.micReadWhileInactive ?? false
+        let speakerMode = systemInput?.route.state.speakerMode
+        let systemVoice = state.voiceProfilePresent && engineHost.routing.source == .systemVoice
+        let speakDegraded = (speak?.degraded ?? false) && meeting?.cloud.box.speak != nil
+        let icon = MenuBarIcon.compute(meetingActive: state.meetingActive,
+                                       systemInput: systemInput?.switcher.status ?? .idle,
+                                       translationDegraded: state.listenTranslationDegraded && state.listenTranslation != .appleOnly,
+                                       micGuard: micGuard,
+                                       mode: state.meetingMode,
+                                       phonePrepared: state.phoneReadyToDial,
+                                       talkTalkMicReadWhileInactive: readWhileInactive,
+                                       componentsMissing: engineHost.engine() == nil,
+                                       listenReady: meeting?.session?.listenLanguage != nil,
+                                       warming: speak?.warming ?? false,
+                                       speaking: speak?.speaking ?? false,
+                                       passthroughOpen: speak?.passthroughOpen ?? false,
+                                       speakerMode: speakerMode,
+                                       systemVoice: systemVoice,
+                                       speakTranslationDegraded: speakDegraded)
+        let reasons = MenuBarIcon.reasons(meetingActive: state.meetingActive, micGuard: micGuard, mode: state.meetingMode,
+                                          phonePrepared: state.phoneReadyToDial, talkTalkMicReadWhileInactive: readWhileInactive,
+                                          speakerMode: speakerMode, systemVoice: systemVoice,
+                                          speakTranslationDegraded: speakDegraded)
+        statusItem?.setIcon(icon, reasons: reasons)
     }
 
     /// A second launch or a Dock click restores a minimized subtitle window first; otherwise
