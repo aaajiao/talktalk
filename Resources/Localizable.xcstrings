@@ -18961,6 +18961,22 @@
         }
       }
     },
+    "独立合成：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Independent synthesis: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "独立合成：%@"
+          }
+        }
+      }
+    },
     "独立试说需要可用的内建或有线麦克风，并且没有会议正在管理系统输入。": {
       "localizations": {
         "en": {
@@ -22429,6 +22445,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "识别声音"
+          }
+        }
+      }
+    },
+    "识别模型保持原有配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recognition keeps its existing configuration"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "识别模型保持原有配置"
           }
         }
       }

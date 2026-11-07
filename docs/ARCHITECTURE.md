@@ -167,7 +167,7 @@ Python/MLX 在独立进程中运行，通过仅本机 HTTP 与每次启动的认
 
 Ming 适配器在既有 GPU 调度线程逐 latent 让出执行权；完成一个文本片段后整体解码、重采样为 24 kHz Float32 单声道，再按不超过 160 ms 的 PCM 块交付原播放队列。生成中的真实 latent 进展使用既有 progress 帧，避免首段合成被误报为停滞；取消和播放缓冲上限继续由原调度器处理。Ming 不使用 Qwen 专用 codec echo／loop 检查和前句 codec conditioning；保留音频时长、短输出及完成检查。Ming 的真人参考、逐字稿和 native CAMPPlus 声纹仅在本机处理，初始种子固定为本轮试听通过的 20261107。已有识别、翻译、字幕、原声门、ClauseQueue、PlayoutStage 和虚拟麦音频路径不重构。
 
-安装状态按 install.json 的 active roles 归类，额外下载但未选用的模型不改变档位；旧 max 的 1.7B＋0.6B 显示为标准，读取不改写记录或模型。合法但不属于预设的组合显示为自定义组合，不影响原有兼容性与文件校验。无显式目标的安装／修复保留可识别的实际组合，无法匹配的自定义组合必须明确选择目标，避免意外换模型。档位下方以共用 FlowNode 的两张并列卡展示所需 ASR/TTS；reload 时检查当前 pin 的文件、revision stamp 和大小，缓存是否就绪，不只依据安装记录，也不做全量 hash。
+安装状态按 install.json 的 active roles 归类，额外下载但未选用的模型不改变档位；旧 max 的 1.7B＋0.6B 显示为标准，读取不改写记录或模型。合法但不属于预设的组合显示为自定义组合，不影响原有兼容性与文件校验。独立选择合成模型形成自定义组合时，安装与维护显示实际合成模型及识别配置保持独立的提示；模型列表以“当前使用”标记区分 active role 和仅已下载的模型，重新打开后仍由实际记录推导。无显式目标的安装／修复保留可识别的实际组合，无法匹配的自定义组合必须明确选择目标，避免意外换模型。档位下方以共用 FlowNode 的两张并列卡展示所需 ASR/TTS；reload 时检查当前 pin 的文件、revision stamp 和大小，缓存是否就绪，不只依据安装记录，也不做全量 hash。
 
 Apple Speech 是独立识别偏好，LISTEN 与 SPEAK 分别保存，默认 Qwen；选 Apple 不触发安装器或改变 TTS。SPEAK 跳过可选 Qwen 主识别并保留现有 AppleFinalizeASR 的暂停预览流程。旧 compact16 安装仍强制两路 Apple，不改写保存偏好，离开该安装后恢复选择。模型删除入口在空闲时允许删除当前角色，原生确认说明影响；会话启动、活动、停止及试听期间阻止当前角色删除。UI 使用显式 removeActiveModel 操作，安装器先停止引擎再传 --allow-active-model；CLI 默认拒绝删除 active role。删除仅移除目标及该角色，不自动启用额外模型；重新下载也不自动激活。具体 revision、文件散列、依赖与配置以 `scripts/lib/versions.sh` 和 lock 文件为准。
 同场 LISTEN/SPEAK 复用一个 OpenAI 后端及其熔断和连接状态，各方向保留独立开关；语言热切换不能新建后端割裂这些状态。模型设置在下一场生效，术语表按请求读取，最多 30 条生效。

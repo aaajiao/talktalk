@@ -424,6 +424,7 @@ struct EngineControlRows: View {
         profileRow
         FlowGrid.engineRequirements(model)
             .padding(.vertical, 4)
+        independentSynthesisRow
         statusRow
         EngineOperationRows(model: model)
     }
@@ -515,6 +516,25 @@ struct EngineControlRows: View {
             IconMenuItem(String(appLocalized: "卸载引擎…"), symbol: Icon.delete, isEnabled: present,
                          isDestructive: true) { model.confirmAndRun(.uninstall) }
         ]
+    }
+
+    /// Persistent installation facts, not the last action's temporary result or a pending
+    /// preset. Named presets already explain their composition in the model cards above.
+    @ViewBuilder private var independentSynthesisRow: some View {
+        if model.installed, model.installedProfile == nil, let id = model.record?.roles["tts"]?.id {
+            let name = model.synthesisModels.first { $0.key == id }.map { EngineSynthesisSelection.title(for: $0) } ?? id
+            VStack(alignment: .leading, spacing: 4) {
+                StatusLabel(String(appLocalized: "独立合成：\(name)"), .ok)
+                Text(String(appLocalized: "识别模型保持原有配置"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, Ladder.inline + 4)
+                    .help(model.modelName(role: "asr") ?? "Apple Speech")
+            }
+            .padding(.leading, Ladder.rowTextInset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     @ViewBuilder private var statusRow: some View {
@@ -662,9 +682,19 @@ struct EngineModelRows: View {
                     .monospacedDigit()
                 if installed {
                     let word = ready ? String(appLocalized: "已就绪") : String(appLocalized: "需修复")
-                    StatusGlyph(ready ? .ok : .warn)
-                        .help(word)
-                        .accessibilityLabel(word)
+                    if active {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: Ladder.inline, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .help(String(appLocalized: "当前使用"))
+                            .accessibilityLabel(String(appLocalized: "当前使用"))
+                            .accessibilityAddTraits(.isSelected)
+                    }
+                    if !active || !ready {
+                        StatusGlyph(ready ? .ok : .warn)
+                            .help(word)
+                            .accessibilityLabel(word)
+                    }
                     IconButton(Icon.delete, help: active && model.sessionInProgress
                         ? String(appLocalized: "会话结束后可删除当前使用的模型")
                         : String(appLocalized: "删除模型 \(m.key)"),
