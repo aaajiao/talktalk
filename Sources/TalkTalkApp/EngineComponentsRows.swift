@@ -120,7 +120,9 @@ final class EngineComponentsModel {
     /// Every maintenance operation stops the engine, including check and inactive downloads.
     var maintenanceBlocked: Bool { busy || sessionInProgress }
 
-    var synthesisModels: [EnginePins.Model] { EngineSynthesisSelection.models() }
+    var synthesisModels: [EnginePins.Model] {
+        EngineSynthesisSelection.availableModels(readyModelIDs: readyModelIDs, activeID: record?.roles["tts"]?.id)
+    }
     var canSelectSynthesis: Bool {
         EngineSynthesisSelection.canSelect(state: state, activeRoles: record?.roles.mapValues(\.id) ?? [:])
     }
@@ -609,8 +611,8 @@ struct EngineOperationRows: View {
     }
 }
 
-/// The model picker changes only TTS. Already downloaded choices apply directly; a missing
-/// model waits for the explicit download action while the current role remains visible.
+/// The model picker changes only TTS and lists locally available choices. Model downloads
+/// stay in maintenance; a damaged active model remains visible with its repair action.
 struct SynthesisModelRows: View {
     @Bindable var model: EngineComponentsModel
 
@@ -626,12 +628,13 @@ struct SynthesisModelRows: View {
                     ForEach(model.synthesisModels, id: \.key) { choice in
                         Text(verbatim: EngineSynthesisSelection.title(for: choice)).tag(choice.key)
                             .help("\(choice.repo) · \(EngineComponentsModel.gb(choice.bytes))")
+                            .disabled(choice.key == model.synthesisRepairID)
                     }
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .fixedSize()
-                .disabled(model.maintenanceBlocked || !model.canSelectSynthesis)
+                .disabled(model.maintenanceBlocked || !model.canSelectSynthesis || model.synthesisModels.isEmpty)
                 .help(String(appLocalized: "选择已下载的模型后立即切换语音合成"))
                 if model.synthesisAction(model.synthesisSelectionID) == .downloadAndActivate {
                     Button(model.synthesisRepairID == model.synthesisSelectionID

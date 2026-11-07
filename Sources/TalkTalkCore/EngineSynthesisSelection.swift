@@ -20,6 +20,13 @@ public enum EngineSynthesisSelection {
         pins.filter { $0.role == "tts" }
     }
 
+    /// Switching uses models already present on this Mac. Keep the active model visible
+    /// even if its files need repair, so its current selection and repair action remain clear.
+    public static func availableModels(readyModelIDs: Set<String>, activeID: String?,
+                                       in pins: [EnginePins.Model] = EnginePins.models) -> [EnginePins.Model] {
+        models(in: pins).filter { readyModelIDs.contains($0.key) || $0.key == activeID }
+    }
+
     /// An installed ASR model does not imply a selected synthesis model.
     public static func pickerID(activeRoles: [String: String], pendingID: String?) -> String {
         pendingID ?? activeRoles["tts"] ?? ""

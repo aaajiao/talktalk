@@ -7,12 +7,13 @@ struct EngineSynthesisSelectionTests {
     private let ming = "tts-ming3-0.5b-bf16"
     private let asr = "asr-qwen3-0.6b-8bit"
 
-    @Test func pickerOffersOnlyTheThreeSynthesisModels() {
-        #expect(EngineSynthesisSelection.models().map(\.key) == [qwen, smallQwen, ming])
-        #expect(EngineSynthesisSelection.models().allSatisfy { $0.role == "tts" })
-        #expect(EngineSynthesisSelection.models().map { EngineSynthesisSelection.title(for: $0) } == [
-            "Qwen3-TTS · 1.7B", "Qwen3-TTS · 0.6B", "Ming-3.0-TTS · 0.5B"
+    @Test func pickerOffersOnlyLocallyAvailableSynthesisModels() {
+        let choices = EngineSynthesisSelection.availableModels(readyModelIDs: [qwen, ming, asr], activeID: qwen)
+        #expect(choices.map(\.key) == [qwen, ming])
+        #expect(choices.map { EngineSynthesisSelection.title(for: $0) } == [
+            "Qwen3-TTS · 1.7B", "Ming-3.0-TTS · 0.5B"
         ])
+        #expect(EngineSynthesisSelection.availableModels(readyModelIDs: [], activeID: nil).isEmpty)
     }
 
     @Test func activeRoleWinsOverOtherDownloadedModels() {
@@ -56,6 +57,7 @@ struct EngineSynthesisSelectionTests {
 
     @Test func missingActiveSynthesisCanBeRepairedWithoutChangingOtherRoles() {
         let roles = ["tts": ming, "asr": asr]
+        #expect(EngineSynthesisSelection.availableModels(readyModelIDs: [qwen, asr], activeID: ming).map(\.key) == [qwen, ming])
         let repairable = EngineSynthesisSelection.canSelect(state: .incomplete(missing: [ming], bytes: 1024),
                                                              activeRoles: roles)
         #expect(repairable)

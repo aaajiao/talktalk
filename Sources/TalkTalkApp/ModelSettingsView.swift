@@ -122,6 +122,13 @@ struct ModelSettingsView: View {
             .id(SettingsAnchor.synthesis)
             Section {
                 SynthesisModelRows(model: engine)
+                if engine.synthesisModels.isEmpty {
+                    Button {
+                        navigation.open(.components, .components(.engine))
+                    } label: {
+                        Label(String(appLocalized: "安装与维护 · 语音资源"), systemImage: Icon.install)
+                    }
+                }
             } header: {
                 SectionHeader(String(appLocalized: "语音合成"), symbol: Icon.speech)
             }
