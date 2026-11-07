@@ -23,8 +23,8 @@ final class SpeakController {
         case meetingActive, unavailable, reason(String)
         var errorDescription: String? {
             switch self {
-            case .meetingActive: String(localized: "请先结束会议模式，再进行说话测试。")
-            case .unavailable: String(localized: "说话测试未能启动，请检查组件和输入监控权限。")
+            case .meetingActive: String(appLocalized: "请先结束会议模式，再进行说话测试。")
+            case .unavailable: String(appLocalized: "说话测试未能启动，请检查组件和输入监控权限。")
             case .reason(let message): message
             }
         }
@@ -162,7 +162,7 @@ final class SpeakController {
                         reply.resume(throwing: DemoFailure.meetingActive); continue
                     }
                     guard !selfTestRunning() else {
-                        reply.resume(throwing: DemoFailure.reason(String(localized: "请先结束自检，再进行说话测试。"))); continue
+                        reply.resume(throwing: DemoFailure.reason(String(appLocalized: "请先结束自检，再进行说话测试。"))); continue
                     }
                     await begin(demo: true)
                     if pipeline != nil { reply.resume() }
@@ -267,16 +267,16 @@ final class SpeakController {
                     && !systemInput.switcher.status.impliesRecord && systemInput.switcher.status != .otherInstanceManages
                 demoMicPreference = AppUIModels.shared.audio.micUID
                 guard let selected = demoMicrophone.begin(standaloneDemo: standalone, preferredMicUID: demoMicPreference) else {
-                    throw DemoFailure.reason(String(localized: "独立试说需要可用的内建或有线麦克风，并且没有会议正在管理系统输入。"))
+                    throw DemoFailure.reason(String(appLocalized: "独立试说需要可用的内建或有线麦克风，并且没有会议正在管理系统输入。"))
                 }
                 log.event("demo.mic_selected", ["transport": .tag(selected.transport)])
                 lockObserver = DistributedNotificationCenter.default().addObserver(
                     forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.stopDemo(reason: String(localized: "屏幕已锁定，说话测试已停止。")) }
+                    MainActor.assumeIsolated { self?.stopDemo(reason: String(appLocalized: "屏幕已锁定，说话测试已停止。")) }
                 }
                 demoWorkspaceObservers = [NSWorkspace.willSleepNotification, NSWorkspace.sessionDidResignActiveNotification].map { name in
                     NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                        MainActor.assumeIsolated { self?.stopDemo(reason: String(localized: "系统已暂停，说话测试已停止。")) }
+                        MainActor.assumeIsolated { self?.stopDemo(reason: String(appLocalized: "系统已暂停，说话测试已停止。")) }
                     }
                 }
                 if let device = CoreAudioOutputRouteSource().defaultOutput(),
@@ -460,7 +460,7 @@ final class SpeakController {
                             log.event("key.up", ["reason": .tag(String(describing: reason))], at: at)
                         case .cancelled(let at):
                             log.event("key.cancelled", at: at)
-                            if self?.demoActive == true { self?.onDemoStatus?(String(localized: "本次按键已取消，尚未完成收音。")) }
+                            if self?.demoActive == true { self?.onDemoStatus?(String(appLocalized: "本次按键已取消，尚未完成收音。")) }
                         case .tapped(let at): log.event("key.tap", at: at)
                         case .doubleTapped(let at): log.event("key.double_tap", at: at)
                         }
@@ -510,7 +510,7 @@ final class SpeakController {
                 Task { @MainActor in
                     guard let self, self.generation == token else { return }
                     if demo, event == .willSleep || event == .sessionResigned {
-                        self.stopDemo(reason: String(localized: "系统已暂停，说话测试已停止。"))
+                        self.stopDemo(reason: String(appLocalized: "系统已暂停，说话测试已停止。"))
                     } else { self.devicesChanged(event) }
                 }
             }
@@ -538,7 +538,7 @@ final class SpeakController {
             if demo { demoFailure = error.localizedDescription }
             await end()
             if !demo { meeting.phoneSpeechFailed(session) }
-            hud.show(String(localized: "说话链路未能启动，请检查组件和输入监控权限。"), .yellow,
+            hud.show(String(appLocalized: "说话链路未能启动，请检查组件和输入监控权限。"), .yellow,
                      label: titlebarLabel("说话链路未能启动"))
         }
         warming = false; onChange?()
@@ -588,7 +588,7 @@ final class SpeakController {
             if demoReady, !ready {
                 sessionLog?.event("demo.readiness_lost", ["feed": .bool(feedConfirmed),
                     "monitor": .tag(Self.monitorTag(output.monitor.selfListen)), "isolated": .bool(isolated)])
-                stopDemo(reason: isolated ? demoOutputProblem() : String(localized: "检测到通话或其他麦克风测试，请先结束后重试。"))
+                stopDemo(reason: isolated ? demoOutputProblem() : String(appLocalized: "检测到通话或其他麦克风测试，请先结束后重试。"))
             }
             keys.updateFacts(at: HostClock.now()) {
                 $0.meetingModeActive = false
@@ -638,13 +638,13 @@ final class SpeakController {
                 && !pendingVoice && inputReady && !phoneBoundary.resetPending
             let detail: String?
             if case .physicalMic = systemInput.micGuard.state.verdict {
-                detail = String(localized: "请在 Phone 的“音频 › 麦克风”选择“使用系统设置”或 TalkTalk Mic。")
+                detail = String(appLocalized: "请在 Phone 的“音频 › 麦克风”选择“使用系统设置”或 TalkTalk Mic。")
             } else if feedConfirmed, !inputReady {
-                detail = String(localized: "请开启自动接入系统输入，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。")
+                detail = String(appLocalized: "请开启自动接入系统输入，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。")
             } else if speaker == true {
-                detail = String(localized: "请使用耳机；外放时，原声发送会受回声保护限制。")
+                detail = String(appLocalized: "请使用耳机；外放时，原声发送会受回声保护限制。")
             } else if state.phoneAudioActive, speaker == nil {
-                detail = String(localized: "电话音频已接入，正在确认通话输出设备…")
+                detail = String(appLocalized: "电话音频已接入，正在确认通话输出设备…")
             } else { detail = nil }
             meeting.updatePhoneReadiness(ready, detail: detail)
         }
@@ -726,7 +726,7 @@ final class SpeakController {
             hud.meetingAudio(audio)
         }
         guard case .running = owner.state else {
-            report(.unavailable(reason: String(localized: "音频已暂停"))); return
+            report(.unavailable(reason: String(appLocalized: "音频已暂停"))); return
         }
         // A Phone reader change cancels current speech; its cleanup barrier is not a fault.
         if owner.mode == .phone, phoneBoundary.resetPending {
@@ -737,13 +737,13 @@ final class SpeakController {
         let audio = keys.meetingAudioSnapshot()
         if audio.held == false { translationRefusal = nil }
         guard output.isFeedAttached, feedConfirmed, mic?.state.capture == .open else {
-            report(startupWait.waiting(reason: String(localized: "正在等待音频就绪"), now: now)); return
+            report(startupWait.waiting(reason: String(appLocalized: "正在等待音频就绪"), now: now)); return
         }
         guard audio.hardwarePollFresh, audio.held != nil else {
-            report(startupWait.waiting(reason: String(localized: "正在等待按键监听恢复"), now: now)); return
+            report(startupWait.waiting(reason: String(appLocalized: "正在等待按键监听恢复"), now: now)); return
         }
         if case let .unavailable(reason) = audio.translationReadiness {
-            report(.unavailable(reason: reason.hudText ?? String(localized: "正在等待音频就绪")))
+            report(.unavailable(reason: reason.hudText ?? String(appLocalized: "正在等待音频就绪")))
         } else if let reason = translationRefusal, audio.held == true {
             report(.unavailable(reason: reason))
         } else if audio.originalOpen {
@@ -762,9 +762,9 @@ final class SpeakController {
             // This is normal progress, never a claim that raw audio is already flowing.
             report(.restoringOriginal)
         } else if case let .unavailable(reason) = audio.originalReadiness {
-            report(.unavailable(reason: reason.hudText ?? String(localized: "正在等待音频就绪")))
+            report(.unavailable(reason: reason.hudText ?? String(appLocalized: "正在等待音频就绪")))
         } else {
-            report(.unavailable(reason: String(localized: "正在等待音频就绪")))
+            report(.unavailable(reason: String(appLocalized: "正在等待音频就绪")))
         }
     }
 
@@ -778,7 +778,7 @@ final class SpeakController {
             hud.pushToTalk(p)
             if demoActive {
                 switch p {
-                case .holding: onDemoStatus?(String(localized: "翻译收音中，再按右⌥结束。"))
+                case .holding: onDemoStatus?(String(appLocalized: "翻译收音中，再按右⌥结束。"))
                 case .idle: break
                 default: break
                 }
@@ -882,8 +882,8 @@ final class SpeakController {
         let prefs = TranslationPreferences.load(.standard)
         let cloud = prefs.cloudConsentGiven && (prefs.listenCloudEnabled || prefs.speakCloudEnabled)
         if (sessionTarget ?? state.speakLanguage.lang) == .zh {
-            return String(localized: "我正在使用实时机器翻译和合成声音。")
-                + (cloud ? String(localized: "说话内容会以文字发送给 OpenAI 进行翻译。") : "")
+            return "我正在使用实时机器翻译和合成声音。" // l10n-ignore
+                + (cloud ? "说话内容会以文字发送给 OpenAI 进行翻译。" : "") // l10n-ignore
         }
         if (sessionTarget ?? state.speakLanguage.lang) == .de {
             return "Ich nutze maschinelle Live-Übersetzung und eine synthetische Stimme."
@@ -935,11 +935,11 @@ final class SpeakController {
     }
 
     private func checkDemoIsolation() throws {
-        if demoStopRequested { throw DemoFailure.reason(demoFailure ?? String(localized: "说话测试已停止。")) }
+        if demoStopRequested { throw DemoFailure.reason(demoFailure ?? String(appLocalized: "说话测试已停止。")) }
         let hal = CoreAudioDriverHAL()
         guard let mic = hal.device(uid: DriverIdentity.micUID), mic.isAlive,
               !mic.isRunningSomewhere, hal.meetingMode() == false else {
-            throw DemoFailure.reason(String(localized: "请先结束通话或其他 App 的麦克风测试，再进行说话测试。"))
+            throw DemoFailure.reason(String(appLocalized: "请先结束通话或其他 App 的麦克风测试，再进行说话测试。"))
         }
     }
 
@@ -957,16 +957,16 @@ final class SpeakController {
               let device = AudioDeviceCatalog.defaultOutput(),
               demoMicrophone.recoverBluetoothOutput(transport: device.transport, sampleRate: device.nominalSampleRate) else { return }
         sessionLog?.event("demo.input_selected", ["previous_output_rate": .double(device.nominalSampleRate)])
-        onDemoStatus?(String(localized: "已自动使用内建或有线麦克风，正在等待耳机恢复播放。试说结束后会恢复原输入。"))
+        onDemoStatus?(String(appLocalized: "已自动使用内建或有线麦克风，正在等待耳机恢复播放。试说结束后会恢复原输入。"))
     }
 
     private static func pressRefusal(_ reason: PushToTalkKey.BlockReason) -> String {
         switch reason {
-        case .secureInput: String(localized: "安全输入正在阻止按键监听。请离开密码输入框后重试。")
-        case .awaitingAudioConfirmation: String(localized: "按键监听或音频尚未就绪，请检查输入监控权限和耳机。")
-        case .noMeetingReader: String(localized: "没有可用的实体麦克风，请在设置 › 音频中检查。")
-        case .meetingUsesPhysicalMic: String(localized: "会议 App 正在使用实体麦克风。")
-        case .notInSession: String(localized: "说话测试尚未启动。")
+        case .secureInput: String(appLocalized: "安全输入正在阻止按键监听。请离开密码输入框后重试。")
+        case .awaitingAudioConfirmation: String(appLocalized: "按键监听或音频尚未就绪，请检查输入监控权限和耳机。")
+        case .noMeetingReader: String(appLocalized: "没有可用的实体麦克风，请在设置 › 音频中检查。")
+        case .meetingUsesPhysicalMic: String(appLocalized: "会议 App 正在使用实体麦克风。")
+        case .notInSession: String(appLocalized: "说话测试尚未启动。")
         }
     }
 
@@ -982,15 +982,15 @@ final class SpeakController {
     }
     private func demoOutputProblem() -> String {
         guard output.isFeedAttached else {
-            return String(localized: "虚拟麦克风输出没有连接：\(output.lastFailure ?? "Feed unavailable")")
+            return String(appLocalized: "虚拟麦克风输出没有连接：\(output.lastFailure ?? "Feed unavailable")")
         }
         switch output.monitor.selfListen {
-        case .audible: return String(localized: "输出状态已变化，请重新开始说话测试。")
-        case .off: return String(localized: "自听尚未启用，请重新开始说话测试。")
-        case .noOutput: return String(localized: "自听输出没有连接：\(output.monitor.stats.lastFailure ?? "No output")")
-        case .notHeadphones: return String(localized: "请在设置 › 音频中确认当前输出是耳机。")
-        case .meetingSpeaker: return String(localized: "自听被外放状态停用，请检查会议输出。")
-        case .sampleRate(let rate): return String(localized: "耳机当前采样率为 \(Int(rate)) Hz，自听需要 48000 Hz。请关闭其他 App 对蓝牙麦克风的使用后重试。")
+        case .audible: return String(appLocalized: "输出状态已变化，请重新开始说话测试。")
+        case .off: return String(appLocalized: "自听尚未启用，请重新开始说话测试。")
+        case .noOutput: return String(appLocalized: "自听输出没有连接：\(output.monitor.stats.lastFailure ?? "No output")")
+        case .notHeadphones: return String(appLocalized: "请在设置 › 音频中确认当前输出是耳机。")
+        case .meetingSpeaker: return String(appLocalized: "自听被外放状态停用，请检查会议输出。")
+        case .sampleRate(let rate): return String(appLocalized: "耳机当前采样率为 \(Int(rate)) Hz，自听需要 48000 Hz。请关闭其他 App 对蓝牙麦克风的使用后重试。")
         }
     }
 

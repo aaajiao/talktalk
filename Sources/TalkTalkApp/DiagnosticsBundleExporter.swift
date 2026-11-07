@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 import TalkTalkAudio
 import TalkTalkCore
@@ -12,7 +13,7 @@ import TalkTalkCore
 /// KeychainSecret is not used here at all). The staging tree lives in a 0700 temporary directory
 /// and is removed in every case.
 struct DiagnosticsBundleExporter {
-    struct Result: Equatable {
+    struct Result: Equatable, Sendable {
         var destination: URL
         var files: Int
         var droppedLines: Int
@@ -25,8 +26,8 @@ struct DiagnosticsBundleExporter {
 
         var description: String {
             switch self {
-            case let .secretFound(paths): "诊断包里出现了像 key 的内容（\(paths.joined(separator: ", "))），已删除，没有导出。"
-            case let .zipFailed(code): "打包失败（ditto 退出码 \(code)）。"
+            case let .secretFound(paths): String(appLocalized: "诊断包里出现了像 key 的内容（\(paths.joined(separator: ", "))），已删除，没有导出。")
+            case let .zipFailed(code): String(appLocalized: "打包失败（ditto 退出码 \(code)）。")
             }
         }
     }

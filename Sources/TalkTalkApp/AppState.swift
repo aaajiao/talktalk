@@ -345,6 +345,8 @@ final class AppState {
     var meetingApp: String?
     /// The current LISTEN hint (e.g. 会议当前没有声音, 会议似乎已结束).
     var meetingHint: String?
+    /// Semantic identity is independent of the localized or scenario-specific display text.
+    var meetingHintKind: MeetingSession.Hint?
     var meetingStarting = false
     var meetingStopping = false
     /// Includes standalone SPEAK demos and their asynchronous startup/shutdown. Mirrored by

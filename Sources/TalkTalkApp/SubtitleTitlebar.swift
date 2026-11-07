@@ -76,8 +76,8 @@ final class SubtitleTitlebarView: NSView {
         phone.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.openPhone, size: 11, weight: .medium)
         phone.title = "Phone"
         phone.imagePosition = .imageLeading
-        phone.setAccessibilityLabel(String(localized: "打开 Phone"))
-        phone.toolTip = String(localized: "在 Phone 中拨号、接听或挂断电话。")
+        phone.setAccessibilityLabel(String(appLocalized: "打开 Phone"))
+        phone.toolTip = String(appLocalized: "在 Phone 中拨号、接听或挂断电话。")
         phone.target = self
         phone.action = #selector(phonePressed)
         divider.wantsLayer = true
@@ -136,7 +136,7 @@ final class SubtitleTitlebarView: NSView {
         language.title = next.languageTitle ?? ""
         language.imagePosition = nextCompaction.level < 2 ? .noImage : .imageOnly
         language.toolTip = next.languageDetail ?? next.languageTitle
-        language.setAccessibilityLabel(String(localized: "语言设置"))
+        language.setAccessibilityLabel(String(appLocalized: "语言设置"))
         language.setAccessibilityValue(next.languageDetail ?? next.languageTitle)
         if let voice = next.voice { capsule.apply(voice, full: nextCompaction.showsFullCapsule, display: nextDisplay) }
         capsule.isHidden = next.voice == nil
@@ -155,13 +155,15 @@ final class SubtitleTitlebarView: NSView {
         cloud.isHidden = !showsCloud
         if let key = next.key { keycap.apply(key, showsAction: nextCompaction.showsKeyAction, display: nextDisplay) }
         keycap.isHidden = next.key == nil
+        phone.setAccessibilityLabel(String(appLocalized: "打开 Phone"))
+        cloud.refreshAppLanguage()
         phone.isHidden = !next.showsPhone
         phone.isEnabled = next.phoneEnabled
         phone.imagePosition = nextCompaction.showsPhoneText ? .imageLeading : .imageOnly
         // Icon-only, the glyph alone does not say "Phone": the tooltip names it.
         phone.toolTip = nextCompaction.showsPhoneText
-            ? String(localized: "在 Phone 中拨号、接听或挂断电话。")
-            : String(localized: "打开 Phone：在 Phone 中拨号、接听或挂断电话。")
+            ? String(appLocalized: "在 Phone 中拨号、接听或挂断电话。")
+            : String(appLocalized: "打开 Phone：在 Phone 中拨号、接听或挂断电话。")
         more.isHidden = !next.showsMore
         more.apply(display: nextDisplay)
         end.isHidden = !next.showsEnd
@@ -310,7 +312,7 @@ final class SubtitleTitleView: NSView {
                 .font: NSFont.systemFont(ofSize: ControlTypography.titleVideoSource, weight: .semibold),
                 .foregroundColor: SubtitleStyle.color(.textPrimary, display: display),
             ])
-            let full = String(localized: "视频字幕 · \(source)")
+            let full = String(appLocalized: "视频字幕 · \(source)")
             label.toolTip = full
             setAccessibilityElement(true)
             setAccessibilityRole(.staticText)
@@ -459,9 +461,13 @@ final class CloudPrivacyView: TitlebarControl {
         dot.backgroundColor = SubtitleStyle.color(.voiceTranslate).cgColor
         dot.cornerRadius = SubtitleTokens.Size.cloudDotSize / 2
         layer?.addSublayer(dot)
-        setAccessibilityLabel(String(localized: "云端翻译已开启"))
-        setAccessibilityHelp(String(localized: "待翻译的文字会发送给 OpenAI。"))
-        toolTip = String(localized: "云端翻译已开启：待翻译的文字会发送给 OpenAI。")
+        refreshAppLanguage()
+    }
+
+    func refreshAppLanguage() {
+        setAccessibilityLabel(String(appLocalized: "云端翻译已开启"))
+        setAccessibilityHelp(String(appLocalized: "待翻译的文字会发送给 OpenAI。"))
+        toolTip = String(appLocalized: "云端翻译已开启：待翻译的文字会发送给 OpenAI。")
     }
 
     required init?(coder: NSCoder) { nil }
@@ -543,14 +549,16 @@ final class MoreMenuButton: TitlebarControl {
         layer?.cornerRadius = SubtitleTokens.Radius.chip
         // VoiceOver announces that it opens a menu.
         setAccessibilityRole(.menuButton)
-        setAccessibilityLabel(String(localized: "字幕窗口选项"))
-        toolTip = String(localized: "字幕窗口选项：锁定字幕位置")
+        setAccessibilityLabel(String(appLocalized: "字幕窗口选项"))
+        toolTip = String(appLocalized: "字幕窗口选项：锁定字幕位置")
         hoverChanged()
     }
 
     required init?(coder: NSCoder) { nil }
 
     func apply(display next: SubtitleStyle.Display) {
+        setAccessibilityLabel(String(appLocalized: "字幕窗口选项"))
+        toolTip = String(appLocalized: "字幕窗口选项：锁定字幕位置")
         guard next != display else { return }
         display = next
         hoverChanged()

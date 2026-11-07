@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import AppKit
 import Observation
 import TalkTalkApple
@@ -28,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let smokeOut: String?
     private let isSmoke: Bool
     private var quitting = false
+    private var languageObserver: NSObjectProtocol?
 
     init(smoke: Bool, smokeOut: String?) {
         isSmoke = smoke
@@ -47,6 +49,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         app.setActivationPolicy(.accessory)
         app.run()
         exit(0)
+    }
+
+    private func refreshAppLanguage() {
+        NSApp.mainMenu = MainMenu.make(settingsTarget: self)
+        settings?.refreshAppLanguage()
+        onboarding?.refreshAppLanguage()
+        meeting?.refreshAppLanguage()
+        hud.refreshAppLanguage()
+        conversationPanel.refreshAppLanguage()
+        statusItem?.refreshAppLanguage()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -237,6 +249,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.syncEndHelp()
         }
         syncEndHelp()
+        languageObserver = NotificationCenter.default.addObserver(
+            forName: AppLanguageStore.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshAppLanguage() }
+        }
 
         DistributedNotificationCenter.default().addObserver(
             forName: SingleInstance.reopenNotification, object: nil, queue: .main) { [weak self] _ in
@@ -247,7 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { [state, isSmoke] in
             if !isSmoke { await AppleSpeechASR.reserveInstalledLocales() }   // the smoke run changes nothing
             let r = await AppleStartupCheckItem().run()
-            state.appleCheck = r.level == .ok ? nil : "Apple：" + r.summary
+            state.appleCheck = r.level == .ok ? nil : String(appLocalized: "Apple：\(r.summary)")
         }
 
         // The installer (onboarding step 4, Settings › 组件) changed the installation: build or
@@ -430,8 +446,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let panel = meeting?.panel {
                 // The subtitle panel's configuration (§11), with a sample board; no audio involved.
                 panel.apply(.source("so the budget for next year"))
-                panel.apply(.final(sentence: 1, text: "明年的预算", source: "the budget for next year", approx: true, numberWarning: false))
-                panel.apply(.draft(sentence: 2, text: "草稿"))
+                panel.apply(.final(sentence: 1, text: "明年的预算", source: "the budget for next year", approx: true, numberWarning: false)) // l10n-ignore
+                panel.apply(.draft(sentence: 2, text: "草稿")) // l10n-ignore
                 panel.beginSession()
                 panel.setVisible(true)
                 let cb = panel.collectionBehavior
@@ -448,7 +464,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 hud.meetingStarted()
                 hud.setPushToTalkAvailable(true)
                 hud.meetingAudio(.translating)
-                hud.transcript(.init(press: 1, source: "明天讨论 API 的预算。", target: "We will discuss the API budget tomorrow.", isFinal: false))
+                hud.transcript(.init(press: 1, source: "明天讨论 API 的预算。", target: "We will discuss the API budget tomorrow.", isFinal: false)) // l10n-ignore
                 hud.pushToTalk(.holding(level: 0.4, preview: "", committed: [], queued: 0))
                 hud.renderForSmoke()
                 var combined: [String: Any] = [
@@ -468,7 +484,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 hud.renderForSmoke()
                 combined["original_hides_draft"] = hud.transcriptSourceForSmoke == nil
                 hud.meetingAudio(.translating)
-                hud.transcript(.init(press: 1, source: "明天讨论 API 的预算。", target: "We will discuss the API budget tomorrow.", isFinal: true))
+                hud.transcript(.init(press: 1, source: "明天讨论 API 的预算。", target: "We will discuss the API budget tomorrow.", isFinal: true)) // l10n-ignore
                 hud.renderForSmoke()
                 panel.setVisible(false)
                 hud.setSubtitlesVisible(false)
@@ -518,7 +534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Keep the established risk/details fixture when no scene or speaking sample is asked for.
         guard requested != nil || speaking else {
             hud.pushToTalk(.idle)
-            hud.meetingAudio(.unavailable(reason: "会议仍在使用实体麦"))
+            hud.meetingAudio(.unavailable(reason: String(appLocalized: "会议仍在使用实体麦")))
             hud.post(.remoteHearsYourVoice)
             hud.setSubtitlesVisible(true)
             hud.renderForSmoke()
@@ -531,8 +547,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.clear(includingMyTurns: true)
         panel.setPresentation(scene)
         panel.setSourceName(scene == .video ? "Safari" : scene == .phone ? "Phone" : "Google Meet")
-        panel.setRemoteLanguageTitle("英语")
-        panel.setPhoneContext(scene == .phone ? "界面预览（无音频）" : nil)
+        panel.setRemoteLanguageTitle(Lang.en.title)
+        panel.setPhoneContext(scene == .phone ? String(appLocalized: "界面预览（无音频）") : nil)
         panel.setPhoneActionsEnabled(true)
         panel.setClickThroughLocked(false)
         panel.setVideoQuietDimEnabled(false)
@@ -543,15 +559,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hud.meetingAudio(scene == .video ? nil : speaking ? .translating : .original)
         hud.pushToTalk(speaking ? .holding(level: 0.4, preview: "", committed: [], queued: 0) : .idle)
         if speaking {
-            hud.transcript(.init(press: 2, source: "我们可以先确认时间，再讨论展览的具体安排。",
+            hud.transcript(.init(press: 2, source: "我们可以先确认时间，再讨论展览的具体安排。", // l10n-ignore
                                  target: "Let's confirm the time first, then discuss the exhibition arrangements.", isFinal: false))
         }
         let source = scene == .video
             ? "Tomorrow we will explore how artists use sound and moving images to shape a shared space."
             : "We can review the exhibition schedule together and confirm the details tomorrow."
         let translation = scene == .video
-            ? "明天我们将探讨艺术家如何用声音与影像，构建一个共同的空间。"
-            : "我们可以一起查看展览日程，明天再确认具体安排。"
+            ? "明天我们将探讨艺术家如何用声音与影像，构建一个共同的空间。" // l10n-ignore
+            : "我们可以一起查看展览日程，明天再确认具体安排。" // l10n-ignore
         panel.apply(.final(sentence: 1, text: translation, source: source, approx: false, numberWarning: false))
         hud.setSubtitlesVisible(true)
         hud.renderForSmoke()
@@ -577,7 +593,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         o.show()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [self] in
             var r = result
-            let w = NSApp.windows.first { $0.isVisible && $0.title == "欢迎使用 TalkTalk" }
+            let w = NSApp.windows.first { $0.isVisible && $0.title == String(appLocalized: "欢迎使用 TalkTalk") }
             let shown = model.step
             let visited = [first].compactMap { $0 } + model.devFinish()
             r["onboarding_window"] = [
@@ -607,37 +623,37 @@ enum MainMenu {
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "关于 TalkTalk", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: String(appLocalized: "关于 TalkTalk"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
         appMenu.addItem(.separator())
-        let settings = NSMenuItem(title: "设置…", action: #selector(AppDelegate.openSettings(_:)), keyEquivalent: ",")
+        let settings = NSMenuItem(title: String(appLocalized: "设置…"), action: #selector(AppDelegate.openSettings(_:)), keyEquivalent: ",")
         settings.target = settingsTarget
         appMenu.addItem(settings)
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "隐藏 TalkTalk", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
-        let hideOthers = NSMenuItem(title: "隐藏其他", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        appMenu.addItem(NSMenuItem(title: String(appLocalized: "隐藏 TalkTalk"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        let hideOthers = NSMenuItem(title: String(appLocalized: "隐藏其他"), action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
         hideOthers.keyEquivalentModifierMask = [.command, .option]
         appMenu.addItem(hideOthers)
-        appMenu.addItem(NSMenuItem(title: "全部显示", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: String(appLocalized: "全部显示"), action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "退出 TalkTalk", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: String(appLocalized: "退出 TalkTalk"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appItem.submenu = appMenu
         main.addItem(appItem)
 
         let editItem = NSMenuItem()
-        let edit = NSMenu(title: "编辑")
-        edit.addItem(NSMenuItem(title: "撤销", action: Selector(("undo:")), keyEquivalent: "z"))
-        edit.addItem(NSMenuItem(title: "重做", action: Selector(("redo:")), keyEquivalent: "Z"))
+        let edit = NSMenu(title: String(appLocalized: "编辑"))
+        edit.addItem(NSMenuItem(title: String(appLocalized: "撤销"), action: Selector(("undo:")), keyEquivalent: "z"))
+        edit.addItem(NSMenuItem(title: String(appLocalized: "重做"), action: Selector(("redo:")), keyEquivalent: "Z"))
         edit.addItem(.separator())
-        edit.addItem(NSMenuItem(title: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
-        edit.addItem(NSMenuItem(title: "拷贝", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
-        edit.addItem(NSMenuItem(title: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
-        edit.addItem(NSMenuItem(title: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        edit.addItem(NSMenuItem(title: String(appLocalized: "剪切"), action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        edit.addItem(NSMenuItem(title: String(appLocalized: "拷贝"), action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        edit.addItem(NSMenuItem(title: String(appLocalized: "粘贴"), action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        edit.addItem(NSMenuItem(title: String(appLocalized: "全选"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
         editItem.submenu = edit
         main.addItem(editItem)
 
         let windowItem = NSMenuItem()
-        let window = NSMenu(title: "窗口")
-        window.addItem(NSMenuItem(title: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        let window = NSMenu(title: String(appLocalized: "窗口"))
+        window.addItem(NSMenuItem(title: String(appLocalized: "关闭"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
         windowItem.submenu = window
         main.addItem(windowItem)
         return main

@@ -49,7 +49,7 @@ final class GlossarySettingsModel {
             result = nil
             showsMissing = false
         } catch {
-            result = SettingsProblem(.failed, String(localized: "读取失败"), help: error.localizedDescription)
+            result = SettingsProblem(.failed, String(appLocalized: "读取失败"), help: error.localizedDescription)
         }
     }
     func add() { guard rows.count < GlossaryStore.limit else { return }; rows.append(Row(entry: .init(zh: "", en: "", de: ""))) }
@@ -60,13 +60,13 @@ final class GlossarySettingsModel {
             // The store trims; the rows keep their ids (and focus) and take the saved text.
             saved = store.snapshot()
             for index in rows.indices where index < saved.count { rows[index].entry = saved[index] }
-            result = SettingsProblem(.ok, String(localized: "已保存"), help: String(localized: "下次翻译请求生效"))
+            result = SettingsProblem(.ok, String(appLocalized: "已保存"), help: String(appLocalized: "下次翻译请求生效"))
             showsMissing = false
         } catch GlossaryStore.Failure.missingTerm {
-            result = SettingsProblem(.warn, String(localized: "需中文 + 至少一种译法"))
+            result = SettingsProblem(.warn, String(appLocalized: "需中文 + 至少一种译法"))
             showsMissing = true
         } catch {
-            result = SettingsProblem(.failed, String(localized: "保存失败"), help: error.localizedDescription)
+            result = SettingsProblem(.failed, String(appLocalized: "保存失败"), help: error.localizedDescription)
         }
     }
 }
@@ -116,24 +116,24 @@ struct GlossarySettingsView: View {
     private var hero: some View {
         let count = model.rows.count
         let limit = GlossaryStore.limit
-        return PageHero(String(localized: "术语表"), symbol: Icon.Page.glossary,
-                        help: String(localized: "也帮助识别中英混说")) {
+        return PageHero(String(appLocalized: "术语表"), symbol: Icon.Page.glossary,
+                        help: String(appLocalized: "也帮助识别中英混说")) {
             Text(verbatim: "\(count) / \(limit)")
                 .font(.body.weight(.semibold))
                 .monospacedDigit()
-                .accessibilityLabel(String(localized: "\(count) 条术语，最多 \(limit) 条"))
+                .accessibilityLabel(String(appLocalized: "\(count) 条术语，最多 \(limit) 条"))
             if let result = model.currentResult {
                 StatusLabel(result.text, result.status, help: result.help)
             }
             if cloudTranslation {
-                FactChip.cloud(String(localized: "云端翻译时发给 OpenAI"), help: String(localized: "术语随要翻译的文字一起发出"),
-                               spoken: String(localized: "启用云端翻译时，术语随文字发送给 OpenAI"))
+                FactChip.cloud(String(appLocalized: "云端翻译时发给 OpenAI"), help: String(appLocalized: "术语随要翻译的文字一起发出"),
+                               spoken: String(appLocalized: "启用云端翻译时，术语随文字发送给 OpenAI"))
             } else {
-                FactChip(String(localized: "仅本机"), symbol: Icon.privacyPromise,
-                         help: String(localized: "未启用云端翻译，术语不发出"))
+                FactChip(String(appLocalized: "仅本机"), symbol: Icon.privacyPromise,
+                         help: String(appLocalized: "未启用云端翻译，术语不发出"))
             }
         } trailing: {
-            IconButton(Icon.add, help: String(localized: "添加术语")) { model.add() }
+            IconButton(Icon.add, help: String(appLocalized: "添加术语")) { model.add() }
                 .disabled(count >= limit)
             if model.hasUnsavedChanges {
                 Button("保存") { model.save() }.buttonStyle(.borderedProminent)
@@ -179,14 +179,14 @@ struct GlossarySettingsView: View {
         let term = entry.zh.trimmingCharacters(in: .whitespaces)
         return HStack(spacing: 8) {
             Color.clear.frame(width: Ladder.rowColumn, height: 1)
-            field(String(localized: "中文"), text: row.entry.zh, missing: model.showsMissing && entry.lacksChinese)
-            field(String(localized: "英语"), text: row.entry.en, missing: model.showsMissing && entry.lacksTranslation)
-            field(String(localized: "德语"), text: row.entry.de, missing: model.showsMissing && entry.lacksTranslation)
-            field(String(localized: "备注"), text: Binding(get: { row.wrappedValue.entry.note ?? "" },
+            field(String(appLocalized: "中文"), text: row.entry.zh, missing: model.showsMissing && entry.lacksChinese)
+            field(String(appLocalized: "英语"), text: row.entry.en, missing: model.showsMissing && entry.lacksTranslation)
+            field(String(appLocalized: "德语"), text: row.entry.de, missing: model.showsMissing && entry.lacksTranslation)
+            field(String(appLocalized: "备注"), text: Binding(get: { row.wrappedValue.entry.note ?? "" },
                                                          set: { row.wrappedValue.entry.note = $0.isEmpty ? nil : $0 }),
-                  prompt: String(localized: "备注"), missing: false)
-            IconButton(Icon.remove, help: String(localized: "删除这条术语"),
-                       accessibilityLabel: term.isEmpty ? String(localized: "删除这条术语") : String(localized: "删除术语“\(term)”"),
+                  prompt: String(appLocalized: "备注"), missing: false)
+            IconButton(Icon.remove, help: String(appLocalized: "删除这条术语"),
+                       accessibilityLabel: term.isEmpty ? String(appLocalized: "删除这条术语") : String(appLocalized: "删除术语“\(term)”"),
                        isDestructive: true) {
                 model.remove(row.wrappedValue.id)
             }
@@ -209,6 +209,6 @@ struct GlossarySettingsView: View {
                 }
             }
             .accessibilityLabel(label)
-            .accessibilityHint(missing ? String(localized: "必填") : "")
+            .accessibilityHint(missing ? String(appLocalized: "必填") : "")
     }
 }

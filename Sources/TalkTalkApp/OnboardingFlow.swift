@@ -114,11 +114,11 @@ final class OnboardingFlowModel {
 
     /// The header's title for the chosen path.
     var pathTitle: String {
-        if choosingScenarios { return String(localized: "开始使用 TalkTalk") }
+        if choosingScenarios { return String(appLocalized: "开始使用 TalkTalk") }
         let chosen = state.scenarios ?? Set(OnboardingScenario.allCases)
-        if OnboardingScenario.isVideoOnly(chosen) { return String(localized: "准备视频字幕") }
-        if !chosen.contains(.meeting), chosen.contains(.phone) { return String(localized: "准备电话同传") }
-        return String(localized: "准备会议同传")
+        if OnboardingScenario.isVideoOnly(chosen) { return String(appLocalized: "准备视频字幕") }
+        if !chosen.contains(.meeting), chosen.contains(.phone) { return String(appLocalized: "准备电话同传") }
+        return String(appLocalized: "准备会议同传")
     }
 
     /// The scenario the done page opens first: the first one chosen.
@@ -339,12 +339,12 @@ final class OnboardingFlowModel {
             v = .granted
         case .denied:
             v = .denied
-            probeResult = SettingsProblem(.failed, String(localized: "系统录音被拒绝"),
-                                          help: String(localized: "在“隐私与安全性 › 录屏与系统录音”里允许"))
+            probeResult = SettingsProblem(.failed, String(appLocalized: "系统录音被拒绝"),
+                                          help: String(appLocalized: "在“隐私与安全性 › 录屏与系统录音”里允许"))
         case .inconclusive:
             v = .inconclusive
-            probeResult = SettingsProblem(.warn, String(localized: "未确认 · 开始时再查"),
-                                          help: String(localized: "探针没听到声音；可继续，开始时再查"))
+            probeResult = SettingsProblem(.warn, String(appLocalized: "未确认 · 开始时再查"),
+                                          help: String(appLocalized: "探针没听到声音；可继续，开始时再查"))
         }
         facts.systemAudioProbe = v
         state.recordSystemAudioProbe(v)
@@ -371,7 +371,7 @@ final class OnboardingFlowModel {
             Task {
                 do {
                     try await AppleSpeechASR.installAssets(l)
-                    assets[l] = await AppleSpeechASR.assetsInstalled(l) ? .installed : .failed(String(localized: "没有装上"))
+                    assets[l] = await AppleSpeechASR.assetsInstalled(l) ? .installed : .failed(String(appLocalized: "没有装上"))
                 } catch {
                     assets[l] = .failed(error.localizedDescription)
                 }
@@ -481,7 +481,7 @@ final class ListenDemo {
     func start() {
         guard phase != .preparing, phase != .playing else { return }
         guard canStart() else {
-            phase = .failed(String(localized: "请先结束当前收听，再播放示例。"))
+            phase = .failed(String(appLocalized: "请先结束当前收听，再播放示例。"))
             return
         }
         let id = UUID()
@@ -536,7 +536,7 @@ final class ListenDemo {
             guard current(id) else { return await abandon() }
             guard let panel else {
                 throw NSError(domain: "TalkTalk.Onboarding", code: 1,
-                              userInfo: [NSLocalizedDescriptionKey: String(localized: "字幕窗口尚未就绪")])
+                              userInfo: [NSLocalizedDescriptionKey: String(appLocalized: "字幕窗口尚未就绪")])
             }
             let player = try AVAudioPlayer(data: wavData)
             self.player = player
@@ -567,7 +567,7 @@ final class ListenDemo {
             if current(id), phase == .playing { phase = .done }
         } catch {
             await abandon()
-            if current(id) { phase = .failed(String(localized: "示例没能播放：\(error.localizedDescription)")) }
+            if current(id) { phase = .failed(String(appLocalized: "示例没能播放：\(error.localizedDescription)")) }
         }
     }
 
@@ -660,11 +660,15 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
 
     func close() { window?.close() }
 
+    func refreshAppLanguage() {
+        window?.title = String(appLocalized: "欢迎使用 TalkTalk")
+    }
+
     private func make() -> NSWindow {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 600),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        w.title = String(localized: "欢迎使用 TalkTalk")
-        let host = NSHostingView(rootView: OnboardingView(model: model))
+        w.title = String(appLocalized: "欢迎使用 TalkTalk")
+        let host = NSHostingView(rootView: OnboardingView(model: model).appLanguage())
         host.sizingOptions = []          // same reason as the settings window
         w.contentView = host
         w.contentMinSize = NSSize(width: 700, height: 560)
@@ -712,8 +716,8 @@ struct OnboardingView: View {
                 Spacer()
                 if model.checking {
                     StatusGlyph(.busy)
-                        .help(String(localized: "正在检查"))
-                        .accessibilityLabel(String(localized: "正在检查"))
+                        .help(String(appLocalized: "正在检查"))
+                        .accessibilityLabel(String(appLocalized: "正在检查"))
                 }
             }
             // The indicator shows the position; "第 N 步，共 M 步" is its VoiceOver value.
@@ -737,7 +741,7 @@ struct OnboardingView: View {
                     }
                 }
                 .accessibilityElement(children: .contain)
-                .accessibilityLabel(String(localized: "引导步骤"))
+                .accessibilityLabel(String(appLocalized: "引导步骤"))
                 .accessibilityValue(model.progress?.text ?? "")
             }
         }
@@ -751,15 +755,15 @@ struct OnboardingView: View {
         typealias O = SubtitleTokens.OnboardingIcon
         let quiet = AnyShapeStyle(Color.secondary.opacity(0.12))
         if step == model.step {
-            return (nil, AnyShapeStyle(Color.white), AnyShapeStyle(Color.accentColor), String(localized: "当前步骤"))
+            return (nil, AnyShapeStyle(Color.white), AnyShapeStyle(Color.accentColor), String(appLocalized: "当前步骤"))
         }
         if model.state.skipped.contains(step) {
-            return (O.stepSkipped, AnyShapeStyle(.secondary), quiet, String(localized: "已略过，可稍后设置"))
+            return (O.stepSkipped, AnyShapeStyle(.secondary), quiet, String(appLocalized: "已略过，可稍后设置"))
         }
         if let current = model.step, step < current {
-            return (O.stepPassed, AnyShapeStyle(.secondary), quiet, String(localized: "已走过此步骤"))
+            return (O.stepPassed, AnyShapeStyle(.secondary), quiet, String(appLocalized: "已走过此步骤"))
         }
-        return (nil, AnyShapeStyle(.tertiary), quiet, String(localized: "后续步骤"))
+        return (nil, AnyShapeStyle(.tertiary), quiet, String(appLocalized: "后续步骤"))
     }
 
     @ViewBuilder private var page: some View {
@@ -785,7 +789,7 @@ struct OnboardingView: View {
             if model.choosingScenarios {
                 Button("稍后设置") { model.onFinish?() }
                     .keyboardShortcut(.cancelAction)
-                    .help(String(localized: "关闭引导，可从菜单开始视频字幕"))
+                    .help(String(appLocalized: "关闭引导，可从菜单开始视频字幕"))
                 Spacer()
                 Button("继续") { model.confirmScenarios() }
                     .buttonStyle(.borderedProminent)
@@ -803,11 +807,11 @@ struct OnboardingView: View {
         if model.step == .permissions {
             Button("稍后设置") { model.onFinish?() }
                 .keyboardShortcut(.cancelAction)
-                .help(String(localized: "关闭引导，可从菜单开始视频字幕"))
+                .help(String(appLocalized: "关闭引导，可从菜单开始视频字幕"))
         }
         Spacer()
         if let s = model.step, s.skippable, s != .openAI, s != .tryIt {
-            Button(s == .meetingMic ? String(localized: "稍后核验") : String(localized: "跳过")) { model.skip() }
+            Button(s == .meetingMic ? String(appLocalized: "稍后核验") : String(appLocalized: "跳过")) { model.skip() }
         }
         switch model.step {
         case .tryIt?:
@@ -816,7 +820,7 @@ struct OnboardingView: View {
             // Optional: 稍后设置 moves on without a key; 继续 once the key passed both checks.
             let verified = model.translation.model.map(OpenAIOnboardingStep.canContinue) ?? false
             Button("稍后设置") { model.skip() }
-                .help(String(localized: "没有 key 时两个方向都用 Apple"))
+                .help(String(appLocalized: "没有 key 时两个方向都用 Apple"))
             Button("继续") { Task { await model.refresh(); model.next() } }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(verified ? .defaultAction : nil)
@@ -824,7 +828,7 @@ struct OnboardingView: View {
         case nil:
             Button("关闭") { model.onFinish?() }
                 .keyboardShortcut(.cancelAction)
-                .help(String(localized: "可从 设置 › 通用 › 使用引导… 再打开"))
+                .help(String(appLocalized: "可从 设置 › 通用 › 使用引导… 再打开"))
             Button("打开使用场景") { model.openScenario?(model.primaryScenario) }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
@@ -879,15 +883,15 @@ private struct GrantRow: View {
             .help(help)
             Spacer(minLength: 8)
             if busy {
-                StatusGlyph(.busy).help(String(localized: "正在检查")).accessibilityLabel(String(localized: "正在检查"))
+                StatusGlyph(.busy).help(String(appLocalized: "正在检查")).accessibilityLabel(String(appLocalized: "正在检查"))
             }
             switch status {
             case .granted:
-                StatusGlyph(.ok).help(String(localized: "已允许")).accessibilityLabel(String(localized: "已允许"))
+                StatusGlyph(.ok).help(String(appLocalized: "已允许")).accessibilityLabel(String(appLocalized: "已允许"))
             case .pending:
                 Button(actionTitle, action: action).disabled(busy)
             case .denied:
-                StatusGlyph(.failed).help(String(localized: "已拒绝")).accessibilityLabel(String(localized: "已拒绝"))
+                StatusGlyph(.failed).help(String(appLocalized: "已拒绝")).accessibilityLabel(String(appLocalized: "已拒绝"))
                 if let openSettings {
                     Button(action: openSettings) {
                         Label("打开“隐私与安全性”", systemImage: Icon.openApp).labelStyle(.titleAndIcon)
@@ -907,49 +911,49 @@ private struct PermissionsStep: View {
 
     var body: some View {
         let f = model.facts
-        OnboardingPage(title: StepTitle(.permissions, model.videoOnly ? String(localized: "允许收听应用声音与语音识别")
-                                                                      : String(localized: "允许需要的声音与按键访问"))) {
+        OnboardingPage(title: StepTitle(.permissions, model.videoOnly ? String(appLocalized: "允许收听应用声音与语音识别")
+                                                                      : String(appLocalized: "允许需要的声音与按键访问"))) {
             Section {
-                GrantRow(symbol: Icon.speech, title: String(localized: "应用声音"),
-                         help: String(localized: "收听所选应用，生成双语字幕"),
+                GrantRow(symbol: Icon.speech, title: String(appLocalized: "应用声音"),
+                         help: String(appLocalized: "收听所选应用，生成双语字幕"),
                          status: grant(model.systemAudioShown, denied: model.systemAudioShown == false),
-                         actionTitle: String(localized: "检查"), action: model.runSystemAudioProbe,
+                         actionTitle: String(appLocalized: "检查"), action: model.runSystemAudioProbe,
                          busy: model.probeRunning, actionWorksWhenDenied: true,
                          openSettings: { model.openPrivacy("Privacy_ScreenCapture") })
                 if let result = model.probeResult {
                     StatusLabel(result.text, result.status, help: result.help)
                         .padding(.leading, Ladder.rowTextInset)
                 }
-                GrantRow(symbol: Icon.recognition, title: String(localized: "Apple 语音识别"),
-                         help: String(localized: "在本机识别声音，作为 Qwen 的备用"),
+                GrantRow(symbol: Icon.recognition, title: String(appLocalized: "Apple 语音识别"),
+                         help: String(appLocalized: "在本机识别声音，作为 Qwen 的备用"),
                          status: grant(f.speechRecognition, denied: model.speechRecognitionDenied),
-                         actionTitle: String(localized: "允许…"), action: model.requestSpeech,
+                         actionTitle: String(appLocalized: "允许…"), action: model.requestSpeech,
                          openSettings: { model.openPrivacy("Privacy_SpeechRecognition") })
                 if model.videoOnly {
-                    FactRow([FactChip(String(localized: "不用麦克风"), symbol: Icon.noMicrophone,
-                                      help: String(localized: "开会或打电话前可从 使用引导… 补齐"),
-                                      spoken: String(localized: "只看视频时不需要麦克风和输入监控；以后要开会或打电话，可从 设置 › 通用 › 使用引导… 打开"))],
+                    FactRow([FactChip(String(appLocalized: "不用麦克风"), symbol: Icon.noMicrophone,
+                                      help: String(appLocalized: "开会或打电话前可从 使用引导… 补齐"),
+                                      spoken: String(appLocalized: "只看视频时不需要麦克风和输入监控；以后要开会或打电话，可从 设置 › 通用 › 使用引导… 打开"))],
                             indented: true)
                 }
             } header: {
-                SectionHeader(String(localized: "收听"), symbol: Icon.listen)
+                SectionHeader(String(appLocalized: "收听"), symbol: Icon.listen)
             }
             if !model.videoOnly {
                 Section {
-                    GrantRow(symbol: Icon.physicalMic, title: String(localized: "麦克风"),
-                             help: String(localized: "会议中持续收音，默认传原声"),
+                    GrantRow(symbol: Icon.physicalMic, title: String(appLocalized: "麦克风"),
+                             help: String(appLocalized: "会议中持续收音，默认传原声"),
                              status: grant(f.microphone, denied: model.microphoneDenied),
-                             actionTitle: String(localized: "允许…"), action: model.requestMicrophone,
+                             actionTitle: String(appLocalized: "允许…"), action: model.requestMicrophone,
                              openSettings: { model.openPrivacy("Privacy_Microphone") })
                     // Input Monitoring has no readable "refused" state; "允许…" opens System Settings.
-                    GrantRow(symbol: SubtitleTokens.OnboardingIcon.inputMonitoring, title: String(localized: "右⌥快捷键"),
-                             key: TitlebarKey(action: String(localized: "开始翻译"), drawsAction: false, style: .idle),
-                             help: String(localized: "需要输入监控；允许后 macOS 可能要求重开 TalkTalk"),
-                             info: [String(localized: "快捷键只监听、不修改按键。权限由 macOS 管理，可在系统设置中调整。")],
+                    GrantRow(symbol: SubtitleTokens.OnboardingIcon.inputMonitoring, title: String(appLocalized: "右⌥快捷键"),
+                             key: TitlebarKey(action: String(appLocalized: "开始翻译"), drawsAction: false, style: .idle),
+                             help: String(appLocalized: "需要输入监控；允许后 macOS 可能要求重开 TalkTalk"),
+                             info: [String(appLocalized: "快捷键只监听、不修改按键。权限由 macOS 管理，可在系统设置中调整。")],
                              status: grant(f.inputMonitoring, denied: false),
-                             actionTitle: String(localized: "允许…"), action: model.requestInputMonitoring)
+                             actionTitle: String(appLocalized: "允许…"), action: model.requestInputMonitoring)
                 } header: {
-                    SectionHeader(String(localized: "我说话"), symbol: Icon.me)
+                    SectionHeader(String(appLocalized: "我说话"), symbol: Icon.me)
                 }
             }
         }
@@ -973,26 +977,26 @@ private struct SpeechAssetsStep: View {
             if case let .failed(error)? = model.assets[lang] { return error }
             return nil
         }
-        OnboardingPage(title: StepTitle(.speechAssets, String(localized: "准备三种语言的语音资源"))) {
+        OnboardingPage(title: StepTitle(.speechAssets, String(appLocalized: "准备三种语言的语音资源"))) {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .center, spacing: 16) {
-                        language(.zh, name: String(localized: "中文"), badge: String(localized: "中"))
-                        language(.en, name: String(localized: "英语"), badge: "EN")
-                        language(.de, name: String(localized: "德语"), badge: "DE")
+                        language(.zh, name: String(appLocalized: "中文"), badge: String(appLocalized: "中"))
+                        language(.en, name: String(appLocalized: "英语"), badge: "EN")
+                        language(.de, name: String(appLocalized: "德语"), badge: "DE")
                         Spacer(minLength: 8)
                         Button { model.downloadAssets() } label: {
                             Label("下载", systemImage: Icon.download).labelStyle(.titleAndIcon)
                         }
                         .disabled(model.facts.speechAssets == true || model.assets.values.contains(.downloading))
-                        .help(String(localized: "下载缺少的语音资源"))
+                        .help(String(appLocalized: "下载缺少的语音资源"))
                     }
                     if !failed.isEmpty {
-                        StatusLabel(String(localized: "下载失败"), .failed, help: failed.joined(separator: "\n"))
+                        StatusLabel(String(appLocalized: "下载失败"), .failed, help: failed.joined(separator: "\n"))
                     }
-                    FactRow([FactChip(String(localized: "Apple 备用识别"), symbol: Icon.recognition,
-                                      help: String(localized: "备用识别与说话预览 · 由 macOS 下载和管理"),
-                                      spoken: String(localized: "Qwen 负责主要语音识别；Apple 语音资源支持备用识别与说话预览，由 macOS 下载和管理。这一步不选择文本翻译模型。"))])
+                    FactRow([FactChip(String(appLocalized: "Apple 备用识别"), symbol: Icon.recognition,
+                                      help: String(appLocalized: "备用识别与说话预览 · 由 macOS 下载和管理"),
+                                      spoken: String(appLocalized: "Qwen 负责主要语音识别；Apple 语音资源支持备用识别与说话预览，由 macOS 下载和管理。这一步不选择文本翻译模型。"))])
                 }
                 .padding(.vertical, 4)
             }
@@ -1011,17 +1015,17 @@ private struct SpeechAssetsStep: View {
             Text(verbatim: name).font(.callout)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(localized: "\(name)，\(status.text)"))
+        .accessibilityLabel(String(appLocalized: "\(name)，\(status.text)"))
         .help([status.help ?? status.text, AppleSpeechASR.localeIdentifier(lang)].joined(separator: " · "))
     }
 
     private func assetStatus(_ lang: Lang) -> SettingsProblem {
         switch model.assets[lang] ?? .unknown {
-        case .installed: SettingsProblem(.ok, String(localized: "已安装"))
-        case .downloading: SettingsProblem(.busy, String(localized: "下载中"))
-        case .missing: SettingsProblem(.pending, String(localized: "未安装"))
-        case .unknown: SettingsProblem(.busy, String(localized: "检查中"))
-        case let .failed(error): SettingsProblem(.failed, String(localized: "失败"), help: error)
+        case .installed: SettingsProblem(.ok, String(appLocalized: "已安装"))
+        case .downloading: SettingsProblem(.busy, String(appLocalized: "下载中"))
+        case .missing: SettingsProblem(.pending, String(appLocalized: "未安装"))
+        case .unknown: SettingsProblem(.busy, String(appLocalized: "检查中"))
+        case let .failed(error): SettingsProblem(.failed, String(appLocalized: "失败"), help: error)
         }
     }
 }
@@ -1045,13 +1049,13 @@ private struct DriverStep: View {
     }
 
     private var page: some View {
-        OnboardingPage(title: StepTitle(.driver, String(localized: "安装虚拟麦克风"))) {
+        OnboardingPage(title: StepTitle(.driver, String(appLocalized: "安装虚拟麦克风"))) {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     FlowGrid.driver(model.driverPage?.model)
-                    FactRow([FactChip(String(localized: "需管理员授权 · 声音中断约 1 秒"), symbol: Icon.locked, tone: .warn,
-                                      help: String(localized: "安装时输入一次密码，系统声音短暂中断"),
-                                      spoken: String(localized: "首次安装需要管理员授权，系统声音会短暂中断"))])
+                    FactRow([FactChip(String(appLocalized: "需管理员授权 · 声音中断约 1 秒"), symbol: Icon.locked, tone: .warn,
+                                      help: String(appLocalized: "安装时输入一次密码，系统声音短暂中断"),
+                                      spoken: String(appLocalized: "首次安装需要管理员授权，系统声音会短暂中断"))])
                 }
                 .padding(.vertical, 4)
             }
@@ -1065,12 +1069,12 @@ private struct DriverStep: View {
                 DriverComponentRows(model: driver)
             } else if let problem = page.problem {
                 // A development binary without a bundle id (§5.2): the reason is the help.
-                ContentUnavailableView(String(localized: "此构建不可用"), systemImage: Icon.unavailable)
+                ContentUnavailableView(String(appLocalized: "此构建不可用"), systemImage: Icon.unavailable)
                     .help(problem)
             } else {
                 StatusGlyph(.busy)
-                    .help(String(localized: "正在读取组件"))
-                    .accessibilityLabel(String(localized: "正在读取组件"))
+                    .help(String(appLocalized: "正在读取组件"))
+                    .accessibilityLabel(String(appLocalized: "正在读取组件"))
                     .frame(maxWidth: .infinity)
                     .onAppear { page.load(); model.refreshDriver() }
             }
@@ -1089,13 +1093,13 @@ private struct EngineStep: View {
     let model: OnboardingFlowModel
 
     var body: some View {
-        OnboardingPage(title: StepTitle(.engine, String(localized: "准备本地语音引擎"))) {
+        OnboardingPage(title: StepTitle(.engine, String(appLocalized: "准备本地语音引擎"))) {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     FlowGrid.localEngine(model.engine, state: model.appState)
-                    FactRow([FactChip(String(localized: "本机"), symbol: Icon.thisMac,
-                                      help: String(localized: "识别与合成都在这台 Mac"),
-                                      spoken: String(localized: "识别与合成都在这台 Mac 完成；下载可以取消，下次接着下"))])
+                    FactRow([FactChip(String(appLocalized: "本机"), symbol: Icon.thisMac,
+                                      help: String(appLocalized: "识别与合成都在这台 Mac"),
+                                      spoken: String(appLocalized: "识别与合成都在这台 Mac 完成；下载可以取消，下次接着下"))])
                 }
                 .padding(.vertical, 4)
             }
@@ -1105,12 +1109,12 @@ private struct EngineStep: View {
                 Section {
                     EngineControlRows(model: model.engine)
                 } header: {
-                    SectionHeader(String(localized: "引擎"), symbol: Icon.engine)
+                    SectionHeader(String(appLocalized: "引擎"), symbol: Icon.engine)
                 }
                 Section {
                     EngineModelRows(model: model.engine)
                 } header: {
-                    SectionHeader(String(localized: "模型"), symbol: Icon.Page.models)
+                    SectionHeader(String(appLocalized: "模型"), symbol: Icon.Page.models)
                 }
             }
         }
@@ -1127,19 +1131,19 @@ private struct OpenAIStep: View {
     let model: OnboardingFlowModel
 
     var body: some View {
-        OnboardingPage(title: StepTitle(.openAI, String(localized: "OpenAI 文本翻译"))) {
+        OnboardingPage(title: StepTitle(.openAI, String(appLocalized: "OpenAI 文本翻译"))) {
             if let t = model.translation.model {
                 OpenAIOnboardingStep(model: t)
             } else if let p = model.translation.problem {
                 Section {
-                    ContentUnavailableView(String(localized: "此构建不可用"), systemImage: Icon.unavailable)
+                    ContentUnavailableView(String(appLocalized: "此构建不可用"), systemImage: Icon.unavailable)
                         .help(p)
                 }
             } else {
                 Section {
                     StatusGlyph(.busy)
-                        .help(String(localized: "正在读取翻译设置"))
-                        .accessibilityLabel(String(localized: "正在读取翻译设置"))
+                        .help(String(appLocalized: "正在读取翻译设置"))
+                        .accessibilityLabel(String(appLocalized: "正在读取翻译设置"))
                         .frame(maxWidth: .infinity)
                         .onAppear { model.translation.load() }
                 }
@@ -1161,7 +1165,7 @@ private struct VoiceStep: View {
         let take = voice.enrollment == nil ? nil
             : EnrollmentView.minimumHeight + (voice.recordingNote != nil || voice.saveBlocked ? Self.takeNotes : 0)
         VStack(alignment: .leading, spacing: 0) {
-            StepTitle(.voice, String(localized: "准备我的声音"))
+            StepTitle(.voice, String(appLocalized: "准备我的声音"))
             ScrollView {
                 MyVoiceSettingsView(model: voice)
                     .containerRelativeFrame(.vertical, alignment: .top) { length, _ in
@@ -1181,22 +1185,22 @@ extension FlowGrid {
     static func localEngine(_ engine: EngineComponentsModel, state: AppState) -> FlowGrid {
         let recognition = engine.recognitionProblem(state)
         let synthesis = engine.synthesisProblem
-        return FlowGrid(String(localized: "本地语音引擎"), lanes: [
-            FlowLane(String(localized: "识别"), cells: [
-                .node(FlowNode(String(localized: "声音"), glyph: .symbol(Icon.recognition), badge: recognition?.status,
+        return FlowGrid(String(appLocalized: "本地语音引擎"), lanes: [
+            FlowLane(String(appLocalized: "识别"), cells: [
+                .node(FlowNode(String(appLocalized: "声音"), glyph: .symbol(Icon.recognition), badge: recognition?.status,
                                badgeReason: recognition?.text,
                                satellite: FlowSatellite(engine.usesAppleRecognition ? "Apple Speech" : "Qwen3-ASR", symbol: Icon.Page.models,
-                                                        help: String(localized: "识别声音")))),
-                .node(FlowNode(String(localized: "原文"), glyph: .symbol(Icon.sourceText))),
+                                                        help: String(appLocalized: "识别声音")))),
+                .node(FlowNode(String(appLocalized: "原文"), glyph: .symbol(Icon.sourceText))),
                 .empty, .empty
             ]),
-            FlowLane(String(localized: "合成"), cells: [
-                .node(FlowNode(String(localized: "译文"), glyph: .symbol(Icon.translation),
-                               help: String(localized: "由 OpenAI 或 Apple 翻译，不在这里安装"))),
-                .node(FlowNode(String(localized: "我的声音"), glyph: .symbol(Icon.myVoice), badge: synthesis?.status,
+            FlowLane(String(appLocalized: "合成"), cells: [
+                .node(FlowNode(String(appLocalized: "译文"), glyph: .symbol(Icon.translation),
+                               help: String(appLocalized: "由 OpenAI 或 Apple 翻译，不在这里安装"))),
+                .node(FlowNode(String(appLocalized: "我的声音"), glyph: .symbol(Icon.myVoice), badge: synthesis?.status,
                                badgeReason: synthesis?.text,
                                satellite: FlowSatellite("Qwen3-TTS", symbol: Icon.Page.models,
-                                                        help: String(localized: "合成译音")))),
+                                                        help: String(appLocalized: "合成译音")))),
                 .empty, .empty
             ])
         ])

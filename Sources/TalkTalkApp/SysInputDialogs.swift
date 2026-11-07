@@ -22,10 +22,10 @@ enum SysInputDialogs {
         if let reason = SysInputDialogPlan.quitFailureMessage(outcome(result, status: switcher.status)) {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = String(localized: "麦克风尚未还原")
-            alert.informativeText = String(localized: "\(reason)\n\n已保留恢复记录。请在“系统设置 › 声音 › 输入”中检查并选择实体麦克风，也可下次启动 TalkTalk 后重试。")
-            alert.addButton(withTitle: String(localized: "打开声音设置并退出"))
-            alert.addButton(withTitle: String(localized: "退出 TalkTalk"))
+            alert.messageText = String(appLocalized: "麦克风尚未还原")
+            alert.informativeText = String(appLocalized: "\(reason)\n\n已保留恢复记录。请在“系统设置 › 声音 › 输入”中检查并选择实体麦克风，也可下次启动 TalkTalk 后重试。")
+            alert.addButton(withTitle: String(appLocalized: "打开声音设置并退出"))
+            alert.addButton(withTitle: String(appLocalized: "退出 TalkTalk"))
             NSApp.activate()
             if alert.runModal() == .alertFirstButtonReturn {
                 let sound = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension")!

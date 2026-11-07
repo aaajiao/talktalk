@@ -23,8 +23,8 @@
 #      and an interpolation each count as one; spaces and punctuation are free.
 # Interpolations `\(…)` become `%@` in the key; catalog keys compare with %@ / %lld / %ld / %d /
 # %lf / %f (and positional %1$@) treated alike, so a catalog edited in Xcode still matches.
-# The catalog is source only for now: CLT has no xcstringstool, so the build ships no .strings
-# and String(localized:) falls back to the key, which is the zh-Hans text.
+# The Chinese source keys are stable identifiers. compile-localizations.py validates both
+# translations and uses compiler extraction to emit typed .strings tables for the app.
 #
 # --update rewrites the catalog: adds missing keys, drops stale non-manual ones, sorts.
 # Exit: 0 ok, 1 problems found, 2 usage error.
@@ -134,7 +134,7 @@ def scan(path, text, line=1, ignore_lines=None):
             j, key, cjk, line, multi = read_literal(i, line, segs)
             callee = stack[-1] if stack else ""
             localized = False
-            if callee == "String" and label == "localized":
+            if callee == "String" and label in {"localized", "appLocalized"}:
                 localized = True
             elif callee in KEY_CALLEES and prev == "(":
                 localized = True

@@ -4,7 +4,7 @@ import TalkTalkCore
 
 // Fact chips, section headers and the row label style of the settings visual system
 // (docs/decisions/2026-11-06-settings-visual-system.md §3.8, §3.11). Text parameters are
-// already localized: callers pass `String(localized:)`.
+// already localized: callers pass `String(appLocalized:)`.
 
 private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 

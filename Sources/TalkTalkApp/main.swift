@@ -17,6 +17,16 @@ import TalkTalkCore
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 
+// Capture system language before setting native launch defaults. Later changes resolve
+// app-owned text against explicit bundles and never restart the app or a speech session.
+AppLanguageStore.bootstrap()
+let launchLanguage = arguments.first == "--check-localization" && arguments.count == 2
+    ? AppLanguage(rawValue: arguments[1]) ?? .english : AppLanguage.load()
+if arguments.first == "--check-localization" {
+    AppLocalization.setLanguage(launchLanguage)
+    launchLanguage.applyAtLaunch()
+}
+
 func argumentValue(_ name: String) -> String? {
     guard let i = arguments.firstIndex(of: name), i + 1 < arguments.count else { return nil }
     return arguments[i + 1]
@@ -78,6 +88,27 @@ case "--version":
     let hooks = "dev hooks: none"
     #endif
     print("TalkTalk \(AppVersion.current.displayString) (engine API \(EnginePins.engineAPI), \(BuildFlavor.current.rawValue), \(hooks))")
+
+case "--check-localization":
+    guard arguments.count == 2, ["en", "zh-Hans"].contains(arguments[1]) else {
+        fail("--check-localization requires en or zh-Hans")
+    }
+    let count = 3
+    let general = String(appLocalized: "通用")
+    let models = String(appLocalized: "\(count) 个可选模型")
+    let expected = launchLanguage == .english ? "General" : "通用"
+    guard general == expected, models.contains("3"),
+          launchLanguage == .chinese || !models.contains("可选") else {
+        fail("localization check failed: \(launchLanguage.rawValue): \(general); \(models)", code: 1)
+    }
+    // The same process must update already-used keys after a language change.
+    let other: AppLanguage = launchLanguage == .english ? .chinese : .english
+    AppLocalization.setLanguage(other)
+    guard String(appLocalized: "通用") == (other == .english ? "General" : "通用") else {
+        fail("live localization check failed", code: 1)
+    }
+    AppLocalization.setLanguage(launchLanguage)
+    print("localization: \(launchLanguage.rawValue): \(general); \(models)")
 
 case "--list-audio-processes":
     do {

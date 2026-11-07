@@ -31,8 +31,8 @@ public enum SysInputDialogPlan {
         case let .restored(d): (HUDModel.Warning.defaultInputRestored(to: d).text, .normal)
         case .deferred: (deferredStatus, .yellow)
         case let .deferredOnPhysical(d, absent): (deferredOnPhysicalStatus(device: d, micAbsent: absent), .yellow)
-        case .noRestoreTarget: (String(localized: "没有可还原的实体麦克风，请在“系统设置 › 声音 › 输入”里选一个"), .red)
-        case .writeFailed: (String(localized: "没能还原系统默认输入，请在“系统设置 › 声音 › 输入”里改回"), .red)
+        case .noRestoreTarget: (String(appLocalized: "没有可还原的实体麦克风，请在“系统设置 › 声音 › 输入”里选一个"), .red)
+        case .writeFailed: (String(appLocalized: "没能还原系统默认输入，请在“系统设置 › 声音 › 输入”里改回"), .red)
         case .nothingToRestore, .notOwner: nil
         }
     }
@@ -60,22 +60,22 @@ public enum SysInputDialogPlan {
 
         public var text: String {
             switch self {
-            case .micMissing: String(localized: "TalkTalk Mic 不在，系统默认输入没有切换")
-            case .noPhysicalInput: String(localized: "没有实体麦克风，系统默认输入没有切换")
-            case .writeFailed: String(localized: "没能把系统默认输入切到 TalkTalk Mic")
-            case .recordWriteFailed: String(localized: "没能写下还原记录，系统默认输入没有切换")
-            case .guardLaunchFailed: String(localized: "还原守护进程没能启动，系统默认输入没有切换")
-            case .micNotSelectable: String(localized: "TalkTalk Mic 现在不能设为默认输入，系统默认输入没有切换")
+            case .micMissing: String(appLocalized: "TalkTalk Mic 不在，系统默认输入没有切换")
+            case .noPhysicalInput: String(appLocalized: "没有实体麦克风，系统默认输入没有切换")
+            case .writeFailed: String(appLocalized: "没能把系统默认输入切到 TalkTalk Mic")
+            case .recordWriteFailed: String(appLocalized: "没能写下还原记录，系统默认输入没有切换")
+            case .guardLaunchFailed: String(appLocalized: "还原守护进程没能启动，系统默认输入没有切换")
+            case .micNotSelectable: String(appLocalized: "TalkTalk Mic 现在不能设为默认输入，系统默认输入没有切换")
             }
         }
     }
 
     /// Menu bar status while the restore waits for the call (§8.6).
-    public static let deferredStatus = String(localized: "系统麦克风尚未还原，等待设备就绪或重试")
+    public static var deferredStatus: String { String(appLocalized: "系统麦克风尚未还原，等待设备就绪或重试") }
 
     /// The same while the default input is not TalkTalk Mic but macOS's pick.
     public static func deferredOnPhysicalStatus(device: String, micAbsent: Bool) -> String {
-        micAbsent ? String(localized: "系统默认输入是 \(device)（TalkTalk Mic 不在），等待还原")
-                  : String(localized: "系统默认输入是 \(device)（没能切回 TalkTalk Mic），等待还原")
+        micAbsent ? String(appLocalized: "系统默认输入是 \(device)（TalkTalk Mic 不在），等待还原")
+                  : String(appLocalized: "系统默认输入是 \(device)（没能切回 TalkTalk Mic），等待还原")
     }
 }

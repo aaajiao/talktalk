@@ -1,4 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
+import TalkTalkCore
 import Foundation
 import Observation
 import TalkTalkDriverSupport
@@ -32,11 +33,11 @@ final class DriverComponentsPage {
     func load() {
         guard model == nil else { return }
         guard bundle.bundleIdentifier != nil else {
-            problem = String(localized: "这个构建没有 bundle id（直接运行的二进制）：虚拟麦克风和完全卸载只在 TalkTalk.app / TalkTalk-Dev.app 里可用。")
+            problem = String(appLocalized: "这个构建没有 bundle id（直接运行的二进制）：虚拟麦克风和完全卸载只在 TalkTalk.app / TalkTalk-Dev.app 里可用。")
             return
         }
         guard let switcher = systemInput?.switcher else {
-            problem = String(localized: "这次运行没有接系统默认输入（冒烟运行），虚拟麦克风和完全卸载不可用。")
+            problem = String(appLocalized: "这次运行没有接系统默认输入（冒烟运行），虚拟麦克风和完全卸载不可用。")
             return
         }
         let model = DriverComponentModel.forCurrentApp(

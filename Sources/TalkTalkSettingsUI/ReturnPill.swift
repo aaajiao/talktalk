@@ -24,7 +24,7 @@ public struct ReturnPill: View {
     }
 
     public var body: some View {
-        let name = String(localized: "返回\(title)")
+        let name = String(appLocalized: "返回\(title)")
         HStack(spacing: 0) {
             Button(action: back) {
                 HStack(spacing: 6) {
@@ -44,8 +44,8 @@ public struct ReturnPill: View {
             .buttonStyle(.plain)
             .help(name)
             .accessibilityLabel(Text(verbatim: name))
-            IconButton(SubtitleTokens.SettingsIcon.close, help: String(localized: "关闭"),
-                       accessibilityLabel: String(localized: "关闭返回提示"), action: dismiss)
+            IconButton(SubtitleTokens.SettingsIcon.close, help: String(appLocalized: "关闭"),
+                       accessibilityLabel: String(appLocalized: "关闭返回提示"), action: dismiss)
                 .padding(.trailing, 1)
         }
         .frame(height: 24)

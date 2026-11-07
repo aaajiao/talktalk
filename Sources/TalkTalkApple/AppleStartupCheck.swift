@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 import Speech
 import TalkTalkCore
@@ -36,22 +37,26 @@ public enum AppleStartupCheck {
     static let pairs: [(MTSession, String)] = [(.listenEnZh, "en-zh"), (.listenDeZh, "de-zh"), (.speakZhEn, "zh-en"), (.speakZhDe, "zh-de"), (.speakEnDe, "en-de"), (.listenDeEn, "de-en")]
 
     public static func evaluate(_ r: Report) -> Verdict {
-        guard r.transcriberAvailable else { return .unavailable(["这台 Mac 不支持系统语音识别（SpeechTranscriber）"]) }
+        guard r.transcriberAvailable else { return .unavailable([String(appLocalized: "这台 Mac 不支持系统语音识别（SpeechTranscriber）")]) }
         var problems: [String] = []
         let hasSpeech = locales.contains { r.speech[AppleSpeechASR.localeIdentifier($0)] == "installed" }
         for l in locales {
             let id = AppleSpeechASR.localeIdentifier(l)
             switch r.speech[id] {
-            case "installed": if !r.reserved.contains(id) { problems.append("\(id) 语音资源没有预留，系统可能清理它") }
-            case "downloading": problems.append("\(id) 语音资源正在下载")
-            case "unsupported": problems.append("\(id) 不支持语音识别")
-            default: problems.append("\(id) 语音资源未下载")
+            case "installed": if !r.reserved.contains(id) { problems.append(String(appLocalized: "\(id) 语音资源没有预留，系统可能清理它")) }
+            case "downloading": problems.append(String(appLocalized: "\(id) 语音资源正在下载"))
+            case "unsupported": problems.append(String(appLocalized: "\(id) 不支持语音识别"))
+            default: problems.append(String(appLocalized: "\(id) 语音资源未下载"))
             }
         }
         for (_, key) in pairs where r.translation[key] != "installed" {
-            problems.append("\(key) 翻译语言包\(r.translation[key] == "supported" ? "未下载" : "不可用")（系统设置 › 通用 › 语言与地区 › 翻译语言）")
+            if r.translation[key] == "supported" {
+                problems.append(String(appLocalized: "\(key) 翻译语言包未下载（系统设置 › 通用 › 语言与地区 › 翻译语言）"))
+            } else {
+                problems.append(String(appLocalized: "\(key) 翻译语言包不可用（系统设置 › 通用 › 语言与地区 › 翻译语言）"))
+            }
         }
-        if !hasSpeech { return .unavailable(["中文、英语和德语的语音资源都没有：没法生成字幕"] + problems) }
+        if !hasSpeech { return .unavailable([String(appLocalized: "中文、英语和德语的语音资源都没有：没法生成字幕")] + problems) }
         return problems.isEmpty ? .ok : .degraded(problems)
     }
 
@@ -101,7 +106,7 @@ public struct AppleStartupCheckItem: StartupCheckItem {
         for (k, v) in r.translation { details["translation.\(k)"] = v }
         switch AppleStartupCheck.evaluate(r) {
         case .ok:
-            return StartupCheckResult(id: "apple", level: .ok, summary: "Apple 语音和翻译资源齐全", details: details)
+            return StartupCheckResult(id: "apple", level: .ok, summary: String(appLocalized: "Apple 语音和翻译资源齐全"), details: details)
         case let .degraded(p):
             return StartupCheckResult(id: "apple", level: .notice, summary: summary(p), details: details)
         case let .unavailable(p):
@@ -110,6 +115,6 @@ public struct AppleStartupCheckItem: StartupCheckItem {
     }
 
     static func summary(_ p: [String]) -> String {
-        (p.first ?? "") + (p.count > 1 ? " 等 \(p.count) 项" : "")
+        (p.first ?? "") + (p.count > 1 ? String(appLocalized: " 等 \(p.count) 项") : "")
     }
 }

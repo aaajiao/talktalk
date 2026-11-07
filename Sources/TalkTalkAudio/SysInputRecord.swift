@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Darwin
 import Foundation
 import TalkTalkCore
@@ -82,7 +83,7 @@ public struct SysInputRecord: Sendable, Equatable, Codable {
     /// Used when the file exists but cannot be decoded: nothing is known about the original, so
     /// the restore order (built-in first) applies.
     public static func unreadable(writerBundleID: String = "unknown") -> SysInputRecord {
-        SysInputRecord(original: .init(uid: "", name: "（记录无法读取）", transport: "????"),
+        SysInputRecord(original: .init(uid: "", name: String(appLocalized: "（记录无法读取）"), transport: "????"),
                        switchedAt: Date(timeIntervalSince1970: 0), writerBundleID: writerBundleID,
                        writerPID: 0, executablePath: "")
     }

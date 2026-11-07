@@ -40,8 +40,17 @@ export PATH="$root/.venv/bin:$PATH"
 version="$TT_APP_VERSION"
 build_number="$TT_APP_BUILD"
 
+localization_data="$scratch/localized-strings"
+# Extraction files are compiler side outputs. If that directory was independently removed,
+# discard the matching Swift cache so a no-op incremental build cannot omit typed keys.
+if [ ! -d "$localization_data" ] && [ -d "$scratch" ]; then
+    (cd "$root" && swift package --scratch-path "$scratch" clean)
+fi
+/bin/mkdir -p "$localization_data"
+# Keep compiler output across incremental builds; changed sources overwrite their own data.
 tt_log "swift build ($flavor, $version ($build_number))"
-(cd "$root" && swift build -c release --scratch-path "$scratch" ${defines[@]+"${defines[@]}"} --product TalkTalk) >&2
+(cd "$root" && swift build -c release --scratch-path "$scratch" ${defines[@]+"${defines[@]}"} --product TalkTalk \
+    -Xswiftc -emit-localized-strings -Xswiftc -emit-localized-strings-path -Xswiftc "$localization_data") >&2
 bin="$scratch/release/TalkTalk"
 [ -x "$bin" ] || tt_die "build produced no binary at $bin"
 binary_version="$("$bin" --version)"
@@ -56,6 +65,12 @@ app="$stage/$app_name.app"
 /bin/rm -rf "$stage"
 /bin/mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/engine" "$app/Contents/Resources/installer/scripts/lib"
 /bin/cp "$bin" "$app/Contents/MacOS/TalkTalk"
+"$TALKTALK_DEV_PYTHON" -I -B "$here/compile-localizations.py" \
+    --catalog "$root/Resources/Localizable.xcstrings" --extracted "$localization_data" \
+    --output "$app/Contents/Resources"
+for language in en zh-Hans; do
+    /bin/cp "$root/Resources/$language.lproj/InfoPlist.strings" "$app/Contents/Resources/$language.lproj/"
+done
 
 # Engine: source and lock files only (no tests, no caches); the bundle is never modified at runtime.
 (cd "$root/engine" && /usr/bin/find talktalk_engine.py smoke_engine.py talktalk_engine requirements-engine.lock requirements-build.lock \
@@ -106,6 +121,8 @@ drv="$app/Contents/Resources/driver"
   <key>CFBundleExecutable</key><string>TalkTalk</string>
   <key>CFBundleIconFile</key><string>TalkTalk.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string></array>
   <key>CFBundleShortVersionString</key><string>$version</string>
   <key>CFBundleVersion</key><string>$build_number</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>

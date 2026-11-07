@@ -369,9 +369,12 @@ import Testing
 
     @Test func hintsKeepTheirChipGlyphAndOfferToKeepListening() {
         var f = running()
-        f.meetingHint = MeetingSession.Hint.meetingSeemsOver.rawValue
+        // Display copy deliberately differs from the stable raw identifier, as it does in English.
+        let silentText = "The app has been silent for a while"
+        f.meetingHint = silentText
+        f.meetingHintKind = .meetingSeemsOver
         var rows = StatusMenu.rows(f)
-        let hint = row(rows, MeetingSession.Hint.meetingSeemsOver.rawValue)
+        let hint = row(rows, silentText)
         #expect(hint?.kind == .status && hint?.tone == nil)
         #expect(hint?.symbol == HUDModel.Warning.meetingSeemsOver.chip(scene: .meeting)?.symbol)
         let keep = row(rows, "继续收听")
@@ -380,10 +383,12 @@ import Testing
         // 视频字幕's chip: the app's sound, not people.
         f.mode = .captions
         rows = StatusMenu.rows(f)
-        #expect(row(rows, MeetingSession.Hint.meetingSeemsOver.rawValue)?.symbol == "waveform.slash")
-        f.meetingHint = MeetingSession.Hint.audioRestarting.rawValue
+        #expect(row(rows, silentText)?.symbol == "waveform.slash")
+        let restartingText = "Restarting audio"
+        f.meetingHint = restartingText
+        f.meetingHintKind = .audioRestarting
         rows = StatusMenu.rows(f)
-        #expect(row(rows, MeetingSession.Hint.audioRestarting.rawValue)?.tone == .warn && row(rows, "继续收听") == nil)
+        #expect(row(rows, restartingText)?.tone == .warn && row(rows, "继续收听") == nil)
     }
 
     @Test func automaticSourceAndFailedEndHaveTheirRows() throws {
@@ -426,7 +431,8 @@ import Testing
         var session = running(.phone)
         session.voice = voice(.phoneLocalOnly, phone: true)
         session.micCheck = .init(.warn, "Phone 尚未使用 TalkTalk Mic")
-        session.meetingHint = MeetingSession.Hint.meetingSeemsOver.rawValue
+        session.meetingHint = MeetingSession.Hint.meetingSeemsOver.localizedDescription
+        session.meetingHintKind = .meetingSeemsOver
         session.canRestoreWindow = true; session.canPlayAnnouncement = true
         var meeting = running()
         meeting.voice = voice(.remoteHearsOriginal)

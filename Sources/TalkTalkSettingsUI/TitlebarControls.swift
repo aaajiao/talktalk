@@ -343,7 +343,7 @@ public final class KeycapActionView: TitlebarControl {
         // The glyph replaces only the drawn text: VoiceOver and the tooltip keep the words.
         let spoken = next.spokenLabel
         setAccessibilityLabel(spoken)
-        setAccessibilityHelp(String(localized: "点按右侧 Option 键开始翻译或完成发言；点此查看按键说明。"))
+        setAccessibilityHelp(String(appLocalized: "点按右侧 Option 键开始翻译或完成发言；点此查看按键说明。"))
         toolTip = spoken
         needsLayout = true
     }

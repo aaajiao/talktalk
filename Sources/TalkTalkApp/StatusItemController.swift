@@ -80,6 +80,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         setIcon(.standby)
     }
 
+    func refreshAppLanguage() {
+        setIcon(iconState, reasons: iconReasons)
+        if let menu = item.menu { menuNeedsUpdate(menu) }
+    }
+
     func setIcon(_ s: MenuBarIcon, reasons: [MenuBarIcon.Reason] = []) {
         iconState = s
         iconReasons = reasons
@@ -180,6 +185,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let check = ScenarioFacts(state: state, mode: state.meetingMode).sessionCheck
         f.micCheck = notice(check)
         f.meetingHint = state.meetingHint
+        f.meetingHintKind = state.meetingHintKind
         f.lastEndProblem = state.lastEndProblem
         f.appleCheck = state.appleCheck
         f.systemInput = state.systemInputNotice.flatMap(notice)

@@ -274,45 +274,45 @@ final class SystemInputController {
         switch s {
         case .idle: return nil
         case .otherInstanceManages:
-            return HUDLine(String(localized: "另一实例正在管理麦克风"), .secondary, detail: detail, symbol: "app.badge")
+            return HUDLine(String(appLocalized: "另一实例正在管理麦克风"), .secondary, detail: detail, symbol: "app.badge")
         case .holding:
-            return HUDLine(String(localized: "系统麦克风：TalkTalk Mic"), detail: detail, symbol: "mic")
+            return HUDLine(String(appLocalized: "系统麦克风：TalkTalk Mic"), detail: detail, symbol: "mic")
         case .waitingForMic:
-            return HUDLine(String(localized: "TalkTalk Mic 暂不可用"), .yellow, detail: detail, symbol: "mic.badge.xmark")
+            return HUDLine(String(appLocalized: "TalkTalk Mic 暂不可用"), .yellow, detail: detail, symbol: "mic.badge.xmark")
         case .overridden:
-            return HUDLine(String(localized: "系统麦克风已改变"), .yellow, detail: detail, symbol: "mic.badge.xmark")
+            return HUDLine(String(appLocalized: "系统麦克风已改变"), .yellow, detail: detail, symbol: "mic.badge.xmark")
         case .switchBackFailed:
-            return HUDLine(String(localized: "未能切回 TalkTalk Mic"), .red, detail: detail, symbol: "exclamationmark.triangle")
+            return HUDLine(String(appLocalized: "未能切回 TalkTalk Mic"), .red, detail: detail, symbol: "exclamationmark.triangle")
         case .suspended:
-            return HUDLine(String(localized: "系统麦克风：TalkTalk Mic · 已暂停"), .secondary, detail: detail, symbol: "pause.circle")
+            return HUDLine(String(appLocalized: "系统麦克风：TalkTalk Mic · 已暂停"), .secondary, detail: detail, symbol: "pause.circle")
         case .deferred:
-            return HUDLine(String(localized: "系统麦克风等待还原"), .yellow, detail: detail, symbol: "clock.arrow.circlepath")
+            return HUDLine(String(appLocalized: "系统麦克风等待还原"), .yellow, detail: detail, symbol: "clock.arrow.circlepath")
         case let .deferredOnPhysical(_, _, fromLastRun):
-            return HUDLine(String(localized: "系统麦克风等待还原"), fromLastRun ? .red : .yellow,
+            return HUDLine(String(appLocalized: "系统麦克风等待还原"), fromLastRun ? .red : .yellow,
                            detail: detail, symbol: "arrow.uturn.backward.circle")
         case .pendingFromLastRun:
-            return HUDLine(String(localized: "上次的麦克风尚未还原"), .red, detail: detail, symbol: "exclamationmark.triangle")
+            return HUDLine(String(appLocalized: "上次的麦克风尚未还原"), .red, detail: detail, symbol: "exclamationmark.triangle")
         case .noRestoreTarget:
-            return HUDLine(String(localized: "没有可还原的实体麦克风"), .red, detail: detail, symbol: "mic.badge.xmark")
+            return HUDLine(String(appLocalized: "没有可还原的实体麦克风"), .red, detail: detail, symbol: "mic.badge.xmark")
         }
     }
 
     static func text(_ s: SystemInputSwitcher.Status) -> String? {
         switch s {
         case .idle: nil
-        case .otherInstanceManages: String(localized: "另一个 TalkTalk 正在管系统默认输入")
-        case .holding: String(localized: "系统默认输入：TalkTalk Mic")
-        case .waitingForMic: String(localized: "⚠︎ TalkTalk Mic 不见了，回来后切回")
-        case let .overridden(by): String(localized: "⚠︎ 系统默认输入被改成了 \(by)")
+        case .otherInstanceManages: String(appLocalized: "另一个 TalkTalk 正在管系统默认输入")
+        case .holding: String(appLocalized: "系统默认输入：TalkTalk Mic")
+        case .waitingForMic: String(appLocalized: "⚠︎ TalkTalk Mic 不见了，回来后切回")
+        case let .overridden(by): String(appLocalized: "⚠︎ 系统默认输入被改成了 \(by)")
         case let .switchBackFailed(current, retrying):
-            retrying ? String(localized: "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 \(current)，正在重试")
-                     : String(localized: "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 \(current)")
-        case .suspended: String(localized: "系统默认输入：TalkTalk Mic（会议模式已挂起）")
+            retrying ? String(appLocalized: "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 \(current)，正在重试")
+                     : String(appLocalized: "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 \(current)")
+        case .suspended: String(appLocalized: "系统默认输入：TalkTalk Mic（会议模式已挂起）")
         case .deferred: SysInputDialogPlan.deferredStatus
         case let .deferredOnPhysical(current, micAbsent, fromLastRun):
             (fromLastRun ? "⛔︎ " : "⚠︎ ") + SysInputDialogPlan.deferredOnPhysicalStatus(device: current, micAbsent: micAbsent)
-        case let .pendingFromLastRun(original): String(localized: "⛔︎ 上次的默认输入还没还原（原来是 \(original)）")
-        case .noRestoreTarget: String(localized: "⛔︎ 没有可以还原到的实体麦克风")
+        case let .pendingFromLastRun(original): String(appLocalized: "⛔︎ 上次的默认输入还没还原（原来是 \(original)）")
+        case .noRestoreTarget: String(appLocalized: "⛔︎ 没有可以还原到的实体麦克风")
         }
     }
 }

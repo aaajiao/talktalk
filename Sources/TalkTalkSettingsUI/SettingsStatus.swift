@@ -49,14 +49,14 @@ public enum SettingsStatus: Sendable, Equatable {
     /// The state's word for VoiceOver when the glyph stands alone.
     public var spokenName: String {
         switch self {
-        case .ok: String(localized: "已就绪")
-        case .warn: String(localized: "需处理")
-        case .risk: String(localized: "对方能听到原声")
-        case .failed: String(localized: "失败")
-        case .pending: String(localized: "未检查")
-        case .waiting: String(localized: "等待中")
-        case .busy: String(localized: "进行中")
-        case .recording: String(localized: "录音中")
+        case .ok: String(appLocalized: "已就绪")
+        case .warn: String(appLocalized: "需处理")
+        case .risk: String(appLocalized: "对方能听到原声")
+        case .failed: String(appLocalized: "失败")
+        case .pending: String(appLocalized: "未检查")
+        case .waiting: String(appLocalized: "等待中")
+        case .busy: String(appLocalized: "进行中")
+        case .recording: String(appLocalized: "录音中")
         }
     }
 

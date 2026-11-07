@@ -33,11 +33,11 @@ public struct ConversationTimeline: Sendable, Equatable {
 
         public var title: String {
             switch self {
-            case .sent: String(localized: "已送出")
-            case .notSent: String(localized: "未发送")
-            case .phoneSent: String(localized: "已送入 Phone")
-            case .phoneLocalOnly: String(localized: "仅本机 · Phone 未接收")
-            case .aborted: String(localized: "已中止")
+            case .sent: String(appLocalized: "已送出")
+            case .notSent: String(appLocalized: "未发送")
+            case .phoneSent: String(appLocalized: "已送入 Phone")
+            case .phoneLocalOnly: String(appLocalized: "仅本机 · Phone 未接收")
+            case .aborted: String(appLocalized: "已中止")
             }
         }
 
@@ -45,11 +45,11 @@ public struct ConversationTimeline: Sendable, Equatable {
         /// VoiceOver keeps the safety word, and never claims that the other side heard it.
         public var help: String {
             switch self {
-            case .sent: String(localized: "已送出：译音已播放到 TalkTalk Mic")
-            case .notSent: String(localized: "未发送：这句译音没有播放，对方听不到")
-            case .phoneSent: String(localized: "已送入 Phone：不代表对方已听到")
-            case .phoneLocalOnly: String(localized: "仅本机：译音只在本机播放，Phone 没有读取 TalkTalk Mic")
-            case .aborted: String(localized: "已中止：Phone 连接变化，本句已停止")
+            case .sent: String(appLocalized: "已送出：译音已播放到 TalkTalk Mic")
+            case .notSent: String(appLocalized: "未发送：这句译音没有播放，对方听不到")
+            case .phoneSent: String(appLocalized: "已送入 Phone：不代表对方已听到")
+            case .phoneLocalOnly: String(appLocalized: "仅本机：译音只在本机播放，Phone 没有读取 TalkTalk Mic")
+            case .aborted: String(appLocalized: "已中止：Phone 连接变化，本句已停止")
             }
         }
 

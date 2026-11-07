@@ -4,19 +4,19 @@ import Foundation
 /// A titlebar capsule or problem-chip label. scripts/check-strings.sh limits the literal to
 /// 10 Chinese characters (a Latin word or an interpolation counts as one); complete sentences
 /// belong in the chip's detail.
-public func titlebarLabel(_ key: String.LocalizationValue) -> String { String(localized: key) }
+public func titlebarLabel(_ key: String.LocalizationValue) -> String { String(appLocalized: key) }
 
 /// A fading titlebar notification label, limited to 8 characters by scripts/check-strings.sh.
-public func noticeLabel(_ key: String.LocalizationValue) -> String { String(localized: key) }
+public func noticeLabel(_ key: String.LocalizationValue) -> String { String(appLocalized: key) }
 
 public enum SubtitleScene: String, Sendable, Equatable, CaseIterable {
     case meeting, phone, video
 
     public var title: String {
         switch self {
-        case .meeting: String(localized: "会议同传")
-        case .phone: String(localized: "电话同传")
-        case .video: String(localized: "视频字幕")
+        case .meeting: String(appLocalized: "会议同传")
+        case .phone: String(appLocalized: "电话同传")
+        case .video: String(appLocalized: "视频字幕")
         }
     }
 
@@ -34,9 +34,9 @@ public enum SubtitleScene: String, Sendable, Equatable, CaseIterable {
     /// The icon-only end button's VoiceOver label and tooltip: which session ends.
     public var endAccessibilityLabel: String {
         switch self {
-        case .meeting: String(localized: "结束会议同传")
-        case .phone: String(localized: "结束电话同传")
-        case .video: String(localized: "结束视频字幕")
+        case .meeting: String(appLocalized: "结束会议同传")
+        case .phone: String(appLocalized: "结束电话同传")
+        case .video: String(appLocalized: "结束视频字幕")
         }
     }
 
@@ -47,13 +47,13 @@ public enum SubtitleScene: String, Sendable, Equatable, CaseIterable {
         switch self {
         case .meeting:
             systemInputSwitched
-                ? String(localized: "结束会议同传：不会退出会议；TalkTalk 停止收听和译音，并还原系统麦克风")
-                : String(localized: "结束会议同传：不会退出会议；TalkTalk 停止收听和译音")
+                ? String(appLocalized: "结束会议同传：不会退出会议；TalkTalk 停止收听和译音，并还原系统麦克风")
+                : String(appLocalized: "结束会议同传：不会退出会议；TalkTalk 停止收听和译音")
         case .phone:
             systemInputSwitched
-                ? String(localized: "结束电话同传：通话不会挂断；TalkTalk 停止收听和译音，并还原系统麦克风")
-                : String(localized: "结束电话同传：通话不会挂断；TalkTalk 停止收听和译音")
-        case .video: String(localized: "结束视频字幕：停止收听和翻译")
+                ? String(appLocalized: "结束电话同传：通话不会挂断；TalkTalk 停止收听和译音，并还原系统麦克风")
+                : String(appLocalized: "结束电话同传：通话不会挂断；TalkTalk 停止收听和译音")
+        case .video: String(appLocalized: "结束视频字幕：停止收听和翻译")
         }
     }
 }
@@ -181,99 +181,99 @@ public struct VoiceState: Sendable, Equatable {
         case .original:
             title = titlebarLabel("原声"); compact = titlebarLabel("原声"); symbol = icon.original
             appearance = .originalFill
-            consequence = phone ? String(localized: "你的原声正在送入 Phone") : String(localized: "对方听到的是你的原声")
-            short = phone ? String(localized: "正在送入 Phone") : String(localized: "对方可听到")
-            announcement = phone ? String(localized: "原声已开，正在送入 Phone") : String(localized: "原声已开，对方可听到")
+            consequence = phone ? String(appLocalized: "你的原声正在送入 Phone") : String(appLocalized: "对方听到的是你的原声")
+            short = phone ? String(appLocalized: "正在送入 Phone") : String(appLocalized: "对方可听到")
+            announcement = phone ? String(appLocalized: "原声已开，正在送入 Phone") : String(appLocalized: "原声已开，对方可听到")
         case .translating:
             title = titlebarLabel("译音"); compact = titlebarLabel("译音"); symbol = icon.translating
             appearance = .translateFill
-            consequence = String(localized: "原声已关，正在收音翻译")
-            short = String(localized: "原声已关，翻译中")
-            announcement = String(localized: "原声已关，翻译中")
+            consequence = String(appLocalized: "原声已关，正在收音翻译")
+            short = String(appLocalized: "原声已关，翻译中")
+            announcement = String(appLocalized: "原声已关，翻译中")
         case .processing:
             title = titlebarLabel("译音"); compact = titlebarLabel("译音"); symbol = icon.translating
             appearance = .translateFill
-            consequence = String(localized: "原声已关，译音处理中")
-            short = String(localized: "原声已关，译音处理中")
-            announcement = String(localized: "原声已关，译音处理中")
+            consequence = String(appLocalized: "原声已关，译音处理中")
+            short = String(appLocalized: "原声已关，译音处理中")
+            announcement = String(appLocalized: "原声已关，译音处理中")
         case .playingTranslation:
             title = titlebarLabel("译音"); compact = titlebarLabel("译音"); symbol = icon.playingTranslation
             appearance = .translateFill
-            consequence = phone ? String(localized: "译音正在送入 Phone") : String(localized: "对方听到的是译音")
-            short = phone ? String(localized: "译音正在送入 Phone") : String(localized: "对方听到译音")
-            announcement = phone ? String(localized: "译音正在送入 Phone") : String(localized: "译音播放中")
+            consequence = phone ? String(appLocalized: "译音正在送入 Phone") : String(appLocalized: "对方听到的是译音")
+            short = phone ? String(appLocalized: "译音正在送入 Phone") : String(appLocalized: "对方听到译音")
+            announcement = phone ? String(appLocalized: "译音正在送入 Phone") : String(appLocalized: "译音播放中")
         case .switching:
             title = titlebarLabel("松开确认"); compact = titlebarLabel("译音"); symbol = icon.translating
             appearance = .translateStroke
-            consequence = String(localized: "原声已关，松开右⌥确认")
-            short = String(localized: "松开右⌥确认")
+            consequence = String(appLocalized: "原声已关，松开右⌥确认")
+            short = String(appLocalized: "松开右⌥确认")
         case .restoring:
             title = titlebarLabel("原声已关"); compact = titlebarLabel("恢复中"); symbol = icon.originalOff
             appearance = .dimStroke
-            consequence = String(localized: "现在什么都没有发出去")
-            short = String(localized: "正在恢复原声")
-            announcement = String(localized: "正在恢复原声")
+            consequence = String(appLocalized: "现在什么都没有发出去")
+            short = String(appLocalized: "正在恢复原声")
+            announcement = String(appLocalized: "正在恢复原声")
         case .notSent:
             title = titlebarLabel("未发送"); compact = titlebarLabel("本机"); symbol = icon.localOnly
             appearance = .dashed
-            consequence = String(localized: "现在什么都没有发出去")
-            short = String(localized: "对方听不到你")
-            announcement = String(localized: "未发送，对方听不到你")
+            consequence = String(appLocalized: "现在什么都没有发出去")
+            short = String(appLocalized: "对方听不到你")
+            announcement = String(appLocalized: "未发送，对方听不到你")
         case .phoneNotConnected:
             title = titlebarLabel("未接入 Phone"); compact = titlebarLabel("本机"); symbol = icon.localOnly
             appearance = .dashed
-            consequence = String(localized: "Phone 尚未接收音频")
-            short = String(localized: "Phone 尚未接收音频")
-            announcement = String(localized: "未接入 Phone")
+            consequence = String(appLocalized: "Phone 尚未接收音频")
+            short = String(appLocalized: "Phone 尚未接收音频")
+            announcement = String(appLocalized: "未接入 Phone")
         case .phoneLocalTrial:
             title = titlebarLabel("本机试说"); compact = titlebarLabel("本机"); symbol = icon.thisMac
             appearance = .dashed
-            consequence = String(localized: "Phone 未接收，现在什么都没有发出去")
-            short = String(localized: "Phone 未接收")
-            announcement = String(localized: "本机试说，Phone 未接收")
+            consequence = String(appLocalized: "Phone 未接收，现在什么都没有发出去")
+            short = String(appLocalized: "Phone 未接收")
+            announcement = String(appLocalized: "本机试说，Phone 未接收")
         case .phoneLocalOnly:
             title = titlebarLabel("仅本机"); compact = titlebarLabel("本机"); symbol = icon.thisMac
             appearance = .warnStroke
-            consequence = String(localized: "译音只在本机播放，Phone 没有读取 TalkTalk Mic")
-            short = String(localized: "译音只在本机播放")
-            announcement = String(localized: "仅本机播放，Phone 未接收")
+            consequence = String(appLocalized: "译音只在本机播放，Phone 没有读取 TalkTalk Mic")
+            short = String(appLocalized: "译音只在本机播放")
+            announcement = String(appLocalized: "仅本机播放，Phone 未接收")
         case .localPlayback:
             title = titlebarLabel("本机播放"); compact = titlebarLabel("本机"); symbol = icon.thisMac
             appearance = .dimStroke
-            consequence = String(localized: "译音只在本机播放，没有发给任何人")
-            short = String(localized: "译音只在本机播放")
-            announcement = String(localized: "译音只在本机播放")
+            consequence = String(appLocalized: "译音只在本机播放，没有发给任何人")
+            short = String(appLocalized: "译音只在本机播放")
+            announcement = String(appLocalized: "译音只在本机播放")
         case .phoneReconnecting:
             title = titlebarLabel("正在重新连接 Phone…"); compact = titlebarLabel("本机")
             symbol = icon.reconnecting; appearance = .dimStroke
-            consequence = String(localized: "当前发言已停止，等待 Phone")
-            short = String(localized: "当前发言已停止")
-            announcement = String(localized: "正在重新连接 Phone")
+            consequence = String(appLocalized: "当前发言已停止，等待 Phone")
+            short = String(appLocalized: "当前发言已停止")
+            announcement = String(appLocalized: "正在重新连接 Phone")
         case .remoteHearsOriginal:
             title = titlebarLabel("对方能听到原声"); compact = titlebarLabel("对方听到原声")
             symbol = icon.originalRisk
             appearance = .riskFill
             consequence = risk == .meetingNotUsingMic
-                ? String(localized: "会议没有使用 TalkTalk Mic，对方能听到原声")
-                : String(localized: "对方听到的是你的原声，按键翻译已停用")
-            short = String(localized: "按键翻译已停用")
-            announcement = String(localized: "对方能听到原声")
+                ? String(appLocalized: "会议没有使用 TalkTalk Mic，对方能听到原声")
+                : String(appLocalized: "对方听到的是你的原声，按键翻译已停用")
+            short = String(appLocalized: "按键翻译已停用")
+            announcement = String(appLocalized: "对方能听到原声")
         case .unavailable:
             title = titlebarLabel("音频不可用"); compact = titlebarLabel("本机"); symbol = icon.originalOff
             appearance = .warnFill
-            consequence = String(localized: "现在什么都没有发出去")
-            short = String(localized: "未发送")
-            announcement = String(localized: "音频不可用")
+            consequence = String(appLocalized: "现在什么都没有发出去")
+            short = String(appLocalized: "未发送")
+            announcement = String(appLocalized: "音频不可用")
         case .listening:
             title = titlebarLabel("收听中"); compact = titlebarLabel("收听"); symbol = icon.listening
             appearance = .neutral
-            consequence = String(localized: "只收听所选应用，麦克风未开启")
-            short = String(localized: "麦克风未开启")
+            consequence = String(appLocalized: "只收听所选应用，麦克风未开启")
+            short = String(appLocalized: "麦克风未开启")
         }
-        let detail = reason.map { String(localized: "\(consequence)。\($0)") } ?? consequence
+        let detail = reason.map { String(appLocalized: "\(consequence)。\($0)") } ?? consequence
         return VoiceState(kind: kind, appearance: appearance, title: title, compactTitle: compact, symbol: symbol,
                           consequence: consequence, shortConsequence: short, detail: detail,
-                          accessibilityLabel: String(localized: "发声：\(title)，\(short)"),
+                          accessibilityLabel: String(appLocalized: "发声：\(title)，\(short)"),
                           announcement: announcement)
     }
 }
@@ -313,7 +313,7 @@ public struct HUDChip: Sendable, Equatable {
     /// Beside "仅本机": Phone has not read TalkTalk Mic, translated audio stays on this Mac.
     public static var phoneNotReceiving: HUDChip {
         HUDChip(titlebarLabel("Phone 未接收"), symbol: SubtitleTokens.VoiceIcon.thisMac, tone: .warn,
-                detail: String(localized: "译音只在本机播放：Phone 没有读取 TalkTalk Mic。"),
+                detail: String(appLocalized: "译音只在本机播放：Phone 没有读取 TalkTalk Mic。"),
                 settingsDestination: .audio)
     }
 }
@@ -340,7 +340,7 @@ public struct TitlebarKey: Sendable, Equatable {
     public var drawsAction: Bool
     public var style: Style
 
-    public init(key: String = String(localized: "右⌥"), action: String?, symbol: String? = nil,
+    public init(key: String = String(appLocalized: "右⌥"), action: String?, symbol: String? = nil,
                 drawsAction: Bool = true, style: Style) {
         self.key = key; self.action = action; self.symbol = symbol; self.drawsAction = drawsAction; self.style = style
     }

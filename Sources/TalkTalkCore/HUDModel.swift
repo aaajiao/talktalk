@@ -91,30 +91,30 @@ public struct HUDModel: Sendable, Equatable {
 
         public var text: String {
             switch self {
-            case .meetingNotUsingMic: String(localized: "会议没用 TalkTalk Mic")
-            case .remoteHearsYourVoice: String(localized: "会议正在用实体麦，对方仍可能听到原声；按键翻译已停用")
-            case let .floorPaused(n): String(localized: "对方在说话 · 已暂停 \(n) 段")
-            case let .numberMaybeWrong(s): String(localized: "数字可能有误：\(s)")
-            case let .skipped(n): String(localized: "已跳过 \(n) 段")
-            case .segmentNotSent: String(localized: "这段未发送")
-            case .sentenceMaybeIncomplete: String(localized: "该句可能不完整")
-            case .unsupportedTextNotSent: String(localized: "这段文字暂不支持，未发送")
-            case .speakerMode: String(localized: "正在外放，请戴耳机")
-            case .audioRestarting: String(localized: "音频系统重启中")
-            case .meetingSilent: String(localized: "会议当前没有声音")
-            case .meetingSeemsOver: String(localized: "会议似乎已结束")
-            case .tccUnconfirmed: String(localized: "没能确认系统录音权限")
-            case let .defaultInputChanged(x): String(localized: "系统默认输入被改成了 \(x)")
-            case let .switchedBackAfterInsert(x): String(localized: "\(x) 接入后系统换了默认输入，已切回 TalkTalk Mic")
-            case let .switchBackFailed(x): String(localized: "没能切回 TalkTalk Mic，系统默认输入是 \(x)")
-            case let .defaultInputRestored(x): String(localized: "默认输入已还原为 \(x)")
+            case .meetingNotUsingMic: String(appLocalized: "会议没用 TalkTalk Mic")
+            case .remoteHearsYourVoice: String(appLocalized: "会议正在用实体麦，对方仍可能听到原声；按键翻译已停用")
+            case let .floorPaused(n): String(appLocalized: "对方在说话 · 已暂停 \(n) 段")
+            case let .numberMaybeWrong(s): String(appLocalized: "数字可能有误：\(s)")
+            case let .skipped(n): String(appLocalized: "已跳过 \(n) 段")
+            case .segmentNotSent: String(appLocalized: "这段未发送")
+            case .sentenceMaybeIncomplete: String(appLocalized: "该句可能不完整")
+            case .unsupportedTextNotSent: String(appLocalized: "这段文字暂不支持，未发送")
+            case .speakerMode: String(appLocalized: "正在外放，请戴耳机")
+            case .audioRestarting: String(appLocalized: "音频系统重启中")
+            case .meetingSilent: String(appLocalized: "会议当前没有声音")
+            case .meetingSeemsOver: String(appLocalized: "会议似乎已结束")
+            case .tccUnconfirmed: String(appLocalized: "没能确认系统录音权限")
+            case let .defaultInputChanged(x): String(appLocalized: "系统默认输入被改成了 \(x)")
+            case let .switchedBackAfterInsert(x): String(appLocalized: "\(x) 接入后系统换了默认输入，已切回 TalkTalk Mic")
+            case let .switchBackFailed(x): String(appLocalized: "没能切回 TalkTalk Mic，系统默认输入是 \(x)")
+            case let .defaultInputRestored(x): String(appLocalized: "默认输入已还原为 \(x)")
             case let .defaultInputRestoredElsewhere(x, o, missing):
-                missing ? String(localized: "默认输入已还原为 \(x)（原来的 \(o) 不在了）")
-                        : String(localized: "默认输入已还原为 \(x)（原来的 \(o) 是虚拟设备，不还原到它）")
+                missing ? String(appLocalized: "默认输入已还原为 \(x)（原来的 \(o) 不在了）")
+                        : String(appLocalized: "默认输入已还原为 \(x)（原来的 \(o) 是虚拟设备，不还原到它）")
             case let .defaultInputNotSwitched(issue): issue.text
-            case .openAIUnreachable: String(localized: "OpenAI 暂时连不上，改用 Apple 翻译")
-            case .openAIKeyInvalid: String(localized: "OpenAI key 无效或额度用完，已改用 Apple 翻译")
-            case .modelRetired: String(localized: "所选模型已下线，已换回 gpt-6-luna")
+            case .openAIUnreachable: String(appLocalized: "OpenAI 暂时连不上，改用 Apple 翻译")
+            case .openAIKeyInvalid: String(appLocalized: "OpenAI key 无效或额度用完，已改用 Apple 翻译")
+            case .modelRetired: String(appLocalized: "所选模型已下线，已换回 gpt-6-luna")
             }
         }
 
@@ -131,25 +131,25 @@ public struct HUDModel: Sendable, Equatable {
         /// stay in `text`; safety consequences are never hidden behind the details control.
         public var summary: String {
             switch self {
-            case .remoteHearsYourVoice: String(localized: "会议仍会发送原声 · 翻译已停用")
-            case let .floorPaused(n): String(localized: "对方在说话 · 已暂停 \(n) 段")
-            case .numberMaybeWrong: String(localized: "译文数字待核对")
-            case .defaultInputChanged: String(localized: "系统麦克风已变化")
-            case .switchedBackAfterInsert: String(localized: "已恢复 TalkTalk Mic")
-            case .switchBackFailed: String(localized: "切换麦克风失败")
-            case .defaultInputRestored: String(localized: "系统麦克风已还原")
-            case .defaultInputRestoredElsewhere: String(localized: "已还原到其他实体麦克风")
+            case .remoteHearsYourVoice: String(appLocalized: "会议仍会发送原声 · 翻译已停用")
+            case let .floorPaused(n): String(appLocalized: "对方在说话 · 已暂停 \(n) 段")
+            case .numberMaybeWrong: String(appLocalized: "译文数字待核对")
+            case .defaultInputChanged: String(appLocalized: "系统麦克风已变化")
+            case .switchedBackAfterInsert: String(appLocalized: "已恢复 TalkTalk Mic")
+            case .switchBackFailed: String(appLocalized: "切换麦克风失败")
+            case .defaultInputRestored: String(appLocalized: "系统麦克风已还原")
+            case .defaultInputRestoredElsewhere: String(appLocalized: "已还原到其他实体麦克风")
             case .defaultInputNotSwitched(let issue):
                 switch issue {
-                case .micMissing: String(localized: "未找到 TalkTalk Mic")
-                case .noPhysicalInput: String(localized: "未找到实体麦克风")
-                case .writeFailed: String(localized: "系统麦克风切换失败")
-                case .recordWriteFailed, .guardLaunchFailed: String(localized: "麦克风还原准备失败")
-                case .micNotSelectable: String(localized: "TalkTalk Mic 暂不可选")
+                case .micMissing: String(appLocalized: "未找到 TalkTalk Mic")
+                case .noPhysicalInput: String(appLocalized: "未找到实体麦克风")
+                case .writeFailed: String(appLocalized: "系统麦克风切换失败")
+                case .recordWriteFailed, .guardLaunchFailed: String(appLocalized: "麦克风还原准备失败")
+                case .micNotSelectable: String(appLocalized: "TalkTalk Mic 暂不可选")
                 }
-            case .openAIUnreachable: String(localized: "OpenAI 暂时不可用 · 已用 Apple")
-            case .openAIKeyInvalid: String(localized: "OpenAI key 或额度异常 · 已用 Apple")
-            case .modelRetired: String(localized: "翻译模型已更换")
+            case .openAIUnreachable: String(appLocalized: "OpenAI 暂时不可用 · 已用 Apple")
+            case .openAIKeyInvalid: String(appLocalized: "OpenAI key 或额度异常 · 已用 Apple")
+            case .modelRetired: String(appLocalized: "翻译模型已更换")
             default: text
             }
         }
@@ -194,16 +194,16 @@ public struct HUDModel: Sendable, Equatable {
         public func chip(scene: SubtitleScene) -> HUDChip? {
             if scene == .phone, self == .meetingSeemsOver {
                 return HUDChip(titlebarLabel("长时间无通话音频"), symbol: "waveform.slash", tone: .info,
-                               detail: String(localized: "Phone 已长时间没有通话音频，即将结束电话同传。"))
+                               detail: String(appLocalized: "Phone 已长时间没有通话音频，即将结束电话同传。"))
             }
             guard scene == .video else { return chip }
             switch self {
             case .meetingSilent:
                 return HUDChip(titlebarLabel("暂无声音"), symbol: "waveform.slash", tone: .info,
-                               detail: String(localized: "所选应用当前没有声音"))
+                               detail: String(appLocalized: "所选应用当前没有声音"))
             case .meetingSeemsOver:
                 return HUDChip(titlebarLabel("长时间没有声音"), symbol: "waveform.slash", tone: .info,
-                               detail: String(localized: "应用长时间没有声音，视频字幕即将自动结束；要继续，请在菜单栏选择“继续收听”"))
+                               detail: String(appLocalized: "应用长时间没有声音，视频字幕即将自动结束；要继续，请在菜单栏选择“继续收听”"))
             default:
                 return chip
             }
@@ -326,9 +326,9 @@ public struct HUDModel: Sendable, Equatable {
         case mine, fallbackModel, system
         public var text: String {
             switch self {
-            case .mine: String(localized: "我的声音")
-            case .fallbackModel: String(localized: "备用模型")
-            case .system: String(localized: "系统声音")
+            case .mine: String(appLocalized: "我的声音")
+            case .fallbackModel: String(appLocalized: "备用模型")
+            case .system: String(appLocalized: "系统声音")
             }
         }
     }
@@ -360,28 +360,28 @@ public struct HUDModel: Sendable, Equatable {
 
         public var text: String {
             switch self {
-            case .preparing: String(localized: "正在准备音频")
-            case .phoneReady: String(localized: "电话同传已就绪 · 点按右⌥即可开始翻译")
-            case .original: String(localized: "原声发送中 · 点按右⌥开始翻译")
-            case .switching: String(localized: "正在切换发言方式")
-            case .translating: String(localized: "翻译收音中 · 再点按右⌥完成发言（原声已关闭）")
-            case .draining: String(localized: "译音处理中 · 播完后恢复原声")
-            case .restoringOriginal: String(localized: "正在恢复原声")
-            case .phoneReconnecting: String(localized: "正在重新连接 Phone · 当前发言已停止")
-            case let .unavailable(reason): String(localized: "TalkTalk 音频暂不可用：\(reason)")
+            case .preparing: String(appLocalized: "正在准备音频")
+            case .phoneReady: String(appLocalized: "电话同传已就绪 · 点按右⌥即可开始翻译")
+            case .original: String(appLocalized: "原声发送中 · 点按右⌥开始翻译")
+            case .switching: String(appLocalized: "正在切换发言方式")
+            case .translating: String(appLocalized: "翻译收音中 · 再点按右⌥完成发言（原声已关闭）")
+            case .draining: String(appLocalized: "译音处理中 · 播完后恢复原声")
+            case .restoringOriginal: String(appLocalized: "正在恢复原声")
+            case .phoneReconnecting: String(appLocalized: "正在重新连接 Phone · 当前发言已停止")
+            case let .unavailable(reason): String(appLocalized: "TalkTalk 音频暂不可用：\(reason)")
             }
         }
 
         /// The action or consequence shown alongside the mode when no warning takes priority.
         public var operationHint: String? {
             switch self {
-            case .phoneReady: String(localized: "点按右⌥开始翻译，可在拨号前试说")
-            case .original: String(localized: "点按右⌥开始翻译")
-            case .switching: String(localized: "松开右⌥确认")
-            case .translating: String(localized: "再点按右⌥完成发言 · 原声已关闭")
-            case .draining: String(localized: "播完后恢复原声")
-            case .restoringOriginal: String(localized: "请稍候")
-            case .phoneReconnecting: String(localized: "等待 Phone")
+            case .phoneReady: String(appLocalized: "点按右⌥开始翻译，可在拨号前试说")
+            case .original: String(appLocalized: "点按右⌥开始翻译")
+            case .switching: String(appLocalized: "松开右⌥确认")
+            case .translating: String(appLocalized: "再点按右⌥完成发言 · 原声已关闭")
+            case .draining: String(appLocalized: "播完后恢复原声")
+            case .restoringOriginal: String(appLocalized: "请稍候")
+            case .phoneReconnecting: String(appLocalized: "等待 Phone")
             case .preparing, .unavailable: nil
             }
         }
@@ -389,60 +389,60 @@ public struct HUDModel: Sendable, Equatable {
         public func phonePresentation(inputConfirmed: Bool) -> PhoneSpeechPresentation {
             switch self {
             case .preparing:
-                return .init(title: String(localized: "正在准备音频"), action: String(localized: "请稍候"),
-                             detail: String(localized: "正在准备音频；现在什么都没有发出去。"),
+                return .init(title: String(appLocalized: "正在准备音频"), action: String(appLocalized: "请稍候"),
+                             detail: String(appLocalized: "正在准备音频；现在什么都没有发出去。"),
                              symbol: SubtitleTokens.VoiceIcon.localOnly, tone: .progress)
             case .phoneReady:
-                return .init(title: String(localized: "本机同传已就绪"),
-                             action: String(localized: "点按右⌥开始翻译"),
+                return .init(title: String(appLocalized: "本机同传已就绪"),
+                             action: String(appLocalized: "点按右⌥开始翻译"),
                              detail: inputConfirmed
-                                ? String(localized: "Phone 已接入，正在准备发送原声。")
-                                : String(localized: "未确认 Phone 接入；可以先在本机试说。"),
+                                ? String(appLocalized: "Phone 已接入，正在准备发送原声。")
+                                : String(appLocalized: "未确认 Phone 接入；可以先在本机试说。"),
                              symbol: SubtitleTokens.VoiceIcon.localOnly, tone: .ready)
             case .original:
                 guard inputConfirmed else {
-                    return .init(title: String(localized: "等待 Phone 接入"),
-                                 action: String(localized: "点按右⌥可本机试说"),
-                                 detail: String(localized: "尚未确认通话输入，不能确认原声已送入 Phone。"),
+                    return .init(title: String(appLocalized: "等待 Phone 接入"),
+                                 action: String(appLocalized: "点按右⌥可本机试说"),
+                                 detail: String(appLocalized: "尚未确认通话输入，不能确认原声已送入 Phone。"),
                                  symbol: SubtitleTokens.VoiceIcon.localOnly, tone: .ready)
                 }
-                return .init(title: String(localized: "原声发送中"),
-                             action: String(localized: "点按右⌥开始翻译"),
-                             detail: String(localized: "Phone 已接入；你的原声正在送入 Phone。"),
+                return .init(title: String(appLocalized: "原声发送中"),
+                             action: String(appLocalized: "点按右⌥开始翻译"),
+                             detail: String(appLocalized: "Phone 已接入；你的原声正在送入 Phone。"),
                              symbol: SubtitleTokens.VoiceIcon.original, tone: .original)
             case .switching:
-                return .init(title: String(localized: "切换发言方式"),
-                             action: String(localized: "松开右⌥确认切换"),
-                             detail: String(localized: "原声已关闭，正在确认这次点按。"),
+                return .init(title: String(appLocalized: "切换发言方式"),
+                             action: String(appLocalized: "松开右⌥确认切换"),
+                             detail: String(appLocalized: "原声已关闭，正在确认这次点按。"),
                              symbol: "arrow.left.arrow.right", tone: .progress)
             case .translating:
-                return .init(title: String(localized: "翻译收音中"),
-                             action: String(localized: "再点按右⌥完成发言"),
+                return .init(title: String(appLocalized: "翻译收音中"),
+                             action: String(appLocalized: "再点按右⌥完成发言"),
                              detail: inputConfirmed
-                                ? String(localized: "Phone 已接入；原声已关闭，正在收音并翻译。")
-                                : String(localized: "本机翻译收音中，原声已关闭；未确认 Phone 接入。"),
+                                ? String(appLocalized: "Phone 已接入；原声已关闭，正在收音并翻译。")
+                                : String(appLocalized: "本机翻译收音中，原声已关闭；未确认 Phone 接入。"),
                              symbol: SubtitleTokens.VoiceIcon.translating, tone: .translation)
             case .draining:
-                return .init(title: String(localized: "译音处理中"),
-                             action: String(localized: "点按右⌥继续翻译"),
+                return .init(title: String(appLocalized: "译音处理中"),
+                             action: String(appLocalized: "点按右⌥继续翻译"),
                              detail: inputConfirmed
-                                ? String(localized: "原声保持关闭；剩余译音播完后恢复原声。")
-                                : String(localized: "正在处理剩余本机译音；未确认 Phone 接入。"),
+                                ? String(appLocalized: "原声保持关闭；剩余译音播完后恢复原声。")
+                                : String(appLocalized: "正在处理剩余本机译音；未确认 Phone 接入。"),
                              // Not told whether audio plays: never claim playback.
                              symbol: SubtitleTokens.VoiceIcon.translating, tone: .progress)
             case .restoringOriginal:
-                return .init(title: String(localized: "正在恢复原声"),
-                             action: String(localized: "点按右⌥开始翻译"),
-                             detail: String(localized: "正在准备恢复原声，确认后开始发送。"),
+                return .init(title: String(appLocalized: "正在恢复原声"),
+                             action: String(appLocalized: "点按右⌥开始翻译"),
+                             detail: String(appLocalized: "正在准备恢复原声，确认后开始发送。"),
                              symbol: SubtitleTokens.VoiceIcon.originalOff, tone: .progress)
             case .phoneReconnecting:
-                return .init(title: String(localized: "正在重新连接 Phone"),
-                             action: String(localized: "请稍候"),
-                             detail: String(localized: "Phone 的麦克风读取发生变化，当前发言已停止；完成清理后才能继续说话。"),
+                return .init(title: String(appLocalized: "正在重新连接 Phone"),
+                             action: String(appLocalized: "请稍候"),
+                             detail: String(appLocalized: "Phone 的麦克风读取发生变化，当前发言已停止；完成清理后才能继续说话。"),
                              symbol: SubtitleTokens.VoiceIcon.reconnecting, tone: .progress)
             case let .unavailable(reason):
-                return .init(title: String(localized: "音频暂不可用"),
-                             action: String(localized: "请先检查音频状态"), detail: reason,
+                return .init(title: String(appLocalized: "音频暂不可用"),
+                             action: String(appLocalized: "请先检查音频状态"), detail: reason,
                              symbol: "exclamationmark.triangle", tone: .unavailable)
             }
         }
@@ -681,7 +681,7 @@ public struct HUDModel: Sendable, Equatable {
             case .unavailable: .yellow
             }
             if case .unavailable = audio {
-                out.append(HUDLine(String(localized: "音频暂不可用"), style,
+                out.append(HUDLine(String(appLocalized: "音频暂不可用"), style,
                                    detail: audio.text, symbol: "exclamationmark.triangle"))
             } else { out.append(HUDLine(audio.text, style)) }
         } else if let p = passthroughLine(now: now) { out.append(p) }
@@ -796,7 +796,7 @@ public struct HUDModel: Sendable, Equatable {
             // Speech text never goes into the popover; only queue/voice/source facts.
             switch pushToTalk {
             case let .holding(_, _, _, queued) where queued > 0:
-                out.append(HUDLine(String(localized: "待播 \(queued) 段"), .secondary))
+                out.append(HUDLine(String(appLocalized: "待播 \(queued) 段"), .secondary))
             case .playing: out += pushToTalkLines()
             case .holding, .idle: break
             }
@@ -825,16 +825,16 @@ public struct HUDModel: Sendable, Equatable {
         case .none:
             return nil
         case .waiting:
-            return HUDLine(String(localized: "原声 · 等这句说完"), .red)
+            return HUDLine(String(appLocalized: "原声 · 等这句说完"), .red)
         case let .open(level, secondsLeft):
             if let s = secondsLeft {
-                return HUDLine(String(localized: "原声 · 对方正在听你说 · 还剩 \(s) s"), .redBanner, level: level)
+                return HUDLine(String(appLocalized: "原声 · 对方正在听你说 · 还剩 \(s) s"), .redBanner, level: level)
             }
-            return HUDLine(String(localized: "原声 · 对方正在听你说"), .redBanner, level: level)
+            return HUDLine(String(appLocalized: "原声 · 对方正在听你说"), .redBanner, level: level)
         case let .closed(reason, until):
             guard now < until else { return nil }
-            if let reason { return HUDLine(String(localized: "原声已关闭：\(reason)")) }
-            return HUDLine(String(localized: "原声已关闭"))
+            if let reason { return HUDLine(String(appLocalized: "原声已关闭：\(reason)")) }
+            return HUDLine(String(appLocalized: "原声已关闭"))
         case let .refused(reason, until):
             guard now < until else { return nil }
             return HUDLine(reason, .secondary)
@@ -844,23 +844,23 @@ public struct HUDModel: Sendable, Equatable {
     func pushToTalkLines() -> [HUDLine] {
         switch pushToTalk {
         case .idle:
-            return meetingAudio == nil ? [HUDLine(String(localized: "点按右⌥开始翻译"), .secondary)] : []
+            return meetingAudio == nil ? [HUDLine(String(appLocalized: "点按右⌥开始翻译"), .secondary)] : []
         case let .holding(level, preview, committed, queued):
-            var out = [HUDLine(String(localized: "正在识别中文"), .normal, level: level)]
+            var out = [HUDLine(String(appLocalized: "正在识别中文"), .normal, level: level)]
             if transcript == nil {
                 out += committed.map { HUDLine("✓ " + $0, .check) }
                 if !preview.isEmpty { out.append(HUDLine(preview, .secondary)) }
             }
-            if queued > 0 { out.append(HUDLine(String(localized: "待播 \(queued) 段"), .secondary)) }
+            if queued > 0 { out.append(HUDLine(String(appLocalized: "待播 \(queued) 段"), .secondary)) }
             return out
         case let .playing(lang, voice, source, queued):
             let code = lang.rawValue.uppercased()
-            var out = [HUDLine(String(localized: "正在播放译音（\(code)）")), HUDLine(voice.text, .secondary)]
+            var out = [HUDLine(String(appLocalized: "正在播放译音（\(code)）")), HUDLine(voice.text, .secondary)]
             switch source {
             case .openAI: out.append(HUDLine("OpenAI", .secondary))
-            case .apple: out.append(HUDLine(String(localized: "Apple 本地翻译"), .secondary))
+            case .apple: out.append(HUDLine(String(appLocalized: "Apple 本地翻译"), .secondary))
             }
-            if queued > 0 { out.append(HUDLine(String(localized: "待播 \(queued) 段"), .secondary)) }
+            if queued > 0 { out.append(HUDLine(String(appLocalized: "待播 \(queued) 段"), .secondary)) }
             return out
         }
     }

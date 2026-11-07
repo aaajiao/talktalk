@@ -1,4 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
+import TalkTalkCore
 import Darwin
 import Foundation
 import Observation
@@ -59,9 +60,9 @@ public final class DriverInstaller {
     @ObservationIgnored let pollAttempts: Int
     @ObservationIgnored let installedBundle: URL
 
-    public static let installPrompt = String(localized: "TalkTalk 要安装虚拟麦克风，并重启系统音频（声音会中断约 1 秒）。")
-    public static let uninstallPrompt = String(localized: "TalkTalk 要卸载虚拟麦克风，并重启系统音频（声音会中断约 1 秒）。")
-    public static let restartPrompt = String(localized: "TalkTalk 要重启系统音频，让虚拟麦克风生效（声音会中断约 1 秒）。")
+    public static var installPrompt: String { String(appLocalized: "TalkTalk 要安装虚拟麦克风，并重启系统音频（声音会中断约 1 秒）。") }
+    public static var uninstallPrompt: String { String(appLocalized: "TalkTalk 要卸载虚拟麦克风，并重启系统音频（声音会中断约 1 秒）。") }
+    public static var restartPrompt: String { String(appLocalized: "TalkTalk 要重启系统音频，让虚拟麦克风生效（声音会中断约 1 秒）。") }
 
     public init(resources: DriverResources?, paths: DriverPaths = .standard(), hal: any DriverHAL = CoreAudioDriverHAL(),
                 runner: any DriverScriptRunner = AdminScriptRunner(),

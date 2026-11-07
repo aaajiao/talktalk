@@ -38,7 +38,24 @@ final class PrivacySettings {
     private(set) var lastSweepRemoved = 0
     private(set) var exporting = false
     /// The last export, as a status row (§7.16): the counts and the file name in its help.
-    private(set) var exportResult: SettingsProblem?
+    private enum ExportOutcome: Sendable {
+        case success(DiagnosticsBundleExporter.Result)
+        case failure(any Error)
+        var presentation: SettingsProblem {
+            switch self {
+            case let .success(r):
+                let details = String(appLocalized: "\(r.destination.lastPathComponent)：过滤掉 \(r.droppedLines) 行")
+                    + (r.skippedTooLarge > 0 ? String(appLocalized: "，跳过 \(r.skippedTooLarge) 个过大的文件") : "")
+                    + String(appLocalized: "。已检查：包里没有 key、请求头和文字内容。")
+                return SettingsProblem(.ok, String(appLocalized: "已导出 \(r.files) 个文件 · 已确认无 key 和文字"), help: details)
+            case let .failure(error):
+                let detail = (error as? DiagnosticsBundleExporter.Failure)?.description ?? error.localizedDescription
+                return SettingsProblem(.failed, String(appLocalized: "导出失败"), help: detail)
+            }
+        }
+    }
+    private var exportOutcome: ExportOutcome?
+    var exportResult: SettingsProblem? { exportOutcome?.presentation }
     var showRemoteRefused = false
     /// The "停止并删除本场录音…" confirmation dialog.
     var confirmDiscardRecording = false
@@ -122,33 +139,27 @@ final class PrivacySettings {
 
     func exportBundle() {
         let panel = NSSavePanel()
-        panel.title = String(localized: "导出诊断包")
+        panel.title = String(appLocalized: "导出诊断包")
         panel.nameFieldStringValue = DiagnosticsBundleExporter.suggestedName()
         panel.allowedContentTypes = [.zip]
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let dest = panel.url else { return }
         exporting = true
-        exportResult = nil
+        exportOutcome = nil
         let exporter = DiagnosticsBundleExporter(home: home, logs: logs)
         Task.detached(priority: .userInitiated) {
-            let result: SettingsProblem
+            let result: ExportOutcome
             do {
-                let r = try exporter.export(to: dest)
-                let details = String(localized: "\(dest.lastPathComponent)：过滤掉 \(r.droppedLines) 行")
-                    + (r.skippedTooLarge > 0 ? String(localized: "，跳过 \(r.skippedTooLarge) 个过大的文件") : "")
-                    + String(localized: "。已检查：包里没有 key、请求头和文字内容。")
-                result = SettingsProblem(.ok, String(localized: "已导出 \(r.files) 个文件 · 已确认无 key 和文字"), help: details)
-            } catch let e as DiagnosticsBundleExporter.Failure {
-                result = SettingsProblem(.failed, String(localized: "导出失败"), help: e.description)
+                result = .success(try exporter.export(to: dest))
             } catch {
-                result = SettingsProblem(.failed, String(localized: "导出失败"), help: error.localizedDescription)
+                result = .failure(error)
             }
             await self.exportFinished(result)
         }
     }
 
-    private func exportFinished(_ result: SettingsProblem) {
+    private func exportFinished(_ result: ExportOutcome) {
         exporting = false
-        exportResult = result
+        exportOutcome = result
     }
 }

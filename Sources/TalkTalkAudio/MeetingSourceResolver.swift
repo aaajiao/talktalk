@@ -1,3 +1,5 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
+import TalkTalkCore
 import AppKit
 import CoreAudio
 import Darwin
@@ -9,14 +11,26 @@ import Foundation
 /// shows them, not guessed.
 public struct MeetingApp: Sendable, Equatable, Hashable, Codable {
     public let id: String          // owner bundle id
-    public let name: String
+    private let storedName: String
+    /// A known localized app name must follow the interface language even when the
+    /// resolver and its process candidates were created before the language changed.
+    public var name: String {
+        id == "com.tencent.meeting" ? String(appLocalized: "腾讯会议") : storedName
+    }
+    private enum CodingKeys: String, CodingKey { case id, storedName = "name", isBrowser }
+
+    public init(id: String, name: String, isBrowser: Bool) {
+        self.id = id
+        storedName = name
+        self.isBrowser = isBrowser
+    }
     /// A browser: one audio helper serves every tab (§3.1 "浏览器会议").
     public let isBrowser: Bool
 
     public static let known: [MeetingApp] = [
         MeetingApp(id: "us.zoom.xos", name: "Zoom", isBrowser: false),
         MeetingApp(id: "com.microsoft.teams2", name: "Microsoft Teams", isBrowser: false),
-        MeetingApp(id: "com.tencent.meeting", name: "腾讯会议", isBrowser: false),
+        MeetingApp(id: "com.tencent.meeting", name: "Tencent Meeting", isBrowser: false),
         MeetingApp(id: "com.google.Chrome", name: "Google Chrome", isBrowser: true),
         MeetingApp(id: "com.microsoft.edgemac", name: "Microsoft Edge", isBrowser: true),
         MeetingApp(id: "company.thebrowser.Browser", name: "Arc", isBrowser: true),

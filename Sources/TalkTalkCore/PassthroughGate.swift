@@ -1,3 +1,5 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
+import Foundation
 import Synchronization
 
 // MARK: - State published to the real-time side (§3.8 "feedIOProc 的切换")
@@ -172,12 +174,12 @@ public enum PassthroughCloseReason: Sendable, Hashable {
     public var hudText: String? {
         switch self {
         case .keyReleased: nil
-        case .otherKey, .modifierChanged, .mouseButton, .scroll, .mouseMoved, .otherInputHeld: "按了其他键"
-        case .maxHold: "超过 30 s"
-        case .system(.coreaudiodRestarted): "音频系统重启"
+        case .otherKey, .modifierChanged, .mouseButton, .scroll, .mouseMoved, .otherInputHeld: String(appLocalized: "按了其他键")
+        case .maxHold: String(appLocalized: "超过 30 s")
+        case .system(.coreaudiodRestarted): String(appLocalized: "音频系统重启")
         case let .unavailable(r): r.hudText
-        case .spokeBeforeOpen: "先等提示音再说"
-        case .tapFailed, .lostKeyUp, .secureInput, .leaseExpired, .sourceChanged, .system: "原声直通已中断"
+        case .spokeBeforeOpen: String(appLocalized: "先等提示音再说")
+        case .tapFailed, .lostKeyUp, .secureInput, .leaseExpired, .sourceChanged, .system: String(appLocalized: "原声直通已中断")
         }
     }
 }
@@ -192,8 +194,8 @@ public enum PassthroughRefusal: Sendable, Hashable {
     public var hudText: String? {
         switch self {
         case let .unavailable(r): r.hudText
-        case .spokeBeforeOpen: "先等提示音再说"
-        case .yieldTimeout, .micNotReady: "原声直通暂不可用"
+        case .spokeBeforeOpen: String(appLocalized: "先等提示音再说")
+        case .yieldTimeout, .micNotReady: String(appLocalized: "原声直通暂不可用")
         }
     }
 

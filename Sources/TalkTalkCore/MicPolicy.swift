@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 
 /// Which microphone SPEAK reads, and which devices are physical enough to be a system default
@@ -61,10 +62,10 @@ public enum MicPolicy {
         /// Shown in settings next to a device that cannot be used.
         public var text: String {
             switch self {
-            case .ownDevice: "TalkTalk 自己的虚拟设备"
-            case .aggregate: "聚合设备"
-            case .virtual: "虚拟设备"
-            case .excludedByName: "其他软件的虚拟麦克风"
+            case .ownDevice: String(appLocalized: "TalkTalk 自己的虚拟设备")
+            case .aggregate: String(appLocalized: "聚合设备")
+            case .virtual: String(appLocalized: "虚拟设备")
+            case .excludedByName: String(appLocalized: "其他软件的虚拟麦克风")
             }
         }
     }
@@ -151,8 +152,8 @@ public enum MicPolicy {
 
         public var text: String {
             switch self {
-            case .confirmBluetoothHFP: "耳机会切到通话音质，识别也会变差"
-            case .continuityLatency: "接续互通麦克风有约 125 ms 延迟"
+            case .confirmBluetoothHFP: String(appLocalized: "耳机会切到通话音质，识别也会变差")
+            case .continuityLatency: String(appLocalized: "接续互通麦克风有约 125 ms 延迟")
             }
         }
 

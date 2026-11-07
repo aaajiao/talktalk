@@ -77,7 +77,7 @@ struct SettingsNavigationBand: View {
                     Label("用 VoiceOver 读出新字幕", systemImage: Icon.voiceOver)
                 }
                 .help("只读定稿")
-                .accessibilityHint(String(localized: "用 VoiceOver 朗读每条定稿译文，不读草稿"))
+                .accessibilityHint(String(appLocalized: "用 VoiceOver 朗读每条定稿译文，不读草稿"))
             }
         }
     }
@@ -104,11 +104,11 @@ struct SettingsNavigationBand: View {
         guard let model = translation.model else { return nil }
         let warning: String?
         if case .failed = model.verification {
-            warning = String(localized: "key 未通过验证")
+            warning = String(appLocalized: "key 未通过验证")
         } else {
             switch model.retirement {
-            case .fellBackToDefault: warning = String(localized: "所选模型已下线")
-            case .defaultRetiring: warning = String(localized: "模型即将下线")
+            case .fellBackToDefault: warning = String(appLocalized: "所选模型已下线")
+            case .defaultRetiring: warning = String(appLocalized: "模型即将下线")
             case .keep, nil: warning = nil
             }
         }
@@ -147,9 +147,9 @@ struct SettingsNavigationBand: View {
         case .subtitles:
             let analysis = privacy.subtitleAnalysis
             return analysis.isRecording || analysis.isStarting
-                ? .analysing(String(localized: "正在保存字幕文字")) : nil
+                ? .analysing(String(appLocalized: "正在保存字幕文字")) : nil
         case .troubleshooting:
-            return privacy.recorder.recordingTracks.isEmpty ? nil : .status(.recording, String(localized: "诊断录音中"))
+            return privacy.recorder.recordingTracks.isEmpty ? nil : .status(.recording, String(appLocalized: "诊断录音中"))
         }
     }
 }

@@ -72,7 +72,7 @@ public struct OnboardingProgress: Sendable, Equatable {
     }
 
     /// "第 N 步，共 M 步": the onboarding header's VoiceOver value, the 使用引导… row and the menu.
-    public var text: String { String(localized: "第 \(step) 步，共 \(count) 步") }
+    public var text: String { String(appLocalized: "第 \(step) 步，共 \(count) 步") }
 }
 
 /// The afplay probe's verdict (§3.1). nil wherever it appears: the probe has not run.

@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Darwin
 import Foundation
 import TalkTalkCore
@@ -129,7 +130,7 @@ public enum EngineFailure: Error, Sendable, Equatable, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .fatal(let m): "engine FATAL: \(m) (去设置 › 组件 修复)"
+        case .fatal(let m): String(appLocalized: "engine FATAL: \(m) (去设置 › 组件 修复)")
         case .readyMismatch(let l): "engine READY does not match install.json: " + l.joined(separator: "; ")
         case .timeout: "engine did not become READY in time"
         case .crashedTooOften(let e): "engine crashed 3 times within 2 minutes (last: \(e)); see engine.log"

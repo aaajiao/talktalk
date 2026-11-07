@@ -51,18 +51,24 @@ public final class TranslationSettingsModel {
     /// then `keyState == .none` means "not known yet", not "no key".
     public private(set) var keyStateKnown = false
     public var pasteField = ""
-    public private(set) var pasteProblem: SettingsProblem?
-    public private(set) var savedHint: String?
+    // Retain facts, not translated snapshots: switching UI language only renders these again.
+    private var pasteIssue: TranslationSettingsText.PasteIssue?
+    private var hasSavedHint = false
+    public var pasteProblem: SettingsProblem? { pasteIssue?.problem }
+    public var savedHint: String? { hasSavedHint ? TranslationSettingsText.clearClipboard : nil }
     /// Which `OpenAIKeySection` asked to delete the key. Settings › 识别与翻译 and onboarding
     /// step 5 share this model, so only the asking window shows the alert; nil while none asks.
     public enum KeySectionHost: Sendable { case settings, onboarding }
     public var keyDeletionAskedBy: KeySectionHost?
 
-    public private(set) var verification: Check = .idle
-    public private(set) var listing: Check = .idle
-    public private(set) var probe: Check = .idle
+    private var verificationResult: TranslationSettingsText.CheckResult = .idle
+    private var listingResult: TranslationSettingsText.CheckResult = .idle
+    private var probeResult: TranslationSettingsText.CheckResult = .idle
+    public var verification: Check { verificationResult.presentation(cloud: cloud) }
+    public var listing: Check { listingResult.presentation(cloud: cloud) }
+    public var probe: Check { probeResult.presentation(cloud: cloud) }
     public private(set) var picker = ModelFilter.picker([], current: nil)
-    public private(set) var notice: String?
+    public var notice: String? { retirement.flatMap(TranslationSettingsText.retirementNotice) }
     /// Which retirement `notice` reports: `.fellBackToDefault` (already switched) or
     /// `.defaultRetiring` (still in use, going away). Nil with no notice.
     public private(set) var retirement: ModelFilter.Resolution?
@@ -186,28 +192,28 @@ public final class TranslationSettingsModel {
     public func saveAndVerify() async {
         var key = APIKeyShape.normalized(pasteField)
         pasteField = ""
-        pasteProblem = nil
-        savedHint = nil
-        guard preferences.cloudConsentGiven else { pasteProblem = TranslationSettingsText.consentFirst; return }
+        pasteIssue = nil
+        hasSavedHint = false
+        guard preferences.cloudConsentGiven else { pasteIssue = .consentFirst; return }
         if let p = APIKeyShape.problem(key) {
             key = ""
-            pasteProblem = TranslationSettingsText.notAKey(p)
+            pasteIssue = .notAKey(p)
             return
         }
         do {
             try store.store(Data(key.utf8))
         } catch let f as KeychainSecret.Failure {
             key = ""
-            pasteProblem = TranslationSettingsText.keychainWriteFailed(f.status)
+            pasteIssue = .keychainWriteFailed(f.status)
             return
         } catch {
             key = ""
-            pasteProblem = TranslationSettingsText.keychainWriteFailed(nil)
+            pasteIssue = .keychainWriteFailed(nil)
             return
         }
         let masked = APIKeyShape.masked(key)
         key = ""
-        savedHint = TranslationSettingsText.clearClipboard
+        hasSavedHint = true
         invalidateModelList()
         client = nil        // the next request reads the new key
         invalidateKeyStateLoad()
@@ -219,19 +225,19 @@ public final class TranslationSettingsModel {
     /// 验证: `GET /v1/models`, then the probe on the selected model. Green only when both pass.
     public func verify() async {
         // A refused paste or failed delete from before would hide this check's result.
-        pasteProblem = nil
+        pasteIssue = nil
         await loadKeyState()
-        guard hasKey else { verification = Check(failed: TranslationSettingsText.noKey); return }
-        verification = .running(TranslationSettingsText.verifying)
+        guard hasKey else { verificationResult = .noKey; return }
+        verificationResult = .verifying
         await loadModels()
         guard case .ok = listing else {
-            if case let .failed(text, detail) = listing { verification = .failed(text, detail: detail) }
+            if case .failed = listing { verificationResult = listingResult }
             return
         }
         await runProbe(model: preferences.model, effort: preferences.effort)
         switch probe {
-        case .ok: verification = Check(ok: TranslationSettingsText.verified(model: preferences.model))
-        case let .failed(text, detail): verification = .failed(text, detail: detail)
+        case .ok: verificationResult = .verified(model: preferences.model)
+        case .failed: verificationResult = probeResult
         default: break
         }
     }
@@ -240,10 +246,10 @@ public final class TranslationSettingsModel {
         do {
             try store.delete()
         } catch let f as KeychainSecret.Failure {
-            pasteProblem = TranslationSettingsText.deleteFailed(f.status)
+            pasteIssue = .deleteFailed(f.status)
             return
         } catch {
-            pasteProblem = TranslationSettingsText.deleteFailed(nil)
+            pasteIssue = .deleteFailed(nil)
             return
         }
         invalidateKeyStateLoad()
@@ -251,13 +257,13 @@ public final class TranslationSettingsModel {
         client = nil
         keyState = .none
         keyStateKnown = true
-        verification = .idle
-        listing = .idle
-        probe = .idle
+        verificationResult = .idle
+        listingResult = .idle
+        probeResult = .idle
         picker = ModelFilter.picker([], current: nil)
         listed = []
-        savedHint = nil
-        pasteProblem = nil
+        hasSavedHint = false
+        pasteIssue = nil
     }
 
     // MARK: models
@@ -309,8 +315,8 @@ public final class TranslationSettingsModel {
         defer { if revision == modelListRevision { modelListTask = nil } }
         await loadKeyState()
         guard acceptsModelList(revision, requiresConsent: requiresConsent) else { return }
-        guard hasKey else { listing = .idle; return }
-        listing = .running(TranslationSettingsText.listing)
+        guard hasKey else { listingResult = .idle; return }
+        listingResult = .listing
         do {
             let rows = try await catalog().list()
             guard acceptsModelList(revision, requiresConsent: requiresConsent) else { return }
@@ -318,16 +324,16 @@ public final class TranslationSettingsModel {
             hasModelList = true
             applyResolution(ModelFilter.resolve(selection: preferences.model, listed: rows))
             picker = ModelFilter.picker(rows, current: preferences.model)
-            listing = .ok(TranslationSettingsText.listed(picker.models.count))
+            listingResult = .listed(picker.models.count)
         } catch let OpenAIModelCatalog.CatalogError.http(status, info) {
             guard acceptsModelList(revision, requiresConsent: requiresConsent) else { return }
-            listing = Check(failed: TranslationSettingsText.failure(status: status, error: info, cloud: cloud))
+            listingResult = .httpFailure(status: status, error: info)
         } catch OpenAIModelCatalog.CatalogError.malformed {
             guard acceptsModelList(revision, requiresConsent: requiresConsent) else { return }
-            listing = Check(failed: TranslationSettingsText.malformedList)
+            listingResult = .malformedList
         } catch {
             guard acceptsModelList(revision, requiresConsent: requiresConsent) else { return }
-            listing = Check(failed: TranslationSettingsText.transportFailure(error))
+            listingResult = .transportFailure(error)
         }
     }
 
@@ -338,9 +344,8 @@ public final class TranslationSettingsModel {
         lastModelListAttempt = nil
         listed = []
         hasModelList = false
-        listing = .idle
+        listingResult = .idle
         picker = ModelFilter.picker([], current: preferences.model)
-        notice = nil
         retirement = nil
     }
 
@@ -348,16 +353,15 @@ public final class TranslationSettingsModel {
         switch r {
         case .keep: break
         case .fellBackToDefault(let from):
-            if preferences.notifiedRetiredFrom != from { notice = TranslationSettingsText.retirementNotice(r); retirement = r }
+            if preferences.notifiedRetiredFrom != from { retirement = r }
             update { $0.model = ModelFilter.defaultModel; $0.effort = "none"; $0.notifiedRetiredFrom = from }
         case .defaultRetiring:
-            if !preferences.notifiedDefaultRetiring { notice = TranslationSettingsText.retirementNotice(r); retirement = r }
+            if !preferences.notifiedDefaultRetiring { retirement = r }
             update { $0.notifiedDefaultRetiring = true }
         }
     }
 
     public func dismissNotice() {
-        notice = nil
         retirement = nil
     }
 
@@ -392,18 +396,12 @@ public final class TranslationSettingsModel {
     @discardableResult
     private func runProbe(model: String, effort: String) async -> OpenAIModelCatalog.ProbeResult? {
         await loadKeyState()
-        guard hasKey else { probe = .idle; return nil }
-        probe = .running(TranslationSettingsText.probing(model))
+        guard hasKey else { probeResult = .idle; return nil }
+        probeResult = .probing(model)
         let r = await catalog().probe(model: model, effort: effort,
                                       reasoningBudget: effort == "none" ? 0 : Self.yellowReasoningBudget,
                                       basePolicy: profile.speakHedgePolicy)
-        if r.accepted {
-            probe = Check(ok: TranslationSettingsText.timing(r, model: model, effort: effort))
-        } else if r.needsLowEffort {
-            probe = Check(failed: TranslationSettingsText.needsLowEffort(model))
-        } else {
-            probe = Check(failed: TranslationSettingsText.probeFailure(r, cloud: cloud))
-        }
+        probeResult = .probed(r, model: model, effort: effort)
         return r
     }
 

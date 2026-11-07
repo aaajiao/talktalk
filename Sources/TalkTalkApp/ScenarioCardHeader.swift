@@ -14,7 +14,7 @@ struct ScenarioCardHeader: View {
     static let modes: [MeetingMode] = [.meeting, .phone, .captions]
 
     var body: some View {
-        CardRow(String(localized: "使用场景"), items: Self.modes.map(item), selection: $state.requestedScenario)
+        CardRow(String(appLocalized: "使用场景"), items: Self.modes.map(item), selection: $state.requestedScenario)
     }
 
     private func item(_ mode: MeetingMode) -> CardItem<MeetingMode> {

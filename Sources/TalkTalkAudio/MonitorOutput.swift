@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import AVFoundation
 import CAudioCore
 import CoreAudio
@@ -101,8 +102,8 @@ public final class MonitorOutput: @unchecked Sendable {
         case interrupted(String)
         public var description: String {
             switch self {
-            case .unavailable(let why): "自听输出不可用：\(why)"
-            case .interrupted(let why): "试听中断：\(why)"
+            case .unavailable(let why): String(appLocalized: "自听输出不可用：\(why)")
+            case .interrupted(let why): String(appLocalized: "试听中断：\(why)")
             }
         }
     }
@@ -141,7 +142,7 @@ public final class MonitorOutput: @unchecked Sendable {
     public static let defaultGainDb: Float = -10
     /// Retries of a failed attach: 0.5 s doubling to 5 s, this many times.
     static let maxRetries = 8
-    static let meetingModeReason = "会议模式中不能试听"
+    static var meetingModeReason: String { String(appLocalized: "会议模式中不能试听") }
 
     /// ClauseQueue's `monitor` ring, made by the app like ringO (§3.3 "RingO 的生命周期").
     public let ringO2: RingO
@@ -194,7 +195,7 @@ public final class MonitorOutput: @unchecked Sendable {
             describe: { try MonitorOutput.describe($0) },
             isAlive: { (InputDeviceCatalog.scalar($0, kAudioDevicePropertyDeviceIsAlive) as UInt32? ?? 0) != 0 },
             turnOffInputStreams: { id, proc, n in
-                guard let proc else { throw Failure(status: 0, what: "没有 IOProc", transient: false) }
+                guard let proc else { throw Failure(status: 0, what: String(appLocalized: "没有 IOProc"), transient: false) }
                 return try MonitorOutput.turnOffInputStreams(id, proc: proc, streams: n)
             },
             bufferFrames: { InputDeviceCatalog.scalar($0, kAudioDevicePropertyBufferFrameSize) ?? 0 })
@@ -350,7 +351,7 @@ public final class MonitorOutput: @unchecked Sendable {
     public func setMeetingMode(_ on: Bool) {
         queue.async { [self] in
             meetingMode = on
-            if on, let a = audition { endAudition(a, error: AuditionError.interrupted("会议模式"), early: true) }
+            if on, let a = audition { endAudition(a, error: AuditionError.interrupted(String(appLocalized: "会议模式")), early: true) }
             applyPolicy()
         }
     }
@@ -501,7 +502,7 @@ public final class MonitorOutput: @unchecked Sendable {
 
     /// Never TalkTalk's own devices (the Feed above all: nothing here may reach TalkTalk Mic).
     static func refusal(_ d: OutputRouteClassifier.Device) -> String? {
-        d.uid.hasPrefix(DriverPins.ownUIDPrefix) ? "默认输出是 TalkTalk 自己的设备" : nil
+        d.uid.hasPrefix(DriverPins.ownUIDPrefix) ? String(appLocalized: "默认输出是 TalkTalk 自己的设备") : nil
     }
 
     /// Float32 linear PCM, native endian: what monitorIOProc writes.
@@ -616,24 +617,24 @@ public final class MonitorOutput: @unchecked Sendable {
     /// Every read that fails is a (transient) refusal, never a default: an input-stream count read
     /// as 0 would leave a headset's microphone on.
     static func describe(_ id: AudioObjectID) throws -> Target {
-        guard let device = HALReads.outputDevice(id) else { throw Failure(status: 0, what: "默认输出没有 UID") }
+        guard let device = HALReads.outputDevice(id) else { throw Failure(status: 0, what: String(appLocalized: "默认输出没有 UID")) }
         let rate: Double = InputDeviceCatalog.scalar(id, kAudioDevicePropertyNominalSampleRate) ?? 0
-        guard rate > 0, rate.isFinite else { throw Failure(status: 0, what: "默认输出没有采样率") }
+        guard rate > 0, rate.isFinite else { throw Failure(status: 0, what: String(appLocalized: "默认输出没有采样率")) }
         let hog: pid_t = InputDeviceCatalog.scalar(id, kAudioDevicePropertyHogMode) ?? -1
-        guard hog == -1 || hog == getpid() else { throw Failure(status: 0, what: "默认输出被别的程序独占（hog mode）") }
-        guard let outs = streams(id, kAudioObjectPropertyScopeOutput) else { throw Failure(status: 0, what: "默认输出的输出流读不出来") }
-        guard !outs.isEmpty else { throw Failure(status: 0, what: "默认输出没有输出流") }
+        guard hog == -1 || hog == getpid() else { throw Failure(status: 0, what: String(appLocalized: "默认输出被别的程序独占（hog mode）")) }
+        guard let outs = streams(id, kAudioObjectPropertyScopeOutput) else { throw Failure(status: 0, what: String(appLocalized: "默认输出的输出流读不出来")) }
+        guard !outs.isEmpty else { throw Failure(status: 0, what: String(appLocalized: "默认输出没有输出流")) }
         for s in outs {
             guard let f: AudioStreamBasicDescription = InputDeviceCatalog.scalar(s, kAudioStreamPropertyVirtualFormat) else {
-                throw Failure(status: 0, what: "默认输出的格式读不出来")
+                throw Failure(status: 0, what: String(appLocalized: "默认输出的格式读不出来"))
             }
-            guard isPlayableFormat(f) else { throw Failure(status: 0, what: "默认输出的格式不是 Float32", transient: false) }
+            guard isPlayableFormat(f) else { throw Failure(status: 0, what: String(appLocalized: "默认输出的格式不是 Float32"), transient: false) }
         }
         guard let ins = streams(id, kAudioObjectPropertyScopeInput) else {
-            throw Failure(status: 0, what: "默认输出的输入流读不出来（不知道要关几条）")
+            throw Failure(status: 0, what: String(appLocalized: "默认输出的输入流读不出来（不知道要关几条）"))
         }
         guard let layout = channelsPerBuffer(id, kAudioObjectPropertyScopeOutput) else {
-            throw Failure(status: 0, what: "默认输出的声道布局读不出来")
+            throw Failure(status: 0, what: String(appLocalized: "默认输出的声道布局读不出来"))
         }
         let out = kAudioObjectPropertyScopeOutput
         let devLatency: UInt32 = InputDeviceCatalog.scalar(id, kAudioDevicePropertyLatency, scope: out) ?? 0
@@ -681,11 +682,11 @@ public final class MonitorOutput: @unchecked Sendable {
                                                  mElement: kAudioObjectPropertyElementMain)
         var off = streamUsageBytes(proc: p, streams: n, on: 0)
         var st = off.withUnsafeMutableBytes { AudioObjectSetPropertyData(id, &address, 0, nil, UInt32($0.count), $0.baseAddress!) }
-        guard st == noErr else { throw Failure(status: st, what: "IOProcStreamUsage 写不进去（关不掉输入流，不接这台设备）", transient: false) }
+        guard st == noErr else { throw Failure(status: st, what: String(appLocalized: "IOProcStreamUsage 写不进去（关不掉输入流，不接这台设备）"), transient: false) }
         var back = streamUsageBytes(proc: p, streams: n, on: 1)
         var size = UInt32(back.count)
         st = back.withUnsafeMutableBytes { AudioObjectGetPropertyData(id, &address, 0, nil, &size, $0.baseAddress!) }
-        guard st == noErr else { throw Failure(status: st, what: "IOProcStreamUsage 读不回来（不接这台设备）", transient: false) }
+        guard st == noErr else { throw Failure(status: st, what: String(appLocalized: "IOProcStreamUsage 读不回来（不接这台设备）"), transient: false) }
         return streamsOff(back, expected: n)
     }
 
@@ -718,7 +719,7 @@ public final class MonitorOutput: @unchecked Sendable {
         cancelRetry()
         if !retrying { retryAttempt = 0 }
         guard wanted else {
-            detach(reason: suspended ? "音频系统重启" : "不再需要")
+            detach(reason: suspended ? String(appLocalized: "音频系统重启") : String(appLocalized: "不再需要"))
             syncSystemListeners(false)
             applyPolicy()
             return
@@ -728,12 +729,12 @@ public final class MonitorOutput: @unchecked Sendable {
         do {
             guard let t = try currentDefault() else {
                 // Not retried: the DefaultOutputDevice listener says when there is one.
-                failed(Failure(status: 0, what: "没有默认输出", transient: false), detaching: "没有默认输出")
+                failed(Failure(status: 0, what: String(appLocalized: "没有默认输出"), transient: false), detaching: String(appLocalized: "没有默认输出"))
                 return
             }
             next = t
         } catch {
-            failed(error, detaching: "输出设备不可用")
+            failed(error, detaching: String(appLocalized: "输出设备不可用"))
             return
         }
         if let att = attachment {
@@ -742,14 +743,14 @@ public final class MonitorOutput: @unchecked Sendable {
                 applyPolicy()
                 return
             }
-            detach(reason: "输出设备变了")
+            detach(reason: String(appLocalized: "输出设备变了"))
             guard wanted else { syncSystemListeners(false); applyPolicy(); return }
         }
         do {
             try attach(next)
             setFailure(nil)
         } catch {
-            failed(error, detaching: "输出设备不可用")
+            failed(error, detaching: String(appLocalized: "输出设备不可用"))
             return
         }
         applyPolicy()
@@ -802,7 +803,7 @@ public final class MonitorOutput: @unchecked Sendable {
             do { disabled = try hal.turnOffInputStreams(t.id, proc, t.inputStreams) } catch { undo(); throw error }
             guard disabled == t.inputStreams else {
                 undo()
-                throw Failure(status: 0, what: "IOProcStreamUsage：\(t.inputStreams) 条输入流只确认关掉 \(disabled) 条（不接这台设备）",
+                throw Failure(status: 0, what: String(appLocalized: "IOProcStreamUsage：\(t.inputStreams) 条输入流只确认关掉 \(disabled) 条（不接这台设备）"),
                               transient: false)
             }
         }
@@ -902,7 +903,7 @@ public final class MonitorOutput: @unchecked Sendable {
 
     private func serviceRestarted() {
         suspended = true
-        detach(reason: "音频系统重启")
+        detach(reason: String(appLocalized: "音频系统重启"))
         syncSystemListeners(false)
         applyPolicy()
         notify(.serviceRestarted)
@@ -936,7 +937,7 @@ public final class MonitorOutput: @unchecked Sendable {
         guard let att = attachment, cuesAllowed(att.target) else { return false }
         let x = render(att.target.sampleRate)
         guard !x.isEmpty else { return false }
-        if let a = audition { endAudition(a, error: AuditionError.interrupted("提示音"), early: true) }
+        if let a = audition { endAudition(a, error: AuditionError.interrupted(String(appLocalized: "提示音")), early: true) }
         let room = Int(tt_ring_capacity(att.cues)) - Int(tt_ring_available(att.cues))
         guard x.count <= room else { return false }
         let n = x.withUnsafeBufferPointer { tt_ring_write_strided(att.cues, $0.baseAddress!, UInt32(x.count), 1) }
@@ -952,9 +953,9 @@ public final class MonitorOutput: @unchecked Sendable {
 
     private func auditionUnavailableNow() -> String? {
         if meetingMode { return Self.meetingModeReason }
-        if suspended { return "音频输出恢复中" }
+        if suspended { return String(appLocalized: "音频输出恢复中") }
         if attachment != nil { return nil }
-        do { return try currentDefault() == nil ? "没有默认输出" : nil }
+        do { return try currentDefault() == nil ? String(appLocalized: "没有默认输出") : nil }
         catch { return String(describing: error) }
     }
 
@@ -962,12 +963,12 @@ public final class MonitorOutput: @unchecked Sendable {
         if cancelledAuditions.remove(id) != nil { cont.resume(throwing: CancellationError()); return }
         if let a = audition { endAudition(a, error: nil, early: true) }    // replaced: faded, then this one
         guard !meetingMode else { cont.resume(throwing: AuditionError.unavailable(Self.meetingModeReason)); return }
-        guard rate > 0, rate.isFinite else { cont.resume(throwing: AuditionError.unavailable("采样率不对")); return }
+        guard rate > 0, rate.isFinite else { cont.resume(throwing: AuditionError.unavailable(String(appLocalized: "采样率不对"))); return }
         auditionPending = true
         reconcile()
         auditionPending = false
         guard let att = attachment else {
-            let why = state.withLock { $0.lastFailure } ?? "没有默认输出"
+            let why = state.withLock { $0.lastFailure } ?? String(appLocalized: "没有默认输出")
             reconcile()
             cont.resume(throwing: AuditionError.unavailable(why))
             return
@@ -1133,7 +1134,7 @@ public final class MonitorOutput: @unchecked Sendable {
     /// On `queue`. `e`: the epoch of the attachment that registered it.
     private func deviceChanged(_ selector: AudioObjectPropertySelector, epoch e: UInt64) {
         guard e == epoch, let att = attachment else { return }
-        if selector == kAudioDevicePropertyDeviceIsAlive, !hal.isAlive(att.target.id) { detach(reason: "输出设备断开") }
+        if selector == kAudioDevicePropertyDeviceIsAlive, !hal.isAlive(att.target.id) { detach(reason: String(appLocalized: "输出设备断开")) }
         // Rate, streams, data source, hog mode, layout, stereo pair, format: re-describe and follow.
         reconcile()
     }

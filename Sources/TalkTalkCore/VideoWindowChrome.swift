@@ -108,7 +108,7 @@ public enum VideoStatusDot: Sendable, Equatable {
     /// skipped sentences already show in the captions as "已跳过 N 句".
     public static var lagChip: HUDChip {
         HUDChip(titlebarLabel("字幕落后"), symbol: SubtitleTokens.VoiceIcon.captionLag, tone: .warn,
-                detail: String(localized: "字幕落后于声音，正在加快翻页追赶"))
+                detail: String(appLocalized: "字幕落后于声音，正在加快翻页追赶"))
     }
 }
 
@@ -187,7 +187,7 @@ public enum FullScreenSpaceHint {
     }
 
     public static let seconds: Double = 6
-    public static var text: String { String(localized: "可拖到画面外，或在菜单中锁定") }
+    public static var text: String { String(appLocalized: "可拖到画面外，或在菜单中锁定") }
 
     /// Another app's normal-level window covers the whole display, menu-bar area included. A
     /// zoomed desktop window never covers the menu bar, so this means a full-screen Space.

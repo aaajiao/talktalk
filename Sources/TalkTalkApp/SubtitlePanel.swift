@@ -92,8 +92,8 @@ final class SubtitlePanel {
     private var phoneActionsEnabled = true
     private var sessionActionsActive = false
     private var sessionActionsEnabled = true
-    private var remoteLanguageTitle = String(localized: "英语")
-    private var translationLanguageTitle = String(localized: "中文")
+    private var remoteLanguageTitle = String(appLocalized: "英语")
+    private var translationLanguageTitle = String(appLocalized: "中文")
     private var listeningLanguages = ListenLanguageSelection()
     private var subtitleReadingRate: Int { Int(VideoCaptionPacing.charactersPerSecond(listeningLanguages.target)) }
     private var languageTitle: String?
@@ -230,9 +230,9 @@ final class SubtitlePanel {
         lockShadow.shadowBlurRadius = SubtitleTokens.readingShadow.blur
         lockShadow.shadowOffset = NSSize(width: SubtitleTokens.readingShadow.offsetX, height: SubtitleTokens.readingShadow.offsetY)
         lockIndicator.shadow = lockShadow
-        lockIndicator.setAccessibilityLabel(String(localized: "字幕位置已锁定"))
+        lockIndicator.setAccessibilityLabel(String(appLocalized: "字幕位置已锁定"))
         // The locked window takes no pointer events, so no tooltip can explain how to unlock.
-        lockIndicator.setAccessibilityHelp(String(localized: "鼠标会穿过字幕窗口；从菜单栏的 TalkTalk 菜单解锁"))
+        lockIndicator.setAccessibilityHelp(String(appLocalized: "鼠标会穿过字幕窗口；从菜单栏的 TalkTalk 菜单解锁"))
         lockIndicator.isHidden = true
         content.addSubview(lockIndicator)
         hintBubble.isHidden = true
@@ -441,6 +441,23 @@ final class SubtitlePanel {
         updateWindowVisibility()
     }
 
+    func refreshAppLanguage() {
+        updateWindowTitle()
+        updateRemoteHeadings()
+        conversation.setPlaceholder(conversationPlaceholder)
+        conversation.refreshAppLanguage()
+        dock.refreshAppLanguage()
+        videoCaptions.placeholder = videoPlaceholder
+        videoCaptions.refreshAppLanguage()
+        hintBubble.text = FullScreenSpaceHint.text
+        lockIndicator.setAccessibilityLabel(String(appLocalized: "字幕位置已锁定"))
+        lockIndicator.setAccessibilityHelp(String(appLocalized: "鼠标会穿过字幕窗口；从菜单栏的 TalkTalk 菜单解锁"))
+        updateWindowControlHelp()
+        updateTitlebarActions()
+        // Layout keeps the current frame and each timeline/video reading position.
+        content.needsLayout = true
+    }
+
     func setSourceName(_ name: String?) {
         guard sourceName != name else { return }
         sourceName = name
@@ -452,7 +469,7 @@ final class SubtitlePanel {
     private func updateWindowTitle() {
         let title = scene.title
         let source = titlebarContent.sourceTitle
-        panel.title = source.map { String(localized: "\(title) · \($0)") } ?? title
+        panel.title = source.map { String(appLocalized: "\(title) · \($0)") } ?? title
         titleView.apply(scene: scene, source: source)
         updateTitlebarActions()
     }
@@ -472,10 +489,10 @@ final class SubtitlePanel {
         }
         remoteLanguageTitle = listening.source.title
         translationLanguageTitle = listening.target.title
-        languageTitle = String(localized: "\(listening.source.title) → \(listening.target.title)")
-        let listen = String(localized: "原文：\(listening.source.title) → 译文：\(listening.target.title)")
+        languageTitle = String(appLocalized: "\(listening.source.title) → \(listening.target.title)")
+        let listen = String(appLocalized: "原文：\(listening.source.title) → 译文：\(listening.target.title)")
         languageDetail = speaking.map {
-            listen + "\n" + String(localized: "我说：\($0.source.title) → 译音：\($0.target.title)")
+            listen + "\n" + String(appLocalized: "我说：\($0.source.title) → 译音：\($0.target.title)")
         } ?? listen
         videoCaptions.setLanguages(source: listening.source, target: listening.target)
         updateRemoteHeadings()
@@ -486,9 +503,9 @@ final class SubtitlePanel {
     /// Conversation columns contain both speakers and may retain earlier directions.
     /// Only the video pair can be labelled with one current source/target language.
     private func updateRemoteHeadings() {
-        conversation.setHeader(source: String(localized: "原文"), translation: String(localized: "译文"))
-        videoCaptions.setAccessibilityTitles(source: String(localized: "原文 · \(remoteLanguageTitle)"),
-                                             translation: String(localized: "译文 · \(translationLanguageTitle)"))
+        conversation.setHeader(source: String(appLocalized: "原文"), translation: String(appLocalized: "译文"))
+        videoCaptions.setAccessibilityTitles(source: String(appLocalized: "原文 · \(remoteLanguageTitle)"),
+                                             translation: String(appLocalized: "译文 · \(translationLanguageTitle)"))
     }
 
     private func updateTitlebarActions() {
@@ -630,18 +647,18 @@ final class SubtitlePanel {
             return nil
         case .phone:
             // Dialing and hang-up belong to the Phone button's help, the ready state to the capsule.
-            return .init(primary: String(localized: "等待对方字幕…"), secondary: nil, clickable: false,
+            return .init(primary: String(appLocalized: "等待对方字幕…"), secondary: nil, clickable: false,
                          symbol: SubtitleTokens.SceneIcon.phone)
         case .meeting:
             if remoteSilent {
-                return .init(primary: String(localized: "暂未听到对方声音"), secondary: nil, clickable: true,
+                return .init(primary: String(appLocalized: "暂未听到对方声音"), secondary: nil, clickable: true,
                              // The titlebar chip's and menu line's glyph for the same fact.
-                             symbol: HUDModel.Warning.meetingSilent.symbol, help: String(localized: "查看详情"),
-                             accessibilityLabel: String(localized: "暂未听到对方声音，查看详情"))
+                             symbol: HUDModel.Warning.meetingSilent.symbol, help: String(appLocalized: "查看详情"),
+                             accessibilityLabel: String(appLocalized: "暂未听到对方声音，查看详情"))
             }
             // The titlebar already names the scene: the same short form as video.
-            let primary = titlebarContent.sourceTitle.map { String(localized: "正在听 \($0)…") }
-                ?? String(localized: "正在听…")
+            let primary = titlebarContent.sourceTitle.map { String(appLocalized: "正在听 \($0)…") }
+                ?? String(appLocalized: "正在听…")
             return .init(primary: primary, secondary: nil, clickable: false, symbol: SubtitleTokens.VoiceIcon.listening)
         }
     }
@@ -918,7 +935,7 @@ final class SubtitlePanel {
 
     /// Empty state at the source position, naming the actual source (§6).
     private var videoPlaceholder: String? {
-        titlebarContent.sourceTitle.map { String(localized: "正在听 \($0)…") }
+        titlebarContent.sourceTitle.map { String(appLocalized: "正在听 \($0)…") }
     }
 
     /// A draft keeps the text it shares with the previous version of the same sentence at
@@ -1130,7 +1147,7 @@ final class SubtitlePanel {
         onSessionClosed?()
         if announce {
             NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
-                .announcement: String(localized: "\(scene.title)已结束"),
+                .announcement: String(appLocalized: "\(scene.title)已结束"),
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ])
         }
@@ -1298,6 +1315,15 @@ final class SubtitlePanel {
 
     /// The same native controls in all scenes, placed independently from the reading area.
     /// A full-size content view lets the video strip follow its captions rather than the frame.
+    private func updateWindowControlHelp() {
+        let video = presentation == .video
+        // Red close and yellow minimise only hide the presentation; the session goes on.
+        panel.standardWindowButton(.closeButton)?.toolTip = video
+            ? String(appLocalized: "隐藏字幕，收听和翻译继续") : String(appLocalized: "隐藏字幕，同传继续")
+        panel.standardWindowButton(.miniaturizeButton)?.toolTip = video
+            ? String(appLocalized: "最小化字幕，收听和翻译继续") : String(appLocalized: "最小化字幕，同传继续")
+    }
+
     private func applyWindowChrome() {
         let video = presentation == .video
         panel.styleMask.insert(.fullSizeContentView)
@@ -1306,11 +1332,7 @@ final class SubtitlePanel {
         titlebarContainer?.isHidden = true
         hoverStrip.apply(scene: scene)
         content.dragsWindow = !video
-        // Red close and yellow minimise only hide the presentation; the session goes on.
-        panel.standardWindowButton(.closeButton)?.toolTip = video
-            ? String(localized: "隐藏字幕，收听和翻译继续") : String(localized: "隐藏字幕，同传继续")
-        panel.standardWindowButton(.miniaturizeButton)?.toolTip = video
-            ? String(localized: "最小化字幕，收听和翻译继续") : String(localized: "最小化字幕，同传继续")
+        updateWindowControlHelp()
         titlebar.trailingInset = video ? CGFloat(VideoStatusDot.reservedTrailingWidth) : 0
         hoverTimer?.invalidate(); hoverTimer = nil
         hoverBar = VideoHoverBar()
@@ -1522,13 +1544,13 @@ final class SubtitlePanel {
         guard presentation == .video else { return }
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let lock = NSMenuItem(title: String(localized: "锁定字幕位置（鼠标穿透）"), action: #selector(PanelMenuAction.run),
+        let lock = NSMenuItem(title: String(appLocalized: "锁定字幕位置（鼠标穿透）"), action: #selector(PanelMenuAction.run),
                               keyEquivalent: "")
         let action = PanelMenuAction { [weak self] in self?.onLockRequest?() }
         lock.target = action
         lock.representedObject = action
         lock.image = NSImage(systemSymbolName: SubtitleTokens.VoiceIcon.locked, accessibilityDescription: nil)
-        lock.toolTip = String(localized: "锁定后鼠标会穿过字幕窗口；从菜单栏的 TalkTalk 菜单解锁。")
+        lock.toolTip = String(appLocalized: "锁定后鼠标会穿过字幕窗口；从菜单栏的 TalkTalk 菜单解锁。")
         menu.addItem(lock)
         hoverBar.setHeld(true, at: uptime)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.isFlipped ? anchor.bounds.maxY + 4 : -4), in: anchor)
@@ -1646,7 +1668,7 @@ final class SubtitlePanel {
         // The explicit fixed-text fixture keeps controls visible for reproducible UI checks.
         // Normal subtitle windows retain their hover-only chrome.
         previewPinsChrome = true
-        panel.title = String(localized: "TalkTalk · 界面预览（无音频）")
+        panel.title = String(appLocalized: "TalkTalk · 界面预览（无音频）")
         // Only the explicit, fixed-text development fixture can be captured for visual QA.
         // Normal windows retain .none, including the default smoke's privacy assertion.
         panel.sharingType = .readOnly

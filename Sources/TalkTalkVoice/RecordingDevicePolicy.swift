@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 import TalkTalkAudio
 import TalkTalkCore
@@ -26,22 +27,22 @@ public enum RecordingDevicePolicy {
     static let extraVirtualNames = ["blackhole", "zoomaudiodevice"]
 
     public static func evaluate(_ d: InputDeviceInfo) -> Verdict {
-        if !d.isAlive { return .rejected("设备当前不可用") }
+        if !d.isAlive { return .rejected(String(appLocalized: "设备当前不可用")) }
         if let e = MicPolicy.exclusion(MicPolicy.Device(d)) { return .rejected(e.text) }
         let lower = d.name.lowercased()
         if extraVirtualNames.contains(where: { lower.contains($0) }) { return .rejected(MicPolicy.Exclusion.virtual.text) }
         if MicPolicy.bluetoothTransports.contains(d.transport) {
-            return .rejected("蓝牙耳机的麦克风走通话音质（HFP），不能用来录声音")
+            return .rejected(String(appLocalized: "蓝牙耳机的麦克风走通话音质（HFP），不能用来录声音"))
         }
         if MicPolicy.continuityTransports.contains(d.transport) {
-            return .rejected("接续互通麦克风有延迟和压缩，不用来录声音")
+            return .rejected(String(appLocalized: "接续互通麦克风有延迟和压缩，不用来录声音"))
         }
         guard d.transport == "bltn" || d.transport == "usb " else {
-            return .rejected("只支持内建麦克风或 USB 麦克风")
+            return .rejected(String(appLocalized: "只支持内建麦克风或 USB 麦克风"))
         }
-        if d.nominalSampleRate <= 24_000 { return .rejected("采样率太低（≤24 kHz），像是通话模式") }
+        if d.nominalSampleRate <= 24_000 { return .rejected(String(appLocalized: "采样率太低（≤24 kHz），像是通话模式")) }
         if d.nominalSampleRate < minimumSampleRate {
-            return .rejected("采样率需要 ≥44.1 kHz（现在 \(Int(d.nominalSampleRate)) Hz）")
+            return .rejected(String(appLocalized: "采样率需要 ≥44.1 kHz（现在 \(Int(d.nominalSampleRate)) Hz）"))
         }
         return .accepted
     }

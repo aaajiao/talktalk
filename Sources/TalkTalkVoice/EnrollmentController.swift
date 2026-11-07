@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 import Observation
 import TalkTalkAudio
@@ -150,7 +151,7 @@ public final class EnrollmentController {
                 commit(try Self.prepareCandidate(take: take, sampleRate: rate, report: report, micUID: device.uid,
                                                  script: script, store: store, transcriberName: checker))
             } catch {
-                machine.send(.failed("保存失败：\(error)"))
+                machine.send(.failed(String(appLocalized: "保存失败：\(String(describing: error))")))
             }
             return
         }
@@ -165,7 +166,7 @@ public final class EnrollmentController {
                 c0 = try Self.prepareCandidate(take: take, sampleRate: rate, report: report, micUID: device.uid,
                                                script: script, store: store, transcriberName: checker)
             } catch {
-                if gen == self.generation { self.machine.send(.failed("保存失败：\(error)")) }
+                if gen == self.generation { self.machine.send(.failed(String(appLocalized: "保存失败：\(String(describing: error))"))) }
                 return
             }
             let outcome = await Self.auditionAttempt(c0, engine: engine, script: script, store: store, routing: routing,
@@ -193,7 +194,7 @@ public final class EnrollmentController {
                     store.discard(c.staging)
                     _ = await queue.runAlways { await VoiceSync.restore(store: store, engine: engine, routing: routing) }
                     if gen == self.generation, !Task.isCancelled {
-                        self.machine.send(.failed("试听未完成，原来的声音已保留，请重录"))
+                        self.machine.send(.failed(String(appLocalized: "试听未完成，原来的声音已保留，请重录")))
                     }
                     return
                 }
@@ -203,7 +204,7 @@ public final class EnrollmentController {
                 }
                 self.commit(c)
             case .cancelled:
-                if current { self.machine.send(.failed("保存被取消")) }
+                if current { self.machine.send(.failed(String(appLocalized: "保存被取消"))) }
             }
         }
         lastSaveAttempt = saveTask
@@ -248,7 +249,7 @@ public final class EnrollmentController {
             do {
                 try await monitor.play(clip.samples)
             } catch {
-                self.auditionPlaybackError = "\(error)"
+                self.auditionPlaybackError = "\(String(describing: error))"
             }
             if self.playingAudition == lang { self.playingAudition = nil }
         }
@@ -317,7 +318,7 @@ public final class EnrollmentController {
                 self.savedProfile = p
                 self.hasExistingProfile = true
             } catch {
-                self.machine.send(.failed("保存失败：\(error)"))
+                self.machine.send(.failed(String(appLocalized: "保存失败：\(String(describing: error))")))
             }
         }
     }
@@ -360,7 +361,7 @@ public final class EnrollmentController {
         lastReport = nil
         Task {
             guard await MicrophoneAuthorization.request() == .authorized else {
-                fail("没有麦克风权限：请在“系统设置 › 隐私与安全性 › 麦克风”里允许 TalkTalk，然后再试")
+                fail(String(appLocalized: "没有麦克风权限：请在“系统设置 › 隐私与安全性 › 麦克风”里允许 TalkTalk，然后再试"))
                 return
             }
             if transcriber is AppleZhTranscriber || (transcriber as? FallbackTranscriber)?.fallback is AppleZhTranscriber {
@@ -370,11 +371,11 @@ public final class EnrollmentController {
             guard phase == .measuringNoise else { return }
             refreshDevices()
             guard let row = selectedDevice else {
-                fail("没有可用的麦克风（只支持内建麦克风或 USB 麦克风）")
+                fail(String(appLocalized: "没有可用的麦克风（只支持内建麦克风或 USB 麦克风）"))
                 return
             }
             if let reason = row.verdict.reason {
-                fail("这个麦克风不能用来录声音：\(reason)")
+                fail(String(appLocalized: "这个麦克风不能用来录声音：\(reason)"))
                 return
             }
             openCapture(row.info)
@@ -394,7 +395,7 @@ public final class EnrollmentController {
             self.capture = capture
             self.captureDevice = device
         } catch {
-            fail("打不开麦克风：\(error)")
+            fail(String(appLocalized: "打不开麦克风：\(String(describing: error))"))
         }
     }
 
@@ -463,9 +464,9 @@ public final class EnrollmentController {
         countdownTask?.cancel()
         switch interruption {
         case .sampleRateChanged, .formatChanged:
-            fail("麦克风的采样率变了（可能有别的 App 打开了它），这一遍作废，请重录")
+            fail(String(appLocalized: "麦克风的采样率变了（可能有别的 App 打开了它），这一遍作废，请重录"))
         case .deviceDied:
-            fail("麦克风断开了，请重新选择后重录")
+            fail(String(appLocalized: "麦克风断开了，请重新选择后重录"))
         }
     }
 

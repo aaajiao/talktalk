@@ -15,15 +15,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .general: String(localized: "通用")
-        case .meeting: String(localized: "使用场景")
-        case .subtitles: String(localized: "字幕")
-        case .audio: String(localized: "音频")
-        case .voice: String(localized: "我的声音")
-        case .translation: String(localized: "识别与翻译")
-        case .components: String(localized: "安装与维护")
-        case .glossary: String(localized: "术语表")
-        case .privacy: String(localized: "隐私与诊断")
+        case .general: String(appLocalized: "通用")
+        case .meeting: String(appLocalized: "使用场景")
+        case .subtitles: String(appLocalized: "字幕")
+        case .audio: String(appLocalized: "音频")
+        case .voice: String(appLocalized: "我的声音")
+        case .translation: String(appLocalized: "识别与翻译")
+        case .components: String(appLocalized: "安装与维护")
+        case .glossary: String(appLocalized: "术语表")
+        case .privacy: String(appLocalized: "隐私与诊断")
         }
     }
 
@@ -369,6 +369,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.orderFrontRegardless()
     }
 
+    /// Re-title the existing window; preserve navigation, drafts and active recording views.
+    func refreshAppLanguage() {
+        window?.title = (navigation.selection ?? .general).title
+    }
+
     private func makeWindow() -> NSWindow {
         let view = SettingsView(state: state, navigation: navigation, voice: voice, translation: translation,
                                 driver: driver, glossary: glossary, subtitles: subtitles)
@@ -382,7 +387,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         // As macOS settings windows: the title names the pane.
         navigation.onSelectionChange = { [weak window] section in window?.title = section.title }
         navigation.onSelectionChange?(navigation.selection ?? .general)
-        let host = NSHostingView(rootView: view)
+        let host = NSHostingView(rootView: view.appLanguage())
         // The window size is ours (contentMinSize below), not SwiftUI's: with the default options,
         // and even with [.minSize], wrapped text measured at a narrow width forces the window to
         // ~1200 pt tall (seen on this Mac's 1239 pt screen).
@@ -423,7 +428,7 @@ struct SettingsView: View {
                 Label(section.title, systemImage: section.symbol).tag(section)
             }
             .listStyle(.sidebar)
-            .frame(width: 190)
+            .frame(width: AppLanguageStore.shared.language == .english ? 230 : 190)
             Divider()
             // The detail container's fixed slots (settings visual system §2, §7.0): Z0 ReturnPill,
             // Z1 the page's card row, Z1b 隐私与诊断's recording banner, then the page itself,
@@ -488,7 +493,7 @@ final class TranslationPage {
     func load() {
         guard model == nil, problem == nil else { return }
         do { model = try TranslationSettingsModel.forCurrentApp() } catch {
-            problem = String(localized: "这个构建没有 bundle id（直接运行的二进制），翻译设置只在 TalkTalk.app / TalkTalk-Dev.app 里可用。")
+            problem = String(appLocalized: "这个构建没有 bundle id（直接运行的二进制），翻译设置只在 TalkTalk.app / TalkTalk-Dev.app 里可用。")
         }
     }
 }
@@ -515,13 +520,13 @@ struct TranslationPageView: View {
                                         flash: flash)
             } else if let problem = page.problem {
                 // A development binary without a bundle id (§5.2, §7.0): the reason is the help.
-                ContentUnavailableView(String(localized: "此构建不可用"),
+                ContentUnavailableView(String(appLocalized: "此构建不可用"),
                                        systemImage: SubtitleTokens.SettingsIcon.unavailable)
                     .help(problem)
             } else {
                 StatusGlyph(.busy)
-                    .help(String(localized: "正在读取翻译设置"))
-                    .accessibilityLabel(String(localized: "正在读取翻译设置"))
+                    .help(String(appLocalized: "正在读取翻译设置"))
+                    .accessibilityLabel(String(appLocalized: "正在读取翻译设置"))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }

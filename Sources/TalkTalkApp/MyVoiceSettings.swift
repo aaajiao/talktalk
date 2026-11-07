@@ -129,7 +129,7 @@ final class MyVoiceModel {
             } catch let e as AuditionMonitorError {
                 auditionProblem = e.description
             } catch {
-                auditionProblem = String(localized: "试听没有生成：\(String(describing: error))")
+                auditionProblem = String(appLocalized: "试听没有生成：\(String(describing: error))")
             }
             auditioning = nil
             reload()
@@ -160,16 +160,16 @@ final class MyVoiceModel {
     var problem: SettingsProblem? {
         let saved = profile != nil
         return SettingsProblem.mostSevere([
-            externalBusy() ? SettingsProblem(.waiting, String(localized: "自检中")) : nil,
-            saved && !engineAvailable ? SettingsProblem(.waiting, String(localized: "引擎就绪后可试听"),
-                                                          help: String(localized: "试听经自听输出播到耳机，不进 TalkTalk Mic")) : nil,
-            installerRunning ? SettingsProblem(.waiting, String(localized: "组件安装中")) : nil,
+            externalBusy() ? SettingsProblem(.waiting, String(appLocalized: "自检中")) : nil,
+            saved && !engineAvailable ? SettingsProblem(.waiting, String(appLocalized: "引擎就绪后可试听"),
+                                                          help: String(appLocalized: "试听经自听输出播到耳机，不进 TalkTalk Mic")) : nil,
+            installerRunning ? SettingsProblem(.waiting, String(appLocalized: "组件安装中")) : nil,
             saved && engineAvailable ? monitorUnavailableReason.map {
-                SettingsProblem(.warn, String(localized: "自听输出不可用"), help: $0)
+                SettingsProblem(.warn, String(appLocalized: "自听输出不可用"), help: $0)
             } : nil,
-            auditionProblem.map { SettingsProblem(.warn, String(localized: "试听失败"), help: $0) },
-            profileUnreadable ? SettingsProblem(.warn, String(localized: "声音档案无法读取 · 请重录")) : nil,
-            recordingNote.map { SettingsProblem(.warn, String(localized: "引擎已切换 · 请重录"), help: $0) }
+            auditionProblem.map { SettingsProblem(.warn, String(appLocalized: "试听失败"), help: $0) },
+            profileUnreadable ? SettingsProblem(.warn, String(appLocalized: "声音档案无法读取 · 请重录")) : nil,
+            recordingNote.map { SettingsProblem(.warn, String(appLocalized: "引擎已切换 · 请重录"), help: $0) }
         ])
     }
 
@@ -211,7 +211,7 @@ final class MyVoiceModel {
             break   // already handed to the old queue; reconciled again once it is saved or failed
         default:
             if e.phase.capturing { break }   // let the take finish; dropped as soon as it stops
-            restartRecording(note: String(localized: "引擎刚刚换过，这一遍没有保存，请再录一遍。"))
+            restartRecording(note: String(appLocalized: "引擎刚刚换过，这一遍没有保存，请再录一遍。"))
         }
     }
 
@@ -274,11 +274,11 @@ struct MyVoiceSettingsView: View {
                 if model.recordingNote != nil || model.saveBlocked {
                     HStack(spacing: 8) {
                         if let note = model.recordingNote {
-                            StatusLabel(String(localized: "引擎已切换 · 请重录"), .warn, help: note)
+                            StatusLabel(String(appLocalized: "引擎已切换 · 请重录"), .warn, help: note)
                         }
                         if model.saveBlocked {
-                            StatusLabel(String(localized: "组件安装中"), .waiting,
-                                        help: String(localized: "引擎组件正在安装或修复，完成后再保存"))
+                            StatusLabel(String(appLocalized: "组件安装中"), .waiting,
+                                        help: String(appLocalized: "引擎组件正在安装或修复，完成后再保存"))
                             Spacer(minLength: 8)
                             // The flow below is held, its own 关闭 too: this one stays usable.
                             Button("关闭") { model.endRecording() }
@@ -319,8 +319,8 @@ struct MyVoiceSettingsView: View {
             if model.hasProfile {
                 Section {
                     LabeledContent {
-                        SettingsDestructiveButton(String(localized: "删除…"), help: String(localized: "删除声音档案"),
-                                                  accessibilityLabel: String(localized: "删除声音档案")) {
+                        SettingsDestructiveButton(String(appLocalized: "删除…"), help: String(appLocalized: "删除声音档案"),
+                                                  accessibilityLabel: String(appLocalized: "删除声音档案")) {
                             model.confirmDelete = true
                         }
                             .disabled(model.deleting || !model.canRecord)
@@ -350,12 +350,12 @@ struct MyVoiceSettingsView: View {
     /// The synthesis facts moved from the former 模型 › 语音合成 page, beside the voice profile.
     private var synthesisFacts: some View {
         FactRow([
-            FactChip(String(localized: "会议·电话生成译音"), symbol: SubtitleTokens.SceneIcon.meeting,
-                     help: String(localized: "会议和电话同传使用合成译音")),
-            FactChip(String(localized: "视频不生成"), symbol: Icon.noSpeech,
-                     help: String(localized: "视频字幕只显示文字"))
-        ], info: InfoButton(topic: String(localized: "合成译音"), lines: [
-            String(localized: "已有声音档案但克隆引擎暂不可用时，会等待恢复或不发送该段（未发送），不会改用系统声音。")
+            FactChip(String(appLocalized: "会议·电话生成译音"), symbol: SubtitleTokens.SceneIcon.meeting,
+                     help: String(appLocalized: "会议和电话同传使用合成译音")),
+            FactChip(String(appLocalized: "视频不生成"), symbol: Icon.noSpeech,
+                     help: String(appLocalized: "视频字幕只显示文字"))
+        ], info: InfoButton(topic: String(appLocalized: "合成译音"), lines: [
+            String(appLocalized: "已有声音档案但克隆引擎暂不可用时，会等待恢复或不发送该段（未发送），不会改用系统声音。")
         ]))
     }
 
@@ -379,19 +379,19 @@ struct MyVoiceSettingsView: View {
 
     @ViewBuilder private var factItems: some View {
         HStack(spacing: 2) {
-            FactChip(String(localized: "仅本机 · 不上传"), symbol: Icon.privacyPromise,
-                     help: String(localized: "声音档案只保存在这台 Mac"))
-            InfoButton(topic: String(localized: "声音档案"),
-                       lines: [String(localized: "声音档案只保存在这台 Mac，不进备份与 Spotlight 索引。")])
+            FactChip(String(appLocalized: "仅本机 · 不上传"), symbol: Icon.privacyPromise,
+                     help: String(appLocalized: "声音档案只保存在这台 Mac"))
+            InfoButton(topic: String(appLocalized: "声音档案"),
+                       lines: [String(appLocalized: "声音档案只保存在这台 Mac，不进备份与 Spotlight 索引。")])
             if model.hasProfile {
-                IconButton(Icon.finder, help: String(localized: "在 Finder 中显示"),
-                           accessibilityLabel: String(localized: "在 Finder 中显示声音档案")) { model.revealInFinder() }
+                IconButton(Icon.finder, help: String(appLocalized: "在 Finder 中显示"),
+                           accessibilityLabel: String(appLocalized: "在 Finder 中显示声音档案")) { model.revealInFinder() }
             }
         }
-        FactChip(String(localized: "本机播放"), symbol: Icon.thisMac, help: String(localized: "试听不发送到会议"))
+        FactChip(String(appLocalized: "本机播放"), symbol: Icon.thisMac, help: String(appLocalized: "试听不发送到会议"))
         // Not for an unreadable profile: that waits for recovery, never the system voice.
         if !model.hasProfile {
-            FactChip(String(localized: "未录制时用系统声音"), symbol: Icon.speech, help: String(localized: "录制后译音用你的声音"))
+            FactChip(String(appLocalized: "未录制时用系统声音"), symbol: Icon.speech, help: String(appLocalized: "录制后译音用你的声音"))
         }
     }
 }
@@ -403,23 +403,23 @@ extension FlowGrid {
         typealias Icon = SubtitleTokens.SettingsIcon
         let profile = model.profile
         let busy = model.externalBusy()
-        let record = FlowNode(String(localized: "录中文"), glyph: .symbol(Icon.physicalMic), accessory: .controls {
+        let record = FlowNode(String(appLocalized: "录中文"), glyph: .symbol(Icon.physicalMic), accessory: .controls {
             Button { model.beginRecording() } label: {
-                Label(model.hasProfile ? String(localized: "重录") : String(localized: "录制"), systemImage: Icon.record)
+                Label(model.hasProfile ? String(appLocalized: "重录") : String(appLocalized: "录制"), systemImage: Icon.record)
                     .labelStyle(.titleAndIcon)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .disabled(busy || model.deleting || model.installerRunning || !model.canRecord)
-            .help(model.hasProfile ? String(localized: "旧档案保留到新档案保存") : String(localized: "读一遍中文稿子"))
+            .help(model.hasProfile ? String(appLocalized: "旧档案保留到新档案保存") : String(appLocalized: "读一遍中文稿子"))
         })
         let state: (status: SettingsStatus, text: String) =
-            model.profileUnreadable ? (.warn, String(localized: "无法读取"))
-            : model.recordingNote != nil ? (.warn, String(localized: "引擎已切换 · 请重录"))
-            : profile != nil ? (.ok, String(localized: "已保存"))
-            : (.pending, String(localized: "未录制"))
+            model.profileUnreadable ? (.warn, String(appLocalized: "无法读取"))
+            : model.recordingNote != nil ? (.warn, String(appLocalized: "引擎已切换 · 请重录"))
+            : profile != nil ? (.ok, String(appLocalized: "已保存"))
+            : (.pending, String(appLocalized: "未录制"))
         let date = profile?.createdDate
-        let saved = FlowNode(String(localized: "声音档案"), glyph: .symbol(Icon.myVoice), badge: state.status,
+        let saved = FlowNode(String(appLocalized: "声音档案"), glyph: .symbol(Icon.myVoice), badge: state.status,
                              badgeReason: state.text,
                              accessory: date.map { date in
                                  .display {
@@ -430,13 +430,13 @@ extension FlowGrid {
                                  }
                              },
                              satellite: profile == nil && !model.profileUnreadable
-                                 ? FlowSatellite(String(localized: "系统声音"), symbol: Icon.speech,
-                                                 help: String(localized: "未录制时用系统声音"), dashed: true)
+                                 ? FlowSatellite(String(appLocalized: "系统声音"), symbol: Icon.speech,
+                                                 help: String(appLocalized: "未录制时用系统声音"), dashed: true)
                                  : nil,
                              help: date?.formatted(date: .abbreviated, time: .shortened))
         let audition: FlowNode
         if let profile {
-            audition = FlowNode(String(localized: "试听"), glyph: .symbol(Icon.headphones), badge: profile.auditionStatus,
+            audition = FlowNode(String(appLocalized: "试听"), glyph: .symbol(Icon.headphones), badge: profile.auditionStatus,
                                 badgeReason: profile.auditionNote, accessory: .controls {
                                     HStack(spacing: 4) {
                                         AuditionButton(model: model, lang: .en)
@@ -444,11 +444,11 @@ extension FlowGrid {
                                     }
                                 })
         } else {
-            audition = FlowNode(String(localized: "试听"), glyph: .symbol(Icon.headphones), state: .dimmed,
-                                help: String(localized: "录制后可试听"))
+            audition = FlowNode(String(appLocalized: "试听"), glyph: .symbol(Icon.headphones), state: .dimmed,
+                                help: String(appLocalized: "录制后可试听"))
         }
-        return FlowGrid(String(localized: "我的声音"), lanes: [
-            FlowLane(String(localized: "我的声音"), gutter: .symbol(Icon.me), cells: [
+        return FlowGrid(String(appLocalized: "我的声音"), lanes: [
+            FlowLane(String(appLocalized: "我的声音"), gutter: .symbol(Icon.me), cells: [
                 .node(record), .node(saved), .node(audition), .empty
             ]),
             synthesizedVoiceLane(model, driver: driver, links: links)
@@ -463,21 +463,21 @@ extension FlowGrid {
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
         // The profile controls are in this same graphic, so the satellite needs no self-link.
         let satellite = model.hasProfile
-            ? FlowSatellite(String(localized: "我的声音"), symbol: Icon.myVoice, help: String(localized: "用我的声音合成译音"))
-            : FlowSatellite(String(localized: "系统声音"), symbol: Icon.speech,
-                            help: String(localized: "未录制时用系统声音"), dashed: true)
-        let speech = FlowNode(String(localized: "合成译音"), glyph: .symbol(Icon.speech),
+            ? FlowSatellite(String(appLocalized: "我的声音"), symbol: Icon.myVoice, help: String(appLocalized: "用我的声音合成译音"))
+            : FlowSatellite(String(appLocalized: "系统声音"), symbol: Icon.speech,
+                            help: String(appLocalized: "未录制时用系统声音"), dashed: true)
+        let speech = FlowNode(String(appLocalized: "合成译音"), glyph: .symbol(Icon.speech),
                               badge: problem?.status, badgeReason: problem?.text,
                               link: problem == nil ? nil
-                                  : links?.node(String(localized: "安装与维护 · 语音资源"), .components, .components(.engine)),
+                                  : links?.node(String(appLocalized: "安装与维护 · 语音资源"), .components, .components(.engine)),
                               satellite: satellite, help: model.synthesisModelName)
-        return FlowLane(String(localized: "译音"), gutter: .voice(translating), cells: [
-            .node(FlowNode(String(localized: "译文"), glyph: .symbol(Icon.translation))),
+        return FlowLane(String(appLocalized: "译音"), gutter: .voice(translating), cells: [
+            .node(FlowNode(String(appLocalized: "译文"), glyph: .symbol(Icon.translation))),
             .node(speech),
             .node(FlowNode("TalkTalk Mic", glyph: .symbol(Icon.talkTalkMic), badge: driverProblem?.status,
                            badgeReason: driverProblem?.text,
-                           link: links?.node(String(localized: "安装与维护 · TalkTalk Mic"), .components, .components(.driver)))),
-            .node(FlowNode(String(localized: "对方听到译音"), glyph: .symbol(Icon.remote)))
+                           link: links?.node(String(appLocalized: "安装与维护 · TalkTalk Mic"), .components, .components(.driver)))),
+            .node(FlowNode(String(appLocalized: "对方听到译音"), glyph: .symbol(Icon.remote)))
         ])
     }
 }
@@ -490,7 +490,7 @@ private struct AuditionButton: View {
 
     var body: some View {
         let playing = model.auditioning == lang && !model.auditionStopped
-        let name = lang == .en ? String(localized: "试听英语") : String(localized: "试听德语")
+        let name = lang == .en ? String(appLocalized: "试听英语") : String(appLocalized: "试听德语")
         Button {
             if playing { model.stopAudition() } else { model.audition(lang) }
         } label: {
@@ -504,8 +504,8 @@ private struct AuditionButton: View {
         .buttonStyle(.bordered)
         .controlSize(.small)
         .disabled(!playing && !model.canAudition)
-        .help(playing ? String(localized: "停止") : name)
-        .accessibilityLabel(playing ? String(localized: "停止\(name)") : name)
+        .help(playing ? String(appLocalized: "停止") : name)
+        .accessibilityLabel(playing ? String(appLocalized: "停止\(name)") : name)
     }
 }
 
@@ -533,24 +533,24 @@ extension VoiceProfile {
         switch audition {
         case "passed":
             let similarity = auditionResult?.clips.compactMap(\.similarity).min()
-            return similarity.map { String(localized: "音色相似度 \(Self.decimal($0, 2))") } ?? String(localized: "通过")
-        case "failed": return String(localized: "建议重录")
-        default: return String(localized: "引擎就绪后生成")
+            return similarity.map { String(appLocalized: "音色相似度 \(Self.decimal($0, 2))") } ?? String(appLocalized: "通过")
+        case "failed": return String(appLocalized: "建议重录")
+        default: return String(appLocalized: "引擎就绪后生成")
         }
     }
 
     /// "参考音 6.2 秒 · 4.1 字/秒".
     var referenceText: String {
-        String(localized: "参考音 \(Self.decimal(durationSeconds, 1)) 秒 · \(Self.decimal(speakingRateCharsPerSecond, 1)) 字/秒")
+        String(appLocalized: "参考音 \(Self.decimal(durationSeconds, 1)) 秒 · \(Self.decimal(speakingRateCharsPerSecond, 1)) 字/秒")
     }
 
     var checkWarnings: Int { checks.status.values.filter { $0 == .warn }.count }
 
     var checksText: String {
         let warns = checkWarnings
-        var parts: [String] = [warns == 0 ? String(localized: "自动检查通过") : String(localized: "自动检查通过（\(warns) 项警告）")]
-        if checks.status["transcript"] == .pending { parts.append(String(localized: "转写比对待核对")) }
-        return parts.joined(separator: String(localized: "，"))
+        var parts: [String] = [warns == 0 ? String(appLocalized: "自动检查通过") : String(appLocalized: "自动检查通过（\(warns) 项警告）")]
+        if checks.status["transcript"] == .pending { parts.append(String(appLocalized: "转写比对待核对")) }
+        return parts.joined(separator: String(appLocalized: "，"))
     }
 
     var conditioningBuilt: Bool { conditioning == "built" }

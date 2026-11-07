@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 import TalkTalkCore
 
@@ -17,9 +18,9 @@ public final class SpeakVoiceRouting: @unchecked Sendable {
         case systemVoice
     }
 
-    public static let myVoiceLabel = "我的声音"
-    public static let pendingLabel = "我的声音（准备中）"
-    public static let systemVoiceLabel = "系统声音"
+    public static var myVoiceLabel: String { String(appLocalized: "我的声音") }
+    public static var pendingLabel: String { String(appLocalized: "我的声音（准备中）") }
+    public static var systemVoiceLabel: String { String(appLocalized: "系统声音") }
 
     public let clone: any TTSEngine
     public let system: any TTSEngine

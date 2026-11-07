@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 import TalkTalkCore
 import TalkTalkEngineHost
@@ -159,7 +160,7 @@ public final class VoiceLifecycle {
     /// `--self-test --voice`). Uses only conditioning current for the running engine; stale or
     /// missing conditioning is rebuilt first (`VoiceSync.align`).
     public func audition() async throws -> AuditionResult {
-        guard let engine else { throw AuditionMonitorError.unavailable("引擎尚未就绪") }
+        guard let engine else { throw AuditionMonitorError.unavailable(String(appLocalized: "引擎尚未就绪")) }
         let store = self.store, routing = self.routing
         let a = try await queue.run { () async throws -> AuditionResult in
             var p = try store.loadProfile()

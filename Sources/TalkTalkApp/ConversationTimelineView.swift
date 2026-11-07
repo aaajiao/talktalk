@@ -72,7 +72,7 @@ final class ConversationTimelineView: NSView {
         scroll.autohidesScrollers = true
         scroll.scrollerStyle = .overlay
         scroll.automaticallyAdjustsContentInsets = false
-        scroll.setAccessibilityLabel(String(localized: "对话字幕"))
+        scroll.setAccessibilityLabel(String(appLocalized: "对话字幕"))
         addSubview(scroll)
         placeholder.isHidden = true
         placeholder.onClick = { [weak self] in
@@ -107,6 +107,15 @@ final class ConversationTimelineView: NSView {
         placeholderContent = content
         if let content { placeholder.apply(content) }
         updatePlaceholder(animated: false)
+        needsLayout = true
+    }
+
+    /// Re-render annotations in place, retaining frozen rows, expansion and scroll position.
+    func refreshAppLanguage() {
+        setHeader(source: String(appLocalized: "原文"), translation: String(appLocalized: "译文"))
+        scroll.setAccessibilityLabel(String(appLocalized: "对话字幕"))
+        rowViews.values.forEach { $0.refreshAppLanguage() }
+        updatePill()
         needsLayout = true
     }
 
@@ -333,8 +342,8 @@ final class TimelineRowView: NSView, HoverClearing {
             label.setAccessibilityElement(false)
         }
         expandControl.isHidden = true
-        expandControl.setAccessibilityLabel(String(localized: "展开原文"))
-        expandControl.toolTip = String(localized: "展开原文")
+        expandControl.setAccessibilityLabel(String(appLocalized: "展开原文"))
+        expandControl.toolTip = String(appLocalized: "展开原文")
         expandControl.onClick = { [weak self] in self?.onExpand?() }
         for view in [background, hover, separator, track, mark, sourceLabel, translationLabel, draftBar, expandControl] as [NSView] {
             addSubview(view)
@@ -363,6 +372,14 @@ final class TimelineRowView: NSView, HoverClearing {
         needsLayout = true
     }
 
+    func refreshAppLanguage() {
+        expandControl.setAccessibilityLabel(String(appLocalized: "展开原文"))
+        expandControl.toolTip = String(appLocalized: "展开原文")
+        rebuildText()
+        measuredWidth = -1
+        needsLayout = true
+    }
+
     private func rebuildText() {
         guard let style else { return }
         let text = style.text
@@ -380,17 +397,17 @@ final class TimelineRowView: NSView, HoverClearing {
         let spokenSource = ConversationText.accessibilityText(source)
         let spokenTranslation = ConversationText.accessibilityText(translation)
         let label: String = switch row.speaker {
-        case .remote where translation.length == 0: String(localized: "\(speakerTitle)正在说：\(spokenSource)")
-        case .remote: String(localized: "\(speakerTitle)：\(spokenTranslation)；原文：\(spokenSource)")
-        case .me: String(localized: "\(speakerTitle)：\(spokenSource)；译文：\(spokenTranslation)")
+        case .remote where translation.length == 0: String(appLocalized: "\(speakerTitle)正在说：\(spokenSource)")
+        case .remote: String(appLocalized: "\(speakerTitle)：\(spokenTranslation)；原文：\(spokenSource)")
+        case .me: String(appLocalized: "\(speakerTitle)：\(spokenSource)；译文：\(spokenTranslation)")
         }
         setAccessibilityLabel(label)
     }
 
     static func speakerTitle(_ speaker: ConversationTimeline.Speaker, scene: SubtitleScene) -> String {
         switch speaker {
-        case .me: String(localized: "我")
-        case .remote: scene == .phone ? String(localized: "通话对方") : String(localized: "对方")
+        case .me: String(appLocalized: "我")
+        case .remote: scene == .phone ? String(appLocalized: "通话对方") : String(appLocalized: "对方")
         }
     }
 
@@ -481,7 +498,7 @@ final class TimelineRowView: NSView, HoverClearing {
         guard let symbol = SubtitleStyle.symbol(SubtitleTokens.ConversationIcon.expand,
                                                 size: font.pointSize * 0.8, weight: .medium) else { return token }
         let image = SubtitleStyle.tinted(symbol, color)
-        let help = String(localized: "展开原文")
+        let help = String(appLocalized: "展开原文")
         image.accessibilityDescription = help
         let attachment = NSTextAttachment()
         attachment.image = image
@@ -658,16 +675,17 @@ final class JumpToLatestPill: TitlebarControl {
         layer?.borderWidth = 1
         layer?.borderColor = SubtitleStyle.white(0.18).cgColor
         setAccessibilityRole(.button)
-        toolTip = String(localized: "回到最新字幕")
+        toolTip = String(appLocalized: "回到最新字幕")
     }
 
     required init?(coder: NSCoder) { nil }
 
     func setCount(_ count: Int) {
-        let title = String(localized: "\(count) 条新字幕")
+        toolTip = String(appLocalized: "回到最新字幕")
+        let title = String(appLocalized: "\(count) 条新字幕")
         guard label.stringValue != title else { return }
         label.stringValue = title
-        setAccessibilityLabel(String(localized: "\(count) 条新字幕，回到最新"))
+        setAccessibilityLabel(String(appLocalized: "\(count) 条新字幕，回到最新"))
         superview?.needsLayout = true
     }
 
@@ -735,7 +753,7 @@ final class TimelinePlaceholder: TitlebarControl {
         clickable = next.clickable
         toolTip = next.help
         setAccessibilityRole(next.clickable ? .button : .staticText)
-        let text = next.secondary.map { String(localized: "\(next.primary)；\($0)") } ?? next.primary
+        let text = next.secondary.map { String(appLocalized: "\(next.primary)；\($0)") } ?? next.primary
         setAccessibilityLabel(next.accessibilityLabel ?? text)
         hoverChanged()
         needsLayout = true

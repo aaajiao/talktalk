@@ -19,6 +19,12 @@ case "$version" in
   "TalkTalk $app_version ($app_build) ("*) ;;
   *) tt_die "smoke: --version '$version' disagrees with Info.plist $app_version ($app_build)" ;;
 esac
+# Exercise Foundation lookup and numeric interpolation in both shipped languages. These
+# subprocesses use a volatile preference override, with no audio or saved setting changes.
+for language in en zh-Hans; do
+  [ -f "$app/Contents/Resources/$language.lproj/Localizable.strings" ] || tt_die "smoke: $language language pack missing"
+  "$exe" --check-localization "$language" || tt_die "smoke: $language localization failed"
+done
 # The dev hooks (store-key) must be compiled into dev and absent from release.
 out="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/tt-smoke.XXXXXX")"
 trap '/bin/rm -f "$out"' EXIT

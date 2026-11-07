@@ -62,7 +62,7 @@ public struct CardBadge: Sendable, Equatable {
     var spoken: String {
         switch glyph {
         case .status(.failed), .status(.risk), .status(.warn), .status(.pending):
-            String(localized: "需要处理：\(reason)")
+            String(appLocalized: "需要处理：\(reason)")
         default:
             reason
         }
@@ -188,15 +188,15 @@ public struct SettingsCard: View {
     private var accessibilityValue: String {
         var parts: [String] = []
         if selected {
-            parts.append(String(localized: "已选择"))
+            parts.append(String(appLocalized: "已选择"))
         } else if multiSelect {
-            parts.append(String(localized: "未选择"))
+            parts.append(String(appLocalized: "未选择"))
         }
         if runningSince != nil {
-            parts.append(String(localized: "运行中"))
+            parts.append(String(appLocalized: "运行中"))
         }
         if let badge { parts.append(badge.spoken) }
-        return parts.joined(separator: String(localized: "，"))
+        return parts.joined(separator: String(appLocalized: "，"))
     }
 }
 

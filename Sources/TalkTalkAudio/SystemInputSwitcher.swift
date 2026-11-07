@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Darwin
 import Foundation
 import TalkTalkCore
@@ -464,12 +465,12 @@ public final class SystemInputSwitcher {
         case .notOwner: return .notOwner
         case .deferred: return .failed(Self.uninstallWaiting)
         case .noRestoreTarget: return .failed(Self.uninstallNoTarget)
-        case .writeFailed: return .failed("写默认输入失败，稍后再试")
+        case .writeFailed: return .failed(String(appLocalized: "写默认输入失败，稍后再试"))
         }
     }
 
-    static let uninstallWaiting = "原来的输入设备还没回到设备列表，稍后再试"
-    static let uninstallNoTarget = "没有可还原的实体输入设备：接上一个麦克风再试"
+    static var uninstallWaiting: String { String(appLocalized: "原来的输入设备还没回到设备列表，稍后再试") }
+    static var uninstallNoTarget: String { String(appLocalized: "没有可还原的实体输入设备：接上一个麦克风再试") }
 
     private var isMeetingMode: Bool {
         switch mode {

@@ -103,6 +103,12 @@ final class PTTHUD {
         }
     }
 
+    /// Recompute visible labels from the same speech facts; do not reset the current turn.
+    func refreshAppLanguage() {
+        render(force: true)
+        if detailsPopover.isShown { updateDetails() }
+    }
+
     // MARK: inputs
 
     func meetingStarted() {
@@ -665,7 +671,7 @@ final class PTTHUD {
             arrow.font = .systemFont(ofSize: ControlTypography.popoverBody, weight: .medium)
             arrow.textColor = SubtitleStyle.white(0.85)
             arrow.setAccessibilityElement(true)
-            arrow.setAccessibilityLabel(String(localized: "右侧 Option 键：\(action)"))
+            arrow.setAccessibilityLabel(String(appLocalized: "右侧 Option 键：\(action)"))
             arrow.frame = NSRect(x: 16 + keyWidth + 8, y: y + 1, width: detailWidth - keyWidth - 40, height: 18)
             document.addSubview(arrow)
             y += SubtitleTokens.Size.controlHeight + 6
@@ -673,8 +679,8 @@ final class PTTHUD {
             let idleKinds: [VoiceState.Kind] = [.original, .notSent, .phoneNotConnected]
             if key.style == .idle, let kind = model.voiceState?.kind, idleKinds.contains(kind) {
                 let completion = kind == .original
-                    ? String(localized: "再点按一次完成发言；译音播完后回到原声。")
-                    : String(localized: "再点按一次完成发言。")
+                    ? String(appLocalized: "再点按一次完成发言；译音播完后回到原声。")
+                    : String(appLocalized: "再点按一次完成发言。")
                 text(completion,
                      font: .systemFont(ofSize: ControlTypography.popoverSecondary), color: SubtitleStyle.white(0.6))
             }
@@ -692,14 +698,14 @@ final class PTTHUD {
                  color: SubtitleStyle.white(0.6))
         }
         if let reminder = cloudReminder {
-            text(String(localized: "云端翻译已开启：待翻译的文字会发送给 OpenAI。"),
+            text(String(appLocalized: "云端翻译已开启：待翻译的文字会发送给 OpenAI。"),
                  font: .systemFont(ofSize: ControlTypography.popoverBody),
                  symbol: SubtitleTokens.VoiceIcon.cloud, symbolColor: SubtitleStyle.color(.voiceTranslate))
-            button(String(localized: "本场只用 Apple 翻译听到的话")) { [weak self] in
+            button(String(appLocalized: "本场只用 Apple 翻译听到的话")) { [weak self] in
                 reminder.apple(); self?.closeCloudReminder()
             }
-            button(String(localized: "复制聊天说明"), symbol: SubtitleTokens.ActionIcon.copy) { reminder.copy() }
-            button(String(localized: "本场不再提示"), symbol: SubtitleTokens.ActionIcon.dismissReminder) { [weak self] in
+            button(String(appLocalized: "复制聊天说明"), symbol: SubtitleTokens.ActionIcon.copy) { reminder.copy() }
+            button(String(appLocalized: "本场不再提示"), symbol: SubtitleTokens.ActionIcon.dismissReminder) { [weak self] in
                 self?.closeCloudReminder()
             }
         }
@@ -715,9 +721,9 @@ final class PTTHUD {
             for destination in destinations {
                 // These open the Settings window: a trailing ellipsis (HIG) and the menu's gearshape.
                 let title = switch destination {
-                case .audio: String(localized: "音频设置…")
-                case .translation: String(localized: "翻译设置…")
-                case .permissions: String(localized: "权限设置…")
+                case .audio: String(appLocalized: "音频设置…")
+                case .translation: String(appLocalized: "翻译设置…")
+                case .permissions: String(appLocalized: "权限设置…")
                 }
                 button(title, symbol: SubtitleTokens.ActionIcon.settings) { [weak self] in
                     self?.detailsPopover.close(); onOpenSettings(destination)

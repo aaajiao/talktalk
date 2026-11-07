@@ -16,14 +16,14 @@ extension MeetingMicCheck {
     var meetingProblem: SettingsProblem {
         switch self {
         case .notChecked:
-            SettingsProblem(.pending, String(localized: "会议麦克风待确认"),
-                            help: String(localized: "打开会议应用的麦克风测试后自动更新"))
+            SettingsProblem(.pending, String(appLocalized: "会议麦克风待确认"),
+                            help: String(appLocalized: "打开会议应用的麦克风测试后自动更新"))
         case .green:
             SettingsProblem(.ok, text)
         case let .physicalMic(app, _):
-            SettingsProblem(.risk, String(localized: "对方能听到原声 · 在 \(app) 选 TalkTalk Mic"), help: text)
+            SettingsProblem(.risk, String(appLocalized: "对方能听到原声 · 在 \(app) 选 TalkTalk Mic"), help: text)
         case .nobodyReads:
-            SettingsProblem(.warn, String(localized: "会议尚未使用 TalkTalk Mic"), help: text)
+            SettingsProblem(.warn, String(appLocalized: "会议尚未使用 TalkTalk Mic"), help: text)
         }
     }
 
@@ -42,14 +42,14 @@ struct MeetingMicStep: View {
     var body: some View {
         let check = model.meetingMic
         let problem = check.meetingProblem
-        OnboardingPage(title: StepTitle(.meetingMic, String(localized: "确认会议麦克风"))) {
+        OnboardingPage(title: StepTitle(.meetingMic, String(appLocalized: "确认会议麦克风"))) {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     FlowGrid.meetingMicSteps(check)
                     StatusLabel(problem.text, problem.status, help: problem.help)
-                    FactRow([FactChip.risk(String(localized: "实体麦克风 → 对方听到原声"),
-                                           help: String(localized: "按键翻译时也关不掉原声"),
-                                           spoken: String(localized: "会议应用直接使用实体麦克风时，对方听到原声，TalkTalk 无法在按键翻译时关闭原声"))])
+                    FactRow([FactChip.risk(String(appLocalized: "实体麦克风 → 对方听到原声"),
+                                           help: String(appLocalized: "按键翻译时也关不掉原声"),
+                                           spoken: String(appLocalized: "会议应用直接使用实体麦克风时，对方听到原声，TalkTalk 无法在按键翻译时关闭原声"))])
                 }
                 .padding(.vertical, 4)
             }
@@ -79,8 +79,8 @@ struct TryItStep: View {
     let model: OnboardingFlowModel
 
     var body: some View {
-        OnboardingPage(title: StepTitle(.tryIt, model.videoOnly ? String(localized: "试一次视频字幕")
-                                                                 : String(localized: "试一次听与说"))) {
+        OnboardingPage(title: StepTitle(.tryIt, model.videoOnly ? String(appLocalized: "试一次视频字幕")
+                                                                 : String(appLocalized: "试一次听与说"))) {
             listen
             if !model.videoOnly { speak }
         }
@@ -97,21 +97,21 @@ struct TryItStep: View {
                 Button {
                     if running { demo.stop() } else { model.endSpeakDemo(); demo.start() }
                 } label: {
-                    Label(running ? String(localized: "停止示例") : String(localized: "播放示例"),
+                    Label(running ? String(appLocalized: "停止示例") : String(appLocalized: "播放示例"),
                           systemImage: running ? Icon.stop : Icon.start)
                         .labelStyle(.titleAndIcon)
                 }
-                .help(running ? String(localized: "停止示例") : String(localized: "从当前扬声器或耳机播放"))
+                .help(running ? String(appLocalized: "停止示例") : String(appLocalized: "从当前扬声器或耳机播放"))
                 Spacer(minLength: 8)
                 if let status = listenStatus { StatusLabel(status.text, status.status, help: status.help) }
             }
             if !demo.lines.isEmpty {
-                transcript(ListenDemo.sample, symbol: Icon.sourceText, name: String(localized: "示例原文"))
+                transcript(ListenDemo.sample, symbol: Icon.sourceText, name: String(appLocalized: "示例原文"))
                 transcript(demo.lines.joined(separator: " "), symbol: Icon.translation,
-                           name: String(localized: "已收到的中文译文"))
+                           name: String(appLocalized: "已收到的中文译文"))
             }
         } header: {
-            SectionHeader(String(localized: "收听"), symbol: Icon.listen)
+            SectionHeader(String(appLocalized: "收听"), symbol: Icon.listen)
         }
     }
 
@@ -123,13 +123,13 @@ struct TryItStep: View {
             // The enabled 播放示例 already says it has not played.
             return nil
         case .preparing:
-            return SettingsProblem(.busy, String(localized: "准备中…"), help: String(localized: "正在准备示例和字幕"))
+            return SettingsProblem(.busy, String(appLocalized: "准备中…"), help: String(appLocalized: "正在准备示例和字幕"))
         case .playing:
-            return SettingsProblem(.busy, String(localized: "播放中 · 看字幕面板"))
+            return SettingsProblem(.busy, String(appLocalized: "播放中 · 看字幕面板"))
         case .done:
             return demo.lines.isEmpty
-                ? SettingsProblem(.warn, String(localized: "未收到译文"), help: String(localized: "示例已结束，但没有收到译文"))
-                : SettingsProblem(.ok, String(localized: "已收到字幕"))
+                ? SettingsProblem(.warn, String(appLocalized: "未收到译文"), help: String(appLocalized: "示例已结束，但没有收到译文"))
+                : SettingsProblem(.ok, String(appLocalized: "已收到字幕"))
         case .failed(let reason):
             return SettingsProblem(.failed, sentence: reason)
         }
@@ -144,7 +144,7 @@ struct TryItStep: View {
         }
         .help(name)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(localized: "\(name)：\(text)"))
+        .accessibilityLabel(String(appLocalized: "\(name)：\(text)"))
     }
 
     private var speak: some View {
@@ -153,27 +153,27 @@ struct TryItStep: View {
         return Section {
             VStack(alignment: .leading, spacing: 10) {
                 FlowGrid.speakDemo(state, appState: model.appState)
-                FactRow([FactChip(String(localized: "戴耳机 · 先结束其他麦克风测试"), symbol: Icon.headphones, tone: .warn,
-                                  help: String(localized: "先结束通话和其他 App 的麦克风测试"),
-                                  spoken: String(localized: "先结束通话和其他 App 的麦克风测试，再戴耳机试说"))])
+                FactRow([FactChip(String(appLocalized: "戴耳机 · 先结束其他麦克风测试"), symbol: Icon.headphones, tone: .warn,
+                                  help: String(appLocalized: "先结束通话和其他 App 的麦克风测试"),
+                                  spoken: String(appLocalized: "先结束通话和其他 App 的麦克风测试，再戴耳机试说"))])
             }
             .padding(.vertical, 4)
             HStack(spacing: 8) {
                 Button {
                     if active { model.endSpeakDemo() } else { model.beginSpeakDemo() }
                 } label: {
-                    Label(active ? String(localized: "停止") : String(localized: "试说"),
+                    Label(active ? String(appLocalized: "停止") : String(appLocalized: "试说"),
                           systemImage: active ? Icon.stop : Icon.physicalMic)
                         .labelStyle(.titleAndIcon)
                 }
                 .disabled(!active && model.startSpeakDemo == nil)
-                .help(active ? String(localized: "停止说话测试") : String(localized: "仅测试翻译；正式会议默认传原声"))
-                .accessibilityLabel(active ? String(localized: "停止说话测试") : String(localized: "试说"))
+                .help(active ? String(appLocalized: "停止说话测试") : String(appLocalized: "仅测试翻译；正式会议默认传原声"))
+                .accessibilityLabel(active ? String(appLocalized: "停止说话测试") : String(appLocalized: "试说"))
                 Spacer(minLength: 8)
                 if let status = speakStatus { StatusLabel(status.text, status.status, help: status.help) }
             }
         } header: {
-            SectionHeader(String(localized: "我说话"), symbol: Icon.me)
+            SectionHeader(String(appLocalized: "我说话"), symbol: Icon.me)
         }
     }
 
@@ -182,18 +182,18 @@ struct TryItStep: View {
         switch model.speakDemoState {
         case .idle:
             return model.startSpeakDemo == nil
-                ? SettingsProblem(.pending, String(localized: "不可用"), help: String(localized: "说话测试暂不可用"))
+                ? SettingsProblem(.pending, String(appLocalized: "不可用"), help: String(appLocalized: "说话测试暂不可用"))
                 : nil
         case .preparing:
-            return SettingsProblem(.busy, String(localized: "准备中…"), help: String(localized: "正在准备麦克风和耳机播放"))
+            return SettingsProblem(.busy, String(appLocalized: "准备中…"), help: String(appLocalized: "正在准备麦克风和耳机播放"))
         case .listening:
             return model.speakDemoStatus.map { SettingsProblem(.waiting, sentence: $0) }
-                ?? SettingsProblem(.ok, String(localized: "就绪"), help: String(localized: "点按右⌥开始，说完再点按结束，等待译音"))
+                ?? SettingsProblem(.ok, String(appLocalized: "就绪"), help: String(appLocalized: "点按右⌥开始，说完再点按结束，等待译音"))
         case .played:
-            return SettingsProblem(.ok, String(localized: "已播放译音"))
+            return SettingsProblem(.ok, String(appLocalized: "已播放译音"))
         case .failed(let reason):
             let head = SettingsProblem(.failed, sentence: reason)
-            return SettingsProblem(.failed, String(localized: "未完成：\(head.text)"), help: reason)
+            return SettingsProblem(.failed, String(appLocalized: "未完成：\(head.text)"), help: reason)
         }
     }
 }
@@ -208,9 +208,9 @@ struct ScenarioChoiceStep: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("你会用 TalkTalk 做什么？").font(.title2.bold()).accessibilityAddTraits(.isHeader)
                 Text("可多选").foregroundStyle(.secondary)
-                    .help(String(localized: "只看视频时只需收听、识别与语音资源"))
+                    .help(String(appLocalized: "只看视频时只需收听、识别与语音资源"))
             }
-            CardRow(String(localized: "使用场景，可多选"), items: OnboardingScenario.allCases.map { scenario in
+            CardRow(String(appLocalized: "使用场景，可多选"), items: OnboardingScenario.allCases.map { scenario in
                 let mode = OnboardingFlowModel.mode(scenario)
                 return CardItem(id: scenario, title: mode.scene.title, symbol: mode.sceneSymbol, summary: mode.sceneSummary)
             }, selected: model.selectedScenarios) { model.toggleScenario($0) }
@@ -226,24 +226,24 @@ struct DoneStep: View {
     let model: OnboardingFlowModel
 
     var body: some View {
-        OnboardingPage(title: StepTitle(symbol: SubtitleTokens.OnboardingIcon.done, title: String(localized: "引导完成"))) {
+        OnboardingPage(title: StepTitle(symbol: SubtitleTokens.OnboardingIcon.done, title: String(appLocalized: "引导完成"))) {
             Section {
                 FlowGrid.startFromMenu()
                     .padding(.vertical, 4)
             }
             Section {
                 scenarioRow(.meeting,
-                            chip: FactChip(String(localized: "输入选 TalkTalk Mic"), symbol: Icon.talkTalkMic,
-                                           help: String(localized: "在会议应用的音频设置里")),
-                            note: String(localized: "听对方看双语字幕；会议应用的输入选 TalkTalk Mic。"))
+                            chip: FactChip(String(appLocalized: "输入选 TalkTalk Mic"), symbol: Icon.talkTalkMic,
+                                           help: String(appLocalized: "在会议应用的音频设置里")),
+                            note: String(appLocalized: "听对方看双语字幕；会议应用的输入选 TalkTalk Mic。"))
                 scenarioRow(.phone,
-                            chip: FactChip(String(localized: "先准备，再拨号或接听"), symbol: SubtitleTokens.SceneIcon.phone,
-                                           help: String(localized: "结束同传后恢复麦克风")),
-                            note: String(localized: "固定使用 Mac 的 Phone 和你的 iPhone 号码。先准备同传，再拨号或接听；结束同传后恢复麦克风。"))
+                            chip: FactChip(String(appLocalized: "先准备，再拨号或接听"), symbol: SubtitleTokens.SceneIcon.phone,
+                                           help: String(appLocalized: "结束同传后恢复麦克风")),
+                            note: String(appLocalized: "固定使用 Mac 的 Phone 和你的 iPhone 号码。先准备同传，再拨号或接听；结束同传后恢复麦克风。"))
                 scenarioRow(.captions,
-                            chip: FactChip(String(localized: "不用麦克风"), symbol: Icon.noMicrophone,
-                                           help: String(localized: "只收听应用声音")),
-                            note: String(localized: "只收听应用声音，中文、英语和德语可互译，原文与译文成对显示，不使用麦克风。"))
+                            chip: FactChip(String(appLocalized: "不用麦克风"), symbol: Icon.noMicrophone,
+                                           help: String(appLocalized: "只收听应用声音")),
+                            note: String(appLocalized: "只收听应用声音，中文、英语和德语可互译，原文与译文成对显示，不使用麦克风。"))
             }
         }
     }
@@ -267,7 +267,7 @@ struct DoneStep: View {
         }
         .buttonStyle(.plain)
         .disabled(model.openScenario == nil)
-        .accessibilityHint(Text(verbatim: "\(note) \(String(localized: "打开设置中的这个场景"))"))
+        .accessibilityHint(Text(verbatim: "\(note) \(String(appLocalized: "打开设置中的这个场景"))"))
     }
 }
 
@@ -287,20 +287,20 @@ extension FlowGrid {
             chosen = .done; tested = .done; badge = nil
         case let .physicalMic(app, _):
             chosen = .todo; tested = .done
-            badge = (.risk, String(localized: "\(app) 正在使用实体麦克风"))
+            badge = (.risk, String(appLocalized: "\(app) 正在使用实体麦克风"))
         case .nobodyReads:
             chosen = .todo; tested = .todo
-            badge = (.warn, String(localized: "会议尚未使用 TalkTalk Mic"))
+            badge = (.warn, String(appLocalized: "会议尚未使用 TalkTalk Mic"))
         case .notChecked:
             chosen = .todo; tested = .todo; badge = nil
         }
-        return FlowGrid(String(localized: "会议麦克风步骤"), lanes: [
-            FlowLane(String(localized: "会议麦克风步骤"), cells: [
-                .node(FlowNode(String(localized: "输入选 TalkTalk Mic"), glyph: .step(1, chosen),
+        return FlowGrid(String(appLocalized: "会议麦克风步骤"), lanes: [
+            FlowLane(String(appLocalized: "会议麦克风步骤"), cells: [
+                .node(FlowNode(String(appLocalized: "输入选 TalkTalk Mic"), glyph: .step(1, chosen),
                                state: check.nodeState, badge: badge?.0, badgeReason: badge?.1,
-                               help: String(localized: "开启默认输入切换后也可选“默认”"))),
-                .node(FlowNode(String(localized: "打开麦克风测试"), glyph: .step(2, tested),
-                               help: String(localized: "在会议应用的音频设置里"))),
+                               help: String(appLocalized: "开启默认输入切换后也可选“默认”"))),
+                .node(FlowNode(String(appLocalized: "打开麦克风测试"), glyph: .step(2, tested),
+                               help: String(appLocalized: "在会议应用的音频设置里"))),
                 .empty, .empty
             ])
         ])
@@ -311,17 +311,17 @@ extension FlowGrid {
     static func listenDemo(_ demo: ListenDemo) -> FlowGrid {
         let ended = demo.phase == .done
         let arrived = !demo.lines.isEmpty
-        let captions: (SettingsStatus, String)? = arrived ? (.ok, String(localized: "已收到字幕"))
-            : ended ? (.warn, String(localized: "未收到译文")) : nil
-        return FlowGrid(String(localized: "示例音频路径"), lanes: [
-            FlowLane(String(localized: "听对方"), gutter: .symbol(Icon.listen), cells: [
-                .node(FlowNode(String(localized: "英语示例"), glyph: .symbol(Icon.remote),
+        let captions: (SettingsStatus, String)? = arrived ? (.ok, String(appLocalized: "已收到字幕"))
+            : ended ? (.warn, String(appLocalized: "未收到译文")) : nil
+        return FlowGrid(String(appLocalized: "示例音频路径"), lanes: [
+            FlowLane(String(appLocalized: "听对方"), gutter: .symbol(Icon.listen), cells: [
+                .node(FlowNode(String(appLocalized: "英语示例"), glyph: .symbol(Icon.remote),
                                state: demo.phase == .playing ? .live : .ready,
-                               help: String(localized: "从当前扬声器或耳机播放"))),
-                .node(FlowNode(String(localized: "识别与翻译"), glyph: .symbol(Icon.translation),
-                               help: String(localized: "云端不可用时由 Apple 翻译，句末标“备用翻译”"))),
-                .node(FlowNode(String(localized: "双语字幕"), glyph: .symbol(Icon.subtitles), badge: captions?.0,
-                               badgeReason: captions?.1, help: String(localized: "原文与译文在字幕面板成对显示"))),
+                               help: String(appLocalized: "从当前扬声器或耳机播放"))),
+                .node(FlowNode(String(appLocalized: "识别与翻译"), glyph: .symbol(Icon.translation),
+                               help: String(appLocalized: "云端不可用时由 Apple 翻译，句末标“备用翻译”"))),
+                .node(FlowNode(String(appLocalized: "双语字幕"), glyph: .symbol(Icon.subtitles), badge: captions?.0,
+                               badgeReason: captions?.1, help: String(appLocalized: "原文与译文在字幕面板成对显示"))),
                 .empty
             ])
         ])
@@ -331,24 +331,24 @@ extension FlowGrid {
     /// translated lane (译音). The speaker is live while the demo listens.
     static func speakDemo(_ state: OnboardingFlowModel.SpeakDemoState, appState: AppState) -> FlowGrid {
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
-        return FlowGrid(String(localized: "试说路径"), lanes: [
-            FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
-                .node(FlowNode(String(localized: "我说"), glyph: .symbol(Icon.me), state: state == .listening ? .live : .ready,
+        return FlowGrid(String(appLocalized: "试说路径"), lanes: [
+            FlowLane(String(appLocalized: "我说话 · 译音"), gutter: .voice(translating), cells: [
+                .node(FlowNode(String(appLocalized: "我说"), glyph: .symbol(Icon.me), state: state == .listening ? .live : .ready,
                                accessory: .display {
                                    HStack(spacing: 4) {
                                        Text(verbatim: appState.speakSourceLanguage.title).font(.caption2).foregroundStyle(.secondary)
-                                       Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle), showsAction: false)
+                                       Keycap(key: TitlebarKey(action: String(appLocalized: "开始翻译"), style: .idle), showsAction: false)
                                    }
-                               }, help: String(localized: "按选定语言识别；说完再点按右⌥结束"))),
-                .node(FlowNode(String(localized: "翻译与合成"), glyph: .symbol(Icon.translation),
-                               help: String(localized: "原文和译文显示在“我的发言”区"))),
-                .node(FlowNode(String(localized: "耳机听译音"), glyph: .symbol(Icon.headphones),
+                               }, help: String(appLocalized: "按选定语言识别；说完再点按右⌥结束"))),
+                .node(FlowNode(String(appLocalized: "翻译与合成"), glyph: .symbol(Icon.translation),
+                               help: String(appLocalized: "原文和译文显示在“我的发言”区"))),
+                .node(FlowNode(String(appLocalized: "耳机听译音"), glyph: .symbol(Icon.headphones),
                                badge: state == .played ? .ok : nil,
-                               badgeReason: state == .played ? String(localized: "已播放译音") : nil,
+                               badgeReason: state == .played ? String(appLocalized: "已播放译音") : nil,
                                accessory: .display {
                                    Text(verbatim: appState.speakLanguage.title).font(.caption2).foregroundStyle(.secondary)
                                },
-                               help: String(localized: "译音在耳机里播放"))),
+                               help: String(appLocalized: "译音在耳机里播放"))),
                 .empty
             ])
         ])
@@ -358,13 +358,13 @@ extension FlowGrid {
     /// the dashed other way.
     static func startFromMenu() -> FlowGrid {
         typealias O = SubtitleTokens.OnboardingIcon
-        return FlowGrid(String(localized: "从菜单开始"), lanes: [
-            FlowLane(String(localized: "从菜单开始"), cells: [
-                .node(FlowNode(String(localized: "菜单栏图标"), glyph: .symbol(O.menuBar),
-                               help: String(localized: "点菜单栏里的 TalkTalk 图标"))),
-                .node(FlowNode(String(localized: "开始上次场景"), glyph: .symbol(O.quickStart),
-                               satellite: FlowSatellite(String(localized: "选其他场景"), symbol: O.otherScenes,
-                                                        help: String(localized: "菜单里的三个场景"), dashed: true))),
+        return FlowGrid(String(appLocalized: "从菜单开始"), lanes: [
+            FlowLane(String(appLocalized: "从菜单开始"), cells: [
+                .node(FlowNode(String(appLocalized: "菜单栏图标"), glyph: .symbol(O.menuBar),
+                               help: String(appLocalized: "点菜单栏里的 TalkTalk 图标"))),
+                .node(FlowNode(String(appLocalized: "开始上次场景"), glyph: .symbol(O.quickStart),
+                               satellite: FlowSatellite(String(appLocalized: "选其他场景"), symbol: O.otherScenes,
+                                                        help: String(appLocalized: "菜单里的三个场景"), dashed: true))),
                 .empty, .empty
             ])
         ])

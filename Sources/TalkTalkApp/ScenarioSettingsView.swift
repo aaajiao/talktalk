@@ -81,8 +81,8 @@ struct MeetingSettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 FlowGrid.video(facts, links: links)
                 problemLine(facts)
-                FactRow([FactChip(String(localized: "不用麦克风"), symbol: SubtitleTokens.SettingsIcon.noMicrophone,
-                                  help: String(localized: "不启用按键说话，不改默认麦克风"))]
+                FactRow([FactChip(String(appLocalized: "不用麦克风"), symbol: SubtitleTokens.SettingsIcon.noMicrophone,
+                                  help: String(appLocalized: "不启用按键说话，不改默认麦克风"))]
                         + (facts.browserSource ? [browserTabs] : []))
             }
             .padding(.vertical, 4)
@@ -97,8 +97,8 @@ struct MeetingSettingsView: View {
 
     /// A browser source is one audio helper for all its tabs (§5.4).
     private var browserTabs: FactChip {
-        FactChip(String(localized: "含其他标签页"), symbol: SubtitleTokens.SettingsIcon.browserTabs,
-                 help: String(localized: "浏览器的其他标签页也会被收听"))
+        FactChip(String(appLocalized: "含其他标签页"), symbol: SubtitleTokens.SettingsIcon.browserTabs,
+                 help: String(appLocalized: "浏览器的其他标签页也会被收听"))
     }
 }
 

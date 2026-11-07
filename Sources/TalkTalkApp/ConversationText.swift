@@ -78,12 +78,12 @@ struct ConversationText {
         guard !text.isEmpty else { return }
         separate(output, role: typography.source)
         let attributes = attributes(typography.source, color: .warn)
-        output.append(Self.badge(String(localized: "未发送"), symbol: ConversationTextRules.unsentSymbol,
+        output.append(Self.badge(String(appLocalized: "未发送"), symbol: ConversationTextRules.unsentSymbol,
                                  font: SubtitleStyle.font(typography.source),
                                  text: SubtitleStyle.color(.warn, display: display),
                                  fill: SubtitleStyle.color(.warn, display: display)
                                     .withAlphaComponent(ConversationTextRules.unsentBadgeFillAlpha),
-                                 help: String(localized: "未发送：这段原文没有提交翻译，对方听不到"),
+                                 help: String(appLocalized: "未发送：这段原文没有提交翻译，对方听不到"),
                                  attributes: attributes))
         output.append(NSAttributedString(string: " " + text, attributes: attributes))
     }
@@ -151,7 +151,7 @@ struct ConversationText {
     static func fallbackBadge(baseFont: NSFont, attributes: [NSAttributedString.Key: Any],
                               display: SubtitleStyle.Display = .current) -> NSAttributedString {
         let ic = display.increaseContrast
-        return badge(String(localized: "备用翻译"), symbol: nil,
+        return badge(String(appLocalized: "备用翻译"), symbol: nil,
                      font: .systemFont(ofSize: ControlTypography.fallbackBadge, weight: .medium),
                      text: SubtitleStyle.white(ic ? ConversationTextRules.fallbackBadgeTextAlphaIncreasedContrast
                                                   : ConversationTextRules.fallbackBadgeTextAlpha),
@@ -160,7 +160,7 @@ struct ConversationText {
                      help: fallbackHelp, baseFont: baseFont, attributes: attributes, leadingSpace: true)
     }
 
-    static var fallbackHelp: String { String(localized: "云端不可用，本句由 Apple 翻译") }
+    static var fallbackHelp: String { String(appLocalized: "云端不可用，本句由 Apple 翻译") }
 
     /// An inline capsule drawn as an image attachment, vertically centred on the text.
     static func badge(_ title: String, symbol: String?, font: NSFont, text: NSColor, fill: NSColor, help: String,

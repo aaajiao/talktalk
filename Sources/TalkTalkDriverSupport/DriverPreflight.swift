@@ -20,10 +20,10 @@ public struct DriverPreflight: Sendable, Equatable {
 
         public var text: String {
             switch self {
-            case .meetingModeOn: String(localized: "先结束会议模式。")
-            case .meetingInProgress(let apps): String(localized: "先离开会议（\(DriverPreflight.names(apps)) 正在通话）。")
-            case .micInUse(let who): String(localized: "TalkTalk Mic 正被使用（\(DriverPreflight.names(who))），先离开会议。")
-            case .restoreRecordPresent: String(localized: "先结束会议模式，等系统默认输入还原。")
+            case .meetingModeOn: String(appLocalized: "先结束会议模式。")
+            case .meetingInProgress(let apps): String(appLocalized: "先离开会议（\(DriverPreflight.names(apps)) 正在通话）。")
+            case .micInUse(let who): String(appLocalized: "TalkTalk Mic 正被使用（\(DriverPreflight.names(who))），先离开会议。")
+            case .restoreRecordPresent: String(appLocalized: "先结束会议模式，等系统默认输入还原。")
             }
         }
     }
@@ -35,7 +35,7 @@ public struct DriverPreflight: Sendable, Equatable {
         public var text: String {
             switch self {
             case .audioWillStop(let apps):
-                String(localized: "重启音频服务会让所有 App 的声音中断约 1–2 秒，包括 \(DriverPreflight.names(apps)) 正在播放的内容。")
+                String(appLocalized: "重启音频服务会让所有 App 的声音中断约 1–2 秒，包括 \(DriverPreflight.names(apps)) 正在播放的内容。")
             }
         }
     }
@@ -104,7 +104,7 @@ public struct DriverPreflight: Sendable, Equatable {
                 blockers.append(.micInUse(users.map { name(pid: $0.pid, bundleID: $0.bundleID, i.appNames) }.uniqued()))
             }
         } else if i.mic?.isRunningSomewhere == true {
-            blockers.append(.micInUse([String(localized: "未知 App")]))
+            blockers.append(.micInUse([String(appLocalized: "未知 App")]))
         }
         if i.restoreRecordExists { blockers.append(.restoreRecordPresent) }
 
@@ -121,11 +121,11 @@ public struct DriverPreflight: Sendable, Equatable {
         if let bundleID, let app = MeetingApp.named(bundleID) { return app.name }
         if let own = appNames[pid] { return own }
         if let bundleID { return displayName(bundleID) }
-        return String(localized: "pid \(pid)")
+        return String(appLocalized: "pid \(pid)")
     }
 
     /// App names in a sentence: "Zoom、Teams".
-    static func names(_ apps: [String]) -> String { apps.joined(separator: String(localized: "、")) }
+    static func names(_ apps: [String]) -> String { apps.joined(separator: String(appLocalized: "、")) }
 
     /// The bundle id's last component, capitalised ("com.example.readread" → "Readread"), so the
     /// warning names apps without reading any other app's files.

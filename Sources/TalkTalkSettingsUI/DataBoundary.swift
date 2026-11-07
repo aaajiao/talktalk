@@ -33,15 +33,15 @@ public struct DataBoundary: View {
 
     /// The whole graphic in words.
     static func spoken(cloudEnabled: Bool) -> String {
-        cloudEnabled ? String(localized: "本机：声音、声音档案、录音；OpenAI：文字、上下文、术语")
-            : String(localized: "本机：声音、声音档案、录音；OpenAI：文字、上下文、术语，未连接")
+        cloudEnabled ? String(appLocalized: "本机：声音、声音档案、录音；OpenAI：文字、上下文、术语")
+            : String(appLocalized: "本机：声音、声音档案、录音；OpenAI：文字、上下文、术语，未连接")
     }
 
-    private static var localSpoken: String { String(localized: "本机：声音、声音档案、录音") }
+    private static var localSpoken: String { String(appLocalized: "本机：声音、声音档案、录音") }
 
     private static func cloudSpoken(cloudEnabled: Bool) -> String {
-        cloudEnabled ? String(localized: "OpenAI：文字、上下文、术语")
-            : String(localized: "OpenAI：文字、上下文、术语，未连接")
+        cloudEnabled ? String(appLocalized: "OpenAI：文字、上下文、术语")
+            : String(appLocalized: "OpenAI：文字、上下文、术语，未连接")
     }
 
     public var body: some View {
@@ -49,9 +49,9 @@ public struct DataBoundary: View {
         let layout = stacked ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
         layout {
             panel {
-                caption(Icon.thisMac, String(localized: "本机"), badge: Icon.locked)
-                FactChip(String(localized: "声音 · 声音档案 · 录音"), symbol: Icon.privacyPromise,
-                         help: String(localized: "不离开这台 Mac"))
+                caption(Icon.thisMac, String(appLocalized: "本机"), badge: Icon.locked)
+                FactChip(String(appLocalized: "声音 · 声音档案 · 录音"), symbol: Icon.privacyPromise,
+                         help: String(appLocalized: "不离开这台 Mac"))
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: Self.localSpoken))
@@ -63,7 +63,7 @@ public struct DataBoundary: View {
                     .accessibilityHidden(true)
             }
             cloudPanel
-            if let info { InfoButton(topic: String(localized: "数据去向"), lines: info) }
+            if let info { InfoButton(topic: String(appLocalized: "数据去向"), lines: info) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(verbatim: Self.spoken(cloudEnabled: cloudEnabled)))
@@ -72,8 +72,8 @@ public struct DataBoundary: View {
     @ViewBuilder private var cloudPanel: some View {
         let content = panel(dimmed: !cloudEnabled) {
             caption(cloudEnabled ? Icon.cloud : Icon.cloudOff,
-                    cloudEnabled ? "OpenAI" : String(localized: "未连接"), badge: nil)
-            FactChip.cloud(String(localized: "文字 · 上下文 · 术语"), help: String(localized: "只有要翻译的文字"))
+                    cloudEnabled ? "OpenAI" : String(appLocalized: "未连接"), badge: nil)
+            FactChip.cloud(String(appLocalized: "文字 · 上下文 · 术语"), help: String(appLocalized: "只有要翻译的文字"))
         }
         if let link {
             Button(action: link.action) {

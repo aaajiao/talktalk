@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import AppKit
 import CoreAudio
 import Foundation
@@ -40,10 +41,20 @@ public final class MeetingSession: SpeakEchoSink {
 
     /// HUD hints (§11 PTT HUD warnings that belong to LISTEN).
     public enum Hint: String, Sendable, Equatable {
-        case meetingSilent = "所选应用当前没有声音"
-        case audioRestarting = "音频系统重启中"
-        case meetingSeemsOver = "应用长时间没有声音"
-        case tccUnconfirmed = "没能确认系统录音权限"
+        case meetingSilent = "所选应用当前没有声音" // l10n-ignore
+        case audioRestarting = "音频系统重启中" // l10n-ignore
+        case meetingSeemsOver = "应用长时间没有声音" // l10n-ignore
+        case tccUnconfirmed = "没能确认系统录音权限" // l10n-ignore
+
+        /// Display text is localized independently of the stable event identifiers above.
+        public var localizedDescription: String {
+            switch self {
+            case .meetingSilent: String(appLocalized: "所选应用当前没有声音")
+            case .audioRestarting: String(appLocalized: "音频系统重启中")
+            case .meetingSeemsOver: String(appLocalized: "应用长时间没有声音")
+            case .tccUnconfirmed: String(appLocalized: "没能确认系统录音权限")
+            }
+        }
     }
 
     /// Builds the meeting's engines; gets the meeting's EventLog (the cloud MT logs into it).
@@ -102,7 +113,7 @@ public final class MeetingSession: SpeakEchoSink {
     private let echoWorker = MeetingEchoWorker()
     private var echoTask: Task<Void, Never>?
     public private(set) var usesGlobalFallback = false
-    public static let globalFallbackWarning = "将采集所有应用的声音（排除 TalkTalk、readread 及其子进程）；其他应用的声音也可能被转写。仅在会议来源采集失败时使用。"
+    public static var globalFallbackWarning: String { String(appLocalized: "将采集所有应用的声音（排除 TalkTalk、readread 及其子进程）；其他应用的声音也可能被转写。仅在会议来源采集失败时使用。") }
     private var processes: [AudioObjectID] = []
     private var log: EventLog?
     private var timer: Timer?
@@ -340,7 +351,7 @@ public final class MeetingSession: SpeakEchoSink {
         case phoneRequiresPhoneAudio
 
         public var errorDescription: String? {
-            String(localized: "电话同传只收听 Phone，不能启用全局采集。")
+            String(appLocalized: "电话同传只收听 Phone，不能启用全局采集。")
         }
     }
 

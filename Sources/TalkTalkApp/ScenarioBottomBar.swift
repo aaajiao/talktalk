@@ -28,14 +28,14 @@ struct ScenarioBottomBar: View {
                 if let source = run.runningSource(meetingApp: state.meetingApp), let running = run.running {
                     runningStatus(running, source: source)
                     if running == .phone {
-                        FactChip(String(localized: "通话不会挂断"), symbol: SubtitleTokens.SceneIcon.phone,
-                                 help: String(localized: "结束同传不会挂断电话"))
+                        FactChip(String(appLocalized: "通话不会挂断"), symbol: SubtitleTokens.SceneIcon.phone,
+                                 help: String(appLocalized: "结束同传不会挂断电话"))
                     }
                 }
                 if !state.subtitlesVisible {
                     HStack(spacing: 4) {
-                        FactChip(String(localized: "字幕已隐藏"), symbol: SubtitleTokens.SettingsIcon.subtitlesHidden,
-                                 tone: .warn, help: String(localized: "所有场景的字幕窗口都已隐藏"))
+                        FactChip(String(appLocalized: "字幕已隐藏"), symbol: SubtitleTokens.SettingsIcon.subtitlesHidden,
+                                 tone: .warn, help: String(appLocalized: "所有场景的字幕窗口都已隐藏"))
                         Button("显示") { state.subtitlesVisible = true }
                             .buttonStyle(.link)
                             .font(.callout)
@@ -79,9 +79,9 @@ struct ScenarioBottomBar: View {
         }
         .buttonStyle(.plain)
         .help("回到运行中的场景")
-        .accessibilityLabel(String(localized: "运行中：\(running.scene.title) · \(source)"))
+        .accessibilityLabel(String(appLocalized: "运行中：\(running.scene.title) · \(source)"))
         .accessibilityValue(voice.accessibilityLabel)
-        .accessibilityHint(String(localized: "回到运行中的场景"))
+        .accessibilityHint(String(appLocalized: "回到运行中的场景"))
     }
 
     /// The running session's voice state, as the menu's dot.

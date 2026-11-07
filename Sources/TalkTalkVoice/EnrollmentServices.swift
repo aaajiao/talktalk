@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 @preconcurrency import AVFoundation
 import Foundation
 @preconcurrency import Speech
@@ -180,7 +181,7 @@ public struct AuditionResult: Sendable, Equatable {
 
         /// The user-facing reason of the first failing sentence.
         public var failureText: String? {
-            clips.first { $0.failure != nil }.map { "\($0.lang == .en ? "英文" : "德文")试听：\($0.failure!.text)" }
+            clips.first { $0.failure != nil }.map { String(appLocalized: "\($0.lang.title)试听：\($0.failure!.text)") }
         }
     }
 }

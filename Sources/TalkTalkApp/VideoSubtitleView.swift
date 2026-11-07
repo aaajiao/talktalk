@@ -75,7 +75,7 @@ final class VideoSubtitleView: NSView {
     private var textNeedsLayout = true
     private var sourceCorrectionAnchor: Int?
     private var translationCorrectionAnchor: Int?
-    private var skippedNotice: (text: String, until: Double)?
+    private var skippedNotice: (count: Int, until: Double)?
     private var visualGeneration = 0
     /// Fading out the old page; the new one is placed when it completes.
     private var fadeInFlight = false
@@ -146,8 +146,8 @@ final class VideoSubtitleView: NSView {
         captionLayer.addSubview(dots)
         noticeView.isHidden = true
         dots.isHidden = true
-        sourceView.setAccessibilityLabel(String(localized: "原文"))
-        translationView.setAccessibilityLabel(String(localized: "译文"))
+        sourceView.setAccessibilityLabel(String(appLocalized: "原文"))
+        translationView.setAccessibilityLabel(String(appLocalized: "译文"))
     }
 
     required init?(coder: NSCoder) { return nil }
@@ -249,12 +249,15 @@ final class VideoSubtitleView: NSView {
         if metadataChanged, !changed { onDisplayedTextChange?() }
     }
 
-    static func skippedText(count: Int) -> String { String(localized: "已跳过 \(count) 句") }
+    /// Redraw badges and accessibility metadata using the current pages and deadlines.
+    func refreshAppLanguage() { applyVisual() }
+
+    static func skippedText(count: Int) -> String { String(appLocalized: "已跳过 \(count) 句") }
 
     /// "已跳过 N 句" at the source position for 1.5 s (§6 视觉反馈).
     func showSkipped(count: Int, at now: Double) {
         guard count > 0 else { return }
-        skippedNotice = (Self.skippedText(count: count), now + VideoCaptionLayout.skippedNoticeSeconds)
+        skippedNotice = (count, now + VideoCaptionLayout.skippedNoticeSeconds)
         applyVisual()
     }
 
@@ -537,9 +540,9 @@ final class VideoSubtitleView: NSView {
         var notice: NSAttributedString?
         var noticeText: String?
         if let skipped = skippedNotice {
-            notice = plain(skipped.text, size: VideoCaptionLayout.skippedNoticeSize,
+            notice = plain(Self.skippedText(count: skipped.count), size: VideoCaptionLayout.skippedNoticeSize,
                            alpha: VideoCaptionLayout.skippedNoticeAlpha(increaseContrast: contrast))
-            noticeText = skipped.text
+            noticeText = Self.skippedText(count: skipped.count)
         } else if !hasCaption, let placeholder, !placeholder.isEmpty {
             notice = placeholderVisual(placeholder)
             noticeText = placeholder
@@ -567,7 +570,7 @@ final class VideoSubtitleView: NSView {
         sourceView.setAccessibilityValue(displayedSource)
         // VoiceOver hears that more pages follow, which the dots only show.
         translationView.setAccessibilityValue(layoutReady && pageCount > 1 && !displayedTranslation.isEmpty
-            ? String(localized: "\(displayedTranslation)，第 \(currentPageIndex + 1) 页，共 \(pageCount) 页")
+            ? String(appLocalized: "\(displayedTranslation)，第 \(currentPageIndex + 1) 页，共 \(pageCount) 页")
             : displayedTranslation)
         // The source block is hidden while a notice holds its slot; the notice is read instead.
         noticeView.setAccessibilityValue(noticeText)

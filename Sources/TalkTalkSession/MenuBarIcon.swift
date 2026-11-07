@@ -34,16 +34,16 @@ public enum MenuBarIcon: Sendable, Equatable, CaseIterable {
     /// VoiceOver description, and the menu's status line when no problem row explains the icon.
     public func statusText(mode: MeetingMode) -> String {
         switch self {
-        case .missing: String(localized: "组件未就绪")
-        case .standby: String(localized: "待机 · 尚未开始收听")
-        case .warming: String(localized: "准备中")
-        case .listening: String(localized: "\(mode.scene.title)运行中")
-        case .speaking: String(localized: "识别/播放译音")
-        case .passthroughOpen: String(localized: "原声中")
-        case .audioNeedsCheck: String(localized: "音频未就绪")
-        case .degraded: String(localized: "使用备用")
-        case .needsAttention: String(localized: "检查音频设备")
-        case .remoteHearsOriginal: String(localized: "对方能听到原声")
+        case .missing: String(appLocalized: "组件未就绪")
+        case .standby: String(appLocalized: "待机 · 尚未开始收听")
+        case .warming: String(appLocalized: "准备中")
+        case .listening: String(appLocalized: "\(mode.scene.title)运行中")
+        case .speaking: String(appLocalized: "识别/播放译音")
+        case .passthroughOpen: String(appLocalized: "原声中")
+        case .audioNeedsCheck: String(appLocalized: "音频未就绪")
+        case .degraded: String(appLocalized: "使用备用")
+        case .needsAttention: String(appLocalized: "检查音频设备")
+        case .remoteHearsOriginal: String(appLocalized: "对方能听到原声")
         }
     }
 

@@ -11,9 +11,9 @@ enum ModelSettingsStage: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .recognition: String(localized: "语音识别")
-        case .translation: String(localized: "文本翻译")
-        case .synthesis: String(localized: "语音合成")
+        case .recognition: String(appLocalized: "语音识别")
+        case .translation: String(appLocalized: "文本翻译")
+        case .synthesis: String(appLocalized: "语音合成")
         }
     }
     var symbol: String {
@@ -27,9 +27,9 @@ enum ModelSettingsStage: String, CaseIterable, Identifiable {
     /// cards draw the same steps.
     var summary: String {
         switch self {
-        case .recognition: String(localized: "声音 → 原文")
-        case .translation: String(localized: "原文 → 译文")
-        case .synthesis: String(localized: "译文 → 声音")
+        case .recognition: String(appLocalized: "声音 → 原文")
+        case .translation: String(appLocalized: "原文 → 译文")
+        case .synthesis: String(appLocalized: "译文 → 声音")
         }
     }
 }
@@ -88,8 +88,8 @@ struct ModelSettingsView: View {
                     if let problem = engine.recognitionProblem(state) {
                         StatusLabel(problem.text, problem.status, help: problem.help)
                     }
-                    FactRow([FactChip(String(localized: "本机识别"), symbol: Icon.thisMac,
-                                      help: String(localized: "声音在这台 Mac 上转成原文"))])
+                    FactRow([FactChip(String(appLocalized: "本机识别"), symbol: Icon.thisMac,
+                                      help: String(appLocalized: "声音在这台 Mac 上转成原文"))])
                 }
                 .padding(.vertical, 4)
                 .flowFlash(SettingsAnchor.recognition, in: navigation.flow)
@@ -115,42 +115,42 @@ extension FlowGrid {
         let qwen = state.effectiveListenASREngine == .qwen
         let fellBack = state.meetingActive && state.listenASRFallback
         let manage = missing || configuredForApple
-            ? links.node(String(localized: "安装与维护 · 语音资源"), .components, .components(.engine)) : nil
+            ? links.node(String(appLocalized: "安装与维护 · 语音资源"), .components, .components(.engine)) : nil
         let model = engine.modelName(role: "asr")
         let speakProblem = engine.recognitionProblem(state, speaking: true)
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
-        let listen = FlowNode(String(localized: "识别"), glyph: .symbol(Icon.recognition),
+        let listen = FlowNode(String(appLocalized: "识别"), glyph: .symbol(Icon.recognition),
                               badge: problem?.status, badgeReason: problem?.text, link: manage,
                               accessory: .controls { RecognitionEngineChip(state: state, engine: engine) },
                               // Apple stands by for Qwen; solid once it took over.
-                              satellite: qwen ? FlowSatellite(String(localized: "备用 Apple"), symbol: Icon.thisMac,
-                                                              help: fellBack ? String(localized: "Apple Speech 已接管")
-                                                                             : String(localized: "Qwen 不可用时接管"),
+                              satellite: qwen ? FlowSatellite(String(appLocalized: "备用 Apple"), symbol: Icon.thisMac,
+                                                              help: fellBack ? String(appLocalized: "Apple Speech 已接管")
+                                                                             : String(appLocalized: "Qwen 不可用时接管"),
                                                               dashed: !fellBack) : nil,
                               help: appleProfile ? RecognitionEngineChip.legacyProfileHelp : qwen ? model : nil)
-        let speak = FlowNode(String(localized: "识别"), glyph: .symbol(Icon.recognition),
+        let speak = FlowNode(String(appLocalized: "识别"), glyph: .symbol(Icon.recognition),
                              badge: speakProblem?.status,
                              badgeReason: speakProblem?.text,
                              link: manage,
                              accessory: .controls { RecognitionEngineChip(state: state, engine: engine, speaking: true) },
-                             satellite: FlowSatellite(String(localized: "术语表"), symbol: Icon.glossary,
-                                                      help: String(localized: "常用中英文名称帮助识别"),
-                                                      link: links.node(String(localized: "术语表"), .glossary)),
+                             satellite: FlowSatellite(String(appLocalized: "术语表"), symbol: Icon.glossary,
+                                                      help: String(appLocalized: "常用中英文名称帮助识别"),
+                                                      link: links.node(String(appLocalized: "术语表"), .glossary)),
                              help: appleProfile ? RecognitionEngineChip.legacyProfileHelp
                                 : state.effectiveSpeakASREngine == .qwen
-                                    ? [model, String(localized: "Apple Speech 备用")].compactMap { $0 }.joined(separator: " · ") : nil)
-        let source = FlowNode(String(localized: "原文"), glyph: .symbol(Icon.sourceText))
-        return FlowGrid(String(localized: "语音识别路径"), lanes: [
-            FlowLane(String(localized: "听对方"), gutter: .symbol(Icon.listen), cells: [
-                .node(FlowNode(String(localized: "应用声音"), glyph: .symbol(Icon.remote))), .node(listen), .node(source), .empty
+                                    ? [model, String(appLocalized: "Apple Speech 备用")].compactMap { $0 }.joined(separator: " · ") : nil)
+        let source = FlowNode(String(appLocalized: "原文"), glyph: .symbol(Icon.sourceText))
+        return FlowGrid(String(appLocalized: "语音识别路径"), lanes: [
+            FlowLane(String(appLocalized: "听对方"), gutter: .symbol(Icon.listen), cells: [
+                .node(FlowNode(String(appLocalized: "应用声音"), glyph: .symbol(Icon.remote))), .node(listen), .node(source), .empty
             ]),
-            FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
-                .node(FlowNode(String(localized: "我说"), glyph: .symbol(Icon.me),
-                               link: links.node(String(localized: "使用场景"), .meeting),
+            FlowLane(String(appLocalized: "我说话 · 译音"), gutter: .voice(translating), cells: [
+                .node(FlowNode(String(appLocalized: "我说"), glyph: .symbol(Icon.me),
+                               link: links.node(String(appLocalized: "使用场景"), .meeting),
                                accessory: .display {
                                    Text(verbatim: state.speakSourceLanguage.title).font(.caption2).foregroundStyle(.secondary)
                                },
-                               help: String(localized: "按选定语言识别；点按右⌥开始或结束翻译"))),
+                               help: String(appLocalized: "按选定语言识别；点按右⌥开始或结束翻译"))),
                 .node(speak), .node(source), .empty
             ])
         ])
@@ -166,7 +166,7 @@ private struct RecognitionEngineChip: View {
     var speaking = false
 
     static var legacyProfileHelp: String {
-        String(localized: "当前配置仅包含语音合成模型，识别使用 Apple Speech；如需 Qwen3-ASR，请在“安装与维护”的语音资源中选择本地组合。")
+        String(appLocalized: "当前配置仅包含语音合成模型，识别使用 Apple Speech；如需 Qwen3-ASR，请在“安装与维护”的语音资源中选择本地组合。")
     }
 
     var body: some View {
@@ -174,10 +174,10 @@ private struct RecognitionEngineChip: View {
         let effective = speaking ? state.effectiveSpeakASREngine : state.effectiveListenASREngine
         let qwen = effective == .qwen
         NodeChip(effective.title,
-                 accessibilityLabel: speaking ? String(localized: "我说话识别引擎") : String(localized: "听对方识别引擎"),
-                 help: appleProfile ? Self.legacyProfileHelp : String(localized: "选择识别引擎不会下载模型或更改语音合成"),
+                 accessibilityLabel: speaking ? String(appLocalized: "我说话识别引擎") : String(appLocalized: "听对方识别引擎"),
+                 help: appleProfile ? Self.legacyProfileHelp : String(appLocalized: "选择识别引擎不会下载模型或更改语音合成"),
                  items: [
-                     NodeChipItem(appleProfile ? String(localized: "Qwen3-ASR（当前档位未包含）") : "Qwen3-ASR",
+                     NodeChipItem(appleProfile ? String(appLocalized: "Qwen3-ASR（当前档位未包含）") : "Qwen3-ASR",
                                   isOn: qwen, isEnabled: !appleProfile) { select(.qwen) },
                      NodeChipItem("Apple Speech", isOn: !qwen) { select(.apple) }
                  ])

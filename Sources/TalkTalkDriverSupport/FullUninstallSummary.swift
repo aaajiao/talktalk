@@ -1,4 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
+import TalkTalkCore
 import Foundation
 
 /// What the 完全卸载 row shows once a run has ended (§8.4). It shows the facts as they are:
@@ -44,31 +45,31 @@ public struct FullUninstallSummary: Sendable, Equatable {
 
     /// nil while nothing has run or a run is in progress. `report` is `FullUninstaller.lastReport`.
     public init?(phase: FullUninstaller.Phase, report: FullUninstaller.Report) {
-        let quit = String(localized: "最后请退出 TalkTalk，把它拖进废纸篓。")
-        let before = report.removed.isEmpty ? String(localized: "什么都没删。")
-            : String(localized: "停下之前已经做了下面这些，其余什么都没删。")
+        let quit = String(appLocalized: "最后请退出 TalkTalk，把它拖进废纸篓。")
+        let before = report.removed.isEmpty ? String(appLocalized: "什么都没删。")
+            : String(appLocalized: "停下之前已经做了下面这些，其余什么都没删。")
         switch phase {
         case .idle, .running:
             return nil
         case .finished(let r):
-            let removed = String(localized: "已删除 \(r.removed.count) 项")
+            let removed = String(appLocalized: "已删除 \(r.removed.count) 项")
             if r.problems.isEmpty {
-                self.init(outcome: .complete, headline: String(localized: "完全卸载完成。") + quit, short: removed, done: r.removed)
+                self.init(outcome: .complete, headline: String(appLocalized: "完全卸载完成。") + quit, short: removed, done: r.removed)
             } else {
                 self.init(outcome: .incomplete,
-                          headline: String(localized: "完全卸载做完了，但有 \(r.problems.count) 项没有删除或没有做成，见下面。") + quit,
+                          headline: String(appLocalized: "完全卸载做完了，但有 \(r.problems.count) 项没有删除或没有做成，见下面。") + quit,
                           short: removed, done: r.removed, notRemoved: r.problems)
             }
         case .blocked(let why):
-            self.init(outcome: .stopped, headline: String(localized: "没有完全卸载，") + before,
-                      short: Self.firstClause(why) ?? String(localized: "未卸载"),
+            self.init(outcome: .stopped, headline: String(appLocalized: "没有完全卸载，") + before,
+                      short: Self.firstClause(why) ?? String(appLocalized: "未卸载"),
                       reason: why, done: report.removed)
         case .cancelled:
-            self.init(outcome: .stopped, headline: String(localized: "已取消，") + before, short: String(localized: "已取消"),
+            self.init(outcome: .stopped, headline: String(appLocalized: "已取消，") + before, short: String(appLocalized: "已取消"),
                       done: report.removed)
         case .failed(let step, let why):
-            self.init(outcome: .stopped, headline: String(localized: "完全卸载停在“\(step.title)”，") + before,
-                      short: String(localized: "停在“\(step.title)”"), failed: true, reason: why, done: report.removed)
+            self.init(outcome: .stopped, headline: String(appLocalized: "完全卸载停在“\(step.title)”，") + before,
+                      short: String(appLocalized: "停在“\(step.title)”"), failed: true, reason: why, done: report.removed)
         }
     }
 

@@ -1,3 +1,5 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
+import TalkTalkCore
 import Foundation
 
 /// The automatic checks of ARCHITECTURE.md §9.2 step 4, one pure function per table row.
@@ -24,14 +26,14 @@ public enum CheckID: String, Codable, Sendable, CaseIterable {
 
     public var title: String {
         switch self {
-        case .duration: "语音时长"
-        case .clipping: "削波"
-        case .level: "峰值 / 语音段音量"
-        case .noiseFloor: "环境噪声"
-        case .snr: "信噪比"
-        case .pause: "最长停顿"
-        case .transcript: "与稿子比对"
-        case .audition: "en / de 试听"
+        case .duration: String(appLocalized: "语音时长")
+        case .clipping: String(appLocalized: "削波")
+        case .level: String(appLocalized: "峰值 / 语音段音量")
+        case .noiseFloor: String(appLocalized: "环境噪声")
+        case .snr: String(appLocalized: "信噪比")
+        case .pause: String(appLocalized: "最长停顿")
+        case .transcript: String(appLocalized: "与稿子比对")
+        case .audition: String(appLocalized: "en / de 试听")
         }
     }
 }
@@ -128,13 +130,13 @@ public enum EnrollmentChecks {
 
     public static func durationCheck(_ seconds: Double, hasSpeech: Bool) -> CheckResult {
         if !hasSpeech {
-            return CheckResult(id: .duration, status: .reject, value: 0, message: "没有录到说话的声音，请再读一遍")
+            return CheckResult(id: .duration, status: .reject, value: 0, message: String(appLocalized: "没有录到说话的声音，请再读一遍"))
         }
         if seconds < durationRange.lowerBound {
-            return CheckResult(id: .duration, status: .reject, value: seconds, message: "录音偏短，请完整读完这段文字，保持自然语速")
+            return CheckResult(id: .duration, status: .reject, value: seconds, message: String(appLocalized: "录音偏短，请完整读完这段文字，保持自然语速"))
         }
         if seconds > durationRange.upperBound {
-            return CheckResult(id: .duration, status: .reject, value: seconds, message: "录音偏长，请自然连贯地读完，减少句间长停顿")
+            return CheckResult(id: .duration, status: .reject, value: seconds, message: String(appLocalized: "录音偏长，请自然连贯地读完，减少句间长停顿"))
         }
         return CheckResult(id: .duration, status: .pass, value: seconds)
     }
@@ -143,20 +145,20 @@ public enum EnrollmentChecks {
         if fraction < clipFractionLimit && !run3 {
             return CheckResult(id: .clipping, status: .pass, value: fraction)
         }
-        return CheckResult(id: .clipping, status: .reject, value: fraction, message: "声音过大，请离远一点")
+        return CheckResult(id: .clipping, status: .reject, value: fraction, message: String(appLocalized: "声音过大，请离远一点"))
     }
 
     /// Peak and speech RMS in one row, as in the table. A peak above −1 dBFS that did not clip
     /// is only a warning (the table has no reject for it; the clipping row covers real clipping).
     public static func levelCheck(peakDbfs: Double, speechRmsDbfs: Double) -> CheckResult {
         if speechRmsDbfs < rmsRejectBelow {
-            return CheckResult(id: .level, status: .reject, value: speechRmsDbfs, message: "请靠近麦克风")
+            return CheckResult(id: .level, status: .reject, value: speechRmsDbfs, message: String(appLocalized: "请靠近麦克风"))
         }
         if speechRmsDbfs < rmsPassRange.lowerBound || peakDbfs < peakPassRange.lowerBound {
-            return CheckResult(id: .level, status: .warn, value: speechRmsDbfs, message: "声音偏低，可以再靠近一点")
+            return CheckResult(id: .level, status: .warn, value: speechRmsDbfs, message: String(appLocalized: "声音偏低，可以再靠近一点"))
         }
         if speechRmsDbfs > rmsPassRange.upperBound || peakDbfs > peakPassRange.upperBound {
-            return CheckResult(id: .level, status: .warn, value: speechRmsDbfs, message: "声音偏高，可以离远一点")
+            return CheckResult(id: .level, status: .warn, value: speechRmsDbfs, message: String(appLocalized: "声音偏高，可以离远一点"))
         }
         return CheckResult(id: .level, status: .pass, value: speechRmsDbfs)
     }
@@ -164,42 +166,42 @@ public enum EnrollmentChecks {
     public static func noiseFloorCheck(_ db: Double) -> CheckResult {
         if db <= noisePassMax { return CheckResult(id: .noiseFloor, status: .pass, value: db) }
         if db <= noiseRejectAbove {
-            return CheckResult(id: .noiseFloor, status: .warn, value: db, message: "环境有点吵，安静一些效果更好")
+            return CheckResult(id: .noiseFloor, status: .warn, value: db, message: String(appLocalized: "环境有点吵，安静一些效果更好"))
         }
-        return CheckResult(id: .noiseFloor, status: .reject, value: db, message: "环境太吵")
+        return CheckResult(id: .noiseFloor, status: .reject, value: db, message: String(appLocalized: "环境太吵"))
     }
 
     public static func snrCheck(_ db: Double) -> CheckResult {
         if db >= snrPassMin { return CheckResult(id: .snr, status: .pass, value: db) }
         if db >= snrRejectBelow {
-            return CheckResult(id: .snr, status: .warn, value: db, message: "人声和背景噪声差得不够多")
+            return CheckResult(id: .snr, status: .warn, value: db, message: String(appLocalized: "人声和背景噪声差得不够多"))
         }
-        return CheckResult(id: .snr, status: .reject, value: db, message: "背景噪声太大，请换个安静的地方或靠近麦克风")
+        return CheckResult(id: .snr, status: .reject, value: db, message: String(appLocalized: "背景噪声太大，请换个安静的地方或靠近麦克风"))
     }
 
     public static func pauseCheck(_ seconds: Double) -> CheckResult {
         if seconds <= pausePassMax { return CheckResult(id: .pause, status: .pass, value: seconds) }
         if seconds <= pauseRejectAbove {
-            return CheckResult(id: .pause, status: .warn, value: seconds, message: "中间停顿有点长")
+            return CheckResult(id: .pause, status: .warn, value: seconds, message: String(appLocalized: "中间停顿有点长"))
         }
-        return CheckResult(id: .pause, status: .reject, value: seconds, message: "中间停顿太长，请一口气读完")
+        return CheckResult(id: .pause, status: .reject, value: seconds, message: String(appLocalized: "中间停顿太长，请一口气读完"))
     }
 
     /// nil comparison = recognizer unavailable → pending.
     public static func transcriptCheck(_ comparison: TranscriptComparison.Result?) -> CheckResult {
         guard let c = comparison else {
             return CheckResult(id: .transcript, status: .pending, value: nil,
-                               message: "本机语音识别不可用，暂未核对逐字稿（引擎就绪后再核对）")
+                               message: String(appLocalized: "本机语音识别不可用，暂未核对逐字稿（引擎就绪后再核对）"))
         }
         if c.cer <= cerPassMax && c.languageIsZh && c.missingClauses.isEmpty {
             return CheckResult(id: .transcript, status: .pass, value: c.cer)
         }
-        return CheckResult(id: .transcript, status: .reject, value: c.cer, message: "有几个字和稿子不一样，请再读一遍")
+        return CheckResult(id: .transcript, status: .reject, value: c.cer, message: String(appLocalized: "有几个字和稿子不一样，请再读一遍"))
     }
 
     /// The audition row needs the engine (§9.2 steps 6–7); until then it is pending.
     public static func auditionPending() -> CheckResult {
-        CheckResult(id: .audition, status: .pending, value: nil, message: "待引擎：试听在引擎就绪后进行")
+        CheckResult(id: .audition, status: .pending, value: nil, message: String(appLocalized: "待引擎：试听在引擎就绪后进行"))
     }
 
     /// Runs every row on a take. `noise` is the 1.5 s quiet segment recorded before the take
@@ -228,7 +230,7 @@ public enum EnrollmentChecks {
         if silent {
             // TCC denial reads exact zeros (§2.2); every other row would be meaningless.
             let r = CheckResult(id: .duration, status: .reject, value: 0,
-                                message: "麦克风读到的全是静音：请在“系统设置 › 隐私与安全性 › 麦克风”里允许 TalkTalk")
+                                message: String(appLocalized: "麦克风读到的全是静音：请在“系统设置 › 隐私与安全性 › 麦克风”里允许 TalkTalk"))
             return EnrollmentReport(measurements: m, results: [r])
         }
         var results = [

@@ -110,9 +110,9 @@ public enum MeetingMicGuardPlan {
         /// "Zoom 正在用 MacBook Pro Microphone" plus where to change it (§8.6).
         public var detail: String? {
             switch self {
-            case let .green(_, app): String(localized: "\(app) 正在用 TalkTalk Mic")
+            case let .green(_, app): String(appLocalized: "\(app) 正在用 TalkTalk Mic")
             case let .physicalMic(id, app, device):
-                String(localized: "\(app) 正在用 \(device)：在 \(MeetingMicGuardPlan.settingsPath(appID: id, app: app)) 里选 TalkTalk Mic")
+                String(appLocalized: "\(app) 正在用 \(device)：在 \(MeetingMicGuardPlan.settingsPath(appID: id, app: app)) 里选 TalkTalk Mic")
             case .noReader: nil
             }
         }
@@ -140,14 +140,14 @@ public enum MeetingMicGuardPlan {
     /// MeetingApp.known; checked against each app on the machine at M2 acceptance.
     public static func settingsPath(appID: String, app: String) -> String {
         switch appID {
-        case "us.zoom.xos": String(localized: "Zoom › 设置 › 音频 › 麦克风")
-        case "com.microsoft.teams2": String(localized: "Teams › 设置 › 设备 › 麦克风")
-        case "com.tencent.meeting": String(localized: "腾讯会议 › 设置 › 音频 › 麦克风")
-        case "com.apple.mobilephone": String(localized: "Phone 菜单栏 › 音频 › 麦克风")
-        case "com.apple.FaceTime": String(localized: "FaceTime 菜单栏 › 视频 › 麦克风")
+        case "us.zoom.xos": String(appLocalized: "Zoom › 设置 › 音频 › 麦克风")
+        case "com.microsoft.teams2": String(appLocalized: "Teams › 设置 › 设备 › 麦克风")
+        case "com.tencent.meeting": String(appLocalized: "腾讯会议 › 设置 › 音频 › 麦克风")
+        case "com.apple.mobilephone": String(appLocalized: "Phone 菜单栏 › 音频 › 麦克风")
+        case "com.apple.FaceTime": String(appLocalized: "FaceTime 菜单栏 › 视频 › 麦克风")
         case "com.google.Chrome", "com.microsoft.edgemac", "company.thebrowser.Browser", "com.apple.Safari":
-            String(localized: "网页里的设备设置，或 \(app) 的网站设置 › 麦克风")
-        default: String(localized: "\(app) 的音频设置")
+            String(appLocalized: "网页里的设备设置，或 \(app) 的网站设置 › 麦克风")
+        default: String(appLocalized: "\(app) 的音频设置")
         }
     }
 

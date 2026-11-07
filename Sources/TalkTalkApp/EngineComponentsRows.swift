@@ -47,7 +47,20 @@ final class EngineComponentsModel {
     var sessionInProgress: Bool { sessionActive?() ?? false }
     private(set) var restarting = false
     /// The last install, check, model or restart run's outcome (the 引擎 section's result row).
-    private(set) var lastResult: SettingsProblem?
+    private enum Outcome {
+        case finished, failed(String), cancelled, restarted, restartFailed(String)
+        var presentation: SettingsProblem {
+            switch self {
+            case .finished: SettingsProblem(.ok, String(appLocalized: "完成"))
+            case let .failed(why): SettingsProblem(.failed, String(appLocalized: "未完成"), help: why)
+            case .cancelled: SettingsProblem(.pending, String(appLocalized: "已取消"))
+            case .restarted: SettingsProblem(.ok, String(appLocalized: "引擎已重启"))
+            case let .restartFailed(why): SettingsProblem(.failed, String(appLocalized: "引擎未能重启"), help: why)
+            }
+        }
+    }
+    private var outcome: Outcome?
+    var lastResult: SettingsProblem? { outcome?.presentation }
 
     static let profiles = EngineProfile.selectablePresets.map(\.rawValue)
 
@@ -127,9 +140,9 @@ final class EngineComponentsModel {
     func downloadSummary(_ profile: String) -> String {
         let bytes = missingModelBytes(profile)
         if bytes == 0 {
-            return String(localized: "将复用已下载的模型并应用所选档位；运行时如需安装或更新会另外下载。")
+            return String(appLocalized: "将复用已下载的模型并应用所选档位；运行时如需安装或更新会另外下载。")
         }
-        return String(localized: "仍需下载约 \(Self.gb(bytes)) 的模型；已就绪的模型会复用，运行时如需安装或更新会另外下载。")
+        return String(appLocalized: "仍需下载约 \(Self.gb(bytes)) 的模型；已就绪的模型会复用，运行时如需安装或更新会另外下载。")
     }
 
     static func gb(_ bytes: Int64) -> String { String(format: "%.1f GB", Double(bytes) / 1e9) }
@@ -148,8 +161,8 @@ final class EngineComponentsModel {
             guard let id = choice.expectedRoles[role] else { return nil }
             return EnginePins.models.first { $0.key == id }?.repo.split(separator: "/").last.map(String.init)
         }
-        return [name("tts").map { String(localized: "合成：\($0)") },
-                (choice.usesAppleRecognition ? "Apple Speech" : name("asr")).map { String(localized: "识别：\($0)") }]
+        return [name("tts").map { String(appLocalized: "合成：\($0)") },
+                (choice.usesAppleRecognition ? "Apple Speech" : name("asr")).map { String(appLocalized: "识别：\($0)") }]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -160,12 +173,12 @@ final class EngineComponentsModel {
             a.messageText = title
             a.informativeText = text
             a.addButton(withTitle: ok)
-            a.addButton(withTitle: String(localized: "取消"))
+            a.addButton(withTitle: String(appLocalized: "取消"))
             NSApp.activate()
             guard a.runModal() == .alertFirstButtonReturn else { return }
         }
         guard canRun(op) else { return }
-        lastResult = nil
+        outcome = nil
         Task {
             guard canRun(op) else { return }
             maintenanceRunning = true
@@ -175,9 +188,9 @@ final class EngineComponentsModel {
             }
             let s = await installer.run(op)
             switch s {
-            case .finished: lastResult = SettingsProblem(.ok, String(localized: "完成"))
-            case let .failed(why): lastResult = SettingsProblem(.failed, String(localized: "未完成"), help: why)
-            case .cancelled: lastResult = SettingsProblem(.pending, String(localized: "已取消"))
+            case .finished: outcome = .finished
+            case let .failed(why): outcome = .failed(why)
+            case .cancelled: outcome = .cancelled
             case .idle, .running: break
             }
         }
@@ -188,23 +201,23 @@ final class EngineComponentsModel {
         switch op {
         case let .install(p):
             let prof = p ?? profile
-            return (String(localized: "安装引擎（\(Self.profileTitle(prof))）？"),
+            return (String(appLocalized: "安装引擎（\(Self.profileTitle(prof))）？"),
                     downloadSummary(prof),
-                    missingModelBytes(prof) == 0 ? String(localized: "应用档位") : String(localized: "下载并安装"))
+                    missingModelBytes(prof) == 0 ? String(appLocalized: "应用档位") : String(appLocalized: "下载并安装"))
         case let .addModel(k):
             let b = EnginePins.models.first { $0.key == k }?.bytes ?? 0
-            return (String(localized: "下载模型 \(k)？"), String(localized: "约 \(Self.gb(b))。"), String(localized: "下载"))
+            return (String(appLocalized: "下载模型 \(k)？"), String(appLocalized: "约 \(Self.gb(b))。"), String(appLocalized: "下载"))
         case let .removeModel(k):
-            return (String(localized: "删除模型 \(k)？"), String(localized: "以后要用时需要重新下载。"), String(localized: "删除模型"))
+            return (String(appLocalized: "删除模型 \(k)？"), String(appLocalized: "以后要用时需要重新下载。"), String(appLocalized: "删除模型"))
         case let .removeActiveModel(k):
             let isASR = EnginePins.models.first { $0.key == k }?.role == "asr"
             let impact = isASR
-                ? String(localized: "将停止本地引擎并删除当前使用的识别模型。Qwen 识别将不可用，语音合成模型保留；可使用 Apple Speech，或重新下载并选择档位恢复。")
-                : String(localized: "将停止本地引擎并删除当前使用的合成模型。Qwen 语音合成将不可用，识别模型保留；重新下载并选择档位后可恢复。")
-            return (String(localized: "删除正在使用的模型 \(k)？"), impact, String(localized: "删除模型"))
+                ? String(appLocalized: "将停止本地引擎并删除当前使用的识别模型。Qwen 识别将不可用，语音合成模型保留；可使用 Apple Speech，或重新下载并选择档位恢复。")
+                : String(appLocalized: "将停止本地引擎并删除当前使用的合成模型。Qwen 语音合成将不可用，识别模型保留；重新下载并选择档位后可恢复。")
+            return (String(appLocalized: "删除正在使用的模型 \(k)？"), impact, String(appLocalized: "删除模型"))
         case .uninstall:
-            return (String(localized: "卸载引擎？"),
-                    String(localized: "删除运行时和全部模型；我的声音、术语表和设置保留。"), String(localized: "卸载引擎"))
+            return (String(appLocalized: "卸载引擎？"),
+                    String(appLocalized: "删除运行时和全部模型；我的声音、术语表和设置保留。"), String(appLocalized: "卸载引擎"))
         case .check:
             return nil
         }
@@ -212,17 +225,16 @@ final class EngineComponentsModel {
 
     func cancel() { installer?.cancel() }
 
-    func dismissResult() { lastResult = nil }
+    func dismissResult() { outcome = nil }
 
     func doRestart() {
         guard let restart, !restarting, !running, !blocked else { return }
         restarting = true
-        lastResult = nil
+        outcome = nil
         Task {
             let failure = await restart()
             restarting = false
-            lastResult = failure.map { SettingsProblem(.failed, String(localized: "引擎未能重启"), help: $0) }
-                ?? SettingsProblem(.ok, String(localized: "引擎已重启"))
+            outcome = failure.map(Outcome.restartFailed) ?? .restarted
         }
     }
 
@@ -241,20 +253,20 @@ final class EngineComponentsModel {
     var status: SettingsProblem {
         switch state {
         case let .installed(p, _):
-            SettingsProblem(.ok, String(localized: "已安装 · \(Self.profileTitle(p))"))
+            SettingsProblem(.ok, String(appLocalized: "已安装 · \(Self.profileTitle(p))"))
         case .notInstalled:
-            SettingsProblem(.warn, String(localized: "未安装"))
+            SettingsProblem(.warn, String(appLocalized: "未安装"))
         case let .outdated(p, _):
-            SettingsProblem(.warn, String(localized: "可更新"), help: String(localized: "已安装 \(Self.profileTitle(p))，有新的推荐版本"))
+            SettingsProblem(.warn, String(appLocalized: "可更新"), help: String(appLocalized: "已安装 \(Self.profileTitle(p))，有新的推荐版本"))
         case let .incompatible(r):
-            SettingsProblem(.warn, String(localized: "需更新运行时"), help: r)
+            SettingsProblem(.warn, String(appLocalized: "需更新运行时"), help: r)
         case let .incomplete(missing, bytes):
-            SettingsProblem(.warn, String(localized: "缺 \(missing.count) 个文件 · \(Self.gb(bytes))"),
+            SettingsProblem(.warn, String(appLocalized: "缺 \(missing.count) 个文件 · \(Self.gb(bytes))"),
                             help: missing.joined(separator: "\n"))
         case .unfinished:
-            SettingsProblem(.warn, String(localized: "未完成"), help: String(localized: "上次安装没有完成"))
+            SettingsProblem(.warn, String(appLocalized: "未完成"), help: String(appLocalized: "上次安装没有完成"))
         case let .damaged(r):
-            SettingsProblem(.failed, String(localized: "记录损坏"), help: r)
+            SettingsProblem(.failed, String(appLocalized: "记录损坏"), help: r)
         }
     }
 
@@ -264,8 +276,8 @@ final class EngineComponentsModel {
     /// A picker change is a pending install choice, not a change to the installed profile.
     var pendingProfileChange: SettingsProblem? {
         guard case let .installed(installedProfile, _) = state, installedProfile != profile else { return nil }
-        return SettingsProblem(.pending, String(localized: "已安装 \(Self.profileTitle(installedProfile)) · 待切换为 \(Self.profileTitle(profile))"),
-                               help: String(localized: "点击“换档”后安装所选档位"))
+        return SettingsProblem(.pending, String(appLocalized: "已安装 \(Self.profileTitle(installedProfile)) · 待切换为 \(Self.profileTitle(profile))"),
+                               help: String(appLocalized: "点击“换档”后安装所选档位"))
     }
 
     /// The installed model of a role ("asr", "tts") by its repository name, for help texts; nil
@@ -325,7 +337,7 @@ final class EngineComponentsModel {
         var parts: [String] = []
         if let d = p.stepDone, let c = p.stepCount { parts.append("\(d)/\(c)") }
         if p.fileTotal > 0 { parts.append(fileText(p)) }
-        return parts.isEmpty ? String(localized: "准备中") : parts.joined(separator: " · ")
+        return parts.isEmpty ? String(appLocalized: "准备中") : parts.joined(separator: " · ")
     }
 
     /// "1.2/4.9 GB" of the file downloading now.
@@ -355,7 +367,7 @@ struct EngineControlRows: View {
     private var profileRow: some View {
         LabeledContent {
             HStack(spacing: 8) {
-                Picker(String(localized: "档位"), selection: $model.profile) {
+                Picker(String(appLocalized: "档位"), selection: $model.profile) {
                     if let legacy = model.legacyProfile {
                         Text(verbatim: EngineComponentsModel.profileMenuTitle(legacy.rawValue))
                             .tag(legacy.rawValue)
@@ -373,7 +385,7 @@ struct EngineControlRows: View {
                 .help(EngineComponentsModel.profileSummary(model.profile))
                 .disabled(model.busy)
                 primaryButton
-                IconMenuButton(help: String(localized: "维护引擎"), items: maintenance)
+                IconMenuButton(help: String(appLocalized: "维护引擎"), items: maintenance)
                     .disabled(model.busy)
             }
         } label: {
@@ -401,13 +413,13 @@ struct EngineControlRows: View {
                     Label("修复", systemImage: Icon.repair).labelStyle(.titleAndIcon)
                 }
                 .disabled(model.busy)
-                .help(String(localized: "重新安装 \(EngineComponentsModel.profileTitle(recorded ?? model.profile))"))
+                .help(String(appLocalized: "重新安装 \(EngineComponentsModel.profileTitle(recorded ?? model.profile))"))
             }
             if custom || recorded.map({ $0 != model.profile }) == true {
                 Button("换档") { model.confirmAndRun(installing) }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.busy)
-                    .help(String(localized: "安装 \(EngineComponentsModel.profileTitle(model.profile))"))
+                    .help(String(appLocalized: "安装 \(EngineComponentsModel.profileTitle(model.profile))"))
             } else if case .outdated = model.state, let recorded {
                 Button { model.confirmAndRun(.install(profile: recorded)) } label: {
                     Label("更新", systemImage: Icon.download).labelStyle(.titleAndIcon)
@@ -421,12 +433,12 @@ struct EngineControlRows: View {
     private var maintenance: [IconMenuItem] {
         let present = model.state != .notInstalled
         return [
-            IconMenuItem(String(localized: "校验安装"), symbol: Icon.verify, isEnabled: present) { model.confirmAndRun(.check) },
-            IconMenuItem(String(localized: "重启引擎"), symbol: Icon.restartEngine,
+            IconMenuItem(String(appLocalized: "校验安装"), symbol: Icon.verify, isEnabled: present) { model.confirmAndRun(.check) },
+            IconMenuItem(String(appLocalized: "重启引擎"), symbol: Icon.restartEngine,
                          isEnabled: model.restart != nil && model.installed) { model.doRestart() },
-            IconMenuItem(String(localized: "查看日志"), symbol: Icon.inspectFile) { model.revealLogs() },
+            IconMenuItem(String(appLocalized: "查看日志"), symbol: Icon.inspectFile) { model.revealLogs() },
             .separator,
-            IconMenuItem(String(localized: "卸载引擎…"), symbol: Icon.delete, isEnabled: present,
+            IconMenuItem(String(appLocalized: "卸载引擎…"), symbol: Icon.delete, isEnabled: present,
                          isDestructive: true) { model.confirmAndRun(.uninstall) }
         ]
     }
@@ -449,7 +461,7 @@ struct EngineControlRows: View {
                     ProgressView(value: Double(p.fileHave), total: Double(p.fileTotal))
                         .progressViewStyle(.linear)
                         .frame(width: 120)
-                        .accessibilityLabel(String(localized: "下载进度"))
+                        .accessibilityLabel(String(appLocalized: "下载进度"))
                 } else {
                     StatusGlyph(.busy)
                 }
@@ -458,15 +470,15 @@ struct EngineControlRows: View {
                     .monospacedDigit()
                     .help(ifPresent: p.model)
                 Spacer(minLength: 8)
-                IconButton(Icon.cancel, help: String(localized: "取消")) { model.cancel() }
+                IconButton(Icon.cancel, help: String(appLocalized: "取消")) { model.cancel() }
             }
             .padding(.leading, Ladder.rowTextInset)
         } else if model.blocked {
-            StatusLabel(String(localized: "完全卸载中"), .waiting, help: String(localized: "结束后才能操作引擎"))
+            StatusLabel(String(appLocalized: "完全卸载中"), .waiting, help: String(appLocalized: "结束后才能操作引擎"))
                 .padding(.leading, Ladder.rowTextInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if model.restarting {
-            StatusLabel(String(localized: "引擎重启中"), .busy)
+            StatusLabel(String(appLocalized: "引擎重启中"), .busy)
                 .padding(.leading, Ladder.rowTextInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -477,8 +489,8 @@ struct EngineControlRows: View {
             HStack(spacing: 8) {
                 StatusLabel(result.text, result.status, help: result.help)
                 Spacer(minLength: 8)
-                IconButton(Icon.close, help: String(localized: "知道了"),
-                           accessibilityLabel: String(localized: "关闭结果")) { model.dismissResult() }
+                IconButton(Icon.close, help: String(appLocalized: "知道了"),
+                           accessibilityLabel: String(appLocalized: "关闭结果")) { model.dismissResult() }
             }
             .padding(.leading, Ladder.rowTextInset)
         }
@@ -498,7 +510,7 @@ struct EngineModelRows: View {
     }
 
     private func row(_ m: EnginePins.Model, installed: Bool) -> some View {
-        let role = m.role == "asr" ? String(localized: "语音识别") : String(localized: "语音合成")
+        let role = m.role == "asr" ? String(appLocalized: "语音识别") : String(appLocalized: "语音合成")
         let active = model.isModelActive(m.key)
         let ready = model.readyModelIDs.contains(m.key)
         return LabeledContent {
@@ -507,19 +519,19 @@ struct EngineModelRows: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                 if installed {
-                    let word = ready ? String(localized: "已就绪") : String(localized: "需修复")
+                    let word = ready ? String(appLocalized: "已就绪") : String(appLocalized: "需修复")
                     StatusGlyph(ready ? .ok : .warn)
                         .help(word)
                         .accessibilityLabel(word)
                     IconButton(Icon.delete, help: active && model.sessionInProgress
-                        ? String(localized: "会话结束后可删除当前使用的模型")
-                        : String(localized: "删除模型 \(m.key)"),
-                               accessibilityLabel: String(localized: "删除模型 \(m.key)"), isDestructive: true) {
+                        ? String(appLocalized: "会话结束后可删除当前使用的模型")
+                        : String(appLocalized: "删除模型 \(m.key)"),
+                               accessibilityLabel: String(appLocalized: "删除模型 \(m.key)"), isDestructive: true) {
                         model.confirmRemoveModel(m.key)
                     }
                     .disabled(active && model.sessionInProgress)
                 } else {
-                    IconButton(Icon.download, help: String(localized: "下载 \(m.key)")) { model.confirmAndRun(.addModel(m.key)) }
+                    IconButton(Icon.download, help: String(appLocalized: "下载 \(m.key)")) { model.confirmAndRun(.addModel(m.key)) }
                         .disabled(!model.installed)
                 }
             }
@@ -539,8 +551,8 @@ struct EngineModelRows: View {
 /// A development binary without the installer (§5.2, §7.11): the reason is the help.
 struct EngineUnavailableView: View {
     var body: some View {
-        ContentUnavailableView(String(localized: "此构建不可用"), systemImage: Icon.unavailable)
-            .help(String(localized: "这个构建里没有安装器（直接运行的二进制）：用 TalkTalk.app / TalkTalk-Dev.app。"))
+        ContentUnavailableView(String(appLocalized: "此构建不可用"), systemImage: Icon.unavailable)
+            .help(String(appLocalized: "这个构建里没有安装器（直接运行的二进制）：用 TalkTalk.app / TalkTalk-Dev.app。"))
     }
 }
 
@@ -553,17 +565,17 @@ extension FlowGrid {
     static func engineRequirements(_ model: EngineComponentsModel) -> some View {
         let choice = EngineProfile(rawValue: model.profile)
         let nodes = ["asr", "tts"].compactMap { role -> FlowNode? in
-            let title = role == "asr" ? String(localized: "语音识别") : String(localized: "语音合成")
+            let title = role == "asr" ? String(appLocalized: "语音识别") : String(appLocalized: "语音合成")
             if role == "asr", choice?.usesAppleRecognition == true {
-                return FlowNode(title, glyph: .symbol(Icon.thisMac), badgeReason: String(localized: "系统识别"),
+                return FlowNode(title, glyph: .symbol(Icon.thisMac), badgeReason: String(appLocalized: "系统识别"),
                                 accessory: .display {
-                                    Text(String(localized: "Apple Speech · 系统提供"))
+                                    Text(String(appLocalized: "Apple Speech · 系统提供"))
                                         .font(.caption2).foregroundStyle(.secondary)
-                                }, help: String(localized: "当前旧配置仅包含语音合成模型；识别使用系统 Apple Speech。"))
+                                }, help: String(appLocalized: "当前旧配置仅包含语音合成模型；识别使用系统 Apple Speech。"))
             }
             guard let id = choice?.expectedRoles[role], let pin = EnginePins.models.first(where: { $0.key == id }) else { return nil }
             let ready = model.readyModelIDs.contains(id)
-            let availability = ready ? String(localized: "已就绪") : String(localized: "需下载")
+            let availability = ready ? String(appLocalized: "已就绪") : String(appLocalized: "需下载")
             let name = pin.repo.split(separator: "/").last.map(String.init) ?? pin.key
             let parameters = name.split(separator: "-").first { $0.hasSuffix("B") && Double($0.dropLast()) != nil }.map(String.init) ?? ""
             let family = role == "asr" ? "Qwen3-ASR" : "Qwen3-TTS"
@@ -575,7 +587,7 @@ extension FlowGrid {
                                     .lineLimit(1).minimumScaleFactor(0.85)
                             }, help: "\(name) · \(availability)")
         }
-        return FlowGrid.cards(String(localized: "所选档位的模型"), nodes: nodes)
+        return FlowGrid.cards(String(appLocalized: "所选档位的模型"), nodes: nodes)
     }
 
     static func engine(_ model: EngineComponentsModel, link: NodeLink) -> FlowGrid {
@@ -583,7 +595,7 @@ extension FlowGrid {
         let status = model.pendingProfileChange ?? model.status
         func node(_ stage: EngineComponentsModel.Stage, _ title: String, _ symbol: String) -> FlowNode {
             let running = stage == active
-            let badge: SettingsProblem? = running ? SettingsProblem(.busy, String(localized: "进行中"))
+            let badge: SettingsProblem? = running ? SettingsProblem(.busy, String(appLocalized: "进行中"))
                 : model.statusStage == stage ? status : nil
             let accessory: NodeAccessory? = running ? .controls { EngineStageProgress(model: model, stage: stage) }
                 : stage == .ready ? .controls { EngineProfileChip(model: model) } : nil
@@ -593,12 +605,12 @@ extension FlowGrid {
                             // The running step keeps its width for progress and 取消: no chevron.
                             link: running ? nil : link, accessory: accessory, help: badge?.help)
         }
-        return FlowGrid(String(localized: "引擎安装步骤"), lanes: [
-            FlowLane(String(localized: "引擎"), cells: [
-                .node(node(.download, String(localized: "下载"), Icon.download)),
-                .node(node(.install, String(localized: "安装"), Icon.install)),
-                .node(node(.verify, String(localized: "校验"), Icon.verify)),
-                .node(node(.ready, String(localized: "就绪"), Icon.engine))
+        return FlowGrid(String(appLocalized: "引擎安装步骤"), lanes: [
+            FlowLane(String(appLocalized: "引擎"), cells: [
+                .node(node(.download, String(appLocalized: "下载"), Icon.download)),
+                .node(node(.install, String(appLocalized: "安装"), Icon.install)),
+                .node(node(.verify, String(appLocalized: "校验"), Icon.verify)),
+                .node(node(.ready, String(appLocalized: "就绪"), Icon.engine))
             ])
         ])
     }
@@ -630,7 +642,7 @@ private struct EngineStageProgress: View {
             .progressViewStyle(.circular)
             .controlSize(.mini)
             .help(EngineComponentsModel.fileText(p))
-            .accessibilityLabel(String(localized: "下载进度"))
+            .accessibilityLabel(String(appLocalized: "下载进度"))
     }
 
     private func file(_ p: InstallerProgress) -> some View {
@@ -643,7 +655,7 @@ private struct EngineStageProgress: View {
     }
 
     private var cancel: some View {
-        IconButton(Icon.cancel, help: String(localized: "取消")) { model.cancel() }
+        IconButton(Icon.cancel, help: String(appLocalized: "取消")) { model.cancel() }
     }
 }
 
@@ -652,7 +664,7 @@ private struct EngineProfileChip: View {
     @Bindable var model: EngineComponentsModel
 
     var body: some View {
-        NodeChip(EngineComponentsModel.profileTitle(model.profile), accessibilityLabel: String(localized: "档位"),
+        NodeChip(EngineComponentsModel.profileTitle(model.profile), accessibilityLabel: String(appLocalized: "档位"),
                  help: "\(EngineComponentsModel.profileMenuTitle(model.profile)) · \(EngineComponentsModel.profileSummary(model.profile))",
                  items: items)
             .disabled(model.busy)

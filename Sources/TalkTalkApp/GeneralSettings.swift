@@ -101,12 +101,12 @@ final class GeneralSettingsModel {
         guard autoEndNotificationsEnabled, !notificationRequesting else { return nil }
         switch notificationAuthorization {
         case .notDetermined:
-            let problem = SettingsProblem(.warn, String(localized: "需允许通知"), help: String(localized: "允许系统通知后才会提醒"))
+            let problem = SettingsProblem(.warn, String(appLocalized: "需允许通知"), help: String(appLocalized: "允许系统通知后才会提醒"))
             return (problem, problem)
         case .denied:
-            let help = String(localized: "在系统设置中允许 TalkTalk 通知")
-            return (SettingsProblem(.failed, String(localized: "系统已拒绝"), help: help),
-                    SettingsProblem(.failed, String(localized: "系统已拒绝通知"), help: help))
+            let help = String(appLocalized: "在系统设置中允许 TalkTalk 通知")
+            return (SettingsProblem(.failed, String(appLocalized: "系统已拒绝"), help: help),
+                    SettingsProblem(.failed, String(appLocalized: "系统已拒绝通知"), help: help))
         case .checking, .allowed, .unavailable:
             return nil
         }
@@ -120,6 +120,7 @@ final class GeneralSettingsModel {
 /// titles, footers or explanation lines: purpose and consequence are in help and VoiceOver.
 struct GeneralSettingsView: View {
     @Bindable var model: GeneralSettingsModel
+    @Bindable private var languages = AppLanguageStore.shared
     let driver: DriverComponentsPage
     @Bindable var navigation: SettingsNavigation
     /// Apple speech or translation resources are missing (AppState.appleCheck, §7.5 item 6): 使用引导…
@@ -133,6 +134,16 @@ struct GeneralSettingsView: View {
         ScrollViewReader { proxy in
             Form {
                 Section { hero }
+                Section {
+                    Picker(selection: $languages.selection) {
+                        ForEach(AppLanguage.allCases) { language in
+                            Text(verbatim: language.nativeName).tag(language)
+                        }
+                    } label: {
+                        Label("界面语言", systemImage: "globe")
+                    }
+                    .help("立即更改界面语言，不影响语音和字幕语言")
+                }
                 Section {
                     LaunchAtLoginRow(launch: model.launch, stronglyRecommended: model.loginStronglyRecommended)
                     notificationRow
@@ -167,7 +178,7 @@ struct GeneralSettingsView: View {
 
     /// The Apple resources' status on 使用引导… and in the hero.
     private var appleProblem: SettingsProblem? {
-        appleCheck.map { SettingsProblem(.warn, String(localized: "Apple 资源待配置"), help: $0) }
+        appleCheck.map { SettingsProblem(.warn, String(appLocalized: "Apple 资源待配置"), help: $0) }
     }
 
     // MARK: Z2
@@ -178,11 +189,11 @@ struct GeneralSettingsView: View {
             model.notificationProblem?.page,
             appleProblem,
         ])
-        return PageHero(String(localized: "通用"), symbol: Icon.Page.general, help: String(localized: "启动、通知与应用管理")) {
+        return PageHero(String(appLocalized: "通用"), symbol: Icon.Page.general, help: String(appLocalized: "启动、通知与应用管理")) {
             if let problem {
                 StatusLabel(problem.text, problem.status, help: problem.help)
             } else {
-                StatusLabel(String(localized: "已就绪"), .ok)
+                StatusLabel(String(appLocalized: "已就绪"), .ok)
             }
         }
     }
@@ -198,7 +209,7 @@ struct GeneralSettingsView: View {
         return LabeledContent {
             HStack(spacing: 8) {
                 if checking {
-                    StatusGlyph(.busy).accessibilityLabel(String(localized: "检查中"))
+                    StatusGlyph(.busy).accessibilityLabel(String(appLocalized: "检查中"))
                 } else if let problem = model.notificationProblem?.row {
                     StatusLabel(problem.text, problem.status, help: problem.help)
                     if model.notificationAuthorization == .denied {
@@ -211,18 +222,18 @@ struct GeneralSettingsView: View {
                         }
                     }
                 }
-                Toggle(String(localized: "会议结束通知"), isOn: Binding(
+                Toggle(String(appLocalized: "会议结束通知"), isOn: Binding(
                     get: { model.autoEndNotificationsEnabled },
                     set: { model.setAutoEndNotifications($0) }))
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .disabled(model.notificationRequesting || unavailable)
-                    .accessibilityHint(String(localized: "会议似乎已结束时提醒你；关闭通知不影响自动结束；电话与视频字幕同样适用"))
+                    .accessibilityHint(String(appLocalized: "会议似乎已结束时提醒你；关闭通知不影响自动结束；电话与视频字幕同样适用"))
             }
         } label: {
             Label("会议结束通知", systemImage: Icon.notifications)
         }
-        .help(unavailable ? String(localized: "当前运行方式不支持通知") : String(localized: "会议似乎结束时提醒你"))
+        .help(unavailable ? String(appLocalized: "当前运行方式不支持通知") : String(appLocalized: "会议似乎结束时提醒你"))
     }
 
     /// Continues unfinished onboarding at its step (shown at the row's end) or runs it again; it
@@ -237,7 +248,7 @@ struct GeneralSettingsView: View {
             .disabled(model.onOpenOnboarding == nil)
             .help("保留已装模型与声音档案")
             .accessibilityValue(progress?.text ?? "")
-            .accessibilityHint(String(localized: "重新检查权限、组件和声音设置，保留已装模型与声音档案"))
+            .accessibilityHint(String(appLocalized: "重新检查权限、组件和声音设置，保留已装模型与声音档案"))
             Spacer(minLength: 8)
             if let problem = appleProblem {
                 StatusLabel(problem.text, problem.status, help: problem.help)
@@ -296,9 +307,9 @@ struct LaunchAtLoginRow: View {
                     }
                 }
                 if launch.lastError == nil, p.notice == .recommended {
-                    InfoButton(topic: String(localized: "登录时启动"), lines: [LaunchAtLoginPolicy.recommendation])
+                    InfoButton(topic: String(appLocalized: "登录时启动"), lines: [LaunchAtLoginPolicy.recommendation])
                 }
-                Toggle(String(localized: "登录时启动"), isOn: Binding(get: { p.isOn }, set: { launch.set($0) }))
+                Toggle(String(appLocalized: "登录时启动"), isOn: Binding(get: { p.isOn }, set: { launch.set($0) }))
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .disabled(!p.canToggle)
@@ -306,7 +317,7 @@ struct LaunchAtLoginRow: View {
         } label: {
             Label("登录时启动", systemImage: Icon.launchAtLogin)
         }
-        .help(ifPresent: p.notice == .unsigned ? String(localized: "未签名构建不可用") : nil)
+        .help(ifPresent: p.notice == .unsigned ? String(appLocalized: "未签名构建不可用") : nil)
     }
 }
 
@@ -315,17 +326,17 @@ extension LaunchAtLogin {
     /// nil: nothing to do (also for an unsigned build, which only disables the switch).
     func problem(stronglyRecommended: Bool) -> (row: SettingsProblem, page: SettingsProblem)? {
         if let lastError {
-            return (SettingsProblem(.failed, String(localized: "未能更改"), help: lastError),
-                    SettingsProblem(.failed, String(localized: "登录时启动未能更改"), help: lastError))
+            return (SettingsProblem(.failed, String(appLocalized: "未能更改"), help: lastError),
+                    SettingsProblem(.failed, String(appLocalized: "登录时启动未能更改"), help: lastError))
         }
         switch presentation(stronglyRecommended: stronglyRecommended).notice {
         case .recommended?:
             let help = LaunchAtLoginPolicy.recommendation
-            return (SettingsProblem(.warn, String(localized: "建议开启"), help: help),
-                    SettingsProblem(.warn, String(localized: "建议开启登录时启动"), help: help))
+            return (SettingsProblem(.warn, String(appLocalized: "建议开启"), help: help),
+                    SettingsProblem(.warn, String(appLocalized: "建议开启登录时启动"), help: help))
         case .awaitingApproval?:
-            let problem = SettingsProblem(.waiting, String(localized: "待系统允许"),
-                                          help: String(localized: "在系统设置的登录项中允许 TalkTalk"))
+            let problem = SettingsProblem(.waiting, String(appLocalized: "待系统允许"),
+                                          help: String(appLocalized: "在系统设置的登录项中允许 TalkTalk"))
             return (problem, problem)
         case .unsigned?, nil:
             return nil

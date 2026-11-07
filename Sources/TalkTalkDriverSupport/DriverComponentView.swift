@@ -16,18 +16,18 @@ extension DriverComponentModel {
     public var status: SettingsProblem {
         switch state {
         case .loaded(let version):
-            SettingsProblem(.ok, String(localized: "已安装 \(version)"))
+            SettingsProblem(.ok, String(appLocalized: "已安装 \(version)"))
         case .notInstalled:
-            carriesDriver ? SettingsProblem(.pending, String(localized: "未安装"))
-                : SettingsProblem(.pending, String(localized: "此版本未带驱动"), help: statusText)
+            carriesDriver ? SettingsProblem(.pending, String(appLocalized: "未安装"))
+                : SettingsProblem(.pending, String(appLocalized: "此版本未带驱动"), help: statusText)
         case .onDiskNotLoaded:
-            SettingsProblem(.warn, String(localized: "需重启音频服务"), help: statusText)
+            SettingsProblem(.warn, String(appLocalized: "需重启音频服务"), help: statusText)
         case let .outdated(installed, bundled):
-            SettingsProblem(.warn, String(localized: "可更新 \(installed) → \(bundled)"), help: statusText)
+            SettingsProblem(.warn, String(appLocalized: "可更新 \(installed) → \(bundled)"), help: statusText)
         case .damaged(let reason):
-            SettingsProblem(.failed, String(localized: "有问题"), help: reason)
+            SettingsProblem(.failed, String(appLocalized: "有问题"), help: reason)
         case .selfTestFailed:
-            SettingsProblem(.warn, String(localized: "自检未通过"), help: statusText)
+            SettingsProblem(.warn, String(appLocalized: "自检未通过"), help: statusText)
         }
     }
 
@@ -35,13 +35,13 @@ extension DriverComponentModel {
     /// uninstall the meeting apps fall back to the physical microphone: that is the risk line.
     static func result(_ phase: DriverInstaller.Phase) -> SettingsProblem? {
         switch phase {
-        case .finished(.installed(let version)): SettingsProblem(.ok, String(localized: "已安装 \(version)"))
-        case .finished(.uninstalled): SettingsProblem(.risk, String(localized: "已卸载 · 会议改用实体麦（对方听到原声）"))
-        case .finished(.restarted): SettingsProblem(.ok, String(localized: "音频服务已重启"))
-        case .finished(.needsLogout): SettingsProblem(.warn, String(localized: "需注销或重启 Mac 后生效"))
+        case .finished(.installed(let version)): SettingsProblem(.ok, String(appLocalized: "已安装 \(version)"))
+        case .finished(.uninstalled): SettingsProblem(.risk, String(appLocalized: "已卸载 · 会议改用实体麦（对方听到原声）"))
+        case .finished(.restarted): SettingsProblem(.ok, String(appLocalized: "音频服务已重启"))
+        case .finished(.needsLogout): SettingsProblem(.warn, String(appLocalized: "需注销或重启 Mac 后生效"))
         case .blocked(let pre): SettingsProblem(.warn, sentence: pre.blockers.map(\.text).joined(separator: "\n"))
-        case .failed(let message): SettingsProblem(.failed, String(localized: "未成功"), help: message)
-        case .cancelled: SettingsProblem(.pending, String(localized: "已取消"))
+        case .failed(let message): SettingsProblem(.failed, String(appLocalized: "未成功"), help: message)
+        case .cancelled: SettingsProblem(.pending, String(appLocalized: "已取消"))
         case .idle, .staging, .waitingForAuthorization, .waitingForDevices: nil
         }
     }
@@ -56,24 +56,24 @@ extension FlowGrid {
     public static func driver(_ model: DriverComponentModel?, talkTalkMic link: NodeLink? = nil) -> FlowGrid {
         let original = VoiceState.resolve(audio: .original, scene: .meeting, phoneInputConfirmed: true)
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
-        let voices = [original.title, translating.title].joined(separator: String(localized: "、"))
+        let voices = [original.title, translating.title].joined(separator: String(appLocalized: "、"))
         let status = model?.status
         let users = model?.users ?? []
-        let microphone = FlowNode(String(localized: "麦克风"), glyph: .symbol(Icon.physicalMic), accessory: .display {
+        let microphone = FlowNode(String(appLocalized: "麦克风"), glyph: .symbol(Icon.physicalMic), accessory: .display {
             HStack(spacing: 4) {
                 VoiceCapsule(state: original)
                 VoiceCapsule(state: translating)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: voices))
-        }, help: String(localized: "TalkTalk 用实体麦收音"))
+        }, help: String(appLocalized: "TalkTalk 用实体麦收音"))
         let device = FlowNode("TalkTalk Mic", glyph: .symbol(Icon.talkTalkMic), badge: status?.status,
                               badgeReason: status?.text, link: link, help: status?.help)
-        let apps = FlowNode(String(localized: "会议应用"), glyph: .symbol(Icon.meetingApps),
+        let apps = FlowNode(String(appLocalized: "会议应用"), glyph: .symbol(Icon.meetingApps),
                             accessory: .display { DriverUsersView(users: users) },
-                            help: String(localized: "在会议应用里选 TalkTalk Mic"))
-        return FlowGrid(String(localized: "虚拟麦克风声音路径"), lanes: [
-            FlowLane(String(localized: "我"), gutter: .symbol(Icon.me),
+                            help: String(appLocalized: "在会议应用里选 TalkTalk Mic"))
+        return FlowGrid(String(appLocalized: "虚拟麦克风声音路径"), lanes: [
+            FlowLane(String(appLocalized: "我"), gutter: .symbol(Icon.me),
                      cells: [.node(microphone), .node(device), .node(apps), .empty])
         ])
     }
@@ -85,7 +85,7 @@ private struct DriverUsersView: View {
     let users: [DriverUser]
 
     var body: some View {
-        let names = users.map(\.name).joined(separator: String(localized: "、"))
+        let names = users.map(\.name).joined(separator: String(appLocalized: "、"))
         HStack(spacing: 3) {
             if users.isEmpty {
                 Text(verbatim: "—").font(.caption2).foregroundStyle(.secondary)
@@ -96,10 +96,10 @@ private struct DriverUsersView: View {
                 }
             }
         }
-        .help(users.isEmpty ? String(localized: "没有应用在用") : names)
+        .help(users.isEmpty ? String(appLocalized: "没有应用在用") : names)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: users.isEmpty ? String(localized: "没有应用在用")
-                                                          : String(localized: "使用中：\(names)")))
+        .accessibilityLabel(Text(verbatim: users.isEmpty ? String(appLocalized: "没有应用在用")
+                                                          : String(appLocalized: "使用中：\(names)")))
     }
 
     @ViewBuilder private func icon(_ user: DriverUser) -> some View {
@@ -144,13 +144,13 @@ public struct DriverComponentRows: View {
         let busy = model.isBusy
         switch model.state {
         case .notInstalled:
-            adminButton(String(localized: "安装")) { model.requestInstall() }.disabled(busy || !model.carriesDriver)
+            adminButton(String(appLocalized: "安装")) { model.requestInstall() }.disabled(busy || !model.carriesDriver)
         case .outdated:
-            adminButton(String(localized: "更新")) { model.requestInstall() }.disabled(busy)
+            adminButton(String(appLocalized: "更新")) { model.requestInstall() }.disabled(busy)
         case .damaged:
-            adminButton(String(localized: "重新安装")) { model.requestInstall() }.disabled(busy || !model.carriesDriver)
+            adminButton(String(appLocalized: "重新安装")) { model.requestInstall() }.disabled(busy || !model.carriesDriver)
         case .onDiskNotLoaded:
-            adminButton(String(localized: "重启音频服务")) { model.requestRestartAudio() }.disabled(busy)
+            adminButton(String(appLocalized: "重启音频服务")) { model.requestRestartAudio() }.disabled(busy)
         case .loaded, .selfTestFailed:
             EmptyView()
         }
@@ -165,9 +165,9 @@ public struct DriverComponentRows: View {
             }
         }
         .buttonStyle(.borderedProminent)
-        .help(String(localized: "需管理员授权"))
+        .help(String(appLocalized: "需管理员授权"))
         .accessibilityLabel(Text(verbatim: title))
-        .accessibilityHint(Text(String(localized: "需管理员授权")))
+        .accessibilityHint(Text(String(appLocalized: "需管理员授权")))
     }
 
     // MARK: progress
@@ -175,13 +175,13 @@ public struct DriverComponentRows: View {
     @ViewBuilder private var progressRow: some View {
         switch model.installer.phase {
         case .staging:
-            progress(String(localized: "校验驱动…"))
+            progress(String(appLocalized: "校验驱动…"))
         case .waitingForAuthorization:
-            progress(String(localized: "等待授权…"), symbol: Icon.locked)
+            progress(String(appLocalized: "等待授权…"), symbol: Icon.locked)
         case .waitingForDevices(let attempt):
-            progress(String(localized: "音频服务重启中 \(attempt)/30"), symbol: Icon.audioRestart)
+            progress(String(appLocalized: "音频服务重启中 \(attempt)/30"), symbol: Icon.audioRestart)
         default:
-            if model.selfTestRunning { progress(String(localized: "自检中 ~20 秒")) }
+            if model.selfTestRunning { progress(String(appLocalized: "自检中 ~20 秒")) }
         }
     }
 
@@ -210,22 +210,22 @@ public struct DriverComponentRows: View {
             }
             .buttonStyle(.plain)
             .disabled(busy || !canTest)
-            .help(canTest ? String(localized: "约 20 秒，不向会议送声") : String(localized: "先安装 TalkTalk Mic"))
+            .help(canTest ? String(appLocalized: "约 20 秒，不向会议送声") : String(appLocalized: "先安装 TalkTalk Mic"))
             Spacer(minLength: 8)
-            IconMenuButton(help: String(localized: "维护"), items: maintenance)
+            IconMenuButton(help: String(appLocalized: "维护"), items: maintenance)
                 .disabled(busy)
         }
     }
 
     private var maintenance: [IconMenuItem] {
-        var items = [IconMenuItem(String(localized: "刷新"), symbol: Icon.refresh) { model.refresh() }]
+        var items = [IconMenuItem(String(appLocalized: "刷新"), symbol: Icon.refresh) { model.refresh() }]
         if model.state.isUsable {
-            items.append(IconMenuItem(String(localized: "重新安装"), symbol: Icon.download,
+            items.append(IconMenuItem(String(appLocalized: "重新安装"), symbol: Icon.download,
                                       isEnabled: model.carriesDriver) { model.requestInstall() })
         }
         if model.state != .notInstalled {
             items.append(.separator)
-            items.append(IconMenuItem(String(localized: "卸载 TalkTalk Mic…"), symbol: Icon.delete,
+            items.append(IconMenuItem(String(appLocalized: "卸载 TalkTalk Mic…"), symbol: Icon.delete,
                                       isDestructive: true) { model.requestUninstall() })
         }
         return items
@@ -239,8 +239,8 @@ public struct DriverComponentRows: View {
                 StatusLabel(result.text, result.status, help: result.help ?? model.notice)
                     .textSelection(.enabled)
                 Spacer(minLength: 8)
-                IconButton(Icon.close, help: String(localized: "知道了"),
-                           accessibilityLabel: String(localized: "关闭结果")) { model.dismissNotice() }
+                IconButton(Icon.close, help: String(appLocalized: "知道了"),
+                           accessibilityLabel: String(appLocalized: "关闭结果")) { model.dismissNotice() }
             }
             .padding(.leading, Ladder.rowTextInset)
         }
@@ -255,8 +255,8 @@ public struct DriverComponentRows: View {
                 if let report = model.selfTest {
                     ForEach(report.checks, id: \.name) { check in
                         let status: SettingsStatus = check.passed.map { $0 ? .ok : .failed } ?? .pending
-                        let word = check.passed.map { $0 ? String(localized: "通过") : String(localized: "没通过") }
-                            ?? String(localized: "跳过")
+                        let word = check.passed.map { $0 ? String(appLocalized: "通过") : String(appLocalized: "没通过") }
+                            ?? String(appLocalized: "跳过")
                         let title = check.name.title
                         HStack(spacing: 6) {
                             StatusGlyph(status)
@@ -265,11 +265,11 @@ public struct DriverComponentRows: View {
                         .padding(.leading, Ladder.rowTextInset)
                         .help(check.detail.isEmpty ? word : "\(word) · \(check.detail)")
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(Text(String(localized: "\(title)，\(word)")))
+                        .accessibilityLabel(Text(String(appLocalized: "\(title)，\(word)")))
                     }
                 }
                 if let stored {
-                    let word = stored.passed ? String(localized: "通过") : String(localized: "没通过")
+                    let word = stored.passed ? String(appLocalized: "通过") : String(appLocalized: "没通过")
                     let date = stored.at.formatted(date: .abbreviated, time: .shortened)
                     HStack(spacing: 6) {
                         StatusGlyph(stored.passed ? .ok : .failed)
@@ -278,7 +278,7 @@ public struct DriverComponentRows: View {
                     .padding(.leading, Ladder.rowTextInset)
                     .help(stored.failed.isEmpty ? word : DriverSelfTestReport.Check.Name.shortTitles(stored.failed))
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(Text(String(localized: "上次自检\(word)，\(date)")))
+                    .accessibilityLabel(Text(String(appLocalized: "上次自检\(word)，\(date)")))
                 }
             } label: {
                 Label("详情", systemImage: Icon.results)
@@ -309,20 +309,20 @@ private struct DriverComponentLifecycle: ViewModifier {
         func warn(_ w: [DriverPreflight.Warning]) -> String { w.map(\.text).joined(separator: "\n") }
         switch c {
         case .install(let w, let update):
-            return Alert(title: Text(update ? String(localized: "重新安装虚拟麦克风？") : String(localized: "安装虚拟麦克风？")),
-                         message: Text([String(localized: "要输入一次管理员密码，系统音频会重启（声音中断约 1 秒）。"), warn(w)]
+            return Alert(title: Text(update ? String(appLocalized: "重新安装虚拟麦克风？") : String(appLocalized: "安装虚拟麦克风？")),
+                         message: Text([String(appLocalized: "要输入一次管理员密码，系统音频会重启（声音中断约 1 秒）。"), warn(w)]
                              .filter { !$0.isEmpty }.joined(separator: "\n\n")),
-                         primaryButton: .default(Text(update ? String(localized: "重新安装") : String(localized: "安装"))) { Task { await model.confirm(c) } },
+                         primaryButton: .default(Text(update ? String(appLocalized: "重新安装") : String(appLocalized: "安装"))) { Task { await model.confirm(c) } },
                          secondaryButton: .cancel(Text("取消")))
         case .uninstall(let w):
             return Alert(title: Text("卸载 TalkTalk Mic？"),
-                         message: Text([String(localized: "卸载后，会议 App 会切回实体麦克风。"), warn(w)].filter { !$0.isEmpty }
+                         message: Text([String(appLocalized: "卸载后，会议 App 会切回实体麦克风。"), warn(w)].filter { !$0.isEmpty }
                              .joined(separator: "\n\n")),
                          primaryButton: .default(Text("卸载 TalkTalk Mic")) { Task { await model.confirm(c) } },
                          secondaryButton: .cancel(Text("取消")))
         case .restartAudio(let w):
             return Alert(title: Text("重启音频服务？"),
-                         message: Text([String(localized: "要输入一次管理员密码。"), warn(w)].filter { !$0.isEmpty }
+                         message: Text([String(appLocalized: "要输入一次管理员密码。"), warn(w)].filter { !$0.isEmpty }
                              .joined(separator: "\n\n")),
                          primaryButton: .default(Text("重启")) { Task { await model.confirm(c) } },
                          secondaryButton: .cancel(Text("取消")))

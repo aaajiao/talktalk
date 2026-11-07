@@ -3,7 +3,7 @@ import TalkTalkCore
 
 // The opening graphic of a single page with no flow to draw (docs/decisions/
 // 2026-11-06-settings-visual-system.md §3.2; §0.2 #1: no made-up flow). Text parameters are
-// already localized: callers pass `String(localized:)`.
+// already localized: callers pass `String(appLocalized:)`.
 
 /// A page's status tile, 56 pt high, as the Form's first section without a header (§2 Z2): the
 /// page's sidebar glyph at 22 pt (hierarchical, accent) on a 40 × 40 `.quaternary` tile with

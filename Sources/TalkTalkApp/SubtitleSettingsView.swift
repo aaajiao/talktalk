@@ -137,7 +137,7 @@ struct SubtitleSettingsView: View {
     private var fontSizeSection: some View {
         let defaultSize = SubtitleOpacityControl.defaultFontSize(for: scene)
         let size = fontSize.wrappedValue
-        let value = String(localized: "\(Int(size)) 磅")
+        let value = String(appLocalized: "\(Int(size)) 磅")
         return Section {
             HStack(spacing: 8) {
                 Slider(value: fontSize, in: 16...36, step: 1) {
@@ -150,15 +150,15 @@ struct SubtitleSettingsView: View {
                     step == defaultSize ? SliderTick(step) : nil
                 }
                 .labelsHidden()
-                .accessibilityLabel(String(localized: "字号"))
+                .accessibilityLabel(String(appLocalized: "字号"))
                 .accessibilityValue(Text(verbatim: value))
                 valueText(value, enabled: true)
-                IconButton(Icon.reset, help: String(localized: "恢复默认字号")) { fontSize.wrappedValue = defaultSize }
+                IconButton(Icon.reset, help: String(appLocalized: "恢复默认字号")) { fontSize.wrappedValue = defaultSize }
                     .disabled(size == defaultSize)
             }
             .padding(.leading, Ladder.rowTextInset)
         } header: {
-            SectionHeader(String(localized: "字号"), symbol: Icon.fontSize)
+            SectionHeader(String(appLocalized: "字号"), symbol: Icon.fontSize)
         }
     }
 
@@ -174,8 +174,8 @@ struct SubtitleSettingsView: View {
         let percent = Int((opacity.wrappedValue * 100).rounded())
         let atDefault = abs(opacity.wrappedValue - defaultOpacity) < 0.001
         let reason: String? = switch control.note {
-        case .reduceTransparency?: String(localized: "系统已开启降低透明度")
-        case .strokeHasNoBackground?: String(localized: "描边样式没有背景")
+        case .reduceTransparency?: String(appLocalized: "系统已开启降低透明度")
+        case .strokeHasNoBackground?: String(appLocalized: "描边样式没有背景")
         case nil: nil
         }
         return Section {
@@ -192,26 +192,26 @@ struct SubtitleSettingsView: View {
                 .labelsHidden()
                 .disabled(!control.enabled)
                 // The visible name is the short section title; VoiceOver keeps what N% measures.
-                .accessibilityLabel(String(localized: "背景不透明度"))
+                .accessibilityLabel(String(appLocalized: "背景不透明度"))
                 .accessibilityValue(Text(verbatim: "\(percent)%"))
-                .accessibilityHint(reason ?? String(localized: "只调背景，文字不变淡"))
+                .accessibilityHint(reason ?? String(appLocalized: "只调背景，文字不变淡"))
                 valueText("\(percent)%", enabled: control.enabled)
                 if control.note == .reduceTransparency {
                     Image(systemName: Icon.reduceTransparency)
                         .font(.system(size: Ladder.inline))
                         .foregroundStyle(.secondary)
                         .frame(width: Ladder.hitArea, height: Ladder.hitArea)
-                        .help(String(localized: "系统已开启降低透明度"))
-                        .accessibilityLabel(video ? String(localized: "系统已开启“降低透明度”，改用实底")
-                                                  : String(localized: "系统已开启“降低透明度”，背景不透明"))
+                        .help(String(appLocalized: "系统已开启降低透明度"))
+                        .accessibilityLabel(video ? String(appLocalized: "系统已开启“降低透明度”，改用实底")
+                                                  : String(appLocalized: "系统已开启“降低透明度”，背景不透明"))
                 }
-                IconButton(Icon.reset, help: String(localized: "恢复默认 85%")) { opacity.wrappedValue = defaultOpacity }
+                IconButton(Icon.reset, help: String(appLocalized: "恢复默认 85%")) { opacity.wrappedValue = defaultOpacity }
                     .disabled(!control.enabled || atDefault)
             }
             .padding(.leading, Ladder.rowTextInset)
-            .help(reason ?? String(localized: "只调背景，文字不变淡"))
+            .help(reason ?? String(appLocalized: "只调背景，文字不变淡"))
         } header: {
-            SectionHeader(String(localized: "背景"), symbol: Icon.background)
+            SectionHeader(String(appLocalized: "背景"), symbol: Icon.background)
         }
     }
 
@@ -235,12 +235,12 @@ struct SubtitleSettingsView: View {
 
     private var styleSection: some View {
         Section {
-            ThumbnailChoice(String(localized: "样式"), options: styleOptions,
+            ThumbnailChoice(String(appLocalized: "样式"), options: styleOptions,
                             selection: $state.videoCaptionStyle, size: .wide)
                 .padding(.leading, Ladder.rowTextInset)
                 .padding(.vertical, 4)
             LabeledContent {
-                ThumbnailChoice(String(localized: "排列"), options: arrangementOptions,
+                ThumbnailChoice(String(appLocalized: "排列"), options: arrangementOptions,
                                 selection: $state.videoCaptionArrangement, size: .compact)
                     .padding(.vertical, 4)
             } label: {
@@ -250,21 +250,21 @@ struct SubtitleSettingsView: View {
                 Label("静默变暗", systemImage: Icon.silenceDim)
             }
             .help("8 秒无新内容时变暗")
-            .accessibilityHint(String(localized: "最后一页读完 8 秒后无新内容时，文字降到 35%"))
+            .accessibilityHint(String(appLocalized: "最后一页读完 8 秒后无新内容时，文字降到 35%"))
         } header: {
-            SectionHeader(String(localized: "样式"), symbol: Icon.subtitles)
+            SectionHeader(String(appLocalized: "样式"), symbol: Icon.subtitles)
         }
     }
 
     private var styleOptions: [ThumbnailChoice<VideoCaptionStyle>.Option] {
         [
-            .init(.fittedGlass, name: String(localized: "贴合玻璃"), help: String(localized: "只在文字后面铺毛玻璃")) {
+            .init(.fittedGlass, name: String(appLocalized: "贴合玻璃"), help: String(appLocalized: "只在文字后面铺毛玻璃")) {
                 CaptionStyleThumbnail(style: .fittedGlass)
             },
-            .init(.stroke, name: String(localized: "描边"), help: String(localized: "不铺背景，文字加描边和阴影")) {
+            .init(.stroke, name: String(appLocalized: "描边"), help: String(appLocalized: "不铺背景，文字加描边和阴影")) {
                 CaptionStyleThumbnail(style: .stroke)
             },
-            .init(.plate, name: String(localized: "实底"), help: String(localized: "每行文字后垫深色底块")) {
+            .init(.plate, name: String(appLocalized: "实底"), help: String(appLocalized: "每行文字后垫深色底块")) {
                 CaptionStyleThumbnail(style: .plate)
             },
         ]
@@ -272,10 +272,10 @@ struct SubtitleSettingsView: View {
 
     private var arrangementOptions: [ThumbnailChoice<VideoCaptionArrangement>.Option] {
         [
-            .init(.sourceFirst, name: String(localized: "原文在上")) {
+            .init(.sourceFirst, name: String(appLocalized: "原文在上")) {
                 CaptionArrangementThumbnail(arrangement: .sourceFirst)
             },
-            .init(.translationFirst, name: String(localized: "译文在上")) {
+            .init(.translationFirst, name: String(appLocalized: "译文在上")) {
                 CaptionArrangementThumbnail(arrangement: .translationFirst)
             },
         ]
@@ -288,23 +288,23 @@ struct SubtitleSettingsView: View {
     private var windowSection: some View {
         Section {
             FactRow([
-                FactChip(String(localized: "可拖动"), symbol: Icon.windowMovable,
-                         help: String(localized: "拖标题栏或文字；视频可在菜单锁定")),
-                FactChip(String(localized: "不抢焦点"), symbol: Icon.windowNoFocus,
-                         help: String(localized: "键盘输入留在当前 App")),
-                FactChip(String(localized: "收起后继续"), symbol: Icon.windowMinimize,
-                         help: video ? String(localized: "最小化后收听和翻译继续，可从菜单栏恢复")
-                                     : String(localized: "最小化后同传继续，可从菜单栏恢复")),
-                FactChip(String(localized: "共享屏幕不可见"), symbol: Icon.windowNotShared,
+                FactChip(String(appLocalized: "可拖动"), symbol: Icon.windowMovable,
+                         help: String(appLocalized: "拖标题栏或文字；视频可在菜单锁定")),
+                FactChip(String(appLocalized: "不抢焦点"), symbol: Icon.windowNoFocus,
+                         help: String(appLocalized: "键盘输入留在当前 App")),
+                FactChip(String(appLocalized: "收起后继续"), symbol: Icon.windowMinimize,
+                         help: video ? String(appLocalized: "最小化后收听和翻译继续，可从菜单栏恢复")
+                                     : String(appLocalized: "最小化后同传继续，可从菜单栏恢复")),
+                FactChip(String(appLocalized: "共享屏幕不可见"), symbol: Icon.windowNotShared,
                          // Only what NSWindow.SharingType.none is documented to do: Apple calls
                          // it a legacy constant that can leave content out of certain sharing
                          // situations and must not be relied on to hide content from capture
                          // (ARCHITECTURE, LISTEN). The help promises no more than that.
-                         help: String(localized: "部分共享方式下可能不显示，不作保证")),
+                         help: String(appLocalized: "部分共享方式下可能不显示，不作保证")),
             ], indented: true)
         } header: {
-            SectionHeader(String(localized: "窗口"), symbol: Icon.subtitleWindow,
-                          info: [String(localized: "最小化后从菜单栏选“恢复字幕窗口”。")])
+            SectionHeader(String(appLocalized: "窗口"), symbol: Icon.subtitleWindow,
+                          info: [String(appLocalized: "最小化后从菜单栏选“恢复字幕窗口”。")])
         }
     }
 }

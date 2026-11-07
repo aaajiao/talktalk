@@ -1,0 +1,3 @@
+"NSMicrophoneUsageDescription" = "TalkTalk uses your microphone for original speech and press-to-translate during meeting interpretation, and for recordings you start.";
+"NSAudioCaptureUsageDescription" = "TalkTalk captures sound from the app you select to show live subtitles for meetings or videos.";
+"NSSpeechRecognitionUsageDescription" = "TalkTalk uses on-device speech recognition for live subtitles.";

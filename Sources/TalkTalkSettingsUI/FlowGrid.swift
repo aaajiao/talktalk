@@ -142,7 +142,7 @@ public struct FlowNode {
 
     /// "第 2 步，拨号／接听" for steps, else the title.
     var accessibilityLabel: String {
-        if case let .step(number, _) = glyph { return String(localized: "第 \(number) 步，\(title)") }
+        if case let .step(number, _) = glyph { return String(appLocalized: "第 \(number) 步，\(title)") }
         return title
     }
 
@@ -150,7 +150,7 @@ public struct FlowNode {
     /// sizes): "听对方，对方".
     func accessibilityLabel(lane: String?) -> String {
         guard let lane else { return accessibilityLabel }
-        return [lane, accessibilityLabel].joined(separator: String(localized: "，"))
+        return [lane, accessibilityLabel].joined(separator: String(appLocalized: "，"))
     }
 
     /// The state in words (§3.3): the step's progress, the risk, off or in use, and the badge's
@@ -159,16 +159,16 @@ public struct FlowNode {
         var parts: [String] = []
         if case let .step(_, step) = glyph {
             switch step {
-            case .todo: parts.append(String(localized: "未完成"))
-            case .busy: parts.append(String(localized: "进行中"))
-            case .done: parts.append(String(localized: "已完成"))
+            case .todo: parts.append(String(appLocalized: "未完成"))
+            case .busy: parts.append(String(appLocalized: "进行中"))
+            case .done: parts.append(String(appLocalized: "已完成"))
             }
         }
         switch state {
         case .risk: parts.append(riskText ?? SettingsStatus.risk.spokenName)
-        case .off: parts.append(String(localized: "已关闭"))
-        case .live: parts.append(String(localized: "使用中"))
-        case .dimmed: parts.append(String(localized: "暂不可用"))
+        case .off: parts.append(String(appLocalized: "已关闭"))
+        case .live: parts.append(String(appLocalized: "使用中"))
+        case .dimmed: parts.append(String(appLocalized: "暂不可用"))
         case .ready, .needsAction: break
         }
         if state != .risk {
@@ -176,7 +176,7 @@ public struct FlowNode {
             else if let badgeReason { parts.append(badgeReason) }
         }
         if parts.isEmpty { parts.append(SettingsStatus.ok.spokenName) }
-        return parts.joined(separator: String(localized: "，"))
+        return parts.joined(separator: String(appLocalized: "，"))
     }
 
     /// The tooltip: the badge's cause and the node's own help, else where it leads.
@@ -636,7 +636,7 @@ struct FlowNodeView: View {
             Button(action: link.action) { FlowChevron() }
                 .buttonStyle(.plain)
                 .help(link.destination)
-                .accessibilityLabel(Text(verbatim: String(localized: "打开\(node.title)")))
+                .accessibilityLabel(Text(verbatim: String(appLocalized: "打开\(node.title)")))
                 .accessibilityHint(Text(verbatim: link.destination))
         }
     }

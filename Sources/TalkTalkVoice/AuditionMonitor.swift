@@ -1,4 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
+import TalkTalkCore
 import Foundation
 
 /// Where an audition is played (§9.2 step 7): the monitor output — headphones or the default
@@ -17,7 +18,7 @@ public protocol AuditionMonitor: Sendable {
 }
 
 public extension AuditionMonitor {
-    var unavailableReason: String? { get async { await isAvailable ? nil : String(localized: "自听输出暂不可用") } }
+    var unavailableReason: String? { get async { await isAvailable ? nil : String(appLocalized: "自听输出暂不可用") } }
 }
 
 public enum AuditionMonitorError: Error, Equatable, CustomStringConvertible {
@@ -28,8 +29,8 @@ public enum AuditionMonitorError: Error, Equatable, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .unavailable(let why): String(localized: "自听输出不可用：\(why)")
-        case .interrupted(let why): String(localized: "试听中断：\(why)")
+        case .unavailable(let why): String(appLocalized: "自听输出不可用：\(why)")
+        case .interrupted(let why): String(appLocalized: "试听中断：\(why)")
         }
     }
 }
@@ -39,7 +40,7 @@ public struct UnavailableAuditionMonitor: AuditionMonitor {
     public init() {}
     public var isAvailable: Bool { get async { false } }
     public var unavailableReason: String? { get async { Self.reason } }
-    public static var reason: String { String(localized: "自听输出还没有接上（M2 第 2 阶段）") }
+    public static var reason: String { String(appLocalized: "自听输出还没有接上（M2 第 2 阶段）") }
     public func play(_ samples24k: [Float]) async throws { throw AuditionMonitorError.unavailable(Self.reason) }
     public func stop() async {}
 }

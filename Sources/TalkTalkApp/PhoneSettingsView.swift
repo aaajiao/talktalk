@@ -39,12 +39,12 @@ struct PhoneSettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 FlowGrid.phone(facts, driver: driver, links: links)
                 FlowGrid.phoneSteps(checklist, problem: state.phoneProblem,
-                                    dial: NodeLink(String(localized: "打开 Phone")) { scrollTo(SettingsAnchor.phoneDial) })
+                                    dial: NodeLink(String(appLocalized: "打开 Phone")) { scrollTo(SettingsAnchor.phoneDial) })
                 if let problem = facts.problem {
                     StatusLabel(problem.text, problem.status, help: problem.help)
                 }
-                FactRow([FactChip(String(localized: "结束同传不会挂断电话"), symbol: Icon.callContinues,
-                                  help: String(localized: "挂断请用 Phone"))])
+                FactRow([FactChip(String(appLocalized: "结束同传不会挂断电话"), symbol: Icon.callContinues,
+                                  help: String(appLocalized: "挂断请用 Phone"))])
             }
             .padding(.vertical, 4)
         }
@@ -60,11 +60,11 @@ struct PhoneSettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     FlowGrid.phoneSetup()
                     FactRow([
-                        FactChip(String(localized: "Phone 麦克风：使用系统设置"), symbol: Icon.talkTalkMic,
-                                 help: String(localized: "在 Phone 菜单“音频 › 麦克风”中选"),
-                                 spoken: String(localized: "在 Phone 菜单栏的“音频 › 麦克风”中选择“使用系统设置”")),
-                        .risk(String(localized: "否则对方听到原声"), help: String(localized: "Phone 会直接用实体麦克风")),
-                        FactChip(String(localized: "用耳机"), symbol: Icon.headphones, help: String(localized: "避免回声"))
+                        FactChip(String(appLocalized: "Phone 麦克风：使用系统设置"), symbol: Icon.talkTalkMic,
+                                 help: String(appLocalized: "在 Phone 菜单“音频 › 麦克风”中选"),
+                                 spoken: String(appLocalized: "在 Phone 菜单栏的“音频 › 麦克风”中选择“使用系统设置”")),
+                        .risk(String(appLocalized: "否则对方听到原声"), help: String(appLocalized: "Phone 会直接用实体麦克风")),
+                        FactChip(String(appLocalized: "用耳机"), symbol: Icon.headphones, help: String(appLocalized: "避免回声"))
                     ])
                 }
                 .padding(.vertical, 4)
@@ -74,7 +74,7 @@ struct PhoneSettingsView: View {
                     Label("音频设置…", systemImage: Icon.audio)
                 }
             } label: {
-                SectionHeader(String(localized: "首次连接"), symbol: Icon.iPhone)
+                SectionHeader(String(appLocalized: "首次连接"), symbol: Icon.iPhone)
             }
         }
     }
@@ -103,8 +103,8 @@ struct PhoneSettingsView: View {
                 Label("打开 Phone", systemImage: Icon.openApp).labelStyle(.titleAndIcon)
             }
             .disabled(state.onOpenPhone == nil)
-            .help(String(localized: "拨号、接听和挂断都在系统 Phone 中完成"))
-            .accessibilityLabel(String(localized: "打开 Phone"))
+            .help(String(appLocalized: "拨号、接听和挂断都在系统 Phone 中完成"))
+            .accessibilityLabel(String(appLocalized: "打开 Phone"))
         } label: {
             Label("在 Phone 中拨号或接听", systemImage: SubtitleTokens.SceneIcon.phone)
         }
@@ -133,7 +133,7 @@ struct PhoneSettingsView: View {
             }
             .buttonStyle(.plain)
             .help("发声详情")
-            .accessibilityLabel(String(localized: "发声详情"))
+            .accessibilityLabel(String(appLocalized: "发声详情"))
             .accessibilityValue(voice.accessibilityLabel)
             .popover(isPresented: $state.phoneStatusDetailsPresented, arrowEdge: .bottom) {
                 details(voice)

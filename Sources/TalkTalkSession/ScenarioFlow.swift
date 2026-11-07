@@ -22,9 +22,9 @@ extension MeetingMode {
     /// the card itself shows no summary line.
     public var sceneSummary: String {
         switch self {
-        case .meeting: String(localized: "电脑会议 · 双向同传")
-        case .phone: String(localized: "iPhone 号码 · 双向同传")
-        case .captions: String(localized: "看视频 · 双语字幕")
+        case .meeting: String(appLocalized: "电脑会议 · 双向同传")
+        case .phone: String(appLocalized: "iPhone 号码 · 双向同传")
+        case .captions: String(appLocalized: "看视频 · 双语字幕")
         }
     }
 }
@@ -66,15 +66,15 @@ public struct MenuQuickStart: Sendable, Equatable {
 
     /// `sourceName`: the remembered source's display name; nil means automatic selection.
     public static func make(last: MeetingMode?, sourceName: String?, remoteLanguage: String,
-                            targetLanguage: String = String(localized: "中文")) -> MenuQuickStart {
+                            targetLanguage: String = String(appLocalized: "中文")) -> MenuQuickStart {
         let mode = last ?? .meeting
-        let source = sourceName ?? String(localized: "自动")
+        let source = sourceName ?? String(appLocalized: "自动")
         let title: String = switch mode {
-        case .meeting: String(localized: "开始会议同传 · \(source)")
-        case .phone: String(localized: "准备电话同传")
-        case .captions: String(localized: "开始视频字幕 · \(source)")
+        case .meeting: String(appLocalized: "开始会议同传 · \(source)")
+        case .phone: String(appLocalized: "准备电话同传")
+        case .captions: String(appLocalized: "开始视频字幕 · \(source)")
         }
-        return MenuQuickStart(mode: mode, title: title, subtitle: String(localized: "\(remoteLanguage) → \(targetLanguage)"))
+        return MenuQuickStart(mode: mode, title: title, subtitle: String(appLocalized: "\(remoteLanguage) → \(targetLanguage)"))
     }
 
     /// The display name of a remembered source id; nil for automatic selection.
@@ -153,10 +153,10 @@ public struct ScenarioRunState: Sendable, Equatable {
     /// The button's short word (§5.5): 开始 / 准备 / 结束 / 准备中… / 结束中….
     public var title: String {
         switch action {
-        case let .start(mode): mode == .phone ? String(localized: "准备") : String(localized: "开始")
-        case .end: String(localized: "结束")
-        case let .progress(_, ending): ending ? String(localized: "结束中…") : String(localized: "准备中…")
-        case .blocked: browsing == .phone ? String(localized: "准备") : String(localized: "开始")
+        case let .start(mode): mode == .phone ? String(appLocalized: "准备") : String(appLocalized: "开始")
+        case .end: String(appLocalized: "结束")
+        case let .progress(_, ending): ending ? String(appLocalized: "结束中…") : String(appLocalized: "准备中…")
+        case .blocked: browsing == .phone ? String(appLocalized: "准备") : String(appLocalized: "开始")
         }
     }
 
@@ -176,7 +176,7 @@ public struct ScenarioRunState: Sendable, Equatable {
         case .blocked: Self.startLabel(browsing)
         case let .end(mode): mode.scene.endAccessibilityLabel
         case let .progress(mode, ending):
-            ending ? String(localized: "正在结束\(mode.scene.title)…") : String(localized: "正在准备\(mode.scene.title)…")
+            ending ? String(appLocalized: "正在结束\(mode.scene.title)…") : String(appLocalized: "正在准备\(mode.scene.title)…")
         }
     }
 
@@ -184,7 +184,7 @@ public struct ScenarioRunState: Sendable, Equatable {
     public func help(systemInputSwitched: Bool) -> String? {
         switch action {
         case let .end(mode): mode.scene.endHelp(systemInputSwitched: systemInputSwitched)
-        case let .blocked(running): String(localized: "先结束\(running.scene.title)")
+        case let .blocked(running): String(appLocalized: "先结束\(running.scene.title)")
         case .start, .progress: nil
         }
     }
@@ -207,9 +207,9 @@ public struct ScenarioRunState: Sendable, Equatable {
 
     private static func startLabel(_ mode: MeetingMode) -> String {
         switch mode {
-        case .meeting: String(localized: "开始会议同传")
-        case .phone: String(localized: "准备电话同传")
-        case .captions: String(localized: "开始视频字幕")
+        case .meeting: String(appLocalized: "开始会议同传")
+        case .phone: String(appLocalized: "准备电话同传")
+        case .captions: String(appLocalized: "开始视频字幕")
         }
     }
 }
@@ -248,10 +248,10 @@ public enum PhoneDelivery: Sendable, Equatable {
 
     public var text: String {
         switch self {
-        case .sentToPhone: String(localized: "已送入 Phone")
-        case .thisMacOnly: String(localized: "仅本机 · Phone 未接收")
-        case .waitingForCall: String(localized: "接通后对方才能听到你")
-        case .notSent: String(localized: "未发送")
+        case .sentToPhone: String(appLocalized: "已送入 Phone")
+        case .thisMacOnly: String(appLocalized: "仅本机 · Phone 未接收")
+        case .waitingForCall: String(appLocalized: "接通后对方才能听到你")
+        case .notSent: String(appLocalized: "未发送")
         }
     }
 }

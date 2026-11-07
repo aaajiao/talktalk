@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 import TalkTalkCore
 
@@ -27,10 +28,10 @@ public enum AuditionCheck {
 
         public var text: String {
             switch self {
-            case .runaway: "合成跑飞（比预期长很多）"
-            case .short: "合成偏短"
-            case .wer: "回读和原句差得太多"
-            case .empty: "没有合成出声音"
+            case .runaway: String(appLocalized: "合成跑飞（比预期长很多）")
+            case .short: String(appLocalized: "合成偏短")
+            case .wer: String(appLocalized: "回读和原句差得太多")
+            case .empty: String(appLocalized: "没有合成出声音")
             }
         }
     }

@@ -1,4 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
+import TalkTalkCore
 import AppKit
 import Foundation
 import Observation
@@ -207,7 +208,7 @@ public final class DriverComponentModel {
         selfTest = report
         if !report.isConclusive {
             // nothing is written: an earlier result (or none) stays in driver.json
-            let line = String(localized: "自检没有跑完，上次的结果保留。\(report.incompleteText)")
+            let line = String(appLocalized: "自检没有跑完，上次的结果保留。\(report.incompleteText)")
             notice = [notice, line].compactMap { $0 }.joined(separator: "\n")
             result = SettingsProblem.mostSevere([result, SettingsProblem(.warn, sentence: line)]) ?? result
         } else {
@@ -230,25 +231,25 @@ public final class DriverComponentModel {
 
     public var statusText: String {
         switch state {
-        case .notInstalled: carriesDriver ? String(localized: "未安装") : String(localized: "这个版本没有带虚拟麦克风")
-        case .onDiskNotLoaded: String(localized: "已安装，需要重启音频服务才生效")
-        case .loaded(let v): String(localized: "已安装 \(v)")
-        case .outdated(let i, let b): String(localized: "已安装 \(i)，App 带的是 \(b)：请更新")
-        case .damaged(let why): String(localized: "有问题：\(why)")
+        case .notInstalled: carriesDriver ? String(appLocalized: "未安装") : String(appLocalized: "这个版本没有带虚拟麦克风")
+        case .onDiskNotLoaded: String(appLocalized: "已安装，需要重启音频服务才生效")
+        case .loaded(let v): String(appLocalized: "已安装 \(v)")
+        case .outdated(let i, let b): String(appLocalized: "已安装 \(i)，App 带的是 \(b)：请更新")
+        case .damaged(let why): String(appLocalized: "有问题：\(why)")
         case .selfTestFailed(let v, let f):
-            String(localized: "已安装 \(v)，上次自检没通过（\(DriverSelfTestReport.Check.Name.shortTitles(f))）")
+            String(appLocalized: "已安装 \(v)，上次自检没通过（\(DriverSelfTestReport.Check.Name.shortTitles(f))）")
         }
     }
 
     static func text(_ p: DriverInstaller.Phase) -> String? {
         switch p {
-        case .finished(.installed(let v)): String(localized: "虚拟麦克风 \(v) 已安装。")
-        case .finished(.uninstalled): String(localized: "虚拟麦克风已卸载。会议 App 会切回实体麦克风。")
-        case .finished(.restarted): String(localized: "音频服务已重启。")
-        case .finished(.needsLogout): String(localized: "文件已更新，但音频服务没能重启：注销或重启 Mac 后生效。")
+        case .finished(.installed(let v)): String(appLocalized: "虚拟麦克风 \(v) 已安装。")
+        case .finished(.uninstalled): String(appLocalized: "虚拟麦克风已卸载。会议 App 会切回实体麦克风。")
+        case .finished(.restarted): String(appLocalized: "音频服务已重启。")
+        case .finished(.needsLogout): String(appLocalized: "文件已更新，但音频服务没能重启：注销或重启 Mac 后生效。")
         case .blocked(let pre): pre.blockers.map(\.text).joined(separator: "\n")
-        case .failed(let m): String(localized: "没有成功：\(m)")
-        case .cancelled: String(localized: "已取消。")
+        case .failed(let m): String(appLocalized: "没有成功：\(m)")
+        case .cancelled: String(appLocalized: "已取消。")
         default: nil
         }
     }

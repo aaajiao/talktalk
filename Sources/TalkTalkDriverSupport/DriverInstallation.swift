@@ -1,4 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
+import TalkTalkCore
 import Darwin
 import Foundation
 
@@ -215,13 +216,13 @@ public struct DriverInstallation: Sendable {
         switch disk {
         case .foreign(let id):
             let name = installedBundle.lastPathComponent
-            return (.damaged(reason: id.isEmpty ? String(localized: "\(name) 属于其他软件")
-                                                : String(localized: "\(name) 属于 \(id)")), record)
+            return (.damaged(reason: id.isEmpty ? String(appLocalized: "\(name) 属于其他软件")
+                                                : String(appLocalized: "\(name) 属于 \(id)")), record)
         case .damaged(let why):
             return (.damaged(reason: why), record)
         case .absent:
             if loadedVersion != nil {
-                return (.damaged(reason: String(localized: "已从磁盘删除但仍在加载：请重启音频服务")), record)
+                return (.damaged(reason: String(appLocalized: "已从磁盘删除但仍在加载：请重启音频服务")), record)
             }
             return (.notInstalled, record)
         case .present(let diskVersion):

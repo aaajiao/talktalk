@@ -65,13 +65,13 @@ public enum MeetingAutoEndNotification {
         guard await authorization() == .allowed, isEnabled(), !Task.isCancelled else { return }
         let content = UNMutableNotificationContent()
         content.title = switch mode {
-        case .phone: String(localized: "电话同传即将结束")
-        case .captions: String(localized: "视频字幕即将结束")
-        case .meeting: String(localized: "会议似乎已结束")
+        case .phone: String(appLocalized: "电话同传即将结束")
+        case .captions: String(appLocalized: "视频字幕即将结束")
+        case .meeting: String(appLocalized: "会议似乎已结束")
         }
         content.body = mode == .phone
-            ? String(localized: "Phone 已长时间没有音频。若还在等待电话，请在 TalkTalk 菜单中选择“继续收听”；60 秒后将结束同传并还原麦克风。")
-            : String(localized: "若还要继续收听，请在 TalkTalk 菜单中选择“继续收听”；60 秒后将结束当前收听。")
+            ? String(appLocalized: "Phone 已长时间没有音频。若还在等待电话，请在 TalkTalk 菜单中选择“继续收听”；60 秒后将结束同传并还原麦克风。")
+            : String(appLocalized: "若还要继续收听，请在 TalkTalk 菜单中选择“继续收听”；60 秒后将结束当前收听。")
         try? await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
         // Closing the switch or ending the meeting can race the async add operation.
         if !isEnabled() || Task.isCancelled { clear() }

@@ -10,7 +10,7 @@ enum ComponentsSettingsTab: CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .engine: String(localized: "语音资源")
+        case .engine: String(appLocalized: "语音资源")
         case .driver: "TalkTalk Mic"
         }
     }
@@ -22,8 +22,8 @@ enum ComponentsSettingsTab: CaseIterable, Identifiable {
     /// The card's help and VoiceOver hint (settings visual system §3.1).
     var summary: String {
         switch self {
-        case .engine: String(localized: "本地引擎与识别、合成模型")
-        case .driver: String(localized: "把声音送进会议")
+        case .engine: String(appLocalized: "本地引擎与识别、合成模型")
+        case .driver: String(appLocalized: "把声音送进会议")
         }
     }
 }
@@ -71,20 +71,20 @@ struct ComponentsSettingsView: View {
         } else {
             Form {
                 Section {
-                    FlowGrid.engine(engine, link: NodeLink(String(localized: "引擎")) { jump(SettingsAnchor.engine, proxy) })
+                    FlowGrid.engine(engine, link: NodeLink(String(appLocalized: "引擎")) { jump(SettingsAnchor.engine, proxy) })
                         .padding(.vertical, 4)
                 }
                 Section {
                     EngineControlRows(model: engine)
                 } header: {
-                    SectionHeader(String(localized: "引擎"), symbol: Icon.engine)
+                    SectionHeader(String(appLocalized: "引擎"), symbol: Icon.engine)
                         .flowFlash(SettingsAnchor.engine, in: navigation.flow)
                 }
                 .id(SettingsAnchor.engine)
                 Section {
                     EngineModelRows(model: engine)
                 } header: {
-                    SectionHeader(String(localized: "模型"), symbol: Icon.Page.models)
+                    SectionHeader(String(appLocalized: "模型"), symbol: Icon.Page.models)
                 }
             }
             .formStyle(.grouped)
@@ -99,11 +99,11 @@ struct ComponentsSettingsView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
-                        FlowGrid.driver(model, talkTalkMic: NodeLink(String(localized: "驱动")) { jump(SettingsAnchor.driver, proxy) })
-                        FactRow([FactChip(String(localized: "需管理员授权"), symbol: Icon.locked,
-                                          help: String(localized: "安装、更新和卸载时输入密码"))],
+                        FlowGrid.driver(model, talkTalkMic: NodeLink(String(appLocalized: "驱动")) { jump(SettingsAnchor.driver, proxy) })
+                        FactRow([FactChip(String(appLocalized: "需管理员授权"), symbol: Icon.locked,
+                                          help: String(appLocalized: "安装、更新和卸载时输入密码"))],
                                 info: InfoButton(topic: "TalkTalk Mic", lines: [
-                                    String(localized: "TalkTalk Mic 仅在 TalkTalk 运行时出现；安装或维护时系统声音会短暂中断。")
+                                    String(appLocalized: "TalkTalk Mic 仅在 TalkTalk 运行时出现；安装或维护时系统声音会短暂中断。")
                                 ]))
                     }
                     .padding(.vertical, 4)
@@ -111,7 +111,7 @@ struct ComponentsSettingsView: View {
                 Section {
                     DriverComponentRows(model: model)
                 } header: {
-                    SectionHeader(String(localized: "驱动"), symbol: Icon.talkTalkMic)
+                    SectionHeader(String(appLocalized: "驱动"), symbol: Icon.talkTalkMic)
                         .flowFlash(SettingsAnchor.driver, in: navigation.flow)
                 }
                 .id(SettingsAnchor.driver)
@@ -121,13 +121,13 @@ struct ComponentsSettingsView: View {
             .driverComponentLifecycle(model)
         } else if let problem = driver.problem {
             // A binary without a bundle id, or the smoke run (§5.2, §7.12): the reason is the help.
-            ContentUnavailableView(String(localized: "此构建不可用"), systemImage: Icon.unavailable)
+            ContentUnavailableView(String(appLocalized: "此构建不可用"), systemImage: Icon.unavailable)
                 .help(problem)
         } else {
             // §7.11: the busy glyph, not a sentence.
             StatusGlyph(.busy)
-                .help(String(localized: "正在读取组件"))
-                .accessibilityLabel(String(localized: "正在读取组件"))
+                .help(String(appLocalized: "正在读取组件"))
+                .accessibilityLabel(String(appLocalized: "正在读取组件"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

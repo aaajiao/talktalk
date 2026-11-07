@@ -29,7 +29,7 @@ public struct FullUninstallSection: View {
 
     /// The confirmation's one line: what is deleted, what it costs, when it cannot run, and what
     /// is left to the user.
-    static let explanation = String(localized: "将删除：虚拟麦克风 · 引擎与模型 · 我的声音 · 术语表 · 日志缓存 · 设置与登录项 · 钥匙串中的 OpenAI key，并重置隐私权限。需管理员密码，声音中断约 1 秒；通话中不可卸载。完成后退出并移到废纸篓。")
+    static var explanation: String { String(appLocalized: "将删除：虚拟麦克风 · 引擎与模型 · 我的声音 · 术语表 · 日志缓存 · 设置与登录项 · 钥匙串中的 OpenAI key，并重置隐私权限。需管理员密码，声音中断约 1 秒；通话中不可卸载。完成后退出并移到废纸篓。") }
 
     public var body: some View {
         if let model {
@@ -48,8 +48,8 @@ public struct FullUninstallSection: View {
                 .labelStyle(.settingsRow)
             Spacer(minLength: 8)
             trailing()
-            SettingsDestructiveButton(String(localized: "完全卸载…"), help: explanation,
-                                      accessibilityLabel: String(localized: "完全卸载 TalkTalk"), action: action)
+            SettingsDestructiveButton(String(appLocalized: "完全卸载…"), help: explanation,
+                                      accessibilityLabel: String(appLocalized: "完全卸载 TalkTalk"), action: action)
                 .disabled(!enabled)
                 .accessibilityHint(Text(explanation))
         }
@@ -79,7 +79,7 @@ public struct FullUninstallSection: View {
                     .accessibilityLabel(Text(verbatim: step.title))
                 Text(verbatim: step.title).foregroundStyle(.secondary).accessibilityHidden(true)
             } else if model.fullUninstaller?.isEngineBusy == true {
-                StatusLabel(String(localized: "引擎安装中"), .waiting, help: FullUninstaller.engineBusyText)
+                StatusLabel(String(appLocalized: "引擎安装中"), .waiting, help: FullUninstaller.engineBusyText)
                 if let openComponents {
                     Button("安装与维护 ›", action: openComponents)
                         .buttonStyle(.link)
@@ -98,7 +98,7 @@ public struct FullUninstallSection: View {
             StatusLabel(summary.short, status, help: help)
                 .padding(.leading, Ladder.rowTextInset)
             if !summary.notRemoved.isEmpty {
-                lines(String(localized: "未删除："), summary.notRemoved, glyph: .failed)
+                lines(String(appLocalized: "未删除："), summary.notRemoved, glyph: .failed)
             }
             // A run that stopped early names what it had already done (the default input may be
             // restored before the driver step refuses).

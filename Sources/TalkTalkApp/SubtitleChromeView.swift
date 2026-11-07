@@ -73,9 +73,9 @@ final class SubtitleChromeView: NSView {
         title?.apply(display: display)
         zoomButton?.isHidden = scene == .video
         closeButton?.toolTip = scene == .video
-            ? String(localized: "隐藏字幕，收听和翻译继续") : String(localized: "隐藏字幕，同传继续")
+            ? String(appLocalized: "隐藏字幕，收听和翻译继续") : String(appLocalized: "隐藏字幕，同传继续")
         minimizeButton?.toolTip = scene == .video
-            ? String(localized: "最小化字幕，收听和翻译继续") : String(localized: "最小化字幕，同传继续")
+            ? String(appLocalized: "最小化字幕，收听和翻译继续") : String(appLocalized: "最小化字幕，同传继续")
         needsLayout = true
     }
 

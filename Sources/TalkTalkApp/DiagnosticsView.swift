@@ -9,9 +9,9 @@ enum DiagnosticsSettingsTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .privacy: String(localized: "数据与隐私")
-        case .subtitles: String(localized: "字幕分析")
-        case .troubleshooting: String(localized: "故障检查")
+        case .privacy: String(appLocalized: "数据与隐私")
+        case .subtitles: String(appLocalized: "字幕分析")
+        case .troubleshooting: String(appLocalized: "故障检查")
         }
     }
     var symbol: String {
@@ -24,9 +24,9 @@ enum DiagnosticsSettingsTab: String, CaseIterable, Identifiable {
     /// The card's help and VoiceOver hint (settings visual system §3.1).
     var summary: String {
         switch self {
-        case .privacy: String(localized: "去向与保留")
-        case .subtitles: String(localized: "检查本次字幕")
-        case .troubleshooting: String(localized: "自检与导出")
+        case .privacy: String(appLocalized: "去向与保留")
+        case .subtitles: String(appLocalized: "检查本次字幕")
+        case .troubleshooting: String(appLocalized: "自检与导出")
         }
     }
 }
@@ -81,22 +81,22 @@ struct DiagnosticsView: View {
             translation.model?.trackSession(session)
         }
         .onChange(of: session) { _, start in translation.model?.trackSession(start) }
-        .alert(String(localized: "删除本场诊断录音？"), isPresented: $model.confirmDiscardRecording) {
-            Button(String(localized: "取消"), role: .cancel) {}
-            Button(String(localized: "删除本场诊断录音")) { model.recorder.discardCurrent() }
+        .alert(String(appLocalized: "删除本场诊断录音？"), isPresented: $model.confirmDiscardRecording) {
+            Button(String(appLocalized: "取消"), role: .cancel) {}
+            Button(String(appLocalized: "删除本场诊断录音")) { model.recorder.discardCurrent() }
         } message: {
-            Text(String(localized: "停止本场诊断录音，并从这台 Mac 删除本场已录的诊断音频。此操作无法撤销。"))
+            Text(String(appLocalized: "停止本场诊断录音，并从这台 Mac 删除本场已录的诊断音频。此操作无法撤销。"))
         }
-        .alert(String(localized: "清理过期数据？"), isPresented: $model.confirmSweep) {
-            Button(String(localized: "取消"), role: .cancel) {}
-            Button(String(localized: "清理过期数据")) { model.sweepNow() }
+        .alert(String(appLocalized: "清理过期数据？"), isPresented: $model.confirmSweep) {
+            Button(String(appLocalized: "取消"), role: .cancel) {}
+            Button(String(appLocalized: "清理过期数据")) { model.sweepNow() }
         } message: {
-            Text(String(localized: "只删除按现有保留规则已过期或超出数量、容量限制的诊断录音、字幕分析、文字记录和延迟事件；不会清空全部数据，删除后无法撤销。"))
+            Text(String(appLocalized: "只删除按现有保留规则已过期或超出数量、容量限制的诊断录音、字幕分析、文字记录和延迟事件；不会清空全部数据，删除后无法撤销。"))
         }
-        .alert(String(localized: "会议没有在进行"), isPresented: $model.showRemoteRefused) {
-            Button(String(localized: "好")) {}
+        .alert(String(appLocalized: "会议没有在进行"), isPresented: $model.showRemoteRefused) {
+            Button(String(appLocalized: "好")) {}
         } message: {
-            Text(String(localized: "对方的声音只能在会议进行时、经你当场确认所有参与者都同意之后才录。"))
+            Text(String(appLocalized: "对方的声音只能在会议进行时、经你当场确认所有参与者都同意之后才录。"))
         }
     }
 
@@ -114,9 +114,9 @@ struct DiagnosticsView: View {
 
     /// 本机 · <retention> · 不进诊断包: where a kind of data stays.
     private func retentionChips(_ duration: String, _ durationHelp: String, bundleHelp: String) -> [FactChip] {
-        [FactChip(String(localized: "本机"), symbol: Icon.thisMac, help: String(localized: "仅存这台 Mac，只有你能读，不进备份")),
+        [FactChip(String(appLocalized: "本机"), symbol: Icon.thisMac, help: String(appLocalized: "仅存这台 Mac，只有你能读，不进备份")),
          FactChip(duration, symbol: Icon.duration, help: durationHelp),
-         FactChip(String(localized: "不进诊断包"), symbol: Icon.diagnosticsBundle, help: bundleHelp)]
+         FactChip(String(appLocalized: "不进诊断包"), symbol: Icon.diagnosticsBundle, help: bundleHelp)]
     }
 
     // MARK: 数据与隐私 (§7.14)
@@ -129,7 +129,7 @@ struct DiagnosticsView: View {
                 if translation.model != nil || translation.problem != nil {
                     DataBoundary(cloudEnabled: translation.model?.flowFacts.cloudConnected ?? false,
                                  info: [TranslationSettingsText.cloudNotice],
-                                 link: NodeLink(String(localized: "识别与翻译 · 文本翻译")) {
+                                 link: NodeLink(String(appLocalized: "识别与翻译 · 文本翻译")) {
                                      navigation.open(.translation, .model(.translation))
                                  })
                         .padding(.vertical, 4)
@@ -137,18 +137,18 @@ struct DiagnosticsView: View {
             }
             Section {
                 transcriptsToggle
-                FactRow(retentionChips(String(localized: "30 天"), String(localized: "30 天后自动删除"),
-                                       bundleHelp: String(localized: "诊断包不含文字记录")), indented: true)
+                FactRow(retentionChips(String(appLocalized: "30 天"), String(appLocalized: "30 天后自动删除"),
+                                       bundleHelp: String(appLocalized: "诊断包不含文字记录")), indented: true)
             } header: {
-                SectionHeader(String(localized: "文字记录"), symbol: Icon.transcripts)
+                SectionHeader(String(appLocalized: "文字记录"), symbol: Icon.transcripts)
             }
             Section {
                 Label("Key：仅钥匙串", systemImage: Icon.apiKey)
                     .help("不进日志、不进诊断包")
-                    .accessibilityHint(String(localized: "OpenAI key 只在登录钥匙串里，不进日志，也不进诊断包。"))
+                    .accessibilityHint(String(appLocalized: "OpenAI key 只在登录钥匙串里，不进日志，也不进诊断包。"))
                 Label("日志：不含文字和音频", systemImage: Icon.logs)
                     .help("只记 id、长度、耗时和错误码")
-                    .accessibilityHint(String(localized: "常规日志只记 id、长度、耗时和错误码，不记文字、音频和路径。只有明确开启的本次字幕分析会另外保存文字。"))
+                    .accessibilityHint(String(appLocalized: "常规日志只记 id、长度、耗时和错误码，不记文字、音频和路径。只有明确开启的本次字幕分析会另外保存文字。"))
             }
             Section {
                 LabeledContent {
@@ -171,18 +171,18 @@ struct DiagnosticsView: View {
                     Label("过期数据", systemImage: Icon.delete)
                     Spacer(minLength: 8)
                     if let t = model.lastSweep {
-                        Text(String(localized: "\(t.formatted(date: .omitted, time: .shortened)) · 删除 \(model.lastSweepRemoved)"))
+                        Text(String(appLocalized: "\(t.formatted(date: .omitted, time: .shortened)) · 删除 \(model.lastSweepRemoved)"))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                             .help("上次清理的时间和删除的项数")
                     }
-                    SettingsDestructiveButton(String(localized: "清理过期数据…"), help: String(localized: "按现有保留规则清理过期数据")) {
+                    SettingsDestructiveButton(String(appLocalized: "清理过期数据…"), help: String(appLocalized: "按现有保留规则清理过期数据")) {
                         model.confirmSweep = true
                     }
                 }
             } header: {
-                SectionHeader(String(localized: "自动清理"), symbol: Icon.autoCleanup,
-                              info: [String(localized: "启动时及之后每小时检查一次。")])
+                SectionHeader(String(appLocalized: "自动清理"), symbol: Icon.autoCleanup,
+                              info: [String(appLocalized: "启动时及之后每小时检查一次。")])
             }
         }
     }
@@ -191,14 +191,14 @@ struct DiagnosticsView: View {
     private var transcriptsToggle: some View {
         LabeledContent {
             HStack(spacing: 8) {
-                IconButton(Icon.finder, help: String(localized: "在 Finder 中显示"),
-                           accessibilityLabel: String(localized: "在 Finder 中显示文字记录")) { model.revealTranscripts() }
+                IconButton(Icon.finder, help: String(appLocalized: "在 Finder 中显示"),
+                           accessibilityLabel: String(appLocalized: "在 Finder 中显示文字记录")) { model.revealTranscripts() }
                     .disabled(!model.canRevealTranscripts)
-                InfoButton(topic: String(localized: "文字记录"), lines: [String(localized: "文件仅当前用户可读，不进入备份。")])
-                Toggle(String(localized: "保存文字记录"), isOn: $model.saveTranscripts)
+                InfoButton(topic: String(appLocalized: "文字记录"), lines: [String(appLocalized: "文件仅当前用户可读，不进入备份。")])
+                Toggle(String(appLocalized: "保存文字记录"), isOn: $model.saveTranscripts)
                     .labelsHidden()
                     .toggleStyle(.switch)
-                    .accessibilityHint(String(localized: "保存会议原文和译文"))
+                    .accessibilityHint(String(appLocalized: "保存会议原文和译文"))
             }
         } label: {
             Label("保存文字记录", systemImage: Icon.transcripts)
@@ -229,55 +229,55 @@ struct DiagnosticsView: View {
     }
 
     private var analysisChips: [FactChip] {
-        [FactChip(String(localized: "仅文字"), symbol: Icon.textOnly, help: String(localized: "记录原文、译文和各阶段耗时")),
-         FactChip(String(localized: "不录音"), symbol: Icon.noMicrophone, help: String(localized: "不保存任何音频")),
-         FactChip(String(localized: "仅本次"), symbol: Icon.oneSession, help: String(localized: "会话结束自动停止；每次会话需单独开启"))]
-            + retentionChips(String(localized: "24 小时"), String(localized: "24 小时后自动清理"),
-                             bundleHelp: String(localized: "诊断包不含字幕分析"))
+        [FactChip(String(appLocalized: "仅文字"), symbol: Icon.textOnly, help: String(appLocalized: "记录原文、译文和各阶段耗时")),
+         FactChip(String(appLocalized: "不录音"), symbol: Icon.noMicrophone, help: String(appLocalized: "不保存任何音频")),
+         FactChip(String(appLocalized: "仅本次"), symbol: Icon.oneSession, help: String(appLocalized: "会话结束自动停止；每次会话需单独开启"))]
+            + retentionChips(String(appLocalized: "24 小时"), String(appLocalized: "24 小时后自动清理"),
+                             bundleHelp: String(appLocalized: "诊断包不含字幕分析"))
     }
 
     private var analysisFlow: FlowGrid {
         let analysis = model.subtitleAnalysis
         let running = model.recorder.meetingRunning
-        let listen = FlowNode(String(localized: "收听"), glyph: .symbol(Icon.listen), state: running ? .live : .off,
+        let listen = FlowNode(String(appLocalized: "收听"), glyph: .symbol(Icon.listen), state: running ? .live : .off,
                               link: running ? nil : NodeLink(SettingsSection.meeting.title) { navigation.open(.meeting) },
-                              help: running ? String(localized: "会话进行中") : String(localized: "先开始会话"))
+                              help: running ? String(appLocalized: "会话进行中") : String(appLocalized: "先开始会话"))
         let badge = Self.analysisBadge(analysis.outcome)
-        let analyse = FlowNode(String(localized: "分析"), glyph: .symbol(Icon.recording), badge: badge.status,
+        let analyse = FlowNode(String(appLocalized: "分析"), glyph: .symbol(Icon.recording), badge: badge.status,
                                badgeReason: badge.text, accessory: .controls { analysisButton },
-                               help: badge.help ?? (running ? nil : String(localized: "先开始会话")))
-        let record = FlowNode(String(localized: "记录"), glyph: .symbol(Icon.inspectFile), accessory: .controls { recordControls })
-        return FlowGrid(String(localized: "字幕分析步骤"), lanes: [
-            FlowLane(String(localized: "字幕分析"), cells: [.node(listen), .node(analyse), .node(record)])
+                               help: badge.help ?? (running ? nil : String(appLocalized: "先开始会话")))
+        let record = FlowNode(String(appLocalized: "记录"), glyph: .symbol(Icon.inspectFile), accessory: .controls { recordControls })
+        return FlowGrid(String(appLocalized: "字幕分析步骤"), lanes: [
+            FlowLane(String(appLocalized: "字幕分析"), cells: [.node(listen), .node(analyse), .node(record)])
         ])
     }
 
     /// The 分析 node's badge: its word, and the recorder's old sentence as help.
     static func analysisBadge(_ outcome: SubtitleAnalysisRecorder.Outcome) -> SettingsProblem {
         switch outcome {
-        case .off: SettingsProblem(.pending, String(localized: "未开启"))
-        case .starting: SettingsProblem(.busy, String(localized: "准备中"), help: String(localized: "正在创建分析文件"))
-        case .recording: SettingsProblem(.recording, String(localized: "记录中"))
-        case .stopped: SettingsProblem(.ok, String(localized: "已停止"))
-        case .sessionEnded: SettingsProblem(.ok, String(localized: "已停止"), help: String(localized: "本次会话已结束，分析已停止"))
-        case .limitReached: SettingsProblem(.warn, String(localized: "达上限"),
-                                            help: String(localized: "已达到 8 MiB 或 10,000 行上限，分析自动停止"))
-        case .failed: SettingsProblem(.failed, String(localized: "写入失败"), help: String(localized: "无法写入分析文件，分析已停止"))
+        case .off: SettingsProblem(.pending, String(appLocalized: "未开启"))
+        case .starting: SettingsProblem(.busy, String(appLocalized: "准备中"), help: String(appLocalized: "正在创建分析文件"))
+        case .recording: SettingsProblem(.recording, String(appLocalized: "记录中"))
+        case .stopped: SettingsProblem(.ok, String(appLocalized: "已停止"))
+        case .sessionEnded: SettingsProblem(.ok, String(appLocalized: "已停止"), help: String(appLocalized: "本次会话已结束，分析已停止"))
+        case .limitReached: SettingsProblem(.warn, String(appLocalized: "达上限"),
+                                            help: String(appLocalized: "已达到 8 MiB 或 10,000 行上限，分析自动停止"))
+        case .failed: SettingsProblem(.failed, String(appLocalized: "写入失败"), help: String(appLocalized: "无法写入分析文件，分析已停止"))
         }
     }
 
     @ViewBuilder private var analysisButton: some View {
         let analysis = model.subtitleAnalysis
         if analysis.isRecording || analysis.isStarting {
-            Button(String(localized: "停止")) { analysis.stop() }
+            Button(String(appLocalized: "停止")) { analysis.stop() }
                 .controlSize(.small)
-                .accessibilityLabel(String(localized: "停止字幕分析"))
+                .accessibilityLabel(String(appLocalized: "停止字幕分析"))
         } else {
             // "（含文字）" is a privacy fact: it goes only when the node is too narrow, and stays in
             // the help and the VoiceOver label.
             ViewThatFits(in: .horizontal) {
-                startButton(String(localized: "开始分析（含文字）"))
-                startButton(String(localized: "开始分析"))
+                startButton(String(appLocalized: "开始分析（含文字）"))
+                startButton(String(appLocalized: "开始分析"))
             }
         }
     }
@@ -287,29 +287,29 @@ struct DiagnosticsView: View {
         return Button(title) { model.startSubtitleAnalysis() }
             .controlSize(.small)
             .disabled(!running)
-            .help(running ? String(localized: "开始分析（含文字）：记录本次原文和译文，不录音") : String(localized: "先开始会话"))
-            .accessibilityLabel(String(localized: "开始分析（含文字）"))
-            .accessibilityHint(String(localized: "显示时间是字幕面板提交更新的时间；隐藏面板会另行标记。没有参考原文时，耗时和文字记录不代表翻译准确率。每次会话都需要单独开启分析。"))
+            .help(running ? String(appLocalized: "开始分析（含文字）：记录本次原文和译文，不录音") : String(appLocalized: "先开始会话"))
+            .accessibilityLabel(String(appLocalized: "开始分析（含文字）"))
+            .accessibilityHint(String(appLocalized: "显示时间是字幕面板提交更新的时间；隐藏面板会另行标记。没有参考原文时，耗时和文字记录不代表翻译准确率。每次会话都需要单独开启分析。"))
     }
 
     private var recordControls: some View {
         let analysis = model.subtitleAnalysis
-        let copyHelp = analysis.fileURL.map { String(localized: "复制分析文件路径：\($0.path)") }
-            ?? String(localized: "复制分析文件路径")
+        let copyHelp = analysis.fileURL.map { String(appLocalized: "复制分析文件路径：\($0.path)") }
+            ?? String(appLocalized: "复制分析文件路径")
         return HStack(spacing: 0) {
-            Text(String(localized: "\(analysis.recordCount) 行"))
+            Text(String(appLocalized: "\(analysis.recordCount) 行"))
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 2)
-            IconButton(Icon.copy, help: copyHelp, accessibilityLabel: String(localized: "复制分析文件路径")) { analysis.copyPath() }
+            IconButton(Icon.copy, help: copyHelp, accessibilityLabel: String(appLocalized: "复制分析文件路径")) { analysis.copyPath() }
                 .disabled(analysis.fileURL == nil)
-            IconButton(Icon.finder, help: String(localized: "在 Finder 中显示"),
-                       accessibilityLabel: String(localized: "在 Finder 中显示分析文件")) { analysis.revealFile() }
+            IconButton(Icon.finder, help: String(appLocalized: "在 Finder 中显示"),
+                       accessibilityLabel: String(appLocalized: "在 Finder 中显示分析文件")) { analysis.revealFile() }
                 .disabled(analysis.fileURL == nil)
-            InfoButton(topic: String(localized: "记录"),
-                       lines: [String(localized: "记录原文、译文和各阶段耗时，用于检查漏句与积压；8 MiB 或 1 万行自动停止。")])
+            InfoButton(topic: String(appLocalized: "记录"),
+                       lines: [String(appLocalized: "记录原文、译文和各阶段耗时，用于检查漏句与积压；8 MiB 或 1 万行自动停止。")])
         }
     }
 
@@ -324,15 +324,15 @@ struct DiagnosticsView: View {
                 selfTestRows
                 selfTestResults
             } header: {
-                SectionHeader(String(localized: "自检"), symbol: Icon.verify)
+                SectionHeader(String(appLocalized: "自检"), symbol: Icon.verify)
                     .flowFlash(Anchor.selfTest, in: navigation.flow)
             }
             .id(Anchor.selfTest)
             Section {
                 exportRows
             } header: {
-                SectionHeader(String(localized: "导出"), symbol: Icon.export, info: [
-                    String(localized: "包含日志、延迟事件、版本、install.json 和设备名；发现疑似 key 时停止导出。")
+                SectionHeader(String(appLocalized: "导出"), symbol: Icon.export, info: [
+                    String(appLocalized: "包含日志、延迟事件、版本、install.json 和设备名；发现疑似 key 时停止导出。")
                 ])
                 .flowFlash(Anchor.export, in: navigation.flow)
             }
@@ -340,8 +340,8 @@ struct DiagnosticsView: View {
             Section {
                 recordingRows
             } header: {
-                SectionHeader(String(localized: "诊断录音"), symbol: Icon.recording, info: [
-                    String(localized: "录音存在本机 diagnostics 文件夹，只有你能读，不进备份。")
+                SectionHeader(String(appLocalized: "诊断录音"), symbol: Icon.recording, info: [
+                    String(appLocalized: "录音存在本机 diagnostics 文件夹，只有你能读，不进备份。")
                 ])
                 .flowFlash(SettingsAnchor.diagnosticRecording, in: navigation.flow)
             }
@@ -361,29 +361,29 @@ struct DiagnosticsView: View {
     /// 通过 / 未通过 / 未完成 of the last report, nil before one.
     private var selfTestSummary: SettingsProblem? {
         guard let report = model.diagnosticsStatus.report else { return nil }
-        if report.ok { return SettingsProblem(.ok, String(localized: "通过")) }
-        if report.checks.contains(where: { $0.ok == false }) { return SettingsProblem(.failed, String(localized: "未通过")) }
-        return SettingsProblem(.warn, String(localized: "未完成"))
+        if report.ok { return SettingsProblem(.ok, String(appLocalized: "通过")) }
+        if report.checks.contains(where: { $0.ok == false }) { return SettingsProblem(.failed, String(appLocalized: "未通过")) }
+        return SettingsProblem(.warn, String(appLocalized: "未完成"))
     }
 
     private func troubleshootingFlow(_ proxy: ScrollViewProxy) -> FlowGrid {
         let status = model.diagnosticsStatus
         let running = status.runningPart != nil
         let summary = selfTestSummary
-        let test = FlowNode(String(localized: "自检"), glyph: .symbol(Icon.verify),
+        let test = FlowNode(String(appLocalized: "自检"), glyph: .symbol(Icon.verify),
                             badge: running ? .busy : summary?.status,
-                            badgeReason: running ? String(localized: "检查中") : summary?.text,
-                            link: NodeLink(String(localized: "自检")) { jump(Anchor.selfTest, proxy) })
-        let results = FlowNode(String(localized: "结果"), glyph: .symbol(Icon.results),
+                            badgeReason: running ? String(appLocalized: "检查中") : summary?.text,
+                            link: NodeLink(String(appLocalized: "自检")) { jump(Anchor.selfTest, proxy) })
+        let results = FlowNode(String(appLocalized: "结果"), glyph: .symbol(Icon.results),
                                state: summary == nil ? .dimmed : .ready,
-                               link: summary == nil ? nil : NodeLink(String(localized: "结果")) { jump(Anchor.results, proxy) },
-                               help: summary == nil ? String(localized: "先运行自检") : nil)
-        let export = FlowNode(String(localized: "导出"), glyph: .symbol(Icon.export),
+                               link: summary == nil ? nil : NodeLink(String(appLocalized: "结果")) { jump(Anchor.results, proxy) },
+                               help: summary == nil ? String(appLocalized: "先运行自检") : nil)
+        let export = FlowNode(String(appLocalized: "导出"), glyph: .symbol(Icon.export),
                               badge: model.exporting ? .busy : model.exportResult?.status,
-                              badgeReason: model.exporting ? String(localized: "导出中") : model.exportResult?.text,
-                              link: NodeLink(String(localized: "导出")) { jump(Anchor.export, proxy) })
-        return FlowGrid(String(localized: "故障检查步骤"), lanes: [
-            FlowLane(String(localized: "故障检查"), cells: [.node(test), .node(results), .node(export)])
+                              badgeReason: model.exporting ? String(appLocalized: "导出中") : model.exportResult?.text,
+                              link: NodeLink(String(appLocalized: "导出")) { jump(Anchor.export, proxy) })
+        return FlowGrid(String(appLocalized: "故障检查步骤"), lanes: [
+            FlowLane(String(appLocalized: "故障检查"), cells: [.node(test), .node(results), .node(export)])
         ])
     }
 
@@ -392,17 +392,17 @@ struct DiagnosticsView: View {
     /// model has not answered (the test reports it).
     private var cloudBlocked: String? {
         guard let m = translation.model, m.keyStateKnown else { return nil }
-        if !m.preferences.cloudConsentGiven { return String(localized: "先同意发送文字") }
-        if !m.preferences.anyCloud { return String(localized: "先开启 OpenAI 翻译") }
-        if !m.hasKey { return String(localized: "先保存 key") }
+        if !m.preferences.cloudConsentGiven { return String(appLocalized: "先同意发送文字") }
+        if !m.preferences.anyCloud { return String(appLocalized: "先开启 OpenAI 翻译") }
+        if !m.hasKey { return String(appLocalized: "先保存 key") }
         return nil
     }
 
     /// Why the engine self-test cannot run; nil when it can (it stops the engine first).
     private var engineBlocked: String? {
         let status = model.diagnosticsStatus
-        if model.recorder.meetingRunning { return String(localized: "先结束会话") }
-        if status.runningPart == nil, !status.audioSelfTestAvailable { return String(localized: "先结束说话测试、录音和试听") }
+        if model.recorder.meetingRunning { return String(appLocalized: "先结束会话") }
+        if status.runningPart == nil, !status.audioSelfTestAvailable { return String(appLocalized: "先结束说话测试、录音和试听") }
         return nil
     }
 
@@ -416,23 +416,23 @@ struct DiagnosticsView: View {
             .disabled(engineBlocked != nil || status.runningPart != nil)
             Spacer(minLength: 8)
             if status.runningPart == "--engine" {
-                StatusGlyph(.busy).accessibilityLabel(String(localized: "正在检查本地引擎"))
+                StatusGlyph(.busy).accessibilityLabel(String(appLocalized: "正在检查本地引擎"))
             }
         }
-        .help(engineBlocked ?? String(localized: "会先停止引擎"))
+        .help(engineBlocked ?? String(appLocalized: "会先停止引擎"))
         HStack(spacing: 8) {
             Button { status.runCloud() } label: {
                 Label("云端翻译", systemImage: Icon.cloud).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(cloudBlocked != nil || status.runningPart != nil)
-            FactChip(String(localized: "计费"), symbol: Icon.cost, help: String(localized: "发送少量测试文字，产生费用"))
+            FactChip(String(appLocalized: "计费"), symbol: Icon.cost, help: String(appLocalized: "发送少量测试文字，产生费用"))
             Spacer(minLength: 8)
             if status.runningPart == "--cloud" {
-                StatusGlyph(.busy).accessibilityLabel(String(localized: "正在检查云端翻译"))
+                StatusGlyph(.busy).accessibilityLabel(String(appLocalized: "正在检查云端翻译"))
             }
         }
-        .help(cloudBlocked ?? String(localized: "发送少量测试文字，产生费用"))
+        .help(cloudBlocked ?? String(appLocalized: "发送少量测试文字，产生费用"))
     }
 
     @ViewBuilder private var selfTestResults: some View {
@@ -479,11 +479,11 @@ struct DiagnosticsView: View {
             }
             .buttonStyle(.plain)
             .disabled(model.exporting)
-            FactChip(String(localized: "不含 key 与文字"), symbol: Icon.privacyPromise,
-                     help: String(localized: "不含声音档案、文字记录、字幕分析、诊断录音、术语表、OpenAI key 或请求头"))
+            FactChip(String(appLocalized: "不含 key 与文字"), symbol: Icon.privacyPromise,
+                     help: String(appLocalized: "不含声音档案、文字记录、字幕分析、诊断录音、术语表、OpenAI key 或请求头"))
             Spacer(minLength: 8)
             if model.exporting {
-                StatusGlyph(.busy).accessibilityLabel(String(localized: "正在导出诊断包"))
+                StatusGlyph(.busy).accessibilityLabel(String(appLocalized: "正在导出诊断包"))
             }
         }
         if let result = model.exportResult {
@@ -496,10 +496,10 @@ struct DiagnosticsView: View {
         let r = model.recorder
         LabeledContent {
             HStack(spacing: 8) {
-                FactChip(r.meetingRunning ? String(localized: "仅本场") : String(localized: "仅下一场"), symbol: Icon.oneSession,
-                         help: r.meetingRunning ? String(localized: "本场会议正在进行，选择只对这一场有效，会议结束就恢复为不录")
-                                                : String(localized: "现在没有会议，选择只对下一场会议有效"))
-                Toggle(String(localized: "录我这边（麦克风＋译音）"),
+                FactChip(r.meetingRunning ? String(appLocalized: "仅本场") : String(appLocalized: "仅下一场"), symbol: Icon.oneSession,
+                         help: r.meetingRunning ? String(appLocalized: "本场会议正在进行，选择只对这一场有效，会议结束就恢复为不录")
+                                                : String(appLocalized: "现在没有会议，选择只对下一场会议有效"))
+                Toggle(String(appLocalized: "录我这边（麦克风＋译音）"),
                        isOn: Binding(get: { r.micAndTTSArmed }, set: { r.setMicAndTTS($0) }))
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -515,8 +515,8 @@ struct DiagnosticsView: View {
                     Image(systemName: Icon.recordingActive).foregroundStyle(.red)
                 }
                 Spacer(minLength: 8)
-                Button(String(localized: "停止")) { r.stopRemote() }
-                    .accessibilityLabel(String(localized: "停止录对方的声音"))
+                Button(String(appLocalized: "停止")) { r.stopRemote() }
+                    .accessibilityLabel(String(appLocalized: "停止录对方的声音"))
             }
         } else {
             HStack(spacing: 8) {
@@ -525,28 +525,28 @@ struct DiagnosticsView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!r.meetingRunning)
-                .help(r.meetingRunning ? String(localized: "先当场确认所有参与者都已同意录音") : String(localized: "会议进行时才能录"))
-                FactChip(String(localized: "需全员同意（§201）"), symbol: Icon.consent, tone: .warn,
-                         help: String(localized: "对方的声音只在会议进行时、你当场确认“所有参与者都已同意录音”之后才录（德国《刑法典》§201）。"))
+                .help(r.meetingRunning ? String(appLocalized: "先当场确认所有参与者都已同意录音") : String(appLocalized: "会议进行时才能录"))
+                FactChip(String(appLocalized: "需全员同意（§201）"), symbol: Icon.consent, tone: .warn,
+                         help: String(appLocalized: "对方的声音只在会议进行时、你当场确认“所有参与者都已同意录音”之后才录（德国《刑法典》§201）。"))
                 Spacer(minLength: 8)
             }
         }
         HStack(spacing: 8) {
             Label("本场诊断录音", systemImage: Icon.delete)
             Spacer(minLength: 8)
-            SettingsDestructiveButton(String(localized: "删除…"), help: String(localized: "停止并删除本场诊断录音"),
-                                      accessibilityLabel: String(localized: "删除本场诊断录音")) {
+            SettingsDestructiveButton(String(appLocalized: "删除…"), help: String(appLocalized: "停止并删除本场诊断录音"),
+                                      accessibilityLabel: String(appLocalized: "删除本场诊断录音")) {
                 model.confirmDiscardRecording = true
             }
             .disabled(r.sessionDirectory == nil)
-            IconButton(Icon.finder, help: String(localized: "在 Finder 中显示"),
-                       accessibilityLabel: String(localized: "在 Finder 中显示诊断录音")) { model.revealDiagnostics() }
+            IconButton(Icon.finder, help: String(appLocalized: "在 Finder 中显示"),
+                       accessibilityLabel: String(appLocalized: "在 Finder 中显示诊断录音")) { model.revealDiagnostics() }
                 .disabled(!model.hasDiagnostics)
         }
-        FactRow(retentionChips(String(localized: "24 小时"), String(localized: "24 小时后自动删除"),
-                               bundleHelp: String(localized: "诊断包不含诊断录音")), indented: true)
+        FactRow(retentionChips(String(appLocalized: "24 小时"), String(appLocalized: "24 小时后自动删除"),
+                               bundleHelp: String(appLocalized: "诊断包不含诊断录音")), indented: true)
         if let e = r.lastError {
-            StatusLabel(String(localized: "诊断录音无法开始"), .failed, help: e)
+            StatusLabel(String(appLocalized: "诊断录音无法开始"), .failed, help: e)
                 .padding(.leading, Ladder.rowTextInset)
         }
     }
@@ -558,11 +558,11 @@ struct DiagnosticsView: View {
         let status = model.diagnosticsStatus
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                SectionHeader(String(localized: "性能"), symbol: Icon.performance)
+                SectionHeader(String(appLocalized: "性能"), symbol: Icon.performance)
                     .help("最近 3 场日志末尾；原始时延")
-                    .accessibilityHint(String(localized: "只读取最近 3 场日志的末尾，每场最多 512 KiB。时延是原始记录，尚未扣除队列、直通或告知语时间；缺少记录的指标显示 —，不会由其他时延推算。"))
+                    .accessibilityHint(String(appLocalized: "只读取最近 3 场日志的末尾，每场最多 512 KiB。时延是原始记录，尚未扣除队列、直通或告知语时间；缺少记录的指标显示 —，不会由其他时延推算。"))
                 if status.snapshot.truncated {
-                    StatusLabel(String(localized: "仅末尾"), .warn, help: String(localized: "较大的日志只读取末尾，统计不代表全场。"))
+                    StatusLabel(String(appLocalized: "仅末尾"), .warn, help: String(appLocalized: "较大的日志只读取末尾，统计不代表全场。"))
                 }
                 Spacer(minLength: 8)
                 if let date = status.refreshedAt {
@@ -576,15 +576,15 @@ struct DiagnosticsView: View {
                     .foregroundStyle(.secondary)
                     .help("上次读取的时间")
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(Text(String(localized: "上次读取 \(time)")))
+                    .accessibilityLabel(Text(String(appLocalized: "上次读取 \(time)")))
                 }
                 if status.refreshing {
                     // In the refresh button's 22 pt place, so the header does not shift.
                     StatusGlyph(.busy)
                         .frame(width: Ladder.hitArea, height: Ladder.hitArea)
-                        .accessibilityLabel(String(localized: "正在读取延迟记录"))
+                        .accessibilityLabel(String(appLocalized: "正在读取延迟记录"))
                 } else {
-                    IconButton(Icon.refresh, help: String(localized: "重新读取延迟记录")) { status.refresh() }
+                    IconButton(Icon.refresh, help: String(appLocalized: "重新读取延迟记录")) { status.refresh() }
                 }
             }
             if status.snapshot.rows.isEmpty {
@@ -598,7 +598,7 @@ struct DiagnosticsView: View {
                                 .font(.system(size: Ladder.inline))
                                 .foregroundStyle(.secondary)
                                 .frame(width: Ladder.rowColumn)
-                                .accessibilityLabel(row.kind == .speak ? String(localized: "说") : String(localized: "听"))
+                                .accessibilityLabel(row.kind == .speak ? String(appLocalized: "说") : String(appLocalized: "听"))
                             Text("段 \(row.segment)").font(.caption)
                             Spacer(minLength: 8)
                             Text(verbatim: milliseconds(row.milliseconds)).font(.caption.monospacedDigit())
@@ -621,17 +621,17 @@ struct DiagnosticsView: View {
                 columnTitle("p50")
                 columnTitle("p90")
             }
-            metricRow(Icon.physicalMic, Icon.speech, String(localized: "提交 → 首声"),
+            metricRow(Icon.physicalMic, Icon.speech, String(appLocalized: "提交 → 首声"),
                       milliseconds(status.percentile(.speak, 0.5)), milliseconds(status.percentile(.speak, 0.9)),
-                      help: String(localized: "SPEAK 提交到首声"))
-            metricRow(Icon.listen, Icon.subtitles, String(localized: "定稿 → 译文"),
+                      help: String(appLocalized: "SPEAK 提交到首声"))
+            metricRow(Icon.listen, Icon.subtitles, String(appLocalized: "定稿 → 译文"),
                       milliseconds(status.percentile(.listen, 0.5)), milliseconds(status.percentile(.listen, 0.9)),
-                      help: String(localized: "LISTEN 定稿触发到译文"))
-            metricRow(Icon.stop, Icon.speech, String(localized: "结束 → 首声"),
+                      help: String(appLocalized: "LISTEN 定稿触发到译文"))
+            metricRow(Icon.stop, Icon.speech, String(appLocalized: "结束 → 首声"),
                       milliseconds(status.releasePercentile(0.5)), milliseconds(status.releasePercentile(0.9)),
-                      help: String(localized: "结束翻译到首声；结束前已出声或强制结束的发言不计入"))
+                      help: String(appLocalized: "结束翻译到首声；结束前已出声或强制结束的发言不计入"))
             metricRow(Icon.engine, nil, "RTF", ratio(status.rtfPercentile(0.5)), ratio(status.rtfPercentile(0.9)),
-                      help: String(localized: "TTS GPU 实时率"))
+                      help: String(appLocalized: "TTS GPU 实时率"))
             GridRow {
                 pairIcon(Icon.speaker, nil)
                 Text("欠载").help("最近首声时的本场累计欠载，不是每段欠载率")
@@ -640,7 +640,7 @@ struct DiagnosticsView: View {
                     .monospacedDigit()
                     .gridCellColumns(2)
                     .gridCellAnchor(.trailing)
-                    .accessibilityLabel(Text(String(localized: "本场累计欠载 \(underruns)")))
+                    .accessibilityLabel(Text(String(appLocalized: "本场累计欠载 \(underruns)")))
             }
         }
     }
@@ -687,17 +687,17 @@ struct DiagnosticsView: View {
     private var offlineCommands: some View {
         let status = model.diagnosticsStatus
         return VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(String(localized: "离线命令"), symbol: Icon.offlineCommands,
-                          info: [String(localized: "先退出 TalkTalk，再在终端执行复制的命令。")])
+            SectionHeader(String(appLocalized: "离线命令"), symbol: Icon.offlineCommands,
+                          info: [String(appLocalized: "先退出 TalkTalk，再在终端执行复制的命令。")])
             HStack(spacing: 8) {
-                commandButton(String(localized: "驱动"), "--driver", help: String(localized: "复制驱动自检命令"))
-                commandButton(String(localized: "声音"), "--voice", help: String(localized: "复制声音自检命令"))
-                commandButton(String(localized: "回环"), "--loop", help: String(localized: "复制回环自检命令"))
-                commandButton(String(localized: "直通"), "--passthrough", help: String(localized: "仅离线独占；会中检查在“安装与维护”页"))
+                commandButton(String(appLocalized: "驱动"), "--driver", help: String(appLocalized: "复制驱动自检命令"))
+                commandButton(String(appLocalized: "声音"), "--voice", help: String(appLocalized: "复制声音自检命令"))
+                commandButton(String(appLocalized: "回环"), "--loop", help: String(appLocalized: "复制回环自检命令"))
+                commandButton(String(appLocalized: "直通"), "--passthrough", help: String(appLocalized: "仅离线独占；会中检查在“安装与维护”页"))
                 Spacer(minLength: 8)
                 if status.copied {
-                    StatusLabel(String(localized: "已复制"), .ok,
-                                help: String(localized: "先退出 TalkTalk，再在终端执行；结果写入命令指定的文件。"))
+                    StatusLabel(String(appLocalized: "已复制"), .ok,
+                                help: String(appLocalized: "先退出 TalkTalk，再在终端执行；结果写入命令指定的文件。"))
                 }
             }
             .padding(.leading, Ladder.rowTextInset)
@@ -724,16 +724,16 @@ struct DiagnosticsView: View {
                         .help(p.checksText)
                         .accessibilityLabel(p.checksText)
                     StatusGlyph(p.conditioningBuilt ? .ok : .waiting)
-                        .help(p.conditioningBuilt ? String(localized: "声音缓存已建立") : String(localized: "声音缓存在引擎预热时建立"))
-                        .accessibilityLabel(p.conditioningBuilt ? String(localized: "声音缓存已建立")
-                                                                : String(localized: "声音缓存在引擎预热时建立"))
+                        .help(p.conditioningBuilt ? String(appLocalized: "声音缓存已建立") : String(appLocalized: "声音缓存在引擎预热时建立"))
+                        .accessibilityLabel(p.conditioningBuilt ? String(appLocalized: "声音缓存已建立")
+                                                                : String(appLocalized: "声音缓存在引擎预热时建立"))
                 }
             } label: {
                 Label("声音档案", systemImage: Icon.myVoice)
             }
         } else if voice.profileUnreadable {
             LabeledContent {
-                StatusLabel(String(localized: "无法读取"), .warn)
+                StatusLabel(String(appLocalized: "无法读取"), .warn)
             } label: {
                 Label("声音档案", systemImage: Icon.myVoice)
             }
@@ -753,18 +753,18 @@ struct DiagnosticsBanners: View {
         let analysis = model.subtitleAnalysis
         VStack(spacing: 0) {
             if !recorder.recordingTracks.isEmpty {
-                RecordingBanner(String(localized: "录音中：") + DiagnosticRecorder.Track.allCases
+                RecordingBanner(String(appLocalized: "录音中：") + DiagnosticRecorder.Track.allCases
                                     .filter(recorder.recordingTracks.contains)
                                     .map(\.label)
                                     .joined(separator: " · "),
-                                kind: .recording, link: link(.troubleshooting, String(localized: "查看诊断录音")))
+                                kind: .recording, link: link(.troubleshooting, String(appLocalized: "查看诊断录音")))
             } else if recorder.micAndTTSArmed {
-                RecordingBanner(recorder.meetingRunning ? String(localized: "本场将录音") : String(localized: "下场将录音"),
-                                kind: .planned, link: link(.troubleshooting, String(localized: "查看诊断录音")))
+                RecordingBanner(recorder.meetingRunning ? String(appLocalized: "本场将录音") : String(appLocalized: "下场将录音"),
+                                kind: .planned, link: link(.troubleshooting, String(appLocalized: "查看诊断录音")))
             }
             if analysis.isStarting || analysis.isRecording {
-                RecordingBanner(String(localized: "正在保存字幕文字"), kind: analysis.isStarting ? .preparing : .analysing,
-                                link: link(.subtitles, String(localized: "查看字幕分析")))
+                RecordingBanner(String(appLocalized: "正在保存字幕文字"), kind: analysis.isStarting ? .preparing : .analysing,
+                                link: link(.subtitles, String(appLocalized: "查看字幕分析")))
             }
         }
     }
@@ -779,9 +779,9 @@ extension DiagnosticRecorder.Track {
     /// The banner's track names (录音中：我 · 译音 · 对方).
     var label: String {
         switch self {
-        case .mic: String(localized: "我")
-        case .tts: String(localized: "译音")
-        case .remote: String(localized: "对方")
+        case .mic: String(appLocalized: "我")
+        case .tts: String(appLocalized: "译音")
+        case .remote: String(appLocalized: "对方")
         }
     }
 }

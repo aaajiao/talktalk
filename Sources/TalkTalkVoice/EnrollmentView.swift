@@ -79,20 +79,20 @@ public struct EnrollmentView: View {
         var auditionBadge: (SettingsStatus, String)?
         switch controller.phase {
         case let .review(report) where !report.canSave:
-            checkBadge = (.failed, String(localized: "未通过"))
+            checkBadge = (.failed, String(appLocalized: "未通过"))
         case let .review(report) where report.worst == .warn:
-            checkBadge = (.warn, String(localized: "有提醒"))
+            checkBadge = (.warn, String(appLocalized: "有提醒"))
         case let .auditionReview(summary) where !summary.passed:
-            auditionBadge = (.failed, String(localized: "未通过"))
+            auditionBadge = (.failed, String(appLocalized: "未通过"))
         default:
             break
         }
-        return FlowGrid(String(localized: "录制步骤"), lanes: [
-            FlowLane(String(localized: "录制步骤"), cells: [
-                .node(FlowNode(String(localized: "录中文"), glyph: .step(1, stepState(1)), state: nodeState(1))),
-                .node(FlowNode(String(localized: "检查"), glyph: .step(2, stepState(2)), state: nodeState(2),
+        return FlowGrid(String(appLocalized: "录制步骤"), lanes: [
+            FlowLane(String(appLocalized: "录制步骤"), cells: [
+                .node(FlowNode(String(appLocalized: "录中文"), glyph: .step(1, stepState(1)), state: nodeState(1))),
+                .node(FlowNode(String(appLocalized: "检查"), glyph: .step(2, stepState(2)), state: nodeState(2),
                                badge: checkBadge?.0, badgeReason: checkBadge?.1)),
-                .node(FlowNode(String(localized: "试听保存"), glyph: .step(3, stepState(3)), state: nodeState(3),
+                .node(FlowNode(String(appLocalized: "试听保存"), glyph: .step(3, stepState(3)), state: nodeState(3),
                                badge: auditionBadge?.0, badgeReason: auditionBadge?.1)),
                 .empty
             ])
@@ -109,7 +109,7 @@ public struct EnrollmentView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("请先保持安静").font(.title3.weight(.semibold))
                 ProgressView(value: controller.noiseProgress)
-                    .accessibilityLabel(String(localized: "测量环境噪声"))
+                    .accessibilityLabel(String(appLocalized: "测量环境噪声"))
                 meter
             }
         case let .countdown(n):
@@ -117,7 +117,7 @@ public struct EnrollmentView: View {
                 Text(verbatim: "\(n)")
                     .font(.system(size: Ladder.enrollmentCountdown, weight: .bold, design: .rounded))
                     .frame(maxWidth: .infinity)
-                    .accessibilityLabel(String(localized: "\(n) 秒后开始"))
+                    .accessibilityLabel(String(appLocalized: "\(n) 秒后开始"))
                 scriptText.opacity(0.5)
                 meter
             }
@@ -127,29 +127,29 @@ public struct EnrollmentView: View {
                     Image(systemName: Icon.recordingActive)
                         .font(.system(size: Ladder.row))
                         .foregroundStyle(.red)
-                        .accessibilityLabel(String(localized: "正在录音"))
+                        .accessibilityLabel(String(appLocalized: "正在录音"))
                     Text("请自然朗读").font(.title3.weight(.semibold))
                     Spacer()
-                    Text(String(localized: "\(Self.decimal(controller.recordingSeconds)) 秒")).monospacedDigit()
+                    Text(String(appLocalized: "\(Self.decimal(controller.recordingSeconds)) 秒")).monospacedDigit()
                 }
                 scriptText
                 meter
             }
         case .analyzing:
-            progress(String(localized: "检查中…"))
+            progress(String(appLocalized: "检查中…"))
         case let .review(report):
             reviewView(report)
         case .auditioning:
-            progress(String(localized: "生成试听…"))
+            progress(String(appLocalized: "生成试听…"))
         case let .auditionReview(summary):
             auditionView(summary)
         case .saving:
-            progress(String(localized: "保存中…"))
+            progress(String(appLocalized: "保存中…"))
         case .saved:
             VStack(alignment: .leading, spacing: 10) {
-                StatusLabel(String(localized: "已保存"), .ok)
-                FactRow([FactChip(String(localized: "仅本机"), symbol: Icon.privacyPromise,
-                                  help: String(localized: "声音档案只保存在这台 Mac"))])
+                StatusLabel(String(appLocalized: "已保存"), .ok)
+                FactRow([FactChip(String(appLocalized: "仅本机"), symbol: Icon.privacyPromise,
+                                  help: String(appLocalized: "声音档案只保存在这台 Mac"))])
             }
         case let .failed(message):
             let problem = SettingsProblem(.failed, sentence: message)
@@ -168,14 +168,14 @@ public struct EnrollmentView: View {
     /// The microphone, the facts of a take, and the script.
     private var prepare: some View {
         var facts = [
-            FactChip(String(localized: "约 10–20 秒"), symbol: Icon.duration, help: String(localized: "按平时语速读完全文")),
-            FactChip(String(localized: "安静 · 离麦一拳"), symbol: Icon.listen, help: String(localized: "自然语速和音量")),
-            FactChip(String(localized: "仅本机 · 不上传"), symbol: Icon.privacyPromise,
-                     help: String(localized: "录音只保存在这台 Mac"))
+            FactChip(String(appLocalized: "约 10–20 秒"), symbol: Icon.duration, help: String(appLocalized: "按平时语速读完全文")),
+            FactChip(String(appLocalized: "安静 · 离麦一拳"), symbol: Icon.listen, help: String(appLocalized: "自然语速和音量")),
+            FactChip(String(appLocalized: "仅本机 · 不上传"), symbol: Icon.privacyPromise,
+                     help: String(appLocalized: "录音只保存在这台 Mac"))
         ]
         if controller.hasExistingProfile {
-            facts.append(FactChip(String(localized: "旧档案保留到保存"), symbol: Icon.verify,
-                                  help: String(localized: "新档案保存前继续用原有声音")))
+            facts.append(FactChip(String(appLocalized: "旧档案保留到保存"), symbol: Icon.verify,
+                                  help: String(appLocalized: "新档案保存前继续用原有声音")))
         }
         return VStack(alignment: .leading, spacing: 14) {
             devicePicker
@@ -189,7 +189,7 @@ public struct EnrollmentView: View {
             Picker(selection: $controller.selectedUID) {
                 ForEach(controller.devices) { row in
                     Text(verbatim: row.verdict.isAccepted
-                        ? row.info.name : String(localized: "\(row.info.name)（\(row.verdict.reason ?? "")）"))
+                        ? row.info.name : String(appLocalized: "\(row.info.name)（\(row.verdict.reason ?? "")）"))
                         .tag(Optional(row.id))
                         .selectionDisabled(!row.verdict.isAccepted)
                 }
@@ -197,8 +197,8 @@ public struct EnrollmentView: View {
                 Label("麦克风", systemImage: Icon.physicalMic).labelStyle(.settingsRow)
             }
             .frame(maxWidth: 420)
-            IconButton(Icon.refresh, help: String(localized: "刷新"),
-                       accessibilityLabel: String(localized: "刷新麦克风列表")) { controller.refreshDevices() }
+            IconButton(Icon.refresh, help: String(appLocalized: "刷新"),
+                       accessibilityLabel: String(appLocalized: "刷新麦克风列表")) { controller.refreshDevices() }
         }
     }
 
@@ -219,7 +219,7 @@ public struct EnrollmentView: View {
                 .accessibilityHidden(true)
             ProgressView(value: fraction)
                 .tint(controller.levelDb > -3 ? Color.red : Color.green)
-                .accessibilityLabel(String(localized: "输入音量"))
+                .accessibilityLabel(String(appLocalized: "输入音量"))
         }
     }
 
@@ -228,9 +228,9 @@ public struct EnrollmentView: View {
     private func reviewView(_ report: EnrollmentReport) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             if let rejected = report.results.first(where: { $0.status == .reject }) {
-                StatusLabel(String(localized: "未通过：\(rejected.id.title) · 建议重录"), .failed, help: rejected.message)
+                StatusLabel(String(appLocalized: "未通过：\(rejected.id.title) · 建议重录"), .failed, help: rejected.message)
             } else {
-                StatusLabel(String(localized: "可以用"), .ok, help: report.headline)
+                StatusLabel(String(appLocalized: "可以用"), .ok, help: report.headline)
             }
             ForEach(report.results, id: \.id) { result in
                 HStack(spacing: 8) {
@@ -241,11 +241,11 @@ public struct EnrollmentView: View {
                 .help(ifPresent: result.message.isEmpty ? nil : result.message)
                 .accessibilityElement(children: .combine)
                 .accessibilityValue(Text(verbatim: [Self.status(result.status).spokenName, result.message]
-                    .filter { !$0.isEmpty }.joined(separator: String(localized: "，"))))
+                    .filter { !$0.isEmpty }.joined(separator: String(appLocalized: "，"))))
             }
             if !controller.engineAvailable {
-                StatusLabel(String(localized: "引擎就绪后生成试听"), .waiting,
-                            help: String(localized: "可以先保存录音，引擎就绪后再准备声音和试听"))
+                StatusLabel(String(appLocalized: "引擎就绪后生成试听"), .waiting,
+                            help: String(appLocalized: "可以先保存录音，引擎就绪后再准备声音和试听"))
             }
         }
     }
@@ -255,21 +255,21 @@ public struct EnrollmentView: View {
     private func auditionView(_ summary: AuditionResult.Summary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             if let failed = summary.clips.first(where: { $0.failure != nil }), let failure = failed.failure {
-                StatusLabel(String(localized: "未通过：\(Self.code(failed.lang)) \(failure.text) · 建议重录"), .failed,
-                            help: String(localized: "已自动重新生成一次"))
+                StatusLabel(String(appLocalized: "未通过：\(Self.code(failed.lang)) \(failure.text) · 建议重录"), .failed,
+                            help: String(appLocalized: "已自动重新生成一次"))
             } else {
-                FactRow([FactChip(String(localized: "戴耳机试听"), symbol: Icon.headphones,
-                                  help: String(localized: "满意就保存"))])
+                FactRow([FactChip(String(appLocalized: "戴耳机试听"), symbol: Icon.headphones,
+                                  help: String(appLocalized: "满意就保存"))])
             }
             ForEach(summary.clips, id: \.lang) { clip in
                 let playing = controller.playingAudition == clip.lang
-                let name = clip.lang == .en ? String(localized: "试听英语") : String(localized: "试听德语")
+                let name = clip.lang == .en ? String(appLocalized: "试听英语") : String(appLocalized: "试听德语")
                 HStack(spacing: 8) {
                     StatusGlyph(clip.failure == nil ? .ok : .failed)
                         .accessibilityLabel(clip.failure.map(\.text) ?? SettingsStatus.ok.spokenName)
                     Text(verbatim: Self.code(clip.lang)).font(.body.weight(.medium))
-                    IconButton(playing ? Icon.stop : Icon.start, help: playing ? String(localized: "停止") : name,
-                               accessibilityLabel: playing ? String(localized: "停止\(name)") : name) {
+                    IconButton(playing ? Icon.stop : Icon.start, help: playing ? String(appLocalized: "停止") : name,
+                               accessibilityLabel: playing ? String(appLocalized: "停止\(name)") : name) {
                         if playing { controller.stopAudition() } else { controller.playAudition(clip.lang) }
                     }
                     .disabled(!playing && (controller.audition?.clip(clip.lang)?.samples.isEmpty ?? true))
@@ -277,17 +277,17 @@ public struct EnrollmentView: View {
                 .padding(.leading, Ladder.rowTextInset - Ladder.rowColumn)
             }
             if let error = controller.auditionPlaybackError {
-                StatusLabel(String(localized: "无法播放"), .warn, help: error)
+                StatusLabel(String(appLocalized: "无法播放"), .warn, help: error)
             }
-            FactRow([FactChip(String(localized: "本机播放"), symbol: Icon.thisMac,
-                              help: String(localized: "试听不发送到会议"))])
+            FactRow([FactChip(String(appLocalized: "本机播放"), symbol: Icon.thisMac,
+                              help: String(appLocalized: "试听不发送到会议"))])
         }
     }
 
     private var footer: some View {
         HStack {
             if controller.machine.takes > 0 {
-                Text(String(localized: "第 \(controller.machine.takes) 遍")).foregroundStyle(.secondary)
+                Text(String(appLocalized: "第 \(controller.machine.takes) 遍")).foregroundStyle(.secondary)
             }
             Spacer()
             switch controller.phase {

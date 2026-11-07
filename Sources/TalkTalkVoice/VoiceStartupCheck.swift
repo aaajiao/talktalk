@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Darwin
 import Foundation
 import TalkTalkCore
@@ -35,13 +36,13 @@ public struct VoiceStartupCheck: StartupCheckItem {
         }
         guard let data = try? Data(contentsOf: profileURL), data.count <= 1 << 20,
               let profile = try? VoiceProfile.decode(data) else {
-            return StartupCheckResult(id: id, level: .action, summary: "voice profile unreadable (re-record in 设置 › 我的声音)")
+            return StartupCheckResult(id: id, level: .action, summary: String(appLocalized: "voice profile unreadable (re-record in 设置 › 我的声音)"))
         }
         var needed = [VoiceStore.scriptName]
         needed += profile.references.values.sorted()
         let missing = Array(Set(needed)).sorted().filter { !fm.fileExists(atPath: dir.appendingPathComponent($0).path) }
         if !missing.isEmpty {
-            return StartupCheckResult(id: id, level: .action, summary: "voice files missing (re-record in 设置 › 我的声音)",
+            return StartupCheckResult(id: id, level: .action, summary: String(appLocalized: "voice files missing (re-record in 设置 › 我的声音)"),
                                       details: ["missing": missing.joined(separator: " ")])
         }
         let fixed = Self.fixPermissions(dir: dir, files: [VoiceStore.profileName] + needed)

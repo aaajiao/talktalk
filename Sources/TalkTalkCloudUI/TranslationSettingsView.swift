@@ -85,33 +85,33 @@ public struct TranslationSettingsView: View {
     /// 我说的话 → engine → 译文; 听到的话 → engine → 字幕译文. Language values are read-only.
     private func flow(_ facts: TranslationFlowFacts) -> FlowGrid {
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
-        let speakLink = languages.map { NodeLink(String(localized: "使用场景"), action: $0.openSpeak) }
-        let listenLink = languages.map { NodeLink(String(localized: "使用场景"), action: $0.openListen) }
-        let said = FlowNode(String(localized: "我说的话"), glyph: .symbol(Icon.physicalMic),
+        let speakLink = languages.map { NodeLink(String(appLocalized: "使用场景"), action: $0.openSpeak) }
+        let listenLink = languages.map { NodeLink(String(appLocalized: "使用场景"), action: $0.openListen) }
+        let said = FlowNode(String(appLocalized: "我说的话"), glyph: .symbol(Icon.physicalMic),
                             link: speakLink,
                             accessory: languages.map { words in NodeAccessory.display {
                                 Text(verbatim: words.source).font(.caption2).foregroundStyle(.secondary)
                             } },
-                            help: String(localized: "按选定的中文或英语识别"))
-        let target = FlowNode(String(localized: "译文"), glyph: .symbol(Icon.translation),
+                            help: String(appLocalized: "按选定的中文或英语识别"))
+        let target = FlowNode(String(appLocalized: "译文"), glyph: .symbol(Icon.translation),
                               link: speakLink,
                               accessory: languages.map { words in NodeAccessory.display {
                                   Text(verbatim: words.speak).font(.caption2).foregroundStyle(.secondary)
                               } })
-        let heard = FlowNode(String(localized: "听到的话"), glyph: .symbol(Icon.remote),
+        let heard = FlowNode(String(appLocalized: "听到的话"), glyph: .symbol(Icon.remote),
                              link: listenLink,
                              accessory: languages.map { words in NodeAccessory.display {
                                  Text(verbatim: words.listen).font(.caption2).foregroundStyle(.secondary)
                              } })
-        let captions = FlowNode(String(localized: "字幕译文"), glyph: .symbol(Icon.subtitles), link: listenLink,
+        let captions = FlowNode(String(appLocalized: "字幕译文"), glyph: .symbol(Icon.subtitles), link: listenLink,
                                 accessory: languages.map { words in NodeAccessory.display {
                                     Text(verbatim: words.listenTarget).font(.caption2).foregroundStyle(.secondary)
                                 } })
-        return FlowGrid(String(localized: "文本翻译路径"), lanes: [
-            FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
+        return FlowGrid(String(appLocalized: "文本翻译路径"), lanes: [
+            FlowLane(String(appLocalized: "我说话 · 译音"), gutter: .voice(translating), cells: [
                 .node(said), .node(engine(.speak, facts)), .node(target), .empty
             ]),
-            FlowLane(String(localized: "听对方"), gutter: .symbol(Icon.listen), cells: [
+            FlowLane(String(appLocalized: "听对方"), gutter: .symbol(Icon.listen), cells: [
                 .node(heard), .node(engine(.listen, facts)), .node(captions), .empty
             ])
         ])
@@ -125,14 +125,14 @@ public struct TranslationSettingsView: View {
         return FlowNode(openAI ? "OpenAI" : "Apple", glyph: .symbol(openAI ? Icon.cloud : Icon.thisMac),
                         badge: badge?.status, badgeReason: badge?.text,
                         accessory: .controls { cloudSwitch(direction, facts) },
-                        satellite: openAI ? FlowSatellite(String(localized: "备用 Apple"), symbol: Icon.thisMac,
-                                                          help: String(localized: "OpenAI 超时或出错时接管"), dashed: true)
+                        satellite: openAI ? FlowSatellite(String(appLocalized: "备用 Apple"), symbol: Icon.thisMac,
+                                                          help: String(appLocalized: "OpenAI 超时或出错时接管"), dashed: true)
                             : nil,
-                        help: openAI ? String(localized: "文字发给 OpenAI 翻译") : String(localized: "在这台 Mac 上翻译"))
+                        help: openAI ? String(appLocalized: "文字发给 OpenAI 翻译") : String(appLocalized: "在这台 Mac 上翻译"))
     }
 
     private func cloudSwitch(_ direction: TranslationDirection, _ facts: TranslationFlowFacts) -> some View {
-        Toggle(direction == .speak ? String(localized: "用 OpenAI 翻译我说的话") : String(localized: "用 OpenAI 翻译听到的话"),
+        Toggle(direction == .speak ? String(appLocalized: "用 OpenAI 翻译我说的话") : String(appLocalized: "用 OpenAI 翻译听到的话"),
                isOn: Binding(get: { facts.choosesOpenAI(direction) }, set: { on in
                    model.update { prefs in
                        if direction == .speak { prefs.speakCloudEnabled = on } else { prefs.listenCloudEnabled = on }
@@ -154,7 +154,7 @@ public struct TranslationSettingsView: View {
                                  set: { on in model.update { $0.showSnapshots = on } })) {
                 Label("显示固定快照", systemImage: Icon.snapshots)
             }
-            .help(String(localized: "列出带日期的模型版本"))
+            .help(String(appLocalized: "列出带日期的模型版本"))
             if let notice = model.notice { noticeRow(notice) }
             probeRow
             LabeledContent {
@@ -168,8 +168,8 @@ public struct TranslationSettingsView: View {
                 Label("开始时提醒：文字发给 OpenAI", systemImage: Icon.cloudReminder)
             }
             .disabled(!model.preferences.choosesOpenAI(.listen))
-            .help(model.preferences.choosesOpenAI(.listen) ? String(localized: "对方的话以文字发给 OpenAI")
-                                                          : String(localized: "听到的话用 OpenAI 时才提醒"))
+            .help(model.preferences.choosesOpenAI(.listen) ? String(appLocalized: "对方的话以文字发给 OpenAI")
+                                                          : String(appLocalized: "听到的话用 OpenAI 时才提醒"))
         } header: {
             SectionHeader("OpenAI", symbol: Icon.cloud)
         }
@@ -182,7 +182,7 @@ public struct TranslationSettingsView: View {
         let waits = model.flowFacts.modelWaits
         return LabeledContent {
             HStack(spacing: 6) {
-                Picker(String(localized: "模型"), selection: Binding(
+                Picker(String(appLocalized: "模型"), selection: Binding(
                     get: { model.preferences.model },
                     set: { id in Task { await model.select(model: id) } })) {
                     if !choices.contains(where: { $0.id == model.preferences.model }) {
@@ -203,10 +203,10 @@ public struct TranslationSettingsView: View {
                     StatusLabel(line.text, line.status, help: line.help)
                 } else if waits {
                     StatusGlyph(.waiting)
-                        .help(String(localized: "下次开始生效"))
-                        .accessibilityLabel(String(localized: "下次开始生效"))
+                        .help(String(appLocalized: "下次开始生效"))
+                        .accessibilityLabel(String(appLocalized: "下次开始生效"))
                 }
-                IconButton(Icon.refresh, help: String(localized: "重新读取模型列表")) { Task { await model.loadModels() } }
+                IconButton(Icon.refresh, help: String(appLocalized: "重新读取模型列表")) { Task { await model.loadModels() } }
                     .disabled(!model.hasKey || isRunning(model.listing))
             }
         } label: {
@@ -239,8 +239,8 @@ public struct TranslationSettingsView: View {
         HStack(spacing: 8) {
             StatusLabel(notice, .warn, help: TranslationSettingsText.retirementHelp(model.retirement))
             Spacer(minLength: 8)
-            IconButton(Icon.close, help: String(localized: "知道了"),
-                       accessibilityLabel: String(localized: "知道了，关闭下线通知")) { model.dismissNotice() }
+            IconButton(Icon.close, help: String(appLocalized: "知道了"),
+                       accessibilityLabel: String(appLocalized: "知道了，关闭下线通知")) { model.dismissNotice() }
         }
         .padding(.leading, Ladder.rowTextInset)
     }
@@ -250,14 +250,14 @@ public struct TranslationSettingsView: View {
         LabeledContent {
             HStack(spacing: 6) {
                 if model.isYellow {
-                    FactChip(String(localized: "变慢"), symbol: Icon.slow, tone: .warn,
-                             help: String(localized: "需额外推理，响应更慢"))
+                    FactChip(String(appLocalized: "变慢"), symbol: Icon.slow, tone: .warn,
+                             help: String(appLocalized: "需额外推理，响应更慢"))
                 }
                 if let line = model.probe.line {
                     StatusLabel(line.text, line.status, help: line.help)
                 }
-                IconButton(Icon.refresh, help: String(localized: "再测一次"),
-                           accessibilityLabel: String(localized: "再测一次实时可用")) { Task { await model.reprobe() } }
+                IconButton(Icon.refresh, help: String(appLocalized: "再测一次"),
+                           accessibilityLabel: String(appLocalized: "再测一次实时可用")) { Task { await model.reprobe() } }
                     .disabled(!model.hasKey || isRunning(model.probe))
             }
         } label: {
@@ -306,12 +306,12 @@ public struct OpenAIKeySection: View {
                 Link(destination: TranslationSettingsText.keyPageURL) {
                     Label("OpenAI", systemImage: Icon.openApp)
                 }
-                .help(String(localized: "打开 OpenAI 的 key 页面"))
+                .help(String(appLocalized: "打开 OpenAI 的 key 页面"))
                 Spacer(minLength: 8)
-                InfoButton(topic: String(localized: "API key"), lines: [TranslationSettingsText.keyAdvice])
+                InfoButton(topic: String(appLocalized: "API key"), lines: [TranslationSettingsText.keyAdvice])
             }
         } header: {
-            SectionHeader(String(localized: "API key"), symbol: Icon.apiKey)
+            SectionHeader(String(appLocalized: "API key"), symbol: Icon.apiKey)
         }
     }
 
@@ -319,25 +319,25 @@ public struct OpenAIKeySection: View {
     private var consentRow: some View {
         HStack(spacing: 8) {
             Label {
-                Button(String(localized: "同意发送文字")) { model.giveConsent() }
+                Button(String(appLocalized: "同意发送文字")) { model.giveConsent() }
                     .buttonStyle(.borderedProminent)
                     .accessibilityHint(Text(verbatim: TranslationSettingsText.cloudNotice))
             } icon: {
                 Image(systemName: Icon.cloud)
             }
             Spacer(minLength: 8)
-            FactChip(String(localized: "按用量计费"), symbol: Icon.cost, help: String(localized: "费用记在你的 OpenAI 账户"))
+            FactChip(String(appLocalized: "按用量计费"), symbol: Icon.cost, help: String(appLocalized: "费用记在你的 OpenAI 账户"))
         }
     }
 
     private func savedKeyRow(_ masked: String) -> some View {
         LabeledContent {
             HStack(spacing: 0) {
-                IconButton(Icon.verify, help: String(localized: "验证"), accessibilityLabel: String(localized: "验证 key")) {
+                IconButton(Icon.verify, help: String(appLocalized: "验证"), accessibilityLabel: String(appLocalized: "验证 key")) {
                     Task { await model.verify() }
                 }
                 .disabled(isRunning(model.verification))
-                IconButton(Icon.delete, help: String(localized: "删除 OpenAI key"), isDestructive: true) {
+                IconButton(Icon.delete, help: String(appLocalized: "删除 OpenAI key"), isDestructive: true) {
                     model.keyDeletionAskedBy = host
                 }
             }
@@ -349,13 +349,13 @@ public struct OpenAIKeySection: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(String(localized: "已存入钥匙串的 key"))
+        .accessibilityLabel(String(appLocalized: "已存入钥匙串的 key"))
         // OpenAI shows a secret key once: a slip beside 验证 must not cost the key.
-        .alert(String(localized: "删除 OpenAI key？"), isPresented: confirmsDeletion) {
-            Button(String(localized: "取消"), role: .cancel) {}
-            Button(String(localized: "删除 OpenAI key")) { model.deleteKey() }
+        .alert(String(appLocalized: "删除 OpenAI key？"), isPresented: confirmsDeletion) {
+            Button(String(appLocalized: "取消"), role: .cancel) {}
+            Button(String(appLocalized: "删除 OpenAI key")) { model.deleteKey() }
         } message: {
-            Text(String(localized: "只从这台 Mac 的钥匙串删除，不会撤销 OpenAI 账户中的 key。之后需要重新输入 key 才能使用云端翻译。"))
+            Text(String(appLocalized: "只从这台 Mac 的钥匙串删除，不会撤销 OpenAI 账户中的 key。之后需要重新输入 key 才能使用云端翻译。"))
         }
     }
 
@@ -368,17 +368,17 @@ public struct OpenAIKeySection: View {
                 .foregroundStyle(.secondary)
                 .frame(width: Ladder.rowColumn)
                 .accessibilityHidden(true)
-            SecureField(String(localized: "OpenAI API key"), text: $model.pasteField, prompt: Text(verbatim: "sk-…"))
+            SecureField(String(appLocalized: "OpenAI API key"), text: $model.pasteField, prompt: Text(verbatim: "sk-…"))
                 .labelsHidden()
                 .textFieldStyle(.roundedBorder)
                 .textContentType(.password)
                 .frame(width: 240)
-                .help(model.hasKey ? String(localized: "粘贴新的 key 以替换") : String(localized: "粘贴 OpenAI API key"))
-                .accessibilityLabel(model.hasKey ? String(localized: "新的 OpenAI API key") : String(localized: "OpenAI API key"))
+                .help(model.hasKey ? String(appLocalized: "粘贴新的 key 以替换") : String(appLocalized: "粘贴 OpenAI API key"))
+                .accessibilityLabel(model.hasKey ? String(appLocalized: "新的 OpenAI API key") : String(appLocalized: "OpenAI API key"))
                 .onSubmit { Task { await model.saveAndVerify() } }
-            Button(String(localized: "保存")) { Task { await model.saveAndVerify() } }
+            Button(String(appLocalized: "保存")) { Task { await model.saveAndVerify() } }
                 .disabled(model.pasteField.isEmpty)
-                .help(String(localized: "存入钥匙串并验证"))
+                .help(String(appLocalized: "存入钥匙串并验证"))
             Spacer(minLength: 0)
         }
     }

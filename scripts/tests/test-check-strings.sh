@@ -89,6 +89,11 @@ R="$(fixture clean)"
 run "$R"
 [ "$rc" = 0 ] && /usr/bin/grep -q 'ok (1 files, 14 keys)' "$work/out" && ok "clean tree passes (14 keys, nested String(localized:) in an interpolation, %lld matches \\(n), manual key kept)" || no "clean tree (rc=$rc)"
 
+R="$(fixture live)"
+/usr/bin/sed -i '' 's/String(localized:/String(appLocalized:/g' "$R/Sources/App/View.swift"
+run "$R"
+[ "$rc" = 0 ] && /usr/bin/grep -q 'ok (1 files, 14 keys)' "$work/out" && ok "live appLocalized initializer is extracted" || no "appLocalized (rc=$rc)"
+
 R="$(fixture missing)"
 /usr/bin/sed -i '' '/"继续": {},/d' "$R/Resources/Localizable.xcstrings"
 run "$R"

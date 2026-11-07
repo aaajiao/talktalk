@@ -21,37 +21,37 @@ public struct SpeechStatusPresentation: Sendable, Equatable {
                 playing: Bool = false) {
         let localOnly = phoneInputConfirmed == false
         detail = phoneInputConfirmed.flatMap { audio?.phonePresentation(inputConfirmed: $0).detail }
-            ?? audio?.text ?? String(localized: "正在收听所选应用，麦克风未开启。")
+            ?? audio?.text ?? String(appLocalized: "正在收听所选应用，麦克风未开启。")
         // Status never uses a phone glyph (the titlebar has its own Phone button), and
         // mic.slash only means "original off" or "audio unavailable".
         switch audio {
         case .preparing:
-            title = String(localized: "准备中"); symbol = SubtitleTokens.VoiceIcon.localOnly; tone = .progress
+            title = String(appLocalized: "准备中"); symbol = SubtitleTokens.VoiceIcon.localOnly; tone = .progress
         case .phoneReady:
-            title = String(localized: "本机就绪"); symbol = SubtitleTokens.VoiceIcon.localOnly; tone = .ready
+            title = String(appLocalized: "本机就绪"); symbol = SubtitleTokens.VoiceIcon.localOnly; tone = .ready
         case .original:
-            title = localOnly ? String(localized: "本机就绪") : String(localized: "原声")
+            title = localOnly ? String(appLocalized: "本机就绪") : String(appLocalized: "原声")
             symbol = localOnly ? SubtitleTokens.VoiceIcon.localOnly : SubtitleTokens.VoiceIcon.original
             tone = localOnly ? .ready : .original
         case .switching:
-            title = String(localized: "切换中"); symbol = SubtitleTokens.VoiceIcon.translating; tone = .progress
+            title = String(appLocalized: "切换中"); symbol = SubtitleTokens.VoiceIcon.translating; tone = .progress
         case .translating:
-            title = localOnly ? String(localized: "本机收音") : String(localized: "翻译收音")
+            title = localOnly ? String(appLocalized: "本机收音") : String(appLocalized: "翻译收音")
             symbol = SubtitleTokens.VoiceIcon.translating; tone = .translation
         case .draining:
             title = playing
-                ? (localOnly ? String(localized: "本机译音") : String(localized: "播放译音"))
-                : String(localized: "处理中")
+                ? (localOnly ? String(appLocalized: "本机译音") : String(appLocalized: "播放译音"))
+                : String(appLocalized: "处理中")
             symbol = playing ? SubtitleTokens.VoiceIcon.playingTranslation : SubtitleTokens.VoiceIcon.translating
             tone = playing ? .translation : .progress
         case .restoringOriginal:
-            title = String(localized: "恢复原声"); symbol = SubtitleTokens.VoiceIcon.originalOff; tone = .progress
+            title = String(appLocalized: "恢复原声"); symbol = SubtitleTokens.VoiceIcon.originalOff; tone = .progress
         case .phoneReconnecting:
-            title = String(localized: "重新连接 Phone"); symbol = SubtitleTokens.VoiceIcon.reconnecting; tone = .progress
+            title = String(appLocalized: "重新连接 Phone"); symbol = SubtitleTokens.VoiceIcon.reconnecting; tone = .progress
         case .unavailable:
-            title = String(localized: "音频不可用"); symbol = SubtitleTokens.VoiceIcon.originalOff; tone = .unavailable
+            title = String(appLocalized: "音频不可用"); symbol = SubtitleTokens.VoiceIcon.originalOff; tone = .unavailable
         case nil:
-            title = String(localized: "收听中"); symbol = SubtitleTokens.VoiceIcon.listening; tone = .ready
+            title = String(appLocalized: "收听中"); symbol = SubtitleTokens.VoiceIcon.listening; tone = .ready
         }
         let action: String? = switch audio {
         case .phoneReady, .original, .restoringOriginal, .draining:
@@ -66,7 +66,7 @@ public struct SpeechStatusPresentation: Sendable, Equatable {
             localOnly ? nil : SubtitleTokens.VoiceIcon.startTranslation
         case .translating, .switching, .preparing, .phoneReconnecting, .unavailable, nil: nil
         }
-        shortcut = action.map { String(localized: "右⌥ \($0)") }
+        shortcut = action.map { String(appLocalized: "右⌥ \($0)") }
     }
 }
 

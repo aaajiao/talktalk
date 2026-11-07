@@ -13,15 +13,15 @@ public enum EngineProfile: String, CaseIterable, Sendable, Identifiable {
     public var id: String { rawValue }
     public var title: String {
         switch self {
-        case .max: String(localized: "Max")
-        case .standard: String(localized: "标准")
-        case .compact24: String(localized: "轻量")
-        case .compact16: String(localized: "仅语音合成")
+        case .max: String(appLocalized: "Max")
+        case .standard: String(appLocalized: "标准")
+        case .compact24: String(appLocalized: "轻量")
+        case .compact16: String(appLocalized: "仅语音合成")
         }
     }
 
     public static func title(for id: String) -> String {
-        Self(rawValue: id)?.title ?? String(localized: "自定义组合")
+        Self(rawValue: id)?.title ?? String(appLocalized: "自定义组合")
     }
 
     public var modelIDs: [String] { EnginePins.profiles[rawValue] ?? [] }

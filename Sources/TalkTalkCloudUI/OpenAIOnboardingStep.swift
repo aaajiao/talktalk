@@ -33,9 +33,9 @@ public struct OpenAIOnboardingStep: View {
         Section {
             VStack(alignment: .leading, spacing: 10) {
                 DataBoundary(cloudEnabled: model.flowFacts.cloudConnected, info: [TranslationSettingsText.cloudNotice])
-                FactRow([FactChip(String(localized: "不配也能用 Apple"), symbol: Icon.thisMac,
-                                  help: String(localized: "没有 key 时两个方向都用 Apple"),
-                                  spoken: String(localized: "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 模型 › 文本翻译 中配置"))])
+                FactRow([FactChip(String(appLocalized: "不配也能用 Apple"), symbol: Icon.thisMac,
+                                  help: String(appLocalized: "没有 key 时两个方向都用 Apple"),
+                                  spoken: String(appLocalized: "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 模型 › 文本翻译 中配置"))])
             }
             .padding(.vertical, 4)
         }

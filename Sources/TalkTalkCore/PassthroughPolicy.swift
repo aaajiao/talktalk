@@ -1,3 +1,5 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
+import Foundation
 /// Passthrough availability (ARCHITECTURE.md §3.8 打开条件 3; privacy invariant 5). A pure
 /// function of facts gathered elsewhere, each optional: nil means unknown (a poll timed out, a
 /// device is being rebuilt, the source has not reported yet) and unknown is unavailable. The gate
@@ -74,16 +76,16 @@ public enum PassthroughPolicy {
         public var hudText: String? {
             switch self {
             case .meetingModeOff, .settingOff: nil
-            case .unknown: "原声直通暂不可用"
-            case .selfTestRunning: "自检进行中，原声直通暂不可用"
-            case .speakerMode: "外放时不能用原声直通"
-            case .meetingUsesPhysicalMic: "会议 App 正在用实体麦，对方本来就听得到你"
-            case .noReaderOfTalkTalkMic: "会议没用 TalkTalk Mic"
-            case .secureInput: "安全输入开启中"
-            case .pushToTalkActive: "按键说话进行中"
-            case .tapUnhealthy: "按键监听失效，原声直通暂不可用"
-            case .awaitingAudioConfirmation: "音频系统重启中"
-            case .micNotAllowed: "当前麦克风不能用于原声直通"
+            case .unknown: String(appLocalized: "原声直通暂不可用")
+            case .selfTestRunning: String(appLocalized: "自检进行中，原声直通暂不可用")
+            case .speakerMode: String(appLocalized: "外放时不能用原声直通")
+            case .meetingUsesPhysicalMic: String(appLocalized: "会议 App 正在用实体麦，对方本来就听得到你")
+            case .noReaderOfTalkTalkMic: String(appLocalized: "会议没用 TalkTalk Mic")
+            case .secureInput: String(appLocalized: "安全输入开启中")
+            case .pushToTalkActive: String(appLocalized: "按键说话进行中")
+            case .tapUnhealthy: String(appLocalized: "按键监听失效，原声直通暂不可用")
+            case .awaitingAudioConfirmation: String(appLocalized: "音频系统重启中")
+            case .micNotAllowed: String(appLocalized: "当前麦克风不能用于原声直通")
             }
         }
 

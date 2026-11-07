@@ -83,9 +83,11 @@ scripts/tests/test-audio-paths.sh
 step "driver input-device notifications (no audio IO)"
 scripts/tests/test-driver-mic-visibility.sh
 
-step "zh-Hans string catalog (§11)"
+step "bilingual string catalog (§11)"
 scripts/tests/test-check-strings.sh
 scripts/check-strings.sh
+"$TALKTALK_DEV_PYTHON" -I -B scripts/tests/test-localizations.py
+"$TALKTALK_DEV_PYTHON" -I -B scripts/compile-localizations.py --catalog Resources/Localizable.xcstrings --validate-only
 
 if [ "$swift" = 1 ]; then
   step "swift build + test"

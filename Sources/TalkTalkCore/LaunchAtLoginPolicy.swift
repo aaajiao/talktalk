@@ -49,7 +49,7 @@ public enum LaunchAtLoginPolicy {
     }
 
     /// The ⓘ behind 建议开启 (§7.5).
-    public static let recommendation = String(localized: "异常退出后，默认输入可能停在 TalkTalk Mic，直到下次启动才还原。")
+    public static var recommendation: String { String(appLocalized: "异常退出后，默认输入可能停在 TalkTalk Mic，直到下次启动才还原。") }
 
     public static func action(wantOn: Bool, current: Status) -> Action {
         switch (wantOn, current) {

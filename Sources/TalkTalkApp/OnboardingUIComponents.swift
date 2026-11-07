@@ -6,14 +6,14 @@ import TalkTalkSettingsUI
 extension OnboardingStep {
     var guideTitle: String {
         switch self {
-        case .permissions: String(localized: "权限")
-        case .speechAssets: String(localized: "语言资源")
-        case .driver: String(localized: "虚拟麦")
-        case .engine: String(localized: "语音引擎")
-        case .openAI: String(localized: "文本翻译")
-        case .voice: String(localized: "我的声音")
-        case .meetingMic: String(localized: "连接会议")
-        case .tryIt: String(localized: "试一试")
+        case .permissions: String(appLocalized: "权限")
+        case .speechAssets: String(appLocalized: "语言资源")
+        case .driver: String(appLocalized: "虚拟麦")
+        case .engine: String(appLocalized: "语音引擎")
+        case .openAI: String(appLocalized: "文本翻译")
+        case .voice: String(appLocalized: "我的声音")
+        case .meetingMic: String(appLocalized: "连接会议")
+        case .tryIt: String(appLocalized: "试一试")
         }
     }
 }

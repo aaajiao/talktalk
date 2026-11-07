@@ -1,0 +1,3 @@
+"NSMicrophoneUsageDescription" = "TalkTalk 使用麦克风在会议同传中发送原声和按键翻译发言，以及进行你主动开始的录音。";
+"NSAudioCaptureUsageDescription" = "TalkTalk 采集你选择的应用声音，为会议或视频显示实时字幕。";
+"NSSpeechRecognitionUsageDescription" = "TalkTalk 使用设备上的语音识别来生成实时字幕。";

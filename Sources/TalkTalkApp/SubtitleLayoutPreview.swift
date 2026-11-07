@@ -27,12 +27,13 @@ struct SubtitleLayoutPreview: NSViewRepresentable {
         var listeningLanguages = ListenLanguageSelection()
     }
 
+    @Environment(\.locale) private var locale
     let configuration: Configuration
 
     func makeNSView(context: NSViewRepresentableContext<Self>) -> SubtitlePreviewCanvas { SubtitlePreviewCanvas() }
 
     func updateNSView(_ view: SubtitlePreviewCanvas, context: NSViewRepresentableContext<Self>) {
-        view.configure(configuration)
+        view.configure(configuration, localeIdentifier: locale.identifier)
     }
 
     /// Locked aspect: the height follows the offered width.
@@ -73,6 +74,7 @@ final class SubtitlePreviewCanvas: NSView {
         [titlebarHotspots[0], titlebarHotspots[1], phoneHotspot, titlebarHotspots[2], hoverHotspot]
     }
     private var configuration: SubtitleLayoutPreview.Configuration?
+    private var localeIdentifier: String?
     private var laidOut: (configuration: SubtitleLayoutPreview.Configuration, size: NSSize)?
     private var hoverArea: NSTrackingArea?
     private var hoverBar = VideoHoverBar()
@@ -133,8 +135,8 @@ final class SubtitlePreviewCanvas: NSView {
         }
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel(String(localized: "字幕窗口布局预览"))
-        setAccessibilityHelp(String(localized: "鼠标悬停时显示控制条，移开后字幕位置不变。"))
+        setAccessibilityLabel(String(appLocalized: "字幕窗口布局预览"))
+        setAccessibilityHelp(String(appLocalized: "鼠标悬停时显示控制条，移开后字幕位置不变。"))
         voiceOverObservation = NSWorkspace.shared.observe(\.isVoiceOverEnabled, options: [.new]) { @Sendable [weak self] _, _ in
             Task { @MainActor in self?.updatePreviewChrome() }
         }
@@ -147,8 +149,15 @@ final class SubtitlePreviewCanvas: NSView {
     // The sample rows are not content: VoiceOver reads the preview's name and its hotspots.
     override func accessibilityChildren() -> [Any]? { hotspots.filter { !$0.isHidden } }
 
-    func configure(_ next: SubtitleLayoutPreview.Configuration) {
-        guard next != configuration else { return }
+    func configure(_ next: SubtitleLayoutPreview.Configuration, localeIdentifier nextLocale: String) {
+        guard next != configuration || localeIdentifier != nextLocale else { return }
+        if localeIdentifier != nextLocale {
+            timeline.refreshAppLanguage()
+            dock.refreshAppLanguage()
+            videoCaption.refreshAppLanguage()
+            laidOut = nil
+        }
+        localeIdentifier = nextLocale
         configuration = next
         needsLayout = true
     }
@@ -277,18 +286,18 @@ final class SubtitlePreviewCanvas: NSView {
         for hotspot in hotspots { hotspot.isHidden = true }
         guard shown else { return }
         if scene == .video {
-            place(hoverHotspot, on: hoverStrip, help: String(localized: "悬停时显示"),
-                  spoken: String(localized: "标题栏：鼠标悬停时显示"))
+            place(hoverHotspot, on: hoverStrip, help: String(appLocalized: "悬停时显示"),
+                  spoken: String(appLocalized: "标题栏：鼠标悬停时显示"))
             return
         }
-        let helps = [String(localized: "发声状态：点开看说明"), String(localized: "右⌥：开始翻译或完成发言"),
-                     scene == .phone ? String(localized: "结束同传，不挂断电话") : String(localized: "结束同传")]
+        let helps = [String(appLocalized: "发声状态：点开看说明"), String(appLocalized: "右⌥：开始翻译或完成发言"),
+                     scene == .phone ? String(appLocalized: "结束同传，不挂断电话") : String(appLocalized: "结束同传")]
         for (index, control) in ([titlebar.capsule, titlebar.keycap, titlebar.end] as [NSView]).enumerated()
         where !control.isHidden {
             place(titlebarHotspots[index], on: control, help: helps[index])
         }
         if scene == .phone, !titlebar.phone.isHidden {
-            place(phoneHotspot, on: titlebar.phone, help: String(localized: "打开 Phone：拨号、接听或挂断"))
+            place(phoneHotspot, on: titlebar.phone, help: String(appLocalized: "打开 Phone：拨号、接听或挂断"))
         }
     }
 
@@ -364,7 +373,7 @@ final class SubtitlePreviewCanvas: NSView {
         let rules = ConversationLayout(contentWidth: Double(width), contentHeight: Double(contentHeight))
         let style = ConversationStyle(typography: ConversationTypography(base: configuration.fontSize, width: Double(width)),
                                       opacity: opacity, display: display, scene: scene, stacked: rules.stacked)
-        timeline.setHeader(source: String(localized: "原文"), translation: String(localized: "译文"))
+        timeline.setHeader(source: String(appLocalized: "原文"), translation: String(appLocalized: "译文"))
         timeline.apply(rows: Self.sampleRows(phone: phone, speakingLanguages: configuration.speakingLanguages,
                                             listeningLanguages: configuration.listeningLanguages), style: style,
                        lastRowOnly: rules.lastRowOnly, showsHeader: rules.showsColumnHeader)
@@ -404,15 +413,15 @@ final class SubtitlePreviewCanvas: NSView {
 
     private func languageTitle(_ configuration: SubtitleLayoutPreview.Configuration) -> String {
         let languages = configuration.listeningLanguages
-        return String(localized: "\(languages.source.title) → \(languages.target.title)")
+        return String(appLocalized: "\(languages.source.title) → \(languages.target.title)")
     }
 
     private func languageDetail(_ configuration: SubtitleLayoutPreview.Configuration) -> String {
         let listen = configuration.listeningLanguages
-        let detail = String(localized: "原文：\(listen.source.title) → 译文：\(listen.target.title)")
+        let detail = String(appLocalized: "原文：\(listen.source.title) → 译文：\(listen.target.title)")
         guard configuration.scene != .video else { return detail }
         let speak = configuration.speakingLanguages
-        return detail + "\n" + String(localized: "我说：\(speak.source.lang.title) → 译音：\(speak.target.lang.title)")
+        return detail + "\n" + String(appLocalized: "我说：\(speak.source.lang.title) → 译音：\(speak.target.lang.title)")
     }
 
     // MARK: video
@@ -447,8 +456,8 @@ final class SubtitlePreviewCanvas: NSView {
             reduceMotion: true, increaseContrast: display.increaseContrast)
         let languages = configuration.listeningLanguages
         videoCaption.setLanguages(source: languages.source, target: languages.target)
-        videoCaption.setAccessibilityTitles(source: String(localized: "原文 · \(languages.source.title)"),
-                                             translation: String(localized: "译文 · \(languages.target.title)"))
+        videoCaption.setAccessibilityTitles(source: String(appLocalized: "原文 · \(languages.source.title)"),
+                                             translation: String(appLocalized: "译文 · \(languages.target.title)"))
         let sample = SubtitleListeningSample(scene: .video, languages: languages).pairs[0]
         let translation = sample.translation
         let source = VideoSubtitleView.sourceText(sample.source,

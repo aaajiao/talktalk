@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import AppKit
 import Foundation
 import TalkTalkCore
@@ -56,13 +57,13 @@ final class DiagnosticRecorder {
     func confirmRemoteConsent() -> RemoteRecordingConsent? {
         guard meetingRunning else { return nil }
         let alert = NSAlert()
-        alert.messageText = "录下对方的声音？"
-        alert.informativeText = "只在会议里所有参与者都已同意录音时才可以录（德国《刑法典》§201 把未经同意录下非公开谈话列为犯罪）。录音只存在这台 Mac 上，24 小时后自动删除，不进诊断包。"
-        let box = NSButton(checkboxWithTitle: "所有参与者都已同意录音", target: nil, action: nil)
+        alert.messageText = String(appLocalized: "录下对方的声音？")
+        alert.informativeText = String(appLocalized: "只在会议里所有参与者都已同意录音时才可以录（德国《刑法典》§201 把未经同意录下非公开谈话列为犯罪）。录音只存在这台 Mac 上，24 小时后自动删除，不进诊断包。")
+        let box = NSButton(checkboxWithTitle: String(appLocalized: "所有参与者都已同意录音"), target: nil, action: nil)
         box.state = .off
         alert.accessoryView = box
-        alert.addButton(withTitle: "开始录音")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: String(appLocalized: "开始录音"))
+        alert.addButton(withTitle: String(appLocalized: "取消"))
         guard alert.runModal() == .alertFirstButtonReturn, box.state == .on else { return nil }
         return RemoteRecordingConsent(meeting: meetingCounter, at: Date())
     }
@@ -158,7 +159,7 @@ final class DiagnosticRecorder {
             }
             lastError = nil
         } catch {
-            lastError = "诊断录音无法开始：\(error)"
+            lastError = String(appLocalized: "诊断录音无法开始：\(String(describing: error))")
         }
     }
 

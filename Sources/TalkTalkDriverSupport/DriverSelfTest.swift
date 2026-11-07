@@ -1,4 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
+import TalkTalkCore
 import CDriverSelfTest
 import CoreAudio
 import Foundation
@@ -13,30 +14,30 @@ public struct DriverSelfTestReport: Codable, Sendable, Equatable {
             /// The check's name with what it proves (§7.12 详情): "回环（第 2 声道 → Test Mic）".
             public var title: String {
                 switch self {
-                case .properties: String(localized: "设备属性")
-                case .loopback: String(localized: "回环（第 2 声道 → Test Mic）")
-                case .isolation: String(localized: "隔离（TalkTalk Mic 全零）")
-                case .replay: String(localized: "防重放")
-                case .gate: String(localized: "门禁（其他 App 写不进 Feed）")
-                case .meetingPath: String(localized: "会议声道（第 1 声道 → TalkTalk Mic）")
+                case .properties: String(appLocalized: "设备属性")
+                case .loopback: String(appLocalized: "回环（第 2 声道 → Test Mic）")
+                case .isolation: String(appLocalized: "隔离（TalkTalk Mic 全零）")
+                case .replay: String(appLocalized: "防重放")
+                case .gate: String(appLocalized: "门禁（其他 App 写不进 Feed）")
+                case .meetingPath: String(appLocalized: "会议声道（第 1 声道 → TalkTalk Mic）")
                 }
             }
 
             /// The bare name, for lists in a sentence: "回环、隔离".
             public var shortTitle: String {
                 switch self {
-                case .properties: String(localized: "设备属性")
-                case .loopback: String(localized: "回环")
-                case .isolation: String(localized: "隔离")
-                case .replay: String(localized: "防重放")
-                case .gate: String(localized: "门禁")
-                case .meetingPath: String(localized: "会议声道")
+                case .properties: String(appLocalized: "设备属性")
+                case .loopback: String(appLocalized: "回环")
+                case .isolation: String(appLocalized: "隔离")
+                case .replay: String(appLocalized: "防重放")
+                case .gate: String(appLocalized: "门禁")
+                case .meetingPath: String(appLocalized: "会议声道")
                 }
             }
 
             /// Stored names (driver.json keeps the raw values) in words; an unknown one as is.
             public static func shortTitles(_ stored: [String]) -> String {
-                stored.map { Name(rawValue: $0)?.shortTitle ?? $0 }.joined(separator: String(localized: "、"))
+                stored.map { Name(rawValue: $0)?.shortTitle ?? $0 }.joined(separator: String(appLocalized: "、"))
             }
         }
         public var name: Name
@@ -82,11 +83,11 @@ public struct DriverSelfTestReport: Codable, Sendable, Equatable {
 
     /// One line for an inconclusive run: "跳过：没有麦克风授权", "跳过：门禁没有跑（…）".
     public var incompleteText: String {
-        if let skipReason { return String(localized: "跳过：\(skipReason)") }
+        if let skipReason { return String(appLocalized: "跳过：\(skipReason)") }
         let names = Check.Name.shortTitles(notRun.map(\.rawValue))
         let why = notRun.compactMap { n in check(n).map(\.detail).flatMap { $0.isEmpty ? nil : $0 } }.first
-        guard let why else { return String(localized: "跳过：\(names)没有跑") }
-        return String(localized: "跳过：\(names)没有跑（\(why)）")
+        guard let why else { return String(appLocalized: "跳过：\(names)没有跑") }
+        return String(appLocalized: "跳过：\(names)没有跑（\(why)）")
     }
 
     public func check(_ n: Check.Name) -> Check? { checks.first { $0.name == n } }
@@ -155,11 +156,11 @@ public struct DriverSelfTest: Sendable {
         var auth = MicrophoneAuthorization.current
         if auth == .notDetermined, options.requestPermission { auth = await MicrophoneAuthorization.request() }
         guard auth == .authorized else {
-            let why = String(localized: "需要麦克风权限（读 Test Mic 也算麦克风访问）：\(Self.words(auth))")
+            let why = String(appLocalized: "需要麦克风权限（读 Test Mic 也算麦克风访问）：\(Self.words(auth))")
             for n in [DriverSelfTestReport.Check.Name.loopback, .isolation, .replay, .gate] {
                 report.checks.append(.init(n, passed: nil, detail: why))
             }
-            report.skipReason = String(localized: "没有麦克风授权")
+            report.skipReason = String(appLocalized: "没有麦克风授权")
             return report
         }
         let runner = IORunner(hal: hal, restoreRecordExists: restoreRecordExists)
@@ -173,23 +174,23 @@ public struct DriverSelfTest: Sendable {
     /// The microphone permission in words, for the skipped checks' detail.
     static func words(_ auth: MicrophoneAuthorization) -> String {
         switch auth {
-        case .authorized: String(localized: "已允许")
-        case .denied: String(localized: "已拒绝")
-        case .restricted: String(localized: "受限")
-        case .notDetermined: String(localized: "未决定")
+        case .authorized: String(appLocalized: "已允许")
+        case .denied: String(appLocalized: "已拒绝")
+        case .restricted: String(appLocalized: "受限")
+        case .notDetermined: String(appLocalized: "未决定")
         }
     }
 
     /// §8.4: the channel 1 → TalkTalk Mic path is tested only when nobody else uses the Mic, the
     /// default input is not the Mic and there is no restore record. nil = allowed, else why not.
     public static func meetingPathBlocker(hal: any DriverHAL, restoreRecordExists: Bool) -> String? {
-        if restoreRecordExists { return String(localized: "有默认输入还原记录") }
-        if hal.defaultInputUID() == DriverIdentity.micUID { return String(localized: "系统默认输入是 TalkTalk Mic") }
+        if restoreRecordExists { return String(appLocalized: "有默认输入还原记录") }
+        if hal.defaultInputUID() == DriverIdentity.micUID { return String(appLocalized: "系统默认输入是 TalkTalk Mic") }
         if let users = hal.diagnostics()?.micUsers.filter({ $0.pid != getpid() }), !users.isEmpty {
-            return String(localized: "有 App 正在读 TalkTalk Mic")
+            return String(appLocalized: "有 App 正在读 TalkTalk Mic")
         }
         if hal.diagnostics() == nil, hal.device(uid: DriverIdentity.micUID)?.isRunningSomewhere == true {
-            return String(localized: "TalkTalk Mic 正在被使用")
+            return String(appLocalized: "TalkTalk Mic 正在被使用")
         }
         return nil
     }
@@ -298,7 +299,7 @@ struct IORunner: Sendable {
 
         let iso: DriverSelfTestReport.Check
         if skipIsolation {
-            iso = .init(isolationName, passed: nil, detail: String(localized: "TalkTalk 正在往会议声道播放，跳过隔离检查"))
+            iso = .init(isolationName, passed: nil, detail: String(appLocalized: "TalkTalk 正在往会议声道播放，跳过隔离检查"))
         } else if otherDevice == nil {
             iso = .init(isolationName, passed: nil, detail: "TalkTalk Mic not found")
         } else if sO != noErr {

@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 import NaturalLanguage
 import TalkTalkCore
@@ -59,14 +60,14 @@ public enum ListenTranslation: Sendable, Equatable {
     /// The menu's status line. `offline`: NetworkHealth says so now (before any final fails).
     public func menuText(offline: Bool) -> String {
         switch self {
-        case .appleOnly: return "字幕翻译：Apple 翻译（本场未使用 OpenAI）"
-        case .openAI where offline: return "⚠︎ 字幕翻译：Apple 翻译（离线）"
-        case .openAI: return "字幕翻译：OpenAI"
+        case .appleOnly: return String(appLocalized: "字幕翻译：Apple 翻译（本场未使用 OpenAI）")
+        case .openAI where offline: return String(appLocalized: "⚠︎ 字幕翻译：Apple 翻译（离线）")
+        case .openAI: return String(appLocalized: "字幕翻译：OpenAI")
         case let .appleFallback(r):
-            if offline || r == "offline" { return "⚠︎ 字幕翻译：Apple 翻译（离线）" }
-            if r.hasPrefix("paused") { return "⚠︎ 字幕翻译：Apple 翻译（OpenAI 已暂停：key 或额度）" }
-            if r == "deadline" { return "⚠︎ 字幕翻译：Apple 翻译（超时）" }
-            return "⚠︎ 字幕翻译：Apple 翻译（OpenAI 暂时不可用）"
+            if offline || r == "offline" { return String(appLocalized: "⚠︎ 字幕翻译：Apple 翻译（离线）") }
+            if r.hasPrefix("paused") { return String(appLocalized: "⚠︎ 字幕翻译：Apple 翻译（OpenAI 已暂停：key 或额度）") }
+            if r == "deadline" { return String(appLocalized: "⚠︎ 字幕翻译：Apple 翻译（超时）") }
+            return String(appLocalized: "⚠︎ 字幕翻译：Apple 翻译（OpenAI 暂时不可用）")
         }
     }
 }

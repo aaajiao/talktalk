@@ -36,8 +36,8 @@ public struct MicDockPresentation: Sendable, Equatable {
         case fix, details
         public var title: String {
             switch self {
-            case .fix: String(localized: "修复…")
-            case .details: String(localized: "详情")
+            case .fix: String(appLocalized: "修复…")
+            case .details: String(appLocalized: "详情")
             }
         }
 
@@ -68,15 +68,15 @@ public struct MicDockPresentation: Sendable, Equatable {
     public var allowsStartHint: Bool
 
     public var accessibilityLabel: String {
-        consequence.map { String(localized: "麦克风：\(label)，\($0)") } ?? String(localized: "麦克风：\(label)")
+        consequence.map { String(appLocalized: "麦克风：\(label)，\($0)") } ?? String(appLocalized: "麦克风：\(label)")
     }
 
     /// Hover text of the status row: the consequence the compact or narrow dock hides.
     public var toolTip: String {
-        consequence.map { String(localized: "\(label) · \($0)") } ?? label
+        consequence.map { String(appLocalized: "\(label) · \($0)") } ?? label
     }
 
-    public static var startHint: String { String(localized: "点按右⌥翻译你的发言") }
+    public static var startHint: String { String(appLocalized: "点按右⌥翻译你的发言") }
 
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     public static func make(_ voice: VoiceState, scene: SubtitleScene,
@@ -91,55 +91,55 @@ public struct MicDockPresentation: Sendable, Equatable {
         var hint = false
         switch voice.kind {
         case .original:
-            label = String(localized: "原声"); tone = .original; wave = .solid; hint = true
+            label = String(appLocalized: "原声"); tone = .original; wave = .solid; hint = true
             // Phone: a confirmed reader proves that Phone reads TalkTalk Mic, not that the other
             // person hears it (本机就绪 ≠ Phone 已接收 ≠ 对方听到).
-            consequence = phone ? String(localized: "正在送入 Phone") : String(localized: "对方能听到你")
+            consequence = phone ? String(appLocalized: "正在送入 Phone") : String(appLocalized: "对方能听到你")
         case .translating:
-            label = String(localized: "翻译中"); consequence = String(localized: "原声已关")
+            label = String(appLocalized: "翻译中"); consequence = String(appLocalized: "原声已关")
             tone = .translate; wave = .solid
         case .processing:
             // Draining without actual Feed playback is processing, never "播放".
-            label = String(localized: "译音处理中"); consequence = String(localized: "原声已关")
+            label = String(appLocalized: "译音处理中"); consequence = String(appLocalized: "原声已关")
             tone = .translate; wave = .dashed
         case .playingTranslation:
-            label = String(localized: "译音播放中")
-            consequence = String(localized: "原声已关")
+            label = String(appLocalized: "译音播放中")
+            consequence = String(appLocalized: "原声已关")
             tone = .translate; wave = .dashed
         case .switching:
-            label = String(localized: "松开右⌥确认"); tone = .translate; wave = .outlined
+            label = String(appLocalized: "松开右⌥确认"); tone = .translate; wave = .outlined
         case .restoring:
-            label = String(localized: "正在恢复原声…"); wave = .flat; hint = true
+            label = String(appLocalized: "正在恢复原声…"); wave = .flat; hint = true
         case .notSent:
-            label = String(localized: "未发送"); consequence = String(localized: "对方听不到你"); hint = true
+            label = String(appLocalized: "未发送"); consequence = String(appLocalized: "对方听不到你"); hint = true
         case .phoneNotConnected:
             // The capsule's own words: the dock reads the same VoiceState.
-            label = String(localized: "未接入 Phone"); consequence = String(localized: "Phone 尚未接收音频"); hint = true
+            label = String(appLocalized: "未接入 Phone"); consequence = String(appLocalized: "Phone 尚未接收音频"); hint = true
         case .phoneLocalTrial:
             // The capsule keeps the local-only mode; the dock names the actual stage.
             // A generic VoiceState alone does not prove capture or processing.
             if audio == .draining, !playing {
-                label = String(localized: "本机译音处理中"); wave = .dashed
+                label = String(appLocalized: "本机译音处理中"); wave = .dashed
             } else if audio == .original || audio == .translating {
-                label = String(localized: "本机收音中"); wave = .solid
+                label = String(appLocalized: "本机收音中"); wave = .solid
             } else {
-                label = String(localized: "本机试说"); wave = .solid
+                label = String(appLocalized: "本机试说"); wave = .solid
             }
-            consequence = String(localized: "Phone 未接收")
+            consequence = String(appLocalized: "Phone 未接收")
         case .phoneLocalOnly:
             // The adjacent issue chip and details already name Phone's missing reader.
-            label = String(localized: "本机译音播放中")
+            label = String(appLocalized: "本机译音播放中")
             tone = .warn; wave = .dashed
         case .localPlayback:
-            label = String(localized: "译音只在本机播放"); consequence = String(localized: "没有发给任何人")
+            label = String(appLocalized: "译音只在本机播放"); consequence = String(appLocalized: "没有发给任何人")
             wave = .dashed
         case .phoneReconnecting:
-            label = String(localized: "当前发言已停止"); consequence = String(localized: "等待 Phone")
+            label = String(appLocalized: "当前发言已停止"); consequence = String(appLocalized: "等待 Phone")
         case .remoteHearsOriginal:
-            label = String(localized: "对方能听到原声"); consequence = String(localized: "会议没有使用 TalkTalk Mic")
+            label = String(appLocalized: "对方能听到原声"); consequence = String(appLocalized: "会议没有使用 TalkTalk Mic")
             tone = .risk; wave = .none; emphasis = .risk; action = .fix
         case .unavailable:
-            label = String(localized: "音频不可用"); consequence = String(localized: "未发送")
+            label = String(appLocalized: "音频不可用"); consequence = String(appLocalized: "未发送")
             tone = .warn; wave = .none; emphasis = .unavailable; action = .details
         case .listening:
             // Video has no dock; kept total for previews.

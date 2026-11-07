@@ -6,7 +6,7 @@ import TalkTalkCore
 // Small shared controls of the settings visual system (docs/decisions/
 // 2026-11-06-settings-visual-system.md §3.9, §3.10, §3.16): the subtitle window's capsule and
 // keycap, ⓘ, and icon-only buttons. Text parameters are already localized: callers pass
-// `String(localized:)`.
+// `String(appLocalized:)`.
 
 private typealias IconSize = SubtitleTokens.SettingsIcon.Size
 
@@ -145,7 +145,7 @@ public struct InfoButton: NSViewRepresentable {
 
     public func updateNSView(_ button: NSButton, context: NSViewRepresentableContext<Self>) {
         context.coordinator.lines = lines
-        let name = String(localized: "\(topic)说明")
+        let name = String(appLocalized: "\(topic)说明")
         button.toolTip = name
         button.setAccessibilityLabel(name)
         button.setAccessibilityHelp(lines.joined(separator: "\n"))

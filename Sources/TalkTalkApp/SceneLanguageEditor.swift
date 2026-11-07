@@ -20,10 +20,10 @@ struct SceneLanguageEditor: View {
 
     private var listenRow: some View {
         HStack(spacing: 7) {
-            Text(mode == .captions ? String(localized: "原文") : String(localized: "对方说"))
+            Text(mode == .captions ? String(appLocalized: "原文") : String(appLocalized: "对方说"))
             SceneLanguageChip(state: state, mode: mode, role: .listenSource)
             arrow
-            Text(String(localized: "字幕"))
+            Text(String(appLocalized: "字幕"))
             SceneLanguageChip(state: state, mode: mode, role: .listenTarget)
             SceneLanguageSwapButton(state: state, mode: mode)
             Spacer(minLength: 0)
@@ -32,10 +32,10 @@ struct SceneLanguageEditor: View {
 
     private var speakRow: some View {
         HStack(spacing: 7) {
-            Text(String(localized: "我说"))
+            Text(String(appLocalized: "我说"))
             SceneLanguageChip(state: state, mode: mode, role: .speakSource)
             arrow
-            Text(String(localized: "译音"))
+            Text(String(appLocalized: "译音"))
             SceneLanguageChip(state: state, mode: mode, role: .speakTarget)
             Spacer(minLength: 0)
         }
@@ -75,16 +75,16 @@ struct SceneLanguageChip: View {
 
     private var label: String {
         switch role {
-        case .listenSource: mode == .captions ? String(localized: "视频原文语言") : String(localized: "对方语言")
-        case .listenTarget: String(localized: "字幕译文语言")
-        case .speakSource: String(localized: "我说的语言")
-        case .speakTarget: String(localized: "我的译音")
+        case .listenSource: mode == .captions ? String(appLocalized: "视频原文语言") : String(appLocalized: "对方语言")
+        case .listenTarget: String(appLocalized: "字幕译文语言")
+        case .speakSource: String(appLocalized: "我说的语言")
+        case .speakTarget: String(appLocalized: "我的译音")
         }
     }
 
     var body: some View {
         NodeChip(compact ? current.shortCode : current.title, width: compact ? 34 : nil,
-                 accessibilityLabel: label, help: String(localized: "\(label)：\(current.title)"),
+                 accessibilityLabel: label, help: String(appLocalized: "\(label)：\(current.title)"),
                  items: choices.map { language in
                      NodeChipItem(language.title, isOn: current == language) { select(language) }
                  })
@@ -116,7 +116,7 @@ struct SceneLanguageSwapButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(String(localized: "交换原文与译文语言"))
-        .accessibilityLabel(String(localized: "交换原文与译文语言"))
+        .help(String(appLocalized: "交换原文与译文语言"))
+        .accessibilityLabel(String(appLocalized: "交换原文与译文语言"))
     }
 }

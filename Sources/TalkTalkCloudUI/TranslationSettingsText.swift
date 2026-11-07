@@ -138,10 +138,10 @@ public struct TranslationFlowFacts: Sendable, Equatable {
     /// running session (waiting).
     public func badge(_ direction: TranslationDirection) -> SettingsProblem? {
         if choosesOpenAI(direction), keyStateKnown, !hasKey {
-            return SettingsProblem(.warn, String(localized: "无 key → Apple"), help: String(localized: "没有 key 时用 Apple 翻译"))
+            return SettingsProblem(.warn, String(appLocalized: "无 key → Apple"), help: String(appLocalized: "没有 key 时用 Apple 翻译"))
         }
         if let baseline, baseline.choosesOpenAI(direction) != choosesOpenAI(direction) {
-            return SettingsProblem(.waiting, String(localized: "下次开始生效"), help: String(localized: "本次仍按开始时的设置"))
+            return SettingsProblem(.waiting, String(appLocalized: "下次开始生效"), help: String(appLocalized: "本次仍按开始时的设置"))
         }
         return nil
     }
@@ -158,18 +158,18 @@ public struct TranslationFlowFacts: Sendable, Equatable {
         guard keyStateKnown else { return nil }
         if let problem, problem.status == .warn { return .status(.warn, problem.text) }
         guard cloudConnected else { return nil }
-        guard let warning else { return .cloud(String(localized: "已启用 OpenAI")) }
+        guard let warning else { return .cloud(String(appLocalized: "已启用 OpenAI")) }
         // The one corner shows the warning; its help and VoiceOver still say text goes to OpenAI (§5.4).
-        return .status(.warn, String(localized: "\(warning) · 已启用 OpenAI"))
+        return .status(.warn, String(appLocalized: "\(warning) · 已启用 OpenAI"))
     }
 
     /// The switch's tooltip: what it does, or, while it is off and cannot be turned on, what it
     /// waits for.
     public func switchHelp(_ direction: TranslationDirection) -> String {
         if !switchEnabled(direction) {
-            return preferences.cloudConsentGiven ? String(localized: "先保存 key") : String(localized: "先同意发送文字")
+            return preferences.cloudConsentGiven ? String(appLocalized: "先保存 key") : String(appLocalized: "先同意发送文字")
         }
-        return direction == .speak ? String(localized: "用 OpenAI 翻译我说的话") : String(localized: "用 OpenAI 翻译听到的话")
+        return direction == .speak ? String(appLocalized: "用 OpenAI 翻译我说的话") : String(appLocalized: "用 OpenAI 翻译听到的话")
     }
 }
 
@@ -187,66 +187,128 @@ public enum TranslationSettingsText {
         }
     }
 
+    /// Safe operation metadata retained by the settings model. Rendering performs no I/O and
+    /// never keeps a key, server error message, request body, or translated display snapshot.
+    enum CheckResult: Sendable, Equatable {
+        case idle, verifying, listing
+        case probing(String)
+        case listed(Int)
+        case noKey, malformedList, unreachable
+        case verified(model: String)
+        case httpFailure(status: Int, error: OpenAIErrorInfo?)
+        case probed(OpenAIModelCatalog.ProbeResult, model: String, effort: String)
+
+        static func transportFailure(_ error: any Error) -> Self {
+            if let error = error as? OpenAIClient.ClientError, error == .noKey { return .noKey }
+            return .unreachable
+        }
+
+        func presentation(cloud: PolicyProfile.Cloud) -> TranslationSettingsModel.Check {
+            switch self {
+            case .idle: .idle
+            case .verifying: .running(TranslationSettingsText.verifying)
+            case .listing: .running(TranslationSettingsText.listing)
+            case let .probing(model): .running(TranslationSettingsText.probing(model))
+            case let .listed(count): .ok(TranslationSettingsText.listed(count))
+            case .noKey: .init(failed: TranslationSettingsText.noKey)
+            case .malformedList: .init(failed: TranslationSettingsText.malformedList)
+            case .unreachable: .init(failed: TranslationSettingsText.unreachable)
+            case let .verified(model): .init(ok: TranslationSettingsText.verified(model: model))
+            case let .httpFailure(status, error):
+                .init(failed: TranslationSettingsText.failure(status: status, error: error, cloud: cloud))
+            case let .probed(result, model, effort):
+                if result.accepted {
+                    .init(ok: TranslationSettingsText.timing(result, model: model, effort: effort))
+                } else if result.needsLowEffort {
+                    .init(failed: TranslationSettingsText.needsLowEffort(model))
+                } else {
+                    .init(failed: TranslationSettingsText.probeFailure(result, cloud: cloud))
+                }
+            }
+        }
+    }
+
+    enum PasteIssue: Sendable, Equatable {
+        case consentFirst
+        /// APIKeyShape's fixed reason, never the pasted contents.
+        case notAKey(String)
+        case keychainWriteFailed(Int32?)
+        case deleteFailed(Int32?)
+
+        var problem: SettingsProblem {
+            switch self {
+            case .consentFirst: TranslationSettingsText.consentFirst
+            case let .notAKey(reason): TranslationSettingsText.notAKey(reason)
+            case let .keychainWriteFailed(status): TranslationSettingsText.keychainWriteFailed(status)
+            case let .deleteFailed(status): TranslationSettingsText.deleteFailed(status)
+            }
+        }
+    }
+
     public static let keyPageURL = URL(string: "https://platform.openai.com/api-keys")!
 
     public static var cloudNotice: String {
-        String(localized: "要翻译的文字（你说的话、会议里对方说的话，以及最近几句上下文和术语表）会发给 OpenAI；声音、声音档案和录音不离开这台 Mac。")
+        String(appLocalized: "要翻译的文字（你说的话、会议里对方说的话，以及最近几句上下文和术语表）会发给 OpenAI；声音、声音档案和录音不离开这台 Mac。")
     }
-    public static var keyAdvice: String { String(localized: "建议单独建一个 project 并设硬性预算上限，再在其中建 key。") }
+    public static var keyAdvice: String { String(appLocalized: "建议单独建一个 project 并设硬性预算上限，再在其中建 key。") }
     /// After a save (§5.4: always visible).
-    public static var clearClipboard: String { String(localized: "已存入钥匙串 · 请清空剪贴板") }
-    public static var clearClipboardHelp: String { String(localized: "通用剪贴板和剪贴板管理器会留副本") }
+    public static var clearClipboard: String { String(appLocalized: "已存入钥匙串 · 请清空剪贴板") }
+    public static var clearClipboardHelp: String { String(appLocalized: "通用剪贴板和剪贴板管理器会留副本") }
     /// An existing key item: its value is never read, so there is no last four to show.
     public static let savedKeyMask = "sk-…•••"
 
     // MARK: checks
 
-    static var verifying: String { String(localized: "正在验证…") }
-    static var listing: String { String(localized: "正在读取…") }
-    static func probing(_ model: String) -> String { String(localized: "正在测 \(model)…") }
-    static func listed(_ count: Int) -> String { String(localized: "\(count) 个可选模型") }
-    static var malformedList: Message { Message(String(localized: "OpenAI 出错"), detail: String(localized: "模型列表的格式看不懂。")) }
-    static var noKey: Message { Message(String(localized: "无 key"), detail: String(localized: "还没有 key。")) }
+    static var verifying: String { String(appLocalized: "正在验证…") }
+    static var listing: String { String(appLocalized: "正在读取…") }
+    static func probing(_ model: String) -> String { String(appLocalized: "正在测 \(model)…") }
+    static func listed(_ count: Int) -> String { String(appLocalized: "\(count) 个可选模型") }
+    static var malformedList: Message { Message(String(appLocalized: "OpenAI 出错"), detail: String(appLocalized: "模型列表的格式看不懂。")) }
+    static var noKey: Message { Message(String(appLocalized: "无 key"), detail: String(appLocalized: "还没有 key。")) }
     static func verified(model: String) -> Message {
-        Message(String(localized: "key 可用"), detail: String(localized: "模型 \(model) 探针通过"))
+        Message(String(appLocalized: "key 可用"), detail: String(appLocalized: "模型 \(model) 探针通过"))
     }
 
     /// Why a verification step failed (§7.7 验证). Never contains the key or `error.message`.
     public static func failure(status: Int, error: OpenAIErrorInfo?, cloud: PolicyProfile.Cloud) -> Message {
         let code = codeSuffix(error)
         if status == 401 {
-            return Message(String(localized: "key 无效 · 401"), detail: String(localized: "key 无效、已撤销，或不属于任何组织（HTTP 401）。"))
+            return Message(String(appLocalized: "key 无效 · 401"), detail: String(appLocalized: "key 无效、已撤销，或不属于任何组织（HTTP 401）。"))
         }
         if status == 403 {
-            return Message(String(localized: "被拒绝 · 403"),
-                           detail: String(localized: "OpenAI 拒绝了请求：你所在的国家或地区不受支持，或 key 缺少权限（HTTP 403）。"))
+            return Message(String(appLocalized: "被拒绝 · 403"),
+                           detail: String(appLocalized: "OpenAI 拒绝了请求：你所在的国家或地区不受支持，或 key 缺少权限（HTTP 403）。"))
         }
         if status == 404 {
-            return Message(String(localized: "模型不存在 · 404"), detail: String(localized: "这个模型不存在或已下线（HTTP 404）。"))
+            return Message(String(appLocalized: "模型不存在 · 404"), detail: String(appLocalized: "这个模型不存在或已下线（HTTP 404）。"))
         }
         switch OpenAIErrorClassifier.classify(status: status, error: error, retryAfterS: nil, cloud: cloud) {
         case .pause:
-            return Message(String(localized: "额度用完 → Apple"),
-                           detail: String(localized: "额度用完或预算上限已到（HTTP \(String(status))\(code)）。云端翻译会暂停，改用 Apple 翻译。"))
+            return Message(String(appLocalized: "额度用完 → Apple"),
+                           detail: String(appLocalized: "额度用完或预算上限已到（HTTP \(String(status))\(code)）。云端翻译会暂停，改用 Apple 翻译。"))
         case .rateLimited:
-            return Message(String(localized: "请求太频繁"), detail: String(localized: "请求太频繁，稍后再试（HTTP 429\(code)）。"))
+            return Message(String(appLocalized: "请求太频繁"), detail: String(appLocalized: "请求太频繁，稍后再试（HTTP 429\(code)）。"))
         case .http5xx:
-            return Message(String(localized: "OpenAI 出错 · \(String(status))"),
-                           detail: String(localized: "OpenAI 暂时出错（HTTP \(String(status))），稍后再试。"))
+            return Message(String(appLocalized: "OpenAI 出错 · \(String(status))"),
+                           detail: String(appLocalized: "OpenAI 暂时出错（HTTP \(String(status))），稍后再试。"))
         default:
-            return Message(String(localized: "OpenAI 出错 · \(String(status))"),
-                           detail: String(localized: "OpenAI 返回 HTTP \(String(status))\(code)。"))
+            return Message(String(appLocalized: "OpenAI 出错 · \(String(status))"),
+                           detail: String(appLocalized: "OpenAI 返回 HTTP \(String(status))\(code)。"))
         }
     }
 
     public static func transportFailure(_ error: any Error) -> Message {
         if let e = error as? OpenAIClient.ClientError, e == .noKey { return noKey }
-        return Message(String(localized: "连不上"), detail: String(localized: "暂时连不上 OpenAI，稍后再试。"))
+        return unreachable
+    }
+
+    private static var unreachable: Message {
+        Message(String(appLocalized: "连不上"), detail: String(appLocalized: "暂时连不上 OpenAI，稍后再试。"))
     }
 
     private static func codeSuffix(_ e: OpenAIErrorInfo?) -> String {
-        if let c = e?.code { return String(localized: "，\(c)") }
-        if let t = e?.type { return String(localized: "，\(t)") }
+        if let c = e?.code { return String(appLocalized: "，\(c)") }
+        if let t = e?.type { return String(appLocalized: "，\(t)") }
         return ""
     }
 
@@ -254,24 +316,24 @@ public enum TranslationSettingsText {
     public static func probeFailure(_ r: OpenAIModelCatalog.ProbeResult, cloud: PolicyProfile.Cloud) -> Message {
         if let s = r.httpStatus, s != 200 { return failure(status: s, error: r.error, cloud: cloud) }
         if r.httpStatus == nil {
-            return Message(String(localized: "无响应"), detail: String(localized: "探针没有收到响应（超时或连不上）。"))
+            return Message(String(appLocalized: "无响应"), detail: String(appLocalized: "探针没有收到响应（超时或连不上）。"))
         }
         switch r.rejectReason {
         case .some(let reason) where reason.contains("reasoning"):
-            return Message(String(localized: "仍有推理 token"),
-                           detail: String(localized: "这个模型在 effort \(r.effort) 下仍有推理 token，不能用于实时翻译。"))
+            return Message(String(appLocalized: "仍有推理 token"),
+                           detail: String(appLocalized: "这个模型在 effort \(r.effort) 下仍有推理 token，不能用于实时翻译。"))
         case .some(let reason) where reason.contains("incomplete"):
-            return Message(String(localized: "响应不完整"), detail: String(localized: "响应不完整（输出上限被推理用完）。"))
+            return Message(String(appLocalized: "响应不完整"), detail: String(appLocalized: "响应不完整（输出上限被推理用完）。"))
         case .some(let reason):
-            return Message(String(localized: "探针没通过"), detail: String(localized: "探针没通过：\(reason)。"))
+            return Message(String(appLocalized: "探针没通过"), detail: String(appLocalized: "探针没通过：\(reason)。"))
         case .none:
-            return Message(String(localized: "探针没通过"))
+            return Message(String(appLocalized: "探针没通过"))
         }
     }
 
     /// A model that rejects effort none: only the yellow path (§11).
     static func needsLowEffort(_ model: String) -> Message {
-        Message(String(localized: "会明显变慢"), detail: String(localized: "\(model) 不支持 effort none，只能走黄色路径（会明显变慢）。"))
+        Message(String(appLocalized: "会明显变慢"), detail: String(appLocalized: "\(model) 不支持 effort none，只能走黄色路径（会明显变慢）。"))
     }
 
     /// One probe measurement (§11): "首字 N ms · 共 N ms"; the model, effort and "一次测量" go
@@ -279,8 +341,8 @@ public enum TranslationSettingsText {
     public static func timing(_ r: OpenAIModelCatalog.ProbeResult, model: String, effort: String) -> Message {
         let first = r.firstDeltaMs.map { "\($0) ms" } ?? "—"
         let total = r.totalMs.map { "\($0) ms" } ?? "—"
-        return Message(String(localized: "首字 \(first) · 共 \(total)"),
-                       detail: String(localized: "\(model) · effort \(effort) · 一次测量"))
+        return Message(String(appLocalized: "首字 \(first) · 共 \(total)"),
+                       detail: String(appLocalized: "\(model) · effort \(effort) · 一次测量"))
     }
 
     // MARK: key section
@@ -298,25 +360,25 @@ public enum TranslationSettingsText {
         return (check.map { [$0] } ?? []) + [SettingsProblem(.ok, clearClipboard, help: clearClipboardHelp)]
     }
 
-    static var consentFirst: SettingsProblem { SettingsProblem(.failed, String(localized: "请先同意发送文字")) }
+    static var consentFirst: SettingsProblem { SettingsProblem(.failed, String(appLocalized: "请先同意发送文字")) }
 
     static func notAKey(_ why: String) -> SettingsProblem {
-        SettingsProblem(.failed, String(localized: "不像 OpenAI key"), help: String(localized: "这不像 OpenAI key：\(why)。"))
+        SettingsProblem(.failed, String(appLocalized: "不像 OpenAI key"), help: String(appLocalized: "这不像 OpenAI key：\(why)。"))
     }
 
     static func keychainWriteFailed(_ status: Int32?) -> SettingsProblem {
-        SettingsProblem(.failed, String(localized: "写入钥匙串失败"), help: status.map { "OSStatus \($0)" })
+        SettingsProblem(.failed, String(appLocalized: "写入钥匙串失败"), help: status.map { "OSStatus \($0)" })
     }
 
     static func deleteFailed(_ status: Int32?) -> SettingsProblem {
-        SettingsProblem(.failed, String(localized: "删除失败"), help: status.map { "OSStatus \($0)" })
+        SettingsProblem(.failed, String(appLocalized: "删除失败"), help: status.map { "OSStatus \($0)" })
     }
 
     // MARK: OpenAI section
 
     /// The model menu's item: the id, " · 默认" for the default (§7.9: the only suffix left).
     public static func choiceTitle(_ c: ModelFilter.Choice) -> String {
-        c.isDefault ? String(localized: "\(c.id) · 默认") : c.id
+        c.isDefault ? String(appLocalized: "\(c.id) · 默认") : c.id
     }
 
     /// The model menu's item glyph: going away, or slow (needs reasoning); nil for the rest.
@@ -330,8 +392,8 @@ public enum TranslationSettingsText {
     /// suffixes are gone, §7.9; §1.2: AX carries at least what they said).
     public static func choiceSpoken(_ c: ModelFilter.Choice) -> String {
         let title = choiceTitle(c)
-        if c.retiring { return String(localized: "\(title)，即将下线") }
-        if c.known?.supportsEffortNone == false { return String(localized: "\(title)，会明显变慢") }
+        if c.retiring { return String(appLocalized: "\(title)，即将下线") }
+        if c.known?.supportsEffortNone == false { return String(appLocalized: "\(title)，会明显变慢") }
         return title
     }
 
@@ -339,29 +401,29 @@ public enum TranslationSettingsText {
     public static func cost(for model: String, yellow: Bool) -> String {
         if let usd = ModelFilter.known[model]?.usdPerMeetingHour {
             let amount = String(format: "%.2f", usd)
-            return yellow ? String(localized: "≈ $\(amount)/小时（估）+ 推理") : String(localized: "≈ $\(amount)/小时（估）")
+            return yellow ? String(appLocalized: "≈ $\(amount)/小时（估）+ 推理") : String(appLocalized: "≈ $\(amount)/小时（估）")
         }
-        return String(localized: "见 OpenAI 定价")
+        return String(appLocalized: "见 OpenAI 定价")
     }
 
     /// The cost line's help.
     public static func costHelp(yellow: Bool) -> String {
-        yellow ? String(localized: "按会议小时估，含对冲；推理另计") : String(localized: "按会议小时估，含对冲")
+        yellow ? String(appLocalized: "按会议小时估，含对冲；推理另计") : String(appLocalized: "按会议小时估，含对冲")
     }
 
     /// The retirement notice (§7.9): "X 已下线 → Y" or "Y 即将下线".
     public static func retirementNotice(_ r: ModelFilter.Resolution) -> String? {
         switch r {
         case .keep: nil
-        case .fellBackToDefault(let from): String(localized: "\(from) 已下线 → \(ModelFilter.defaultModel)")
-        case .defaultRetiring: String(localized: "\(ModelFilter.defaultModel) 即将下线")
+        case .fellBackToDefault(let from): String(appLocalized: "\(from) 已下线 → \(ModelFilter.defaultModel)")
+        case .defaultRetiring: String(appLocalized: "\(ModelFilter.defaultModel) 即将下线")
         }
     }
 
     public static func retirementHelp(_ r: ModelFilter.Resolution?) -> String? {
         switch r {
-        case .fellBackToDefault?: String(localized: "已换回默认模型")
-        case .defaultRetiring?: String(localized: "可在这里另选一个模型")
+        case .fellBackToDefault?: String(appLocalized: "已换回默认模型")
+        case .defaultRetiring?: String(appLocalized: "可在这里另选一个模型")
         case .keep?, nil: nil
         }
     }

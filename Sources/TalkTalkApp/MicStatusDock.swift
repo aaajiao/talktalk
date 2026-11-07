@@ -151,6 +151,20 @@ final class MicStatusDock: NSView {
         needsLayout = true
     }
 
+    func refreshAppLanguage() {
+        hint.stringValue = MicDockPresentation.startHint
+        // The panel/HUD supplies a freshly localized presentation. Rebuild only its text;
+        // the waveform, capture, current turn and expanded state remain in place.
+        renderedPresentation = nil
+        renderedTurnStyle = nil
+        if let content, let style {
+            let current = content
+            self.content = nil
+            apply(current, style: style, compact: compact)
+        }
+        needsLayout = true
+    }
+
     /// One meter tick: only the curve redraws.
     func setLevel(_ level: Float?) {
         guard content != nil, statusVisible, !isHidden else { wave.stop(); return }
@@ -212,8 +226,8 @@ final class MicStatusDock: NSView {
         let spokenSource = ConversationText.accessibilityText(source)
         let spokenTranslation = ConversationText.accessibilityText(translation)
         turnArea.setAccessibilityLabel(spokenTranslation.isEmpty
-            ? String(localized: "我正在说：\(spokenSource)")
-            : String(localized: "我：\(spokenSource)；译文：\(spokenTranslation)"))
+            ? String(appLocalized: "我正在说：\(spokenSource)")
+            : String(appLocalized: "我：\(spokenSource)；译文：\(spokenTranslation)"))
     }
 
     private func applyBackground(_ content: Content, display: SubtitleStyle.Display) {
@@ -432,14 +446,16 @@ final class DockActionButton: TitlebarControl {
         label.textColor = .white
         label.setAccessibilityElement(false)
         addSubview(label)
-        setAccessibilityHelp(String(localized: "打开详情查看原因和修复方法"))
+        setAccessibilityHelp(String(appLocalized: "打开详情查看原因和修复方法"))
         hoverChanged()
     }
 
     required init?(coder: NSCoder) { nil }
 
     func setAction(_ next: MicDockPresentation.Action, tone: MicDockPresentation.Emphasis, iconOnly nextIconOnly: Bool) {
-        guard next != action || tone != emphasis || nextIconOnly != iconOnly else { return }
+        let title = next.title
+        guard next != action || tone != emphasis || nextIconOnly != iconOnly || label.stringValue != title else { return }
+        setAccessibilityHelp(String(appLocalized: "打开详情查看原因和修复方法"))
         action = next
         emphasis = tone
         setIconOnly(nextIconOnly)
