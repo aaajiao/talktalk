@@ -134,7 +134,14 @@ public actor ListenPipeline {
     private var previousFinal: (id: UInt64, source: String, at: HostTime, revised: Bool)?
     private var startHost: HostTime = 0
     private let jobs: JobIDSequence
-    private var draftJob: (job: JobID, task: Task<Void, Never>)?
+    private struct DraftWork: Sendable {
+        let sentence: UInt64
+        let source: String
+        let session: MTSession
+        let job: JobID
+        let task: Task<String?, Never>
+    }
+    private var draftJob: DraftWork?
     private var drafts: [UInt64: (source: String, target: String)] = [:]
     private var history: [(sentence: UInt64, turn: MTTurn)] = []
     private var lastSource = ""
@@ -435,23 +442,25 @@ public actor ListenPipeline {
 
     private func startDraft(_ sentence: UInt64, _ text: String) {
         guard !draftsPaused, rejectedEcho?.sentence != sentence, let apple = engines.apple else { return }
-        if let d = draftJob {
-            d.task.cancel()
-            let old = d.job
-            Task { await apple.cancel(old) }
-        }
+        if let d = draftJob { cancelDraft(d) }
         let job = jobs.next()
         let req = MTRequest(job: job, session: session, text: text, isFinalChunk: false, priority: .p2Listen,
                             maxOutputTokens: profile.finalMT.maxOutputTokens)
         let t0 = clock()
         appleJobs.insert(job)
-        let task = Task { [weak self] in
+        let task = Task<String?, Never> { [weak self] in
             let result = try? await apple.translate(req)
             await self?.appleFinished(job)
-            guard let result, !Task.isCancelled else { return }
+            guard let result, !Task.isCancelled else { return nil }
             await self?.draftDone(sentence, source: text, target: result.text, t0: t0)
+            return result.text
         }
-        draftJob = (job, task)
+        draftJob = DraftWork(sentence: sentence, source: text, session: session, job: job, task: task)
+    }
+
+    private func cancelDraft(_ draft: DraftWork) {
+        draft.task.cancel()
+        if let apple = engines.apple { Task { await apple.cancel(draft.job) } }
     }
 
     private func appleFinished(_ job: JobID) { appleJobs.remove(job) }
@@ -470,7 +479,8 @@ public actor ListenPipeline {
         guard running else { return }
         onAnalysis?(.init(stage: .sentenceFinal, sentence: f.sentence, at: host(f.finalAtMs),
                           source: f.text, engine: engines.asr.id.name))
-        draftJob?.task.cancel()
+        // Transfer this sentence's task before another sentence can replace the live draft.
+        let candidateDraft = draftJob
         draftJob = nil
         log.event("listen.sentence", ["sentence": .int(Int(f.sentence)), "trigger": .tag(f.trigger.rawValue),
                                       "words": .int(FinalizeTrigger.wordCount(f.text, lang: lang)),
@@ -483,6 +493,7 @@ public actor ListenPipeline {
         if rejectedEcho?.sentence == f.sentence { rejectedEcho = nil }
         sourceAudioThrough = nil
         if case let .drop(reason, overlap) = decision {
+            if let candidateDraft { cancelDraft(candidateDraft) }
             log.event("listen.echo_drop", ["sentence": .int(Int(f.sentence)), "reason": .tag(reason.rawValue), "overlap": .double(overlap)])
             drafts[f.sentence] = nil
             onUpdate(.dropped(sentence: f.sentence))
@@ -504,17 +515,28 @@ public actor ListenPipeline {
             previousFinal?.revised = true
         }
         let final = work, replacement = replaces, expires = correctionDeadline
-        finalTasks[f.sentence] = Task { await self.finalize(final, replacing: replacement, correctionDeadline: expires, original: f) }
+        let sharedDraft = candidateDraft.flatMap {
+            $0.sentence == f.sentence && $0.session == session && $0.source == work.text ? $0 : nil
+        }
+        if let candidateDraft, sharedDraft == nil { cancelDraft(candidateDraft) }
+        finalTasks[f.sentence] = Task {
+            await self.finalize(final, replacing: replacement, correctionDeadline: expires, original: f, draft: sharedDraft)
+        }
     }
 
     private func finalize(_ f: ListenSegmenter.SentenceFinal, replacing replacement: UInt64? = nil,
-                          correctionDeadline: HostTime? = nil, original: ListenSegmenter.SentenceFinal? = nil) async {
-        defer { finalsInFlight -= 1; finalTasks[f.sentence] = nil }
-        await renderFinal(f, replacing: replacement, correctionDeadline: correctionDeadline, original: original)
+                          correctionDeadline: HostTime? = nil, original: ListenSegmenter.SentenceFinal? = nil,
+                          draft: DraftWork? = nil) async {
+        defer {
+            if let draft { cancelDraft(draft) }
+            finalsInFlight -= 1; finalTasks[f.sentence] = nil
+        }
+        await renderFinal(f, replacing: replacement, correctionDeadline: correctionDeadline, original: original, draft: draft)
     }
 
     private func renderFinal(_ f: ListenSegmenter.SentenceFinal, replacing replacement: UInt64? = nil,
-                             correctionDeadline: HostTime? = nil, original: ListenSegmenter.SentenceFinal? = nil) async {
+                             correctionDeadline: HostTime? = nil, original: ListenSegmenter.SentenceFinal? = nil,
+                             draft: DraftWork? = nil) async {
         guard running, !Task.isCancelled else { return }
         let deadlineMs = f.triggerAtMs + profile.finalMT.deadlineMs
         var source = f.text
@@ -539,18 +561,35 @@ public actor ListenPipeline {
 
         guard running, !Task.isCancelled else { return }
 
-        // Apple starts at once: ready by the deadline (p95 ≈ 0.34 s, M0-T11). A draft of exactly
-        // this text is reused.
+        // Apple starts at once, alongside the cloud. Reuse only this sentence and direction's
+        // exact effective source, after any second-pass or German-lookback changes.
         let apple = engines.apple
         let reuse = drafts[f.sentence].flatMap { $0.source == source ? $0.target : nil }
         drafts[f.sentence] = nil
+        let sharedDraft = draft.flatMap {
+            reuse == nil && $0.sentence == f.sentence && $0.session == session && $0.source == source ? $0 : nil
+        }
+        if let draft, sharedDraft == nil { cancelDraft(draft) }
+        if reuse != nil || sharedDraft != nil {
+            log.event("mt.apple_reuse", ["sentence": .int(Int(f.sentence)),
+                                         "mode": .tag(reuse != nil ? "completed" : "task")])
+        }
         let appleJob = jobs.next()
         let appleReq = MTRequest(job: appleJob, session: session, text: source, isFinalChunk: true, priority: .p2Listen,
                                  maxOutputTokens: profile.finalMT.maxOutputTokens)
         if apple != nil { appleJobs.insert(appleJob) }
         let appleTask: Task<String?, Never> = Task {
             if let reuse { return reuse }
-            guard let apple else { return nil }
+            if let sharedDraft {
+                let text = await withTaskCancellationHandler { await sharedDraft.task.value } onCancel: {
+                    sharedDraft.task.cancel()
+                }
+                guard !Task.isCancelled else { return nil }
+                if let text { return text }
+                // A failed/cancelled draft must still get the normal final translation attempt.
+                log.event("mt.apple_reuse_retry", ["sentence": .int(Int(f.sentence))])
+            }
+            guard let apple, !Task.isCancelled else { return nil }
             return try? await apple.translate(appleReq).text
         }
         defer { appleTask.cancel(); appleJobs.remove(appleJob) }
