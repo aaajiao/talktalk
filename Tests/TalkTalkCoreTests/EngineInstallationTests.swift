@@ -61,12 +61,51 @@ import Testing
             try Data(json.utf8).write(to: url.appendingPathComponent("install.json"))
         }
 
+        func setPythonVersion(_ version: String) throws {
+            let path = url.appendingPathComponent("install.json")
+            var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: path)) as? [String: Any])
+            json["python"] = ["version": version, "release": "fixture", "sha256": "fixture-sha"]
+            try JSONSerialization.data(withJSONObject: json).write(to: path)
+        }
+
         func remove() { try? FileManager.default.removeItem(at: url) }
     }
 
-    func inst(_ h: Home, profiles: [String: [String]] = ["max": ["tts-x", "asr-y"]]) -> EngineInstallation {
+    func inst(_ h: Home, profiles: [String: [String]] = ["max": ["tts-x", "asr-y"]],
+              recommendedPythonVersion: String = EnginePins.pythonVersion) -> EngineInstallation {
         EngineInstallation(engineHome: h.url, lockCompat: [Self.lock], engineAPI: 2, pins: Self.pins,
-                           profiles: profiles)
+                           profiles: profiles, recommendedPythonVersion: recommendedPythonVersion)
+    }
+
+    @Test(arguments: ["3.14.10", "3.15.1", "4.0.0", "development"])
+    func currentNewerOrUnknownPythonKeepsExistingCompatibility(_ version: String) throws {
+        let h = try Home(); defer { h.remove() }
+        try h.setPythonVersion(version)
+        let result = inst(h, recommendedPythonVersion: "3.14.10").check()
+        #expect(result.state == .installed(profile: "max", models: ["asr-y", "tts-x"]))
+        #expect(result.record?.python?.version == version)
+        #expect(result.record?.python?.release == "fixture")
+    }
+
+    @Test func compatibleOlderPythonOffersOnlyRuntimeUpdateWithoutChangingModels() throws {
+        let h = try Home(); defer { h.remove() }
+        try h.setPythonVersion("3.12.15")
+        let recordURL = h.url.appendingPathComponent("install.json")
+        let before = try Data(contentsOf: recordURL)
+        let result = inst(h, profiles: ["standard": ["tts-x", "asr-y"]], recommendedPythonVersion: "3.14.10").check()
+        #expect(result.state == .outdated(profile: "standard", models: []))
+        #expect(result.state.canStartEngine)
+        #expect(result.record?.roles["tts"]?.id == "tts-x" && result.record?.roles["asr"]?.id == "asr-y")
+        #expect(result.record?.roles["tts"]?.rev == Self.ttsRev)
+        #expect(try Data(contentsOf: recordURL) == before)
+    }
+
+    @Test func legacyRecordWithoutPythonMetadataRemainsCompatible() throws {
+        let h = try Home(); defer { h.remove() }
+        let result = inst(h, recommendedPythonVersion: "3.14.10").check()
+        #expect(result.record?.python == nil)
+        #expect(result.state == .installed(profile: "max", models: ["asr-y", "tts-x"]))
+        #expect(result.state.canStartEngine)
     }
 
     @Test func oldLabelIsClassifiedByActiveRolesWithoutRewritingRecord() throws {

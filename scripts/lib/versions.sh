@@ -6,14 +6,14 @@
 
 # Application identity; independent of engine API/recipe and model revisions.
 TT_APP_VERSION="1.0.15"
-TT_APP_BUILD="35"
+TT_APP_BUILD="36"
 
 # Standalone CPython (astral-sh/python-build-standalone). Size and sha256 checked against the
-# GitHub release asset digest on 2026-11-04 (identical to the values readread uses).
-TT_PY_VERSION="3.12.15"; TT_PY_RELEASE="20261013"
+# GitHub release asset digest on 2026-11-07; dedicated, ordinary (GIL) CPython build.
+TT_PY_VERSION="3.14.10"; TT_PY_RELEASE="20261026"
 TT_PY_ASSET="cpython-${TT_PY_VERSION}+${TT_PY_RELEASE}-aarch64-apple-darwin-install_only.tar.gz"
 TT_PY_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${TT_PY_RELEASE}/cpython-${TT_PY_VERSION}%2B${TT_PY_RELEASE}-aarch64-apple-darwin-install_only.tar.gz"
-TT_PY_SIZE=25180390; TT_PY_SHA256="ba32036ad8f4c434d97a1ee7feef8b7edc0fac16777639b97e39c74a108e4440"
+TT_PY_SIZE=26891793; TT_PY_SHA256="30a18bcb9ab75e485b4bf4e5d783dde165571e7e42c56dff47a2d2c5345183a4"
 
 TT_ENGINE_RECIPE=1        # bump when the way python/ or venv/ is built changes (invalidates them)
 TT_ENGINE_API=2           # engine wire protocol (§4.4); v2 removed /v1/mt*

@@ -3,11 +3,11 @@
 
 public enum EnginePins {
     public static let appVersion = "1.0.15"
-    public static let appBuild = "35"
+    public static let appBuild = "36"
     public static let engineAPI = 2
     public static let engineRecipe = 1
-    public static let pythonVersion = "3.12.15"
-    public static let pythonRelease = "20261013"
+    public static let pythonVersion = "3.14.10"
+    public static let pythonRelease = "20261026"
     public static let mlxAudioCommit = "f65753b55f011f4cc8b1dbc7622ae8110b7b7fbb"
     public static let lockSHA256 = "349c6c6ca785f6e2717caba43f4bdf336c42264c9a442468205bcc62e925cdd7"
     public static let lockCompat: [String] = ["349c6c6ca785f6e2717caba43f4bdf336c42264c9a442468205bcc62e925cdd7"]

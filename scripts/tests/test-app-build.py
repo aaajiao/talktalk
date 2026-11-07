@@ -8,6 +8,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -19,6 +20,7 @@ GENERATED = (
     "Sources/TalkTalkCore/Generated/DriverPins.swift",
     "Driver/Sources/Generated/DriverPins.hpp",
     "Driver/Sources/Generated/DriverPins.h",
+    ".python-version",
 )
 
 
@@ -46,6 +48,14 @@ class AppBuildTests(unittest.TestCase):
         self.fake_bin.mkdir()
         self.environment = dict(os.environ, PATH=str(self.fake_bin) + os.pathsep + os.environ["PATH"],
                                 TT_FIXTURE_ROOT=str(self.root))
+        # Packaging fixtures use the test runner's interpreter and an offline preflight stub;
+        # they never download CPython, install dependencies or run a compiler.
+        self.python = self.root / ".venv/bin/python3"
+        self.python.parent.mkdir(parents=True)
+        self.python.symlink_to(sys.executable)
+        self.setup_python = self.root / "scripts/setup-dev-python.sh"
+        self.setup_python.write_text('#!/bin/bash\n[ "$1" = --check ]\n')
+        self.setup_python.chmod(0o755)
         self.write_swift("#!/bin/bash\nexit 77\n")
 
     def write_swift(self, text):
@@ -61,7 +71,7 @@ class AppBuildTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=20)
 
     def reserve(self, *bundles):
-        args = ["python3", str(self.root / "scripts/reserve-app-build.py")]
+        args = [str(self.python), "-I", "-B", str(self.root / "scripts/reserve-app-build.py")]
         for bundle in bundles or (self.root / "no-installed-app.app",):
             args.extend(["--app-bundle", str(bundle)])
         return subprocess.run(args, capture_output=True, text=True, timeout=20)
@@ -94,6 +104,15 @@ class AppBuildTests(unittest.TestCase):
             self.assertEqual(result.returncode, 77, result.stderr)
             self.assertEqual(self.build_number(), expected)
         self.assertFalse((self.root / "build/TalkTalk.app").exists())
+
+    def test_missing_development_environment_fails_before_reserving_number(self):
+        self.setup_python.write_text('#!/bin/bash\necho "run setup-dev-python.sh" >&2\nexit 1\n')
+        result = self.run_pack()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("setup-dev-python.sh", result.stderr)
+        self.assertEqual(self.build_number(), 7)
+        for name in GENERATED:
+            self.assertEqual((self.root / name).read_bytes(), self.original_generated[name], name)
 
     def test_stale_compiled_identity_is_rejected_before_assembly(self):
         self.write_swift('''#!/usr/bin/env python3

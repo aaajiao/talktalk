@@ -135,7 +135,9 @@ Feed 的第 1 声道送会议 Mic，第 2 声道只送 Test Mic；自检不能�
 
 ## 引擎、翻译与播放
 
-Python/MLX 在独立进程中运行，通过仅本机 HTTP 与每次启动的认证 token 通信；模型、私有 Python 和 venv 位于 bundle 外。一个 GPU worker 按 TTS、SPEAK ASR、LISTEN ASR、后台工作的优先级调度。
+开发环境与用户安装相互独立：`scripts/setup-dev-python.sh` 按同一 pins 下载校验解释器到仓库 `.build/dev-python`，创建 `.venv` 并按 App 的两份锁文件及哈希安装依赖，不下载模型。`.python-version` 由 gen-pins 同步；`check.sh` 和 `build-app.sh` 先做离线环境预检，再显式使用项目 Python，并向 Python 辅助检查传递 `TALKTALK_DEV_PYTHON`。缺失或过期时明确要求 setup，打包不会因此消耗构建号；安装清单测试也不再借用 App 的解释器。setup 的 `--check` 只读版本、路径及包元数据，不初始化 MLX/Metal。
+
+Python/MLX 在独立进程中运行，通过仅本机 HTTP 与每次启动的认证 token 通信；模型、私有 Python 和 venv 位于 bundle 外。当前推荐普通 GIL CPython 3.14.10（python-build-standalone 20261026），App 携带引擎与安装器并自动部署到 Application Support；启动显式使用私有 venv 的解释器、隔离参数和重建的环境，不依赖系统或 Homebrew Python。依赖锁的解析目标从 TT_PY_VERSION 推导；现有依赖版本及锁散列可保留。安装记录中可比较的较旧同 major Python 显示“可更新”且仍可运行，缺失／未知旧元数据沿用既有锁、API 和文件兼容规则，不要求已安装的较新版本降级。一个 GPU worker 按 TTS、SPEAK ASR、LISTEN ASR、后台工作的优先级调度。
 默认“标准”配置使用 Qwen3-ASR-0.6B 与 Qwen3-TTS-1.7B-Base。本地资源只提供三个可选预设：Max 为 TTS 1.7B＋ASR 1.7B（约 5.6 GB 模型文件），标准为 1.7B＋0.6B（4.1 GB），轻量为 0.6B＋0.6B（3.0 GB）。这些容量不含运行时，也不是运行内存保证。旧 raw ID compact16 保留读取和 CLI 兼容，显示“仅语音合成”，不再作为新的资源选项；其 TTS 0.6B 保留不动。
 
 安装状态按 install.json 的 active roles 归类，额外下载但未选用的模型不改变档位；旧 max 的 1.7B＋0.6B 显示为标准，读取不改写记录或模型。合法但不属于预设的组合显示为自定义组合，不影响原有兼容性与文件校验。无显式目标的安装／修复保留可识别的实际组合，无法匹配的自定义组合必须明确选择目标，避免意外换模型。档位下方以共用 FlowNode 的两张并列卡展示所需 ASR/TTS；reload 时检查当前 pin 的文件、revision stamp 和大小，缓存是否就绪，不只依据安装记录，也不做全量 hash。

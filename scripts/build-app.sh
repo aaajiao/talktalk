@@ -31,7 +31,10 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Library/Developer/CommandLineTools}"   #
 scratch="$root/.build/$flavor"
 # Preflight happens before changing the number: unrelated generated-pin drift must fail,
 # not be silently repaired by the build. A reserved number is never rolled back on failure.
-python3 "$here/reserve-app-build.py"
+"$here/setup-dev-python.sh" --check
+export TALKTALK_DEV_PYTHON="$root/.venv/bin/python3"
+export PATH="$root/.venv/bin:$PATH"
+"$TALKTALK_DEV_PYTHON" -I -B "$here/reserve-app-build.py"
 # shellcheck source=lib/versions.sh
 . "$here/lib/versions.sh"
 version="$TT_APP_VERSION"

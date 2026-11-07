@@ -475,4 +475,4 @@ PY
 model_records | CL_ROOT="$root" CL_VENV="$venv" CL_VENV_NOTE="$venv_note" CL_REQUIRE_VENV="$require_venv" \
   CL_QUIET="$quiet" CL_LGPL_ALLOW="$lgpl_allow" CL_LICENSE_ALLOW="${TT_LICENSE_ALLOW:-}" \
   CL_MODEL_DENY="${TT_MODEL_DENY:-}" CL_MODELS_DIRS="$models_dirs" \
-  /usr/bin/python3 -I -B -c "$checker"
+  "${TALKTALK_DEV_PYTHON:-/usr/bin/python3}" -I -B -c "$checker"

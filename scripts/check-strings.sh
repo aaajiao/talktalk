@@ -42,7 +42,7 @@ done
 [ -d "$root/Sources" ] || { echo "check-strings: no Sources/ under $root" >&2; exit 2; }
 
 # shellcheck disable=SC2016  # the quoted text is Python, not shell
-exec /usr/bin/python3 -I -B -c '
+exec "${TALKTALK_DEV_PYTHON:-/usr/bin/python3}" -I -B -c '
 import json, os, re, sys
 
 root, update, quiet = sys.argv[1], sys.argv[2] == "1", sys.argv[3] == "1"

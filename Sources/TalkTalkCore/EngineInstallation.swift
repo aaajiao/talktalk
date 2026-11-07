@@ -18,6 +18,12 @@ public struct EngineInstallation: Sendable {
             public let role: String
             public let dir: String
         }
+        /// Optional in legacy records; this is an update hint, not a new compatibility gate.
+        public struct Python: Codable, Sendable, Equatable {
+            public let version: String?
+            public let release: String?
+            public let sha256: String?
+        }
         public let version: Int
         public let profile: String
         public let engineAPI: Int
@@ -28,9 +34,10 @@ public struct EngineInstallation: Sendable {
         public let models: [Model]
         public let mlxAudioCommit: String?
         public let installedAt: String?
+        public var python: Python? = nil
 
         enum CodingKeys: String, CodingKey {
-            case version, profile, runtime, flavour, roles, models
+            case version, profile, runtime, flavour, roles, models, python
             case engineAPI = "engine_api"
             case lockSHA256 = "lock_sha256"
             case mlxAudioCommit = "mlx_audio_commit"
@@ -42,8 +49,8 @@ public struct EngineInstallation: Sendable {
     public enum State: Sendable, Equatable {
         case notInstalled
         case installed(profile: String, models: [String])
-        /// A recommended revision is newer than the installed one, which is still in the compat list:
-        /// runs as usual, settings show a badge.
+        /// A model revision or Python release has an update, while the installation remains
+        /// compatible. `models` is empty for a runtime-only update.
         case outdated(profile: String, models: [String])
         /// The runtime (lock, engine API) or a model revision is not supported by this app:
         /// the runtime must be updated before the engine can start.
@@ -71,15 +78,18 @@ public struct EngineInstallation: Sendable {
     public let engineAPI: Int
     public let pins: [EnginePins.Model]
     public let profiles: [String: [String]]
+    public let recommendedPythonVersion: String
 
     public init(engineHome: URL, lockCompat: [String] = EnginePins.lockCompat,
                 engineAPI: Int = EnginePins.engineAPI, pins: [EnginePins.Model] = EnginePins.models,
-                profiles: [String: [String]] = EnginePins.profiles) {
+                profiles: [String: [String]] = EnginePins.profiles,
+                recommendedPythonVersion: String = EnginePins.pythonVersion) {
         self.engineHome = engineHome
         self.lockCompat = lockCompat
         self.engineAPI = engineAPI
         self.pins = pins
         self.profiles = profiles
+        self.recommendedPythonVersion = recommendedPythonVersion
     }
 
     public var recordURL: URL { engineHome.appendingPathComponent("install.json") }
@@ -163,8 +173,25 @@ public struct EngineInstallation: Sendable {
         // combinations remain runnable under the same runtime/revision/file checks.
         let profile = EngineProfile.matchingID(activeRoles: record.roles.mapValues(\.id),
             declaredID: record.profile, profiles: profiles, pins: pins) ?? EngineProfile.customID
-        if !outdated.isEmpty { return (.outdated(profile: profile, models: outdated.sorted()), record) }
+        if !outdated.isEmpty || pythonUpdateAvailable(record.python?.version) {
+            return (.outdated(profile: profile, models: outdated.sorted()), record)
+        }
         return (.installed(profile: profile, models: ids), record)
+    }
+
+    /// Only an older, comparable release of the same Python major receives an update hint.
+    /// Missing/nonstandard metadata keeps the prior lock/API/file compatibility behavior;
+    /// a newer interpreter is never presented as needing a downgrade.
+    private func pythonUpdateAvailable(_ installedVersion: String?) -> Bool {
+        func components(_ version: String) -> [Int]? {
+            let parts = version.split(separator: ".", omittingEmptySubsequences: false)
+            guard parts.count == 3, parts.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy { (48...57).contains($0) } }) else { return nil }
+            let numbers = parts.compactMap { Int($0) }
+            return numbers.count == 3 ? numbers : nil
+        }
+        guard let installedVersion, let installed = components(installedVersion),
+              let recommended = components(recommendedPythonVersion), installed[0] == recommended[0] else { return false }
+        return installed.lexicographicallyPrecedes(recommended)
     }
 
     enum ModelCheck: Equatable {

@@ -25,6 +25,8 @@ TalkTalk 是一个原生 macOS 菜单栏应用。语音识别和语音合成在�
 3. 从菜单或“使用场景”设置选择用途，再在对应页面选择应用和语言：会议和视频分别记住声音来源；电话固定使用 **Phone**。会议/电话应用的输入选择 **TalkTalk Mic** 或跟随系统默认。电话模式先准备就绪，再拨号或接听；系统 Phone 负责挂断，TalkTalk 的“结束电话同传”负责停止翻译和恢复输入。（独立电话模式见当前源码；下载版仍为 1.0.14。）
 4. 如需云端翻译，在设置里填写自己的 OpenAI API key；Apple 本地翻译需要先安装相应语言资源。
 
+当前源码使用专用 **CPython 3.14.10**。App 包含引擎代码与安装器，解释器和依赖由 App 自动安装到上述私有目录，虚拟环境不读取系统 Python 包；不是将 Python 二进制直接放进 `.app`。
+
 视频字幕默认只收听所选应用，不启用你的麦克风；显式开启全局备用时会收听所有应用声音。会议中的静音仍由会议软件控制；停止同传或退出 TalkTalk 时会自动还原它管理的系统输入。
 
 **从源码构建**需要 Xcode Command Line Tools（Swift 6.2+）：
@@ -32,8 +34,12 @@ TalkTalk 是一个原生 macOS 菜单栏应用。语音识别和语音合成在�
 ```bash
 git clone https://github.com/aaajiao/talktalk.git
 cd talktalk
+scripts/setup-dev-python.sh
+scripts/check.sh --skip-stress
 scripts/build-app.sh release
 ```
+
+开发环境使用仓库内 `.venv`，解释器固定在 `.build/dev-python`；Python 版本由 `.python-version` 与安装器共用的 pins 同步，依赖使用 App 相同的两份锁文件。开发时可执行 `source .venv/bin/activate`，或直接用 `.venv/bin/python3`。检查与打包脚本会验证并使用该环境，不借用已安装 App 的运行时；缺失或版本不符时会提示重新运行 setup。
 
 生成的正式应用位于 `build/TalkTalk.app`，安装和启动方式同上。每次运行打包脚本都会自动递增构建号（例如 `1.0.15 (30)` 中的 `30`），并同步 `scripts/lib/versions.sh` 与生成的 `EnginePins.swift`；正式发布版本号单独维护。
 

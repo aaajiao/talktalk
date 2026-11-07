@@ -4,7 +4,7 @@
 #   scripts/check.sh --no-swift skip swift build/test (e.g. inside a sandbox that blocks SwiftPM)
 #   scripts/check.sh --skip-stress keep functional checks, skip high-iteration Swift stress/fuzz
 # The two flags may be combined, in either order.
-# Needs: shellcheck, python3 (with numpy), Xcode CLT. No network, no GPU, no Keychain, no models.
+# Needs: scripts/setup-dev-python.sh first, shellcheck, Xcode CLT. No network, GPU, Keychain or models.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
@@ -17,6 +17,9 @@ for arg in "$@"; do
     *) echo "usage: scripts/check.sh [--no-swift] [--skip-stress]" >&2; exit 2 ;;
   esac
 done
+"$root/scripts/setup-dev-python.sh" --check
+export TALKTALK_DEV_PYTHON="$root/.venv/bin/python3"
+export PATH="$root/.venv/bin:$PATH"
 step() { printf '\n== %s\n' "$*"; }
 
 step "shellcheck"
@@ -29,16 +32,16 @@ scripts/gen-pins.sh --check
 scripts/tests/test-gen-pins.sh
 
 step "application build-number reservation (isolated fixtures; no compilation)"
-python3 -I -B scripts/tests/test-app-build.py
+"$TALKTALK_DEV_PYTHON" -I -B scripts/tests/test-app-build.py
 
 step "python compiles"
-python3 -I -B -c 'import sys; [compile(open(f, encoding="utf-8").read(), f, "exec") for f in sys.argv[1:]]' \
+"$TALKTALK_DEV_PYTHON" -I -B -c 'import sys; [compile(open(f, encoding="utf-8").read(), f, "exec") for f in sys.argv[1:]]' \
   engine/talktalk_engine.py engine/smoke_engine.py engine/talktalk_engine/*.py \
   engine/tests/*.py tools/bench/*.py tools/*.py tools/tests/*.py scripts/*.py scripts/tests/*.py
 echo "ok"
 
 step "engine unit tests"
-( cd engine && python3 -I -B -m unittest discover -s tests -t . )
+( cd engine && "$TALKTALK_DEV_PYTHON" -I -B -m unittest discover -s tests -t . )
 
 step "installer model tests (file:// fixtures)"
 scripts/tests/test-models.sh
@@ -56,7 +59,7 @@ step "generated expected-duration table in sync"
 scripts/gen-expected-duration.sh --check
 
 step "latency_report tests"
-( cd tools && python3 -I -B -m unittest discover -s tests -t . )
+( cd tools && "$TALKTALK_DEV_PYTHON" -I -B -m unittest discover -s tests -t . )
 
 step "license gate tests (planted fixtures)"
 scripts/tests/test-check-licenses.sh

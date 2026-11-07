@@ -1,7 +1,8 @@
 #!/bin/bash
 # gen-pins.sh [--check]: generate Sources/TalkTalkCore/Generated/EnginePins.swift,
 # Sources/TalkTalkCore/Generated/DriverPins.swift, Driver/Sources/Generated/DriverPins.hpp (driver,
-# C++) and Driver/Sources/Generated/DriverPins.h (C: tools/feedprobe) from scripts/lib/versions.sh
+# C++), Driver/Sources/Generated/DriverPins.h (C: tools/feedprobe) and .python-version
+# from scripts/lib/versions.sh
 # (§7.2). --check exits 1 when a committed file is out of date; both exit 2 when versions.sh holds
 # a value that cannot be generated (a selector that is not four printable ASCII characters).
 set -euo pipefail
@@ -163,7 +164,8 @@ EOF
 driver_swift="$root/Sources/TalkTalkCore/Generated/DriverPins.swift"
 driver_hpp="$root/Driver/Sources/Generated/DriverPins.hpp"
 driver_h="$root/Driver/Sources/Generated/DriverPins.h"
-targets="gen:$out gen_driver_swift:$driver_swift gen_driver_hpp:$driver_hpp gen_driver_h:$driver_h"
+gen_python_version() { printf '%s\n' "$TT_PY_VERSION"; }
+targets="gen:$out gen_driver_swift:$driver_swift gen_driver_hpp:$driver_hpp gen_driver_h:$driver_h gen_python_version:$root/.python-version"
 
 if [ "${1:-}" = "--check" ]; then
   bad=0

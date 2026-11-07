@@ -11,7 +11,7 @@ src="$root/engine/talktalk_engine/expected_duration.json"
 out="$root/Sources/TalkTalkCore/Generated/ExpectedDurationTable.swift"
 
 gen() {
-  /usr/bin/python3 -I -B - "$src" <<'EOF'
+  "${TALKTALK_DEV_PYTHON:-/usr/bin/python3}" -I -B - "$src" <<'EOF'
 import json, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 if d.get("version") != 1:
