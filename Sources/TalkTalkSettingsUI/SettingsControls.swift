@@ -116,7 +116,17 @@ public struct InfoButton: NSViewRepresentable {
             }
             .padding(14)
             .frame(width: 300, alignment: .leading)
-            popover.contentViewController = NSHostingController(rootView: content)
+            let controller = NSHostingController(rootView: content)
+            // Hosting starts with a zero-sized view. Give AppKit the final dimensions before
+            // it positions the popover; resizing the hosted content after show can leave the
+            // arrow far below its button inside a SwiftUI Form/ScrollView.
+            controller.view.layoutSubtreeIfNeeded()
+            let size = controller.view.fittingSize
+            controller.view.setFrameSize(size)
+            controller.preferredContentSize = size
+            popover.contentViewController = controller
+            popover.contentSize = size
+            sender.window?.contentView?.layoutSubtreeIfNeeded()
             popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
         }
     }
