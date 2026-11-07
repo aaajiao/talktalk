@@ -229,7 +229,7 @@
 - **尺寸**
   - 高 20，胶囊，`.quinary` 底，11pt medium 文字。
   - 前置 12pt 应用图标或符号；后置 `chevron.down` 8pt（`SubtitleTokens.Size.capsuleChevronSize`）。
-  - 最大宽 = 节点宽 − 16，文字中间截断，全名放 `.help`。
+  - 最大宽 = 节点宽 − 16，文字尾部截断（实机上中间截断把 “Google Chrome” 显示成 “G…me”，2026-11-07 改为尾部截断），全名放 `.help`。
   - 一个节点放两个 chip 时，应用 chip 只显示图标加截断名，语言 chip 固定 34pt 宽（“EN ▾”）。
 - **状态**
   - 会话中锁定：`lock.fill` 9pt 替换 chevron，禁用，`.help`“会话中不可更换”。

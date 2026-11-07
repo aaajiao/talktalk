@@ -104,15 +104,20 @@ struct PhoneSettingsView: View {
 
     private func dialRow(enabled: Bool) -> some View {
         HStack(spacing: 8) {
-            Label {
-                TextField(String(localized: "+49 …（可选）"), text: $state.phoneNumber)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 160)
-                    .accessibilityLabel(String(localized: "电话号码"))
-                    .onSubmit { if canDial { state.onDialPhone?(state.phoneNumber) } }
-            } icon: {
-                Image(systemName: SubtitleTokens.SceneIcon.phone)
-            }
+            // The field's own title would render as a wrapped Form label beside a squeezed field
+            // (seen in the release app): hide it and show the hint as the prompt inside the field.
+            Image(systemName: SubtitleTokens.SceneIcon.phone)
+                .font(.system(size: Ladder.row))
+                .foregroundStyle(.secondary)
+                .frame(width: Ladder.rowColumn)
+                .accessibilityHidden(true)
+            TextField(String(localized: "电话号码"), text: $state.phoneNumber,
+                      prompt: Text(String(localized: "+49 …（可选）")))
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 160)
+                .accessibilityLabel(String(localized: "电话号码"))
+                .onSubmit { if canDial { state.onDialPhone?(state.phoneNumber) } }
             if state.phoneDialing {
                 ProgressView().controlSize(.small).frame(width: Ladder.hitArea, height: Ladder.hitArea)
                     .help(String(localized: "正在打开 Phone…"))

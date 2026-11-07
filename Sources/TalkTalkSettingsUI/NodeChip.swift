@@ -48,7 +48,7 @@ public struct NodeChipItem {
 }
 
 /// A 20 pt capsule on the quinary fill (§3.4): an optional orange 9 pt triangle (the source is
-/// not open), a 12 pt app icon or an 11 pt symbol, 11 pt medium text truncated in the middle,
+/// not open), a 12 pt app icon or an 11 pt symbol, 11 pt medium text truncated at the tail (an app name keeps its first word: "Goo…", not "G…me"),
 /// and the 8 pt `chevron.down`; locked during a session, `lock.fill` 9 pt replaces the chevron
 /// and the menu does not open ("会话中不可更换" is then the caller's `help`); disabled by its
 /// environment, it draws at half opacity, as a disabled control does. `width` fixes it
@@ -100,7 +100,7 @@ public struct NodeChip: View {
                 .font(.system(size: Ladder.badge, weight: .medium))
                 .foregroundStyle(locked ? .secondary : .primary)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.tail)
             Image(systemName: locked ? SubtitleTokens.SettingsIcon.locked : SubtitleTokens.VoiceIcon.chevron)
                 .font(.system(size: locked ? Ladder.micro : SubtitleTokens.Size.capsuleChevronSize, weight: .semibold))
                 .foregroundStyle(.tertiary)
