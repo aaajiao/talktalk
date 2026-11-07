@@ -27,6 +27,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Sidebar labels fit the native row without changing page titles or destination names.
+    var navigationTitle: String {
+        switch self {
+        case .translation: String(appLocalized: "nav.sidebar.models")
+        case .privacy: String(appLocalized: "nav.sidebar.privacy")
+        default: title
+        }
+    }
+
     /// The sidebar glyph (settings visual system §4), also the menu's glyph for opening the page.
     var symbol: String {
         typealias Page = SubtitleTokens.SettingsIcon.Page
@@ -425,10 +434,13 @@ struct SettingsView: View {
             // Label rows: the system sizes the glyph to the Sidebar icon size setting and tints it
             // in the selected row.
             List(SettingsSection.allCases, selection: $navigation.selection) { section in
-                Label(section.title, systemImage: section.symbol).tag(section)
+                Label(section.navigationTitle, systemImage: section.symbol)
+                    .help(section.title)
+                    .accessibilityLabel(Text(verbatim: section.title))
+                    .tag(section)
             }
             .listStyle(.sidebar)
-            .frame(width: AppLanguageStore.shared.language == .english ? 230 : 190)
+            .frame(width: 190)
             Divider()
             // The detail container's fixed slots (settings visual system §2, §7.0): Z0 ReturnPill,
             // Z1 the page's card row, Z1b 隐私与诊断's recording banner, then the page itself,

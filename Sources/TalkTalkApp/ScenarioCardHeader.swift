@@ -19,13 +19,25 @@ struct ScenarioCardHeader: View {
 
     private func item(_ mode: MeetingMode) -> CardItem<MeetingMode> {
         let running = state.meetingActive && state.meetingMode == mode
-        return CardItem(id: mode, title: mode.scene.title, symbol: mode.sceneSymbol, summary: mode.sceneSummary,
+        return CardItem(id: mode, title: mode.navigationTitle, symbol: mode.sceneSymbol, summary: mode.sceneSummary,
                         badge: badge(mode),
-                        runningSince: running ? (state.meetingStartedAt ?? .now) : nil)
+                        runningSince: running ? (state.meetingStartedAt ?? .now) : nil,
+                        accessibilityTitle: mode.scene.title)
     }
 
     /// The page's problem line in the corner (one source with the page and the menu).
     private func badge(_ mode: MeetingMode) -> CardBadge? {
         ScenarioFacts(state: state, mode: mode).cardBadge
+    }
+}
+
+/// Short labels for the fixed settings cards; full scene names remain in help and VoiceOver.
+private extension MeetingMode {
+    var navigationTitle: String {
+        switch self {
+        case .meeting: String(appLocalized: "nav.scene.meeting")
+        case .phone: String(appLocalized: "nav.scene.phone")
+        case .captions: String(appLocalized: "nav.scene.video")
+        }
     }
 }

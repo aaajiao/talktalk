@@ -244,7 +244,7 @@ final class MyVoiceModel {
 }
 
 
-/// Settings › 我的声音 (settings visual system §7.7). The page opens with its flow: 录中文 with
+/// Settings › 我的声音 (settings visual system §7.7). The page opens with its flow: 录音 with
 /// the page's one primary action, the profile, and 试听 in English and German, followed by the
 /// translated-voice path; then one problem line, safety facts and a native delete button. Recording replaces the
 /// page with TalkTalkVoice's `EnrollmentView`. The profile's details are under 隐私与诊断 ›
@@ -403,7 +403,7 @@ extension FlowGrid {
         typealias Icon = SubtitleTokens.SettingsIcon
         let profile = model.profile
         let busy = model.externalBusy()
-        let record = FlowNode(String(appLocalized: "录中文"), glyph: .symbol(Icon.physicalMic), accessory: .controls {
+        let record = FlowNode(String(appLocalized: "录音"), glyph: .symbol(Icon.physicalMic), accessory: .controls {
             Button { model.beginRecording() } label: {
                 Label(model.hasProfile ? String(appLocalized: "重录") : String(appLocalized: "录制"), systemImage: Icon.record)
                     .labelStyle(.titleAndIcon)

@@ -18,7 +18,7 @@ extension DynamicTypeSize {
 }
 
 /// A visible fact in icon + shortest words (§3.11), in place of a gray paragraph: a 20 pt
-/// capsule, 11 pt icon and 11 pt text (≤ 8 characters; the safety facts of §5.4 ≤ 16). Every
+/// capsule when it fits, with 11 pt icon and text; long translations wrap at the same size. Every
 /// chip has its glyph: a neutral chip names it, `.cloud`, `.warn` and `.risk` draw their tone's.
 /// `help` (≤ 20 characters) is required. VoiceOver reads `spoken`, the full sentence, when given,
 /// else the chip text, and always `help` after it, so it hears at least what the pointer shows.
@@ -65,20 +65,33 @@ public struct FactChip: View {
     }
 
     public var body: some View {
-        HStack(spacing: 4) {
-            glyph.accessibilityHidden(true)
-            Text(verbatim: text).font(.system(size: Ladder.badge)).lineLimit(1)
+        ViewThatFits(in: .horizontal) {
+            chip(wrapping: false)
+            chip(wrapping: true)
         }
-        .foregroundStyle(foreground)
-        .padding(.horizontal, 8)
-        .frame(height: Ladder.chipHeight)
-        .background(Capsule().fill(.quaternary))
-        .overlay(Capsule().strokeBorder(stroke, lineWidth: 1))
-        .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken ?? text)
         .accessibilityHint(Text(verbatim: help))
         .help(help)
+    }
+
+    /// Keep the original 20 pt capsule where it fits. Longer translations wrap inside
+    /// the proposed width instead of forcing their parent beyond its card or form row.
+    private func chip(wrapping: Bool) -> some View {
+        HStack(alignment: wrapping ? .firstTextBaseline : .center, spacing: 4) {
+            glyph.accessibilityHidden(true)
+            Text(verbatim: text)
+                .font(.system(size: Ladder.badge))
+                .lineLimit(wrapping ? nil : 1)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(foreground)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .frame(minHeight: Ladder.chipHeight)
+        .background(RoundedRectangle(cornerRadius: Ladder.chipHeight / 2).fill(.quaternary))
+        .overlay(RoundedRectangle(cornerRadius: Ladder.chipHeight / 2).strokeBorder(stroke, lineWidth: 1))
+        .fixedSize(horizontal: !wrapping, vertical: true)
     }
 
     @ViewBuilder private var glyph: some View {
@@ -127,7 +140,7 @@ public struct FactRow: View {
             } else {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 6) {
-                        ForEach(chips.indices, id: \.self) { chips[$0] }
+                        ForEach(chips.indices, id: \.self) { chips[$0].fixedSize(horizontal: true, vertical: true) }
                         info
                     }
                     stacked

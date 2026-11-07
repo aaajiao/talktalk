@@ -39,7 +39,7 @@ public struct EnrollmentView: View {
 
     // MARK: - StepTrack (§3.5)
 
-    /// 1 录中文 (until the take stops), 2 检查 (until its results are read), 3 试听保存; 0 after
+    /// 1 录音 (until the take stops), 2 检查 (until its results are read), 3 试听保存; 0 after
     /// a failure.
     private var currentStep: Int {
         switch controller.phase {
@@ -89,7 +89,7 @@ public struct EnrollmentView: View {
         }
         return FlowGrid(String(appLocalized: "录制步骤"), lanes: [
             FlowLane(String(appLocalized: "录制步骤"), cells: [
-                .node(FlowNode(String(appLocalized: "录中文"), glyph: .step(1, stepState(1)), state: nodeState(1))),
+                .node(FlowNode(String(appLocalized: "录音"), glyph: .step(1, stepState(1)), state: nodeState(1))),
                 .node(FlowNode(String(appLocalized: "检查"), glyph: .step(2, stepState(2)), state: nodeState(2),
                                badge: checkBadge?.0, badgeReason: checkBadge?.1)),
                 .node(FlowNode(String(appLocalized: "试听保存"), glyph: .step(3, stepState(3)), state: nodeState(3),

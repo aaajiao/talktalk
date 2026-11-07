@@ -85,7 +85,8 @@ struct SettingsNavigationBand: View {
     // MARK: 模型
 
     private func modelCard(_ stage: ModelSettingsStage) -> CardItem<ModelSettingsStage> {
-        CardItem(id: stage, title: stage.title, symbol: stage.symbol, summary: stage.summary, badge: modelBadge(stage))
+        CardItem(id: stage, title: stage.navigationTitle, symbol: stage.symbol, summary: stage.summary,
+                 badge: modelBadge(stage), accessibilityTitle: stage.title)
     }
 
     private func modelBadge(_ stage: ModelSettingsStage) -> CardBadge? {
@@ -118,8 +119,8 @@ struct SettingsNavigationBand: View {
     // MARK: 组件
 
     private func componentsCard(_ tab: ComponentsSettingsTab) -> CardItem<ComponentsSettingsTab> {
-        CardItem(id: tab, title: tab.title, symbol: tab.symbol, summary: tab.summary,
-                 badge: tab == .engine ? engineBadge : driverBadge)
+        CardItem(id: tab, title: tab.navigationTitle, symbol: tab.symbol, summary: tab.summary,
+                 badge: tab == .engine ? engineBadge : driverBadge, accessibilityTitle: tab.title)
     }
 
     /// Install, update or repair needed: warn; a damaged record: failed. The flow and the 引擎
@@ -137,7 +138,8 @@ struct SettingsNavigationBand: View {
     // MARK: 隐私与诊断
 
     private func diagnosticsCard(_ tab: DiagnosticsSettingsTab) -> CardItem<DiagnosticsSettingsTab> {
-        CardItem(id: tab, title: tab.title, symbol: tab.symbol, summary: tab.summary, badge: diagnosticsBadge(tab))
+        CardItem(id: tab, title: tab.navigationTitle, symbol: tab.symbol, summary: tab.summary,
+                 badge: diagnosticsBadge(tab), accessibilityTitle: tab.title)
     }
 
     private func diagnosticsBadge(_ tab: DiagnosticsSettingsTab) -> CardBadge? {

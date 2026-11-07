@@ -5,7 +5,7 @@ import TalkTalkCore
 
 // The settings window's flow diagrams (docs/decisions/2026-11-06-settings-visual-system.md
 // §3.3–§3.5): where sound and text go, drawn as lanes of nodes on a SwiftUI `Grid` with fixed
-// node heights and equal node columns. No overlay paths, no geometry read back, no fixed-size
+// content-aware node heights and equal node columns. No overlay paths, no geometry read back, no fixed-size
 // wrappers (8c87ba7) except the LoopRow capsule, a leaf at its own width (see `loopRow`). The
 // scene factories that read session state live in the app. Text
 // parameters are already localized.
@@ -256,9 +256,10 @@ public struct LoopRow {
     }
 }
 
-/// A flow diagram (§3.3): a `Grid` with a 64 pt gutter column, four equal node columns and
-/// 16 pt arrow columns between them; lanes 10 pt apart. Every node of a diagram has one fixed
-/// height: 60, or 82 once any node has an accessory. A node meaning the same thing sits in the
+/// A flow diagram (§3.3): up to four equal node columns with 16 pt arrows between them;
+/// globally unused trailing columns are omitted. Short lane labels keep the 64 pt gutter;
+/// wide voice capsules use a separate heading row. All nodes share enough height for their
+/// localized title, risk text and controls. A node meaning the same thing sits in the
 /// same column in every diagram. VoiceOver gets one container named `label`; each lane begins
 /// with its gutter, announced as a heading. At the largest text sizes the gutter column goes
 /// (width 0) and each lane's label moves into its first node's accessory slot (§3.3), unless a
@@ -280,7 +281,9 @@ public struct FlowGrid: View {
     private let showsGutter: Bool
     /// The lane column may fold at the largest text sizes (`lanesFold`).
     private let foldable: Bool
-    private let hasAccessory: Bool
+    private let visibleColumns: Int
+    private let headingsAbove: Bool
+    private let measuredNodeHeight: Double
     @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(_ label: String, lanes: [FlowLane], loop: LoopRow? = nil) {
@@ -293,14 +296,52 @@ public struct FlowGrid: View {
         self.rows = rows
         showsGutter = lanes.contains { $0.gutter != nil }
         foldable = Self.lanesFold(lanes)
-        hasAccessory = lanes.contains { lane in
-            lane.cells.contains { if case let .node(node) = $0 { node.accessory != nil } else { false } }
+        let nodes = lanes.flatMap(\.cells).compactMap { cell -> FlowNode? in
+            if case let .node(node) = cell { return node }
+            return nil
         }
+        visibleColumns = Self.usedColumns(lanes)
+        headingsAbove = lanes.contains { Self.gutterNeedsHeading($0.gutter) }
+        measuredNodeHeight = Self.height(for: nodes, columns: visibleColumns,
+                                        gutter: showsGutter && !headingsAbove)
+    }
+
+    /// Do not reserve a fourth column when every lane ends at column three (or earlier).
+    static func usedColumns(_ lanes: [FlowLane]) -> Int {
+        max(1, lanes.map { lane in
+            (0..<columns).last { if case .empty = lane.cell($0) { false } else { true } }.map { $0 + 1 } ?? 0
+        }.max() ?? 0)
+    }
+
+    /// Native voice capsules keep their safety words at intrinsic width. A wider capsule
+    /// belongs above the lane, never painted over the first node's fixed gutter boundary.
+    private static func gutterNeedsHeading(_ gutter: LaneLabel?) -> Bool {
+        let voices: [VoiceState]
+        switch gutter {
+        case let .voice(voice, _)?: voices = [voice]
+        case let .voices(values)?: voices = values
+        case .symbol?, nil: return false
+        }
+        return voices.contains { VoiceCapsuleView.width(for: $0, full: true, large: false, chevron: false) > gutterWidth }
+    }
+
+    private static func height(for nodes: [FlowNode], columns: Int, gutter: Bool) -> Double {
+        // Conservative content budget at the window's 820 pt minimum. Short labels keep
+        // the existing compact Chinese layout; wider titles get real line space, not smaller type.
+        let columnWidth = (520 - (gutter ? gutterWidth : 0) - Double(max(0, columns - 1)) * arrowWidth) / Double(columns) - 16
+        let longTitle = nodes.contains {
+            ($0.title as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width > columnWidth
+        }
+        let risk = nodes.contains { $0.riskText != nil }
+        let accessory = nodes.contains { $0.accessory != nil }
+        if risk { return accessory ? 122 : 96 }
+        if longTitle { return accessory ? 110 : 94 }
+        return accessory ? accessoryHeight : compactHeight
     }
 
     /// Parallel requirements use the same node renderer without implying a sequence.
     public static func cards(_ label: String, nodes: [FlowNode]) -> some View {
-        let height = nodes.contains { $0.accessory != nil } ? accessoryHeight : compactHeight
+        let height = Self.height(for: nodes, columns: max(1, nodes.count), gutter: false)
         return HStack(alignment: .top, spacing: arrowWidth) {
             ForEach(nodes.indices, id: \.self) { index in
                 FlowNodeView(node: nodes[index], height: height)
@@ -330,17 +371,36 @@ public struct FlowGrid: View {
     }
 
     /// The largest text sizes: no gutter column; the lane labels sit in the nodes' accessory slot.
-    private var foldsGutter: Bool { showsGutter && foldable && typeSize.foldsSettingsGraphics }
+    private var foldsGutter: Bool { showsGutter && !headingsAbove && foldable && typeSize.foldsSettingsGraphics }
 
-    /// 60, or 82 once any node has an accessory (a folded lane label counts).
-    private var nodeHeight: Double { hasAccessory || foldsGutter ? Self.accessoryHeight : Self.compactHeight }
+    /// A diagram uses one height, including room for two-line titles and risk labels.
+    private var nodeHeight: Double { max(measuredNodeHeight, foldsGutter ? Self.accessoryHeight : 0) }
 
     public var body: some View {
-        Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 10) {
-            ForEach(rows.indices, id: \.self) { index in
-                switch rows[index] {
-                case let .lane(lane): laneRow(lane)
-                case let .loop(loop): loopRow(loop)
+        Group {
+            if headingsAbove {
+                // A separate heading gets the whole row. Each lane still has the same
+                // equal-width node columns; no intrinsic capsule can invade a node.
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(rows.indices, id: \.self) { index in
+                        switch rows[index] {
+                        case let .lane(lane):
+                            VStack(alignment: .leading, spacing: 6) {
+                                FlowLaneHeading(lane: lane)
+                                HStack(alignment: .top, spacing: 0) { laneCells(lane) }
+                            }
+                        case let .loop(loop): FlowLoop(loop: loop)
+                        }
+                    }
+                }
+            } else {
+                Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 10) {
+                    ForEach(rows.indices, id: \.self) { index in
+                        switch rows[index] {
+                        case let .lane(lane): laneRow(lane)
+                        case let .loop(loop): loopRow(loop)
+                        }
+                    }
                 }
             }
         }
@@ -352,13 +412,14 @@ public struct FlowGrid: View {
     private func laneRow(_ lane: FlowLane) -> some View {
         GridRow(alignment: .top) {
             if showsGutter && !foldsGutter { FlowGutter(lane: lane, height: nodeHeight) }
-            cell(lane, 0, mark: foldsGutter ? lane : nil)
-            arrow(lane, 0)
-            cell(lane, 1)
-            arrow(lane, 1)
-            cell(lane, 2)
-            arrow(lane, 2)
-            cell(lane, 3)
+            laneCells(lane)
+        }
+    }
+
+    @ViewBuilder private func laneCells(_ lane: FlowLane) -> some View {
+        ForEach(0..<visibleColumns, id: \.self) { index in
+            if index > 0 { arrow(lane, index - 1) }
+            cell(lane, index, mark: index == 0 && foldsGutter ? lane : nil)
         }
     }
 
@@ -427,6 +488,32 @@ public struct FlowGrid: View {
             Color.clear.frame(width: Self.arrowWidth, height: 22)
             FlowLoop(loop: loop)
         }
+    }
+}
+
+/// A long lane label uses a full row instead of borrowing space from a node.
+private struct FlowLaneHeading: View {
+    let lane: FlowLane
+
+    var body: some View {
+        HStack(spacing: 8) {
+            switch lane.gutter {
+            case let .voice(voice, caption)?:
+                VoiceCapsule(state: voice)
+                if let caption { Text(verbatim: caption).font(.caption2).foregroundStyle(.secondary) }
+            case let .voices(voices)?:
+                ForEach(voices.indices, id: \.self) { VoiceCapsule(state: voices[$0]) }
+            case let .symbol(symbol)?:
+                Image(systemName: symbol).font(.system(size: Ladder.row)).foregroundStyle(.secondary)
+                Text(verbatim: lane.label).font(.caption).foregroundStyle(.secondary)
+            case nil:
+                Text(verbatim: lane.label).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: lane.label))
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -522,8 +609,8 @@ private struct FlowLoop: View {
 }
 
 /// A node (§3.3): radius 10, quaternary fill, 8 pt padding; the 18 pt glyph in a 24 × 22 box
-/// with its badge at the top right, a one-line 12 pt title that may shrink to 85 % but never
-/// wraps, an optional red risk line, and the 20 pt accessory slot at the bottom. A node without
+/// with its badge at the top right, a 12 pt title and optional red risk label (up to two lines
+/// each, without shrinking), and the 20 pt accessory slot at the bottom. A node without
 /// controls is one plain button (pressed: tertiary fill); a node with controls links only
 /// through its 24 × 24 chevron at the bottom right. The chevron always shows.
 struct FlowNodeView: View {
@@ -585,14 +672,14 @@ struct FlowNodeView: View {
                 }
             Text(verbatim: node.title)
                 .font(.callout)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             if let risk = node.riskText {
                 Text(verbatim: risk)
                     .font(.caption)
                     .foregroundStyle(.red)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -777,14 +864,16 @@ private struct FlowSatelliteView: View {
     private func pill(chevron: Bool) -> some View {
         HStack(spacing: 4) {
             Image(systemName: satellite.symbol).font(.system(size: Ladder.badge, weight: .regular))
-            Text(verbatim: satellite.text).font(.system(size: Ladder.badge)).lineLimit(1)
+            Text(verbatim: satellite.text).font(.system(size: Ladder.badge)).lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             if chevron {
                 Image(systemName: Icon.link).font(.system(size: Ladder.micro, weight: .semibold))
             }
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 8)
-        .frame(height: 22)
+        .padding(.vertical, 3)
+        .frame(minHeight: 22)
         .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor),
                                         style: StrokeStyle(lineWidth: 1, dash: satellite.dashed ? [3, 2] : [])))
         .contentShape(Capsule())

@@ -79,20 +79,23 @@ public struct CardItem<ID: Hashable>: Identifiable {
     public let badge: CardBadge?
     /// Scene cards of a running session: the voice-coloured dot and the elapsed time.
     public let runningSince: Date?
+    /// Full purpose when the visible navigation title uses a shorter contextual name.
+    public let accessibilityTitle: String?
 
     public init(id: ID, title: String, symbol: String, summary: String, badge: CardBadge? = nil,
-                runningSince: Date? = nil) {
+                runningSince: Date? = nil, accessibilityTitle: String? = nil) {
         self.id = id
         self.title = title
         self.symbol = symbol
         self.summary = summary
         self.badge = badge
         self.runningSince = runningSince
+        self.accessibilityTitle = accessibilityTitle
     }
 }
 
-/// A card (§3.1): 64 pt high, radius 10, bordered; a 22 pt hierarchical icon in a 28 × 24 box
-/// over a one-line 13 pt semibold title, no summary line and no checkmark. Selected: 2 pt
+/// A card (§3.1): at least 64 pt high, radius 10, bordered; a 22 pt hierarchical icon in a 28 × 24 box
+/// over a two-line 13 pt semibold title, no summary line and no checkmark. Selected: 2 pt
 /// accent stroke, 10 % accent fill and an accent icon (shape, fill and colour). Running: the
 /// voice-coloured 8 pt dot and the elapsed time at the top left; the badge sits at the top
 /// right. Only the clock text is in a TimelineView.
@@ -109,11 +112,13 @@ public struct SettingsCard: View {
     private let badge: CardBadge?
     private let runningSince: Date?
     private let multiSelect: Bool
+    private let accessibilityTitle: String
     private let action: () -> Void
 
     /// `multiSelect`: one of several independent choices (onboarding); VoiceOver hears a toggle.
     public init(title: String, symbol: String, summary: String, selected: Bool, badge: CardBadge? = nil,
-                runningSince: Date? = nil, multiSelect: Bool = false, action: @escaping () -> Void) {
+                runningSince: Date? = nil, multiSelect: Bool = false, accessibilityTitle: String? = nil,
+                action: @escaping () -> Void) {
         self.title = title
         self.symbol = symbol
         self.summary = summary
@@ -121,6 +126,7 @@ public struct SettingsCard: View {
         self.badge = badge?.rank == nil ? nil : badge
         self.runningSince = runningSince
         self.multiSelect = multiSelect
+        self.accessibilityTitle = accessibilityTitle ?? title
         self.action = action
     }
 
@@ -133,17 +139,23 @@ public struct SettingsCard: View {
                     .foregroundStyle(selected ? Color.accentColor : Color.secondary)
                     .frame(width: 28, height: 24)
                     .accessibilityHidden(true)
-                Text(verbatim: title).font(.body.weight(.semibold)).lineLimit(1)
+                Text(verbatim: title)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: Self.height)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(minHeight: Self.height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.roundedRectangle(radius: Self.radius))
         // On the button itself: the running clock below is its own element, so VoiceOver hears
         // the live time right after the card instead of a value frozen at the last render.
-        .accessibilityLabel(Text(verbatim: title))
+        .accessibilityLabel(Text(verbatim: accessibilityTitle))
         .accessibilityValue(Text(verbatim: accessibilityValue))
         .accessibilityHint(Text(verbatim: summary))
         .accessibilityAddTraits(multiSelect ? .isToggle : (selected ? .isSelected : []))
@@ -256,7 +268,7 @@ public struct CardRow<ID: Hashable>: View {
     }
 
     public var body: some View {
-        HStack(spacing: arrows ? 0 : 12) {
+        NavigationCardLayout(arrows: arrows) {
             ForEach(items.indices, id: \.self) { index in
                 let item = items[index]
                 if arrows, index > 0 {
@@ -268,11 +280,50 @@ public struct CardRow<ID: Hashable>: View {
                 }
                 SettingsCard(title: item.title, symbol: item.symbol, summary: item.summary,
                              selected: isSelected(item.id), badge: item.badge, runningSince: item.runningSince,
-                             multiSelect: multiSelect) { choose(item.id) }
+                             multiSelect: multiSelect, accessibilityTitle: item.accessibilityTitle) { choose(item.id) }
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(verbatim: label))
+    }
+}
+
+/// Propose the same width to every card, then use the tallest natural height for all of
+/// them. A wrapped title grows the row rather than colliding with its icon or neighbours.
+private struct NavigationCardLayout: Layout {
+    let arrows: Bool
+
+    private func metrics(_ proposal: ProposedViewSize, _ subviews: Subviews) -> (width: CGFloat, card: CGFloat, height: CGFloat) {
+        let indexes = subviews.indices.filter { !arrows || $0.isMultiple(of: 2) }
+        guard !indexes.isEmpty else { return (0, 0, 0) }
+        let gaps = CGFloat(max(0, indexes.count - 1)) * (arrows ? 24 : 12)
+        let idealCard = indexes.map { subviews[$0].sizeThatFits(.unspecified).width }.max() ?? 0
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? (idealCard * CGFloat(indexes.count) + gaps)
+        let card = max(0, width - gaps) / CGFloat(indexes.count)
+        let height = indexes.map { subviews[$0].sizeThatFits(.init(width: card, height: nil)).height }.max() ?? 0
+        return (width, card, height)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let size = metrics(proposal, subviews)
+        return CGSize(width: size.width, height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let size = metrics(.init(width: bounds.width, height: bounds.height), subviews)
+        var x = bounds.minX
+        for index in subviews.indices {
+            let isArrow = arrows && !index.isMultiple(of: 2)
+            let width: CGFloat = isArrow ? 24 : size.card
+            if isArrow {
+                subviews[index].place(at: CGPoint(x: x + width / 2, y: bounds.midY), anchor: .center,
+                                      proposal: .init(width: width, height: nil))
+            } else {
+                subviews[index].place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
+                                      proposal: .init(width: width, height: size.height))
+            }
+            x += width + (!arrows && index < subviews.count - 1 ? 12 : 0)
+        }
     }
 }
 
@@ -285,9 +336,12 @@ public struct GlobalRow<Content: View>: View {
     public init(@ViewBuilder content: () -> Content) { self.content = content() }
 
     public var body: some View {
-        HStack(spacing: 24) { content }
-            .labelStyle(.settingsRow)
-            .toggleStyle(.switch)
-            .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: .leading)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 24) { content }.fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 10) { content }
+        }
+        .labelStyle(.settingsRow)
+        .toggleStyle(.switch)
+        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
     }
 }

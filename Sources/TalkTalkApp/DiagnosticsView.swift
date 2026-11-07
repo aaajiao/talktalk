@@ -14,6 +14,15 @@ enum DiagnosticsSettingsTab: String, CaseIterable, Identifiable {
         case .troubleshooting: String(appLocalized: "故障检查")
         }
     }
+    /// Compact card text. The full title and purpose remain available to accessibility.
+    var navigationTitle: String {
+        switch self {
+        case .privacy: String(appLocalized: "nav.diagnostics.privacy")
+        case .subtitles: String(appLocalized: "nav.diagnostics.subtitles")
+        case .troubleshooting: String(appLocalized: "nav.diagnostics.troubleshooting")
+        }
+    }
+
     var symbol: String {
         switch self {
         case .privacy: SubtitleTokens.SettingsIcon.Page.privacy

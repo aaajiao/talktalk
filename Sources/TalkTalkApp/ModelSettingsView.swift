@@ -16,6 +16,15 @@ enum ModelSettingsStage: String, CaseIterable, Identifiable {
         case .synthesis: String(appLocalized: "语音合成")
         }
     }
+    /// Compact card text. The full title and purpose remain available to accessibility.
+    var navigationTitle: String {
+        switch self {
+        case .recognition: String(appLocalized: "nav.model.recognition")
+        case .translation: String(appLocalized: "nav.model.translation")
+        case .synthesis: String(appLocalized: "nav.model.synthesis")
+        }
+    }
+
     var symbol: String {
         switch self {
         case .recognition: SubtitleTokens.SettingsIcon.recognition

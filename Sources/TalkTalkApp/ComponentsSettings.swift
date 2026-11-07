@@ -15,6 +15,14 @@ enum ComponentsSettingsTab: CaseIterable, Identifiable {
         }
     }
 
+    /// Compact card text. The full title and purpose remain available to accessibility.
+    var navigationTitle: String {
+        switch self {
+        case .engine: String(appLocalized: "nav.components.resources")
+        case .driver: title
+        }
+    }
+
     var symbol: String {
         self == .engine ? SubtitleTokens.SettingsIcon.engine : SubtitleTokens.SettingsIcon.talkTalkMic
     }
