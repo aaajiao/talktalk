@@ -40,6 +40,12 @@ import Testing
         #expect(FlowNode("准备", glyph: .step(1, .done)).accessibilityValue == "已完成")
     }
 
+    /// §3.6: VoiceOver hears both panels, and "未连接" while nothing goes to OpenAI.
+    @Test func dataBoundarySaysWhatLeavesThisMac() {
+        #expect(DataBoundary.spoken(cloudEnabled: true) == "本机：声音、声音档案、录音；OpenAI：文字、上下文、术语")
+        #expect(DataBoundary.spoken(cloudEnabled: false).hasSuffix("，未连接"))
+    }
+
     @Test func arrowsJoinOnlyNeighbouringContent() {
         let node = FlowCell.node(FlowNode("a", glyph: .symbol("mic")))
         let lane = FlowLane("听对方", cells: [node, node, .pass, .empty])

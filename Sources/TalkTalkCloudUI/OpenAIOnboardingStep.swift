@@ -124,7 +124,7 @@ public struct OpenAIOnboardingStep: View {
                         Button("验证现有 key") { Task { await model.verify() } }
                     }
                 }
-                if let p = model.pasteProblem { Text(p).foregroundStyle(.red).font(.callout) }
+                if let p = model.pasteProblem { StatusLabel(p.text, p.status, help: p.help) }
                 if let h = model.savedHint { Text(h).foregroundStyle(.secondary).font(.callout) }
                 status
                 Text(TranslationSettingsText.keyAdvice).font(.footnote).foregroundStyle(.secondary)
@@ -135,11 +135,6 @@ public struct OpenAIOnboardingStep: View {
     }
 
     @ViewBuilder private var status: some View {
-        switch model.verification {
-        case .idle: EmptyView()
-        case .running(let s): StatusLabel(s, .busy)
-        case .ok(let s): StatusLabel(s, .ok)
-        case .failed(let s): StatusLabel(s, .failed)
-        }
+        if let line = model.verification.line { StatusLabel(line.text, line.status, help: line.help) }
     }
 }

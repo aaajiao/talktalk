@@ -3,6 +3,7 @@ import Synchronization
 import Testing
 import TalkTalkCloud
 import TalkTalkCore
+import TalkTalkSettingsUI
 @testable import TalkTalkCloudUI
 
 // Settings › 翻译 (§11, §7.7): text mapping, preferences, and the model's key / list flow against an
@@ -86,23 +87,115 @@ final class FakeOpenAI: URLProtocol {
 let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 chars, not a real key
 
 @Suite struct TranslationSettingsTextTests {
+    /// The shortest words show (§7.9); the sentence is the help.
     @Test func errorMapping() throws {
         let cloud = try UIRes.profile().cloud
-        #expect(TranslationSettingsText.failure(status: 401, error: .init(code: "invalid_api_key"), cloud: cloud).contains("key 无效"))
-        #expect(TranslationSettingsText.failure(status: 403, error: nil, cloud: cloud).contains("国家或地区"))
-        #expect(TranslationSettingsText.failure(status: 429, error: .init(type: "insufficient_quota"), cloud: cloud).contains("额度用完"))
-        #expect(TranslationSettingsText.failure(status: 429, error: .init(code: "project_spend_limit_exceeded"), cloud: cloud).contains("额度用完"))
-        #expect(TranslationSettingsText.failure(status: 429, error: .init(code: "slow_down", type: "rate_limit_error"), cloud: cloud).contains("太频繁"))
-        #expect(TranslationSettingsText.failure(status: 429, error: nil, cloud: cloud).contains("太频繁"))
-        #expect(TranslationSettingsText.failure(status: 503, error: nil, cloud: cloud).contains("暂时出错"))
-        #expect(TranslationSettingsText.failure(status: 404, error: nil, cloud: cloud).contains("下线"))
+        func failure(_ status: Int, _ error: OpenAIErrorInfo?) -> TranslationSettingsText.Message {
+            TranslationSettingsText.failure(status: status, error: error, cloud: cloud)
+        }
+        let invalid = failure(401, .init(code: "invalid_api_key"))
+        #expect(invalid.text == "key 无效 · 401" && invalid.detail?.contains("已撤销") == true)
+        #expect(failure(403, nil).text == "被拒绝 · 403" && failure(403, nil).detail?.contains("国家或地区") == true)
+        #expect(failure(429, .init(type: "insufficient_quota")).text == "额度用完 → Apple")
+        #expect(failure(429, .init(code: "project_spend_limit_exceeded")).detail?.contains("project_spend_limit_exceeded") == true)
+        #expect(failure(429, .init(code: "slow_down", type: "rate_limit_error")).text == "请求太频繁")
+        #expect(failure(429, nil).text == "请求太频繁")
+        #expect(failure(503, nil).text == "OpenAI 出错 · 503" && failure(503, nil).detail?.contains("暂时出错") == true)
+        #expect(failure(404, nil).text == "模型不存在 · 404" && failure(404, nil).detail?.contains("下线") == true)
+        #expect(TranslationSettingsText.transportFailure(URLError(.notConnectedToInternet)).text == "连不上")
     }
 
     @Test func costLine() {
-        #expect(TranslationSettingsText.cost(for: "gpt-6-luna", yellow: false) == "约 $0.06 / 会议小时（估，含对冲）")
-        #expect(TranslationSettingsText.cost(for: "gpt-6.1-sol", yellow: true) == "见 OpenAI 定价（推理 token 另计）")
-        #expect(TranslationSettingsText.cost(for: "gpt-6-sol", yellow: true).hasSuffix("+ 推理 token"))
+        #expect(TranslationSettingsText.cost(for: "gpt-6-luna", yellow: false) == "≈ $0.06/小时（估）")
+        #expect(TranslationSettingsText.cost(for: "gpt-6.1-sol", yellow: true) == "见 OpenAI 定价")
+        #expect(TranslationSettingsText.cost(for: "gpt-6-sol", yellow: true).hasSuffix("+ 推理"))
         #expect(TranslationSettingsText.cost(for: "gpt-7-nova", yellow: false) == "见 OpenAI 定价")
+    }
+
+    @Test func retirementNoticeIsShort() {
+        #expect(TranslationSettingsText.retirementNotice(.fellBackToDefault(from: "gpt-6-oldtier")) == "gpt-6-oldtier 已下线 → gpt-6-luna")
+        #expect(TranslationSettingsText.retirementNotice(.defaultRetiring) == "gpt-6-luna 即将下线")
+        #expect(TranslationSettingsText.retirementNotice(.keep("gpt-6-luna")) == nil)
+    }
+
+    /// After a save the clipboard reminder always shows (§5.4); a passed check joins its help.
+    @Test func keyResultsKeepTheClipboardReminder() {
+        let reminder = TranslationSettingsText.clearClipboard
+        let passed = TranslationSettingsText.keyResults(pasteProblem: nil, verification: .ok("key 可用", detail: "模型 x 探针通过"),
+                                                        saved: true)
+        #expect(passed.map(\.text) == [reminder] && passed.first?.help?.contains("探针通过") == true)
+        let failed = TranslationSettingsText.keyResults(pasteProblem: nil, verification: .failed("key 无效 · 401"), saved: true)
+        #expect(failed.map(\.status) == [.failed, .ok] && failed.last?.text == reminder)
+        let refused = SettingsProblem(.failed, "不像 OpenAI key")
+        #expect(TranslationSettingsText.keyResults(pasteProblem: refused, verification: .idle, saved: false) == [refused])
+        #expect(TranslationSettingsText.keyResults(pasteProblem: nil, verification: .idle, saved: false).isEmpty)
+    }
+
+    /// §9.1 4d: the OpenAI switches wait for consent and a key; no key is a warning only once
+    /// known; a switch changed during a session waits for the next start.
+    @Test func flowFactsGateTheSwitchesAndSayWhatWaits() {
+        var p = TranslationPreferences()
+        let noConsent = TranslationFlowFacts(preferences: p, hasKey: true, keyStateKnown: true)
+        #expect(!noConsent.switchesEnabled && !noConsent.choosesOpenAI(.speak) && !noConsent.cloudConnected)
+        #expect(noConsent.problem == nil)
+        #expect(!TranslationFlowFacts(preferences: p, hasKey: false, keyStateKnown: true).showsOpenAISection)
+        p.cloudConsentGiven = true
+        let noKey = TranslationFlowFacts(preferences: p, hasKey: false, keyStateKnown: true)
+        #expect(!noKey.switchesEnabled && noKey.choosesOpenAI(.listen) && !noKey.cloudConnected)
+        #expect(noKey.badge(.listen)?.status == .warn && noKey.problem?.text == "无 key → Apple")
+        #expect(TranslationFlowFacts(preferences: p, hasKey: false, keyStateKnown: false).problem == nil)
+        let ready = TranslationFlowFacts(preferences: p, hasKey: true, keyStateKnown: true)
+        #expect(ready.switchesEnabled && ready.cloudConnected && ready.problem == nil)
+        var changed = p
+        changed.speakCloudEnabled = false
+        let waiting = TranslationFlowFacts(preferences: changed, hasKey: true, keyStateKnown: true, baseline: p)
+        #expect(waiting.badge(.speak)?.status == .waiting && waiting.badge(.listen) == nil)
+        #expect(waiting.problem?.text == "下次开始生效" && !waiting.choosesOpenAI(.speak))
+        changed.listenCloudEnabled = false
+        #expect(!TranslationFlowFacts(preferences: changed, hasKey: true, keyStateKnown: true).cloudConnected)
+        // The running session still sends what it started with: DataBoundary stays connected.
+        #expect(TranslationFlowFacts(preferences: changed, hasKey: true, keyStateKnown: true, baseline: p).cloudConnected)
+        // Before the key item is known, a direction set to OpenAI never reads as "未连接".
+        #expect(TranslationFlowFacts(preferences: p, hasKey: false, keyStateKnown: false).cloudConnected)
+    }
+
+    /// An OpenAI switch that is on can be turned off without a key; one that is off waits.
+    @Test func aSwitchThatIsOnCanAlwaysBeTurnedOff() {
+        var p = TranslationPreferences()
+        p.cloudConsentGiven = true
+        let on = TranslationFlowFacts(preferences: p, hasKey: false, keyStateKnown: true)
+        #expect(on.switchEnabled(.listen) && on.switchHelp(.listen) == "用 OpenAI 翻译听到的话")
+        p.listenCloudEnabled = false
+        let off = TranslationFlowFacts(preferences: p, hasKey: false, keyStateKnown: true)
+        #expect(!off.switchEnabled(.listen) && off.switchHelp(.listen) == "先保存 key" && off.badge(.listen) == nil)
+        #expect(off.switchEnabled(.speak))
+        p.cloudConsentGiven = false
+        let noConsent = TranslationFlowFacts(preferences: p, hasKey: true, keyStateKnown: true)
+        #expect(!noConsent.switchEnabled(.speak) && noConsent.switchHelp(.speak) == "先同意发送文字")
+    }
+
+    /// A model picked during a session waits for the next start, like the switches.
+    @Test func aModelPickedDuringASessionWaits() {
+        let p = TranslationPreferences()
+        var q = p
+        #expect(!TranslationFlowFacts(preferences: q, hasKey: true, keyStateKnown: true, baseline: p).modelWaits)
+        q.effort = "low"
+        #expect(TranslationFlowFacts(preferences: q, hasKey: true, keyStateKnown: true, baseline: p).modelWaits)
+        q.model = "gpt-6.1-sol"
+        #expect(!TranslationFlowFacts(preferences: q, hasKey: true, keyStateKnown: true).modelWaits)
+    }
+
+    /// The menu's glyphs are spoken (the visible suffixes are gone).
+    @Test func modelChoicesSayWhatTheirGlyphMeans() {
+        let picker = ModelFilter.picker([
+            .init(id: "gpt-6-luna", created: 2, shutdown_date: "2027-01-01"),
+            .init(id: "gpt-6.1-sol", created: 3),
+            .init(id: "gpt-6.1-terra", created: 4)
+        ], current: "gpt-6-luna")
+        let spoken = Dictionary(uniqueKeysWithValues: picker.models.map { ($0.id, TranslationSettingsText.choiceSpoken($0)) })
+        #expect(spoken["gpt-6-luna"] == "gpt-6-luna · 默认，即将下线")
+        #expect(spoken["gpt-6.1-sol"] == "gpt-6.1-sol，会明显变慢")
+        #expect(spoken["gpt-6.1-terra"] == "gpt-6.1-terra")
     }
 
     @Test func preferencesRoundTrip() {
@@ -129,7 +222,7 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         #expect(!m.keyStateKnown)                               // .none means "not known yet"
         await m.loadKeyState()
         #expect(m.keyStateKnown)
-        #expect(m.keyState == .saved(masked: "已保存"))
+        #expect(m.keyState == .saved(masked: "sk-…•••"))
         #expect(store.reads == 0)
         #expect(!store.queriedOnMain)
     }
@@ -156,7 +249,7 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         await m.saveAndVerify()
         #expect(store.writes == 0)
         #expect(m.pasteField.isEmpty)
-        #expect(m.pasteProblem != nil)
+        #expect(m.pasteProblem?.text == "请先同意发送文字")
         #expect(m.keyState == .none)
     }
 
@@ -167,8 +260,8 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         await m.saveAndVerify()
         #expect(store.writes == 0)
         #expect(m.pasteField.isEmpty)
-        #expect(m.pasteProblem?.contains("sk-") == true)
-        #expect(m.pasteProblem?.contains("not-a-key") == false)
+        #expect(m.pasteProblem?.help?.contains("sk-") == true)
+        #expect(m.pasteProblem?.help?.contains("not-a-key") == false && m.pasteProblem?.text.contains("not-a-key") == false)
     }
 
     @Test func save401ShowsInvalidKeyAndNoProbe() async throws {
@@ -180,9 +273,10 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         #expect(store.writes == 1)
         #expect(try store.read() == Data(fakeKey.utf8))       // trimmed
         #expect(m.keyState == .saved(masked: "sk-…WXYZ"))
-        guard case .failed(let why) = m.verification else { Issue.record("expected failure"); return }
-        #expect(why.contains("key 无效"))
-        #expect(!why.contains("Incorrect"))                     // error.message never surfaces
+        guard case let .failed(why, detail) = m.verification else { Issue.record("expected failure"); return }
+        #expect(why == "key 无效 · 401")
+        #expect(!why.contains("Incorrect") && detail?.contains("Incorrect") == false)   // error.message never surfaces
+        #expect(m.savedHint == TranslationSettingsText.clearClipboard)
         #expect(FakeOpenAI.state.withLock { $0.paths } == ["/v1/models"])   // no probe after a failed list
     }
 
@@ -223,14 +317,45 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         #expect(m.pendingYellow == nil)
     }
 
-    @Test func deleteClears() throws {
+    @Test func deleteClears() async throws {
         let store = MemoryKeyStore(fakeKey)
         let m = try make(store)
+        m.pasteField = "not-a-key"
+        await m.saveAndVerify()
+        #expect(m.pasteProblem != nil)
         m.deleteKey()
         #expect(!store.exists())
         #expect(m.keyState == .none)
         #expect(m.keyStateKnown)
         #expect(!m.hasKey)
+        #expect(m.pasteProblem == nil)
+    }
+
+    /// 验证 after a refused paste shows its own result, not the stale refusal.
+    @Test func verifyReplacesAStalePasteProblem() async throws {
+        FakeOpenAI.set(401, #"{"error":{"type":"invalid_request_error","code":"invalid_api_key"}}"#)
+        let m = try make(MemoryKeyStore(fakeKey))
+        m.pasteField = "not-a-key"
+        await m.saveAndVerify()
+        #expect(m.pasteProblem?.text == "不像 OpenAI key")
+        await m.verify()
+        let results = TranslationSettingsText.keyResults(pasteProblem: m.pasteProblem, verification: m.verification,
+                                                         saved: m.savedHint != nil)
+        #expect(results.map(\.text) == ["key 无效 · 401"])
+    }
+
+    @Test func aSessionKeepsThePreferencesItStartedWith() throws {
+        let m = try make(MemoryKeyStore())
+        let start = Date(timeIntervalSince1970: 1_000)
+        m.trackSession(start)
+        let before = m.preferences
+        m.update { $0.speakCloudEnabled = false }
+        m.trackSession(start)                                   // the same session: unchanged
+        #expect(m.sessionBaseline == before)
+        m.trackSession(nil)
+        #expect(m.sessionBaseline == nil)
+        m.trackSession(start.addingTimeInterval(60))            // a new session starts from now
+        #expect(m.sessionBaseline == m.preferences)
     }
 
     @Test func toggles() throws {

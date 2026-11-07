@@ -32,55 +32,54 @@ enum ModelSettingsStage: String, CaseIterable, Identifiable {
     }
 }
 
+/// Settings › 模型 (settings visual system §7.8–§7.10). The stage cards sit in the window's fixed
+/// band (SettingsNavigationBand); each stage is its own Form and starts at the top. 语音识别 and
+/// 语音合成 are a diagram, its problem line and one fact row, with no sections: the node badges
+/// and links say what the removed rows said. 文本翻译 is TalkTalkCloudUI's page.
 struct ModelSettingsView: View {
     @Bindable var state: AppState
     @Bindable var navigation: SettingsNavigation
     let translation: TranslationPage
+    let driver: DriverComponentsPage
+    var engine: EngineComponentsModel = AppUIModels.shared.engine
 
-    /// The stage cards sit in the window's fixed band (SettingsNavigationBand); each stage is
-    /// its own Form and starts at the top.
+    private typealias Icon = SubtitleTokens.SettingsIcon
+
     var body: some View {
         VStack(spacing: 0) {
             switch navigation.modelStage {
             case .recognition: recognition
-            case .translation: TranslationPageView(page: translation)
+            case .translation: TranslationPageView(page: translation, state: state)
             case .synthesis: synthesis
             }
         }
         .settingsPageScroll(navigation, subpage: navigation.modelStage)
         .onAppear {
-            AppUIModels.shared.engine.reload()
+            engine.reload()
             // The 文本翻译 card's badge reads the model (only whether the key item exists).
             translation.load()
+            // The TalkTalk Mic node's badge reads the driver, as on the scene pages.
+            driver.load()
         }
+    }
+
+    /// A node link: ReturnPill on the target page leads back to this stage.
+    private var links: ScenarioLinks {
+        ScenarioLinks { section, subpage, anchor in navigation.open(section, subpage, anchor: anchor) }
     }
 
     private var recognition: some View {
         Form {
             Section {
-                Picker("首选识别引擎", selection: $state.listenASREngine) {
-                    Text("Qwen3-ASR（默认）").tag(AppState.ListenASREngine.qwen)
-                    Text("Apple Speech").tag(AppState.ListenASREngine.apple)
+                VStack(alignment: .leading, spacing: 10) {
+                    FlowGrid.recognition(state, engine: engine, links: links)
+                    if let problem = engine.recognitionProblem(state) {
+                        StatusLabel(problem.text, problem.status, help: problem.help)
+                    }
+                    FactRow([FactChip(String(localized: "本机识别"), symbol: Icon.thisMac,
+                                      help: String(localized: "声音在这台 Mac 上转成原文"))])
                 }
-                LabeledContent("当前运行", value: state.listenASRStatus ?? String(localized: "尚未开始收听"))
-            } header: { Text("听对方／看视频 · 应用声音 → 原文") }
-            footer: { Text("选择立即生效；Qwen 不可用时由 Apple Speech 接管。") }
-
-            Section {
-                LabeledContent("按键翻译的识别引擎", value: String(localized: "Qwen3-ASR，Apple Speech 备用"))
-            } header: { Text("我说话 · 按键翻译") }
-
-            Section {
-                LabeledContent("Qwen3-ASR", value: installedModel(role: "asr"))
-                Button("管理本地模型安装") { navigation.open(.components, .components(.engine)) }
-            } header: {
-                HStack {
-                    Text("本地识别模型")
-                    InfoButton(topic: String(localized: "本地识别"), lines: [
-                        String(localized: "声音在这台 Mac 上转成原文，再交给文本翻译。"),
-                        String(localized: "常用中英文名称可加入术语表，帮助识别。")
-                    ])
-                }
+                .padding(.vertical, 4)
             }
         }
         .formStyle(.grouped)
@@ -89,35 +88,121 @@ struct ModelSettingsView: View {
     private var synthesis: some View {
         Form {
             Section {
-                SpeechFlow(steps: [("character.bubble", String(localized: "英语／德语译文")),
-                                   (SubtitleTokens.SettingsIcon.myVoice, String(localized: "合成译音")),
-                                   (SubtitleTokens.SettingsIcon.talkTalkMic, "TalkTalk Mic")], links: [
-                    1: .init(String(localized: "声音与试听")) { navigation.open(.voice) }
-                ])
-                Label("会议同传会生成译音；视频字幕只显示文字。", systemImage: "speaker.wave.2")
-                    .font(.callout).foregroundStyle(.secondary)
-            } header: { Text("译文 → 会议里的声音") }
-            Section {
-                LabeledContent("Qwen3-TTS 模型", value: installedModel(role: "tts"))
-                LabeledContent("声音档案", value: state.voiceProfilePresent ? String(localized: "已创建") : String(localized: "尚未创建"))
-            } header: {
-                HStack {
-                    Text("我的声音")
-                    InfoButton(topic: String(localized: "我的声音"), lines: [
-                        String(localized: "Qwen3-TTS 使用你录制的声音档案生成译音，模型与声音档案需要分别准备。"),
-                        String(localized: "已有声音档案但克隆引擎暂不可用时，会等待恢复或停止发送该段，不会立即切换为系统声音。")
-                    ])
+                VStack(alignment: .leading, spacing: 10) {
+                    FlowGrid.synthesis(state, engine: engine, driver: driver, links: links)
+                    if let problem = engine.synthesisProblem {
+                        StatusLabel(problem.text, problem.status, help: problem.help)
+                    }
+                    // Whether the other party hears a voice at all (§0.2 #10): icon + shortest words.
+                    FactRow([
+                        FactChip(String(localized: "会议·电话生成译音"), symbol: SubtitleTokens.SceneIcon.meeting,
+                                 help: String(localized: "对方听到译音")),
+                        FactChip(String(localized: "视频不生成"), symbol: Icon.noSpeech,
+                                 help: String(localized: "视频字幕只显示文字"))
+                    ], info: InfoButton(topic: String(localized: "合成译音"), lines: [
+                        String(localized: "已有声音档案但克隆引擎暂不可用时，会等待恢复或不发送该段（未发送），不会改用系统声音。")
+                    ]))
                 }
+                .padding(.vertical, 4)
             }
-            Section {
-                LabeledContent("macOS 系统声音", value: String(localized: "没有声音档案时使用"))
-            } header: { Text("系统声音") }
         }
         .formStyle(.grouped)
     }
+}
 
-    private func installedModel(role: String) -> String {
-        guard let key = AppUIModels.shared.engine.record?.roles[role]?.id else { return String(localized: "未安装") }
-        return EnginePins.models.first { $0.key == key }?.repo.split(separator: "/").last.map(String.init) ?? key
+/// The 语音识别 and 语音合成 diagrams (§7.8, §7.10).
+@MainActor
+extension FlowGrid {
+    /// 听对方: 应用声音 → 识别 ‹Qwen3-ASR ▾› (备用 Apple) → 原文; 我说话: 说中文 (右⌥) → 识别
+    /// (Qwen3-ASR, 术语表 ›) → 原文.
+    static func recognition(_ state: AppState, engine: EngineComponentsModel, links: ScenarioLinks) -> FlowGrid {
+        typealias Icon = SubtitleTokens.SettingsIcon
+        let problem = engine.recognitionProblem(state)
+        let missing = engine.record?.roles["asr"] == nil
+        let qwen = state.listenASREngine == .qwen
+        let fellBack = state.meetingActive && state.listenASRFallback
+        let manage = missing ? links.node(String(localized: "组件 · 引擎与模型"), .components, .components(.engine)) : nil
+        let model = engine.modelName(role: "asr")
+        let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
+        let listen = FlowNode(String(localized: "识别"), glyph: .symbol(Icon.recognition),
+                              badge: problem?.status, badgeReason: problem?.text, link: manage,
+                              accessory: .controls { ListenASRChip(state: state) },
+                              // Apple stands by for Qwen; solid once it took over.
+                              satellite: qwen ? FlowSatellite(String(localized: "备用 Apple"), symbol: Icon.thisMac,
+                                                              help: fellBack ? String(localized: "Apple Speech 已接管")
+                                                                             : String(localized: "Qwen 不可用时接管"),
+                                                              dashed: !fellBack) : nil,
+                              help: qwen ? model : nil)
+        let speak = FlowNode(String(localized: "识别"), glyph: .symbol(Icon.recognition),
+                             badge: missing ? .pending : nil,
+                             badgeReason: missing ? String(localized: "识别模型未安装") : nil,
+                             link: manage,
+                             accessory: .display {
+                                 Text(verbatim: "Qwen3-ASR").font(.caption2).foregroundStyle(.secondary)
+                             },
+                             satellite: FlowSatellite(String(localized: "术语表"), symbol: Icon.glossary,
+                                                      help: String(localized: "常用中英文名称帮助识别"),
+                                                      link: links.node(String(localized: "术语表"), .glossary)),
+                             help: [model, String(localized: "Apple Speech 备用")].compactMap { $0 }.joined(separator: " · "))
+        let source = FlowNode(String(localized: "原文"), glyph: .symbol(Icon.sourceText))
+        return FlowGrid(String(localized: "语音识别路径"), lanes: [
+            FlowLane(String(localized: "听对方"), gutter: .symbol(Icon.listen), cells: [
+                .node(FlowNode(String(localized: "应用声音"), glyph: .symbol(Icon.remote))), .node(listen), .node(source), .empty
+            ]),
+            FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
+                .node(FlowNode(String(localized: "说中文"), glyph: .symbol(Icon.me), accessory: .display {
+                    Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle))
+                }, help: String(localized: "可夹英语"))),
+                .node(speak), .node(source), .empty
+            ])
+        ])
+    }
+
+    /// 译音: EN/DE 译文 → 合成译音 (我的声音 › or 系统声音) → TalkTalk Mic › → 对方听到译音.
+    static func synthesis(_ state: AppState, engine: EngineComponentsModel, driver: DriverComponentsPage,
+                          links: ScenarioLinks) -> FlowGrid {
+        typealias Icon = SubtitleTokens.SettingsIcon
+        let problem = engine.synthesisProblem
+        let driverProblem = driver.driverProblem
+        let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
+        let voice = links.node(String(localized: "我的声音"), .voice)
+        // One satellite: the profile in use, else the system voice, dashed as on the scene and
+        // 我的声音 pages (§3.3: one shape per meaning); it leads to 我的声音 to record one.
+        let satellite = state.voiceProfilePresent
+            ? FlowSatellite(String(localized: "我的声音"), symbol: Icon.myVoice, help: String(localized: "用我的声音合成译音"),
+                            link: voice)
+            : FlowSatellite(String(localized: "系统声音"), symbol: Icon.speech, help: String(localized: "未录制时用系统声音"),
+                            dashed: true, link: voice)
+        let speech = FlowNode(String(localized: "合成译音"), glyph: .symbol(Icon.speech),
+                              badge: problem?.status, badgeReason: problem?.text,
+                              link: problem == nil ? nil
+                                  : links.node(String(localized: "组件 · 引擎与模型"), .components, .components(.engine)),
+                              satellite: satellite, help: engine.modelName(role: "tts"))
+        return FlowGrid(String(localized: "语音合成路径"), lanes: [
+            FlowLane(String(localized: "译音"), gutter: .voice(translating), cells: [
+                .node(FlowNode(String(localized: "EN/DE 译文"), glyph: .symbol(Icon.translation))),
+                .node(speech),
+                .node(FlowNode("TalkTalk Mic", glyph: .symbol(Icon.talkTalkMic), badge: driverProblem?.status,
+                               badgeReason: driverProblem?.text,
+                               link: links.node(String(localized: "组件 · 虚拟麦克风"), .components, .components(.driver)))),
+                .node(FlowNode(String(localized: "对方听到译音"), glyph: .symbol(Icon.remote)))
+            ])
+        ])
+    }
+}
+
+/// 识别引擎 (§3.4, §7.8): Qwen3-ASR or Apple Speech, in effect at once (a running session
+/// rebuilds its recognition).
+private struct ListenASRChip: View {
+    @Bindable var state: AppState
+
+    var body: some View {
+        let qwen = state.listenASREngine == .qwen
+        let title = qwen ? "Qwen3-ASR" : "Apple Speech"
+        NodeChip(title, accessibilityLabel: String(localized: "识别引擎"), help: String(localized: "\(title) · 立即生效"),
+                 items: [
+                     NodeChipItem("Qwen3-ASR", isOn: qwen) { state.listenASREngine = .qwen },
+                     NodeChipItem("Apple Speech", isOn: !qwen) { state.listenASREngine = .apple }
+                 ])
     }
 }

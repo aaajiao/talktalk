@@ -398,6 +398,22 @@ public enum SubtitleTokens {
         /// A length of time ("约 10–20 秒").
         public static let duration = "clock"
 
+        // 模型 (§3.6, §7.8–§7.10).
+        /// The OpenAI API key: its section and the saved key's row.
+        public static let apiKey = "key"
+        /// The field a new key is pasted into.
+        public static let pasteKey = "doc.on.clipboard"
+        /// 显示固定快照: pinned model snapshots in the model menu.
+        public static let snapshots = "pin"
+        /// 开始时提醒：文字发给 OpenAI.
+        public static let cloudReminder = MenuIcon.notifications
+        /// A model that is going away (the model menu's item glyph).
+        public static let retiring = "clock.badge.exclamationmark"
+        /// DataBoundary's OpenAI panel while no direction sends text there (未连接).
+        public static let cloudOff = "network.slash"
+        /// Nothing is synthesized (视频不生成), as the titlebar's nothing-sent glyph.
+        public static let noSpeech = VoiceIcon.localOnly
+
         // Navigation (§3.1, §3.13): the arrow between the model page's cards and the ReturnPill's
         // leading chevron.
         public static let flowArrow = "arrow.right"

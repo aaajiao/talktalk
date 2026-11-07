@@ -96,27 +96,35 @@ public struct FactChip: View {
 
 /// Up to four fact chips in a row under the main graphic or a section's last row (§3.11).
 /// When the row does not fit, the chips stack (`ViewThatFits`, no custom layout and no geometry
-/// read back). `indented` starts the row at the row text inset (+30).
+/// read back). `indented` starts the row at the row text inset (+30). `info`: the row's one ⓘ
+/// (§3.9: at the row's end), kept beside the last chip when the chips stack.
 public struct FactRow: View {
     private let chips: [FactChip]
     private let indented: Bool
+    private let info: InfoButton?
 
-    public init(_ chips: [FactChip], indented: Bool = false) {
+    public init(_ chips: [FactChip], indented: Bool = false, info: InfoButton? = nil) {
         self.chips = Array(chips.prefix(4))
         self.indented = indented
+        self.info = info
     }
 
     public var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) { items }
-            VStack(alignment: .leading, spacing: 6) { items }
+            HStack(spacing: 6) {
+                ForEach(chips.indices, id: \.self) { chips[$0] }
+                info
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(chips.indices.dropLast()), id: \.self) { chips[$0] }
+                HStack(spacing: 6) {
+                    chips.last
+                    info
+                }
+            }
         }
         .padding(.leading, indented ? Ladder.rowTextInset : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var items: some View {
-        ForEach(chips.indices, id: \.self) { chips[$0] }
     }
 }
 

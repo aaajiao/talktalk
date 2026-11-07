@@ -398,7 +398,7 @@ struct SettingsView: View {
         case .subtitles:
             SubtitleSettingsView(state: state, navigation: navigation)
         case .translation:
-            ModelSettingsView(state: state, navigation: navigation, translation: translation)
+            ModelSettingsView(state: state, navigation: navigation, translation: translation, driver: driver)
         case .general:
             GeneralSettingsView(model: AppUIModels.shared.general, driver: driver, navigation: navigation)
         case .audio:
@@ -431,11 +431,16 @@ final class TranslationPage {
 
 struct TranslationPageView: View {
     let page: TranslationPage
+    @Bindable var state: AppState
 
     var body: some View {
         Group {
             if let model = page.model {
-                TranslationSettingsView(model: model)
+                // The session's start: a switch changed while it runs waits for the next start.
+                TranslationSettingsView(model: model, session: state.meetingActive ? state.meetingStartedAt : nil,
+                                        languages: TranslationLanguageChips(
+                                            speak: LanguageChip(state: state, speak: true, paired: true),
+                                            listen: LanguageChip(state: state, speak: false, paired: true)))
             } else if let problem = page.problem {
                 // A development binary without a bundle id (§5.2, §7.0): the reason is the help.
                 ContentUnavailableView(String(localized: "此构建不可用"),

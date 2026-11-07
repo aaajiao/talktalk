@@ -1,146 +1,206 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import SwiftUI
 import TalkTalkCore
 import TalkTalkSettingsUI
 
-/// Settings › 翻译 (ARCHITECTURE.md §11, §7.7). Reusable: the M1 settings window embeds it,
+/// The language chips the app hands to the 文本翻译 diagram (§7.9): 我的译音 on 译文 and 对方语言
+/// on 听到的话. They edit the app's session state, which this module cannot see.
+public struct TranslationLanguageChips {
+    let speak: AnyView
+    let listen: AnyView
+
+    public init<Speak: View, Listen: View>(speak: Speak, listen: Listen) {
+        self.speak = AnyView(speak)
+        self.listen = AnyView(listen)
+    }
+}
+
+/// Settings › 模型 › 文本翻译 (settings visual system §7.9; ARCHITECTURE.md §11). The page opens
+/// with the two-lane diagram, each direction's engine node carrying its OpenAI switch, then
+/// DataBoundary; below it the API key (consent and key entry stay in Form rows, never in a
+/// popover, §0.2 #16) and, once OpenAI is chosen or a key exists, the OpenAI model rows.
 ///
 ///     TranslationSettingsView(model: try TranslationSettingsModel.forCurrentApp())
 ///
+/// `session`: when the running session started (a switch changed during it shows "下次开始生效").
 /// It holds no state of its own beyond the model.
 public struct TranslationSettingsView: View {
     @Bindable var model: TranslationSettingsModel
+    private let session: Date?
+    private let languages: TranslationLanguageChips?
 
-    public init(model: TranslationSettingsModel) {
+    private typealias Icon = SubtitleTokens.SettingsIcon
+    private typealias Ladder = SubtitleTokens.SettingsIcon.Size
+
+    public init(model: TranslationSettingsModel, session: Date? = nil, languages: TranslationLanguageChips? = nil) {
         self.model = model
+        self.session = session
+        self.languages = languages
     }
 
     public var body: some View {
+        let facts = model.flowFacts
         Form {
             Section {
-                Text("把识别出来的原文翻译成目标语言。OpenAI 和 Apple 翻译都只处理文字；语音识别和语音合成使用各自的模型。")
-                    .font(.callout).foregroundStyle(.secondary)
-                Text("这里的翻译引擎与 OpenAI 模型选择在下次开始同传或字幕时生效。")
-                    .font(.callout).foregroundStyle(.secondary)
-            } header: { Label("原文 → 译文", systemImage: "character.bubble") }
-            directionSection
-            if model.hasKey { modelSection }
-            keySection
+                VStack(alignment: .leading, spacing: 10) {
+                    flow(facts)
+                    if let problem = facts.problem {
+                        StatusLabel(problem.text, problem.status, help: problem.help)
+                    }
+                    DataBoundary(cloudEnabled: facts.cloudConnected, info: [TranslationSettingsText.cloudNotice])
+                }
+                .padding(.vertical, 4)
+            }
+            OpenAIKeySection(model: model)
+            if facts.showsOpenAISection { openAISection }
         }
         .formStyle(.grouped)
+        .labelStyle(.settingsRow)
         .task { await model.loadModels() }
+        .onAppear { model.trackSession(session) }
+        .onChange(of: session) { _, start in model.trackSession(start) }
         .alert(item: $model.pendingYellow) { y in
             Alert(
                 title: Text("\(y.model) 会明显变慢"),
-                message: Text("""
-                    这个模型需要额外推理，响应更慢，推理费用另计。\
-                    实时翻译达到等待时限时会改用 Apple 翻译，因此部分句子可能不会由所选模型完成。
-                    """),
+                message: Text("更慢、推理另计费；超时的句子改用 Apple。"),
                 primaryButton: .default(Text("仍然使用")) { Task { await model.confirmYellow() } },
                 secondaryButton: .cancel(Text("取消")) { model.cancelYellow() })
         }
     }
 
-    // MARK: key
+    // MARK: diagram
 
-    @ViewBuilder private var keySection: some View {
+    /// 我说的话 → engine → 译文 ‹我的译音›; 听到的话 ‹对方语言› → engine → 中文字幕.
+    private func flow(_ facts: TranslationFlowFacts) -> FlowGrid {
+        let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
+        let said = FlowNode(String(localized: "我说的话"), glyph: .symbol(Icon.physicalMic), accessory: .display {
+            Text("中").font(.caption2).foregroundStyle(.secondary)
+        }, help: String(localized: "中文，可夹英语"))
+        let target = FlowNode(String(localized: "译文"), glyph: .symbol(Icon.translation),
+                              accessory: languages.map { chips in NodeAccessory.controls { chips.speak } })
+        let heard = FlowNode(String(localized: "听到的话"), glyph: .symbol(Icon.remote),
+                             accessory: languages.map { chips in NodeAccessory.controls { chips.listen } })
+        let captions = FlowNode(String(localized: "中文字幕"), glyph: .symbol(Icon.subtitles))
+        return FlowGrid(String(localized: "文本翻译路径"), lanes: [
+            FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
+                .node(said), .node(engine(.speak, facts)), .node(target), .empty
+            ]),
+            FlowLane(String(localized: "听对方"), gutter: .symbol(Icon.listen), cells: [
+                .node(heard), .node(engine(.listen, facts)), .node(captions), .empty
+            ])
+        ])
+    }
+
+    /// OpenAI (`network`) or Apple (`laptopcomputer`) with the direction's mini switch; with
+    /// OpenAI, Apple stands by as the dashed satellite.
+    private func engine(_ direction: TranslationDirection, _ facts: TranslationFlowFacts) -> FlowNode {
+        let openAI = facts.choosesOpenAI(direction)
+        let badge = facts.badge(direction)
+        return FlowNode(openAI ? "OpenAI" : "Apple", glyph: .symbol(openAI ? Icon.cloud : Icon.thisMac),
+                        badge: badge?.status, badgeReason: badge?.text,
+                        accessory: .controls { cloudSwitch(direction, facts) },
+                        satellite: openAI ? FlowSatellite(String(localized: "备用 Apple"), symbol: Icon.thisMac,
+                                                          help: String(localized: "OpenAI 超时或出错时接管"), dashed: true)
+                            : nil,
+                        help: openAI ? String(localized: "文字发给 OpenAI 翻译") : String(localized: "在这台 Mac 上翻译"))
+    }
+
+    private func cloudSwitch(_ direction: TranslationDirection, _ facts: TranslationFlowFacts) -> some View {
+        Toggle(direction == .speak ? String(localized: "用 OpenAI 翻译我说的话") : String(localized: "用 OpenAI 翻译听到的话"),
+               isOn: Binding(get: { facts.choosesOpenAI(direction) }, set: { on in
+                   model.update { prefs in
+                       if direction == .speak { prefs.speakCloudEnabled = on } else { prefs.listenCloudEnabled = on }
+                   }
+               }))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .disabled(!facts.switchEnabled(direction))
+            .help(facts.switchHelp(direction))
+    }
+
+    // MARK: OpenAI
+
+    private var openAISection: some View {
         Section {
-            Label {
-                Text(TranslationSettingsText.cloudNotice).font(.callout)
-            } icon: {
-                Image(systemName: "cloud")
+            modelRow
+            Toggle(isOn: Binding(get: { model.preferences.showSnapshots },
+                                 set: { on in model.update { $0.showSnapshots = on } })) {
+                Label("显示固定快照", systemImage: Icon.snapshots)
             }
-            if !model.preferences.cloudConsentGiven {
-                HStack {
-                    Text("第一次填 key 前，请确认你同意上面的说明。").font(.callout).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("同意") { model.giveConsent() }
-                }
+            .help(String(localized: "列出带日期的模型版本"))
+            if let notice = model.notice { noticeRow(notice) }
+            probeRow
+            LabeledContent {
+                Text(verbatim: model.costLine).foregroundStyle(.secondary)
+            } label: {
+                Label("费用", systemImage: Icon.cost)
             }
-            if case .saved(let masked) = model.keyState {
-                LabeledContent("当前 key") {
-                    HStack {
-                        Text(masked).monospaced()
-                        Button("验证") { Task { await model.verify() } }
-                            .disabled(isRunning(model.verification))
-                        Button("删除", role: .destructive) { model.deleteKey() }
-                    }
-                }
+            .help(TranslationSettingsText.costHelp(yellow: model.isYellow))
+            Toggle(isOn: Binding(get: { model.preferences.meetingReminderEnabled },
+                                 set: { on in model.update { $0.meetingReminderEnabled = on } })) {
+                Label("开始时提醒：文字发给 OpenAI", systemImage: Icon.cloudReminder)
             }
-            HStack {
-                SecureField(model.hasKey ? "粘贴新的 key 以替换" : "粘贴 OpenAI API key（sk-…）", text: $model.pasteField)
-                    .textContentType(.password)
-                    .onSubmit { Task { await model.saveAndVerify() } }
-                Button(model.hasKey ? "替换并验证" : "保存并验证") { Task { await model.saveAndVerify() } }
-                    .disabled(model.pasteField.isEmpty || !model.preferences.cloudConsentGiven)
-            }
-            if let p = model.pasteProblem { Text(p).foregroundStyle(.red).font(.callout) }
-            if let h = model.savedHint { Text(h).foregroundStyle(.secondary).font(.callout) }
-            checkRow(model.verification)
-            HStack {
-                Text(TranslationSettingsText.keyAdvice).font(.footnote).foregroundStyle(.secondary)
-                Spacer()
-                Link("OpenAI key 页面", destination: TranslationSettingsText.keyPageURL).font(.footnote)
-            }
+            .disabled(!model.preferences.choosesOpenAI(.listen))
+            .help(model.preferences.choosesOpenAI(.listen) ? String(localized: "对方的话以文字发给 OpenAI")
+                                                          : String(localized: "听到的话用 OpenAI 时才提醒"))
         } header: {
-            Label("OpenAI API key", systemImage: "key")
+            SectionHeader("OpenAI", symbol: Icon.cloud)
         }
     }
 
-    // MARK: model
+    /// 模型, trailing in the fixed order (§3.8) value → status → icon button: the picker (suffix
+    /// only "默认"; tortoise = slow, clock = going away), the list's state while it loads or
+    /// fails, or a choice that waits for the next start, and 重新读取.
+    private var modelRow: some View {
+        let waits = model.flowFacts.modelWaits
+        return LabeledContent {
+            HStack(spacing: 6) {
+                Picker(String(localized: "模型"), selection: Binding(
+                    get: { model.preferences.model },
+                    set: { id in Task { await model.select(model: id) } })) {
+                    if !choices.contains(where: { $0.id == model.preferences.model }) {
+                        Text(verbatim: model.preferences.model).tag(model.preferences.model)
+                    }
+                    ForEach(choices, id: \.id) { c in
+                        choiceLabel(c).tag(c.id)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+                .disabled(!model.hasKey || isRunning(model.listing) || isRunning(model.probe))
+                .accessibilityHint(waits ? Text("下次开始生效") : Text(verbatim: ""))
+                if case .running = model.listing {
+                    StatusGlyph(.busy)
+                } else if let line = model.listing.line, line.status == .failed {
+                    StatusLabel(line.text, line.status, help: line.help)
+                } else if waits {
+                    StatusGlyph(.waiting)
+                        .help(String(localized: "下次开始生效"))
+                        .accessibilityLabel(String(localized: "下次开始生效"))
+                }
+                IconButton(Icon.refresh, help: String(localized: "重新读取模型列表")) { Task { await model.loadModels() } }
+                    .disabled(!model.hasKey || isRunning(model.listing))
+            }
+        } label: {
+            Label("模型", systemImage: Icon.Page.models)
+        }
+    }
 
-    @ViewBuilder private var modelSection: some View {
-        Section {
-            if let n = model.notice {
-                HStack {
-                    StatusLabel(n, .warn)
-                    Spacer()
-                    Button("知道了") { model.dismissNotice() }
-                }
+    /// The glyph's meaning goes to VoiceOver in words (choiceSpoken).
+    @ViewBuilder private func choiceLabel(_ c: ModelFilter.Choice) -> some View {
+        let spoken = Text(verbatim: TranslationSettingsText.choiceSpoken(c))
+        if let symbol = TranslationSettingsText.choiceSymbol(c) {
+            Label {
+                Text(verbatim: TranslationSettingsText.choiceTitle(c))
+            } icon: {
+                Image(systemName: symbol)
             }
-            LabeledContent("OpenAI 文本翻译模型") {
-                HStack {
-                    Picker("", selection: Binding(
-                        get: { model.preferences.model },
-                        set: { id in Task { await model.select(model: id) } })) {
-                        if !choices.contains(where: { $0.id == model.preferences.model }) {
-                            Text(model.preferences.model).tag(model.preferences.model)
-                        }
-                        ForEach(choices, id: \.id) { c in
-                            Text(label(c)).tag(c.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .disabled(isRunning(model.listing) || isRunning(model.probe))
-                    Button { Task { await model.loadModels() } } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .frame(width: 24, height: 24).contentShape(Rectangle())
-                    }
-                        .help("重新读取模型列表")
-                        .accessibilityLabel("重新读取模型列表")
-                }
-            }
-            checkRow(model.listing)
-            LabeledContent("实时翻译可用性检查") {
-                HStack {
-                    if model.isYellow {
-                        Label("会明显变慢", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption.weight(.medium)).foregroundStyle(.orange)
-                            .padding(.horizontal, 6).padding(.vertical, 3)
-                            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
-                    }
-                    Button("再测一次") { Task { await model.reprobe() } }.disabled(isRunning(model.probe))
-                }
-            }
-            checkRow(model.probe)
-            LabeledContent("费用", value: model.costLine)
-            DisclosureGroup("更多模型选项") {
-                Toggle("显示固定快照", isOn: Binding(get: { model.preferences.showSnapshots },
-                                                 set: { v in model.update { $0.showSnapshots = v } }))
-                Text("固定快照用于选择特定版本；日常使用可保留默认模型。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        } header: {
-            Label("OpenAI · 云端文本翻译", systemImage: "cloud")
+            .accessibilityLabel(spoken)
+        } else {
+            Text(verbatim: TranslationSettingsText.choiceTitle(c))
+                .accessibilityLabel(spoken)
         }
     }
 
@@ -148,59 +208,152 @@ public struct TranslationSettingsView: View {
         model.picker.models + (model.preferences.showSnapshots ? model.picker.snapshots : [])
     }
 
-    private func label(_ c: ModelFilter.Choice) -> String {
-        var s = c.id
-        if c.isDefault { s += "（默认）" }
-        if c.retiring { s += "（即将下线）" }
-        if c.known?.supportsEffortNone == false { s += "（会明显变慢）" }
-        return s
+    /// "X 已下线 → Y" / "Y 即将下线", dismissed with xmark (知道了).
+    private func noticeRow(_ notice: String) -> some View {
+        HStack(spacing: 8) {
+            StatusLabel(notice, .warn, help: TranslationSettingsText.retirementHelp(model.retirement))
+            Spacer(minLength: 8)
+            IconButton(Icon.close, help: String(localized: "知道了"),
+                       accessibilityLabel: String(localized: "知道了，关闭下线通知")) { model.dismissNotice() }
+        }
+        .padding(.leading, Ladder.rowTextInset)
     }
 
-    // MARK: directions
-
-    @ViewBuilder private var directionSection: some View {
-        Section {
-            Toggle("用 OpenAI 翻译我说的话", isOn: Binding(
-                get: { model.preferences.speakCloudEnabled },
-                set: { v in model.update { $0.speakCloudEnabled = v } }))
-            Label("中文（可夹英语）→ 英语 / 德语译音", systemImage: "mic")
-                .font(.callout).foregroundStyle(.secondary)
-            Toggle("用 OpenAI 翻译听到的话", isOn: Binding(
-                get: { model.preferences.listenCloudEnabled },
-                set: { v in model.update { $0.listenCloudEnabled = v } }))
-            Label("英语 / 德语 → 中文字幕", systemImage: "captions.bubble")
-                .font(.callout).foregroundStyle(.secondary)
-            Toggle("开始会议同传时提醒云端文字传输", isOn: Binding(
-                get: { model.preferences.meetingReminderEnabled },
-                set: { v in model.update { $0.meetingReminderEnabled = v } }))
-                .disabled(!model.preferences.listenCloudEnabled)
-            Text("提醒你：对方的话会以文字发给 OpenAI 翻译。")
-                .font(.caption).foregroundStyle(.secondary)
-            Text("关闭某个方向的 OpenAI 后，该方向使用 Apple 本地文本翻译；OpenAI 超时或不可用时也由 Apple 备用。")
-                .font(.callout).foregroundStyle(.secondary)
-            if !model.preferences.anyCloud {
-                Text("两个方向都关：全部走 Apple 翻译，不保温，也不连接 OpenAI。").font(.callout).foregroundStyle(.secondary)
-            } else if !model.hasKey {
-                Text("没有 key 时，开着的方向也走 Apple 翻译。").font(.callout).foregroundStyle(.secondary)
+    /// 实时可用: 变慢 on the yellow path, the last measurement (or why it failed), 再测一次.
+    private var probeRow: some View {
+        LabeledContent {
+            HStack(spacing: 6) {
+                if model.isYellow {
+                    FactChip(String(localized: "变慢"), symbol: Icon.slow, tone: .warn,
+                             help: String(localized: "需额外推理，响应更慢"))
+                }
+                if let line = model.probe.line {
+                    StatusLabel(line.text, line.status, help: line.help)
+                }
+                IconButton(Icon.refresh, help: String(localized: "再测一次"),
+                           accessibilityLabel: String(localized: "再测一次实时可用")) { Task { await model.reprobe() } }
+                    .disabled(!model.hasKey || isRunning(model.probe))
             }
-        } header: {
-            Label("两个翻译方向", systemImage: "arrow.left.arrow.right")
+        } label: {
+            Label("实时可用", systemImage: Icon.performance)
         }
     }
-
-    // MARK: helpers
 
     private func isRunning(_ c: TranslationSettingsModel.Check) -> Bool {
         if case .running = c { return true }
         return false
     }
+}
 
-    @ViewBuilder private func checkRow(_ c: TranslationSettingsModel.Check) -> some View {
-        switch c {
-        case .idle: EmptyView()
-        case .running(let s): StatusLabel(s, .busy)
-        case .ok(let s): StatusLabel(s, .ok)
-        case .failed(let s): StatusLabel(s, .failed)
+/// The API key section of 模型 › 文本翻译 (§7.9), for any grouped Form (onboarding step 5 too):
+/// before consent the prominent 同意发送文字 with the billing fact; the saved key (`sk-…•••`)
+/// with 验证 and 删除 key (confirmed first); the paste field and 保存 (saving verifies); the
+/// results, the clipboard reminder included; the OpenAI key page with one ⓘ. Put
+/// `.labelStyle(.settingsRow)` on the Form.
+public struct OpenAIKeySection: View {
+    @Bindable var model: TranslationSettingsModel
+
+    private typealias Icon = SubtitleTokens.SettingsIcon
+    private typealias Ladder = SubtitleTokens.SettingsIcon.Size
+
+    public init(model: TranslationSettingsModel) {
+        self.model = model
+    }
+
+    public var body: some View {
+        let consent = model.preferences.cloudConsentGiven
+        Section {
+            if !consent { consentRow }
+            if case let .saved(masked) = model.keyState { savedKeyRow(masked) }
+            pasteRow.disabled(!consent)
+            let results = TranslationSettingsText.keyResults(pasteProblem: model.pasteProblem,
+                                                             verification: model.verification,
+                                                             saved: model.savedHint != nil)
+            ForEach(results.indices, id: \.self) { index in
+                StatusLabel(results[index].text, results[index].status, help: results[index].help)
+                    .padding(.leading, Ladder.rowTextInset)
+            }
+            HStack(spacing: 8) {
+                Link(destination: TranslationSettingsText.keyPageURL) {
+                    Label("OpenAI", systemImage: Icon.openApp)
+                }
+                .help(String(localized: "打开 OpenAI 的 key 页面"))
+                Spacer(minLength: 8)
+                InfoButton(topic: String(localized: "API key"), lines: [TranslationSettingsText.keyAdvice])
+            }
+        } header: {
+            SectionHeader(String(localized: "API key"), symbol: Icon.apiKey)
         }
+    }
+
+    /// The consent (§5.4: visible, with billing), in the row, never in a popover.
+    private var consentRow: some View {
+        HStack(spacing: 8) {
+            Label {
+                Button(String(localized: "同意发送文字")) { model.giveConsent() }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityHint(Text(verbatim: TranslationSettingsText.cloudNotice))
+            } icon: {
+                Image(systemName: Icon.cloud)
+            }
+            Spacer(minLength: 8)
+            FactChip(String(localized: "按用量计费"), symbol: Icon.cost, help: String(localized: "费用记在你的 OpenAI 账户"))
+        }
+    }
+
+    private func savedKeyRow(_ masked: String) -> some View {
+        LabeledContent {
+            HStack(spacing: 0) {
+                IconButton(Icon.verify, help: String(localized: "验证"), accessibilityLabel: String(localized: "验证 key")) {
+                    Task { await model.verify() }
+                }
+                .disabled(isRunning(model.verification))
+                IconButton(Icon.delete, help: String(localized: "删除 key")) { model.confirmKeyDeletion = true }
+            }
+        } label: {
+            Label {
+                Text(verbatim: masked).monospaced()
+            } icon: {
+                Image(systemName: Icon.apiKey)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(String(localized: "已存入钥匙串的 key"))
+        // OpenAI shows a secret key once: a slip beside 验证 must not cost the key.
+        .confirmationDialog(String(localized: "删除 key？"), isPresented: $model.confirmKeyDeletion) {
+            Button(String(localized: "删除"), role: .destructive) { model.deleteKey() }
+            Button(String(localized: "取消"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "key 会从钥匙串删除；OpenAI 不会再显示它，之后要新建一个。"))
+        }
+    }
+
+    /// The field's own title would render as a wrapped Form label beside a squeezed field
+    /// (582176e): hidden, with "sk-…" as the prompt inside a fixed-width field.
+    private var pasteRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: Icon.pasteKey)
+                .font(.system(size: Ladder.row))
+                .foregroundStyle(.secondary)
+                .frame(width: Ladder.rowColumn)
+                .accessibilityHidden(true)
+            SecureField(String(localized: "OpenAI API key"), text: $model.pasteField, prompt: Text(verbatim: "sk-…"))
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .textContentType(.password)
+                .frame(width: 240)
+                .help(model.hasKey ? String(localized: "粘贴新的 key 以替换") : String(localized: "粘贴 OpenAI API key"))
+                .accessibilityLabel(model.hasKey ? String(localized: "新的 OpenAI API key") : String(localized: "OpenAI API key"))
+                .onSubmit { Task { await model.saveAndVerify() } }
+            Button(String(localized: "保存")) { Task { await model.saveAndVerify() } }
+                .disabled(model.pasteField.isEmpty)
+                .help(String(localized: "存入钥匙串并验证"))
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func isRunning(_ c: TranslationSettingsModel.Check) -> Bool {
+        if case .running = c { return true }
+        return false
     }
 }

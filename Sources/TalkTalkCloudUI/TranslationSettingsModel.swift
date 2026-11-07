@@ -2,10 +2,12 @@ import Foundation
 import Observation
 import TalkTalkCloud
 import TalkTalkCore
+import TalkTalkSettingsUI
 
 /// State and actions behind Settings › 翻译 (ARCHITECTURE.md §7.7, §11). The key itself is only
 /// held transiently: while saving, and inside the client's Authorization header. Existing items
-/// show “已保存”; only a newly pasted key supplies a last-4 mask, without another secret read.
+/// show “sk-…•••”; only a newly pasted key supplies a last-4 mask, without another secret read.
+/// Its words come from `TranslationSettingsText`: the shortest form to show, the sentence as help.
 @MainActor
 @Observable
 public final class TranslationSettingsModel {
@@ -17,8 +19,21 @@ public final class TranslationSettingsModel {
     public enum Check: Equatable {
         case idle
         case running(String)
-        case ok(String)
-        case failed(String)
+        case ok(String, detail: String? = nil)
+        case failed(String, detail: String? = nil)
+
+        init(failed m: TranslationSettingsText.Message) { self = .failed(m.text, detail: m.detail) }
+        init(ok m: TranslationSettingsText.Message) { self = .ok(m.text, detail: m.detail) }
+
+        /// The check as a status line: the shortest words, the full sentence as help.
+        public var line: SettingsProblem? {
+            switch self {
+            case .idle: nil
+            case let .running(text): SettingsProblem(.busy, text)
+            case let .ok(text, detail): SettingsProblem(.ok, text, help: detail)
+            case let .failed(text, detail): SettingsProblem(.failed, text, help: detail)
+            }
+        }
     }
 
     /// The yellow path (§11) needs an explicit confirmation before switching.
@@ -36,8 +51,10 @@ public final class TranslationSettingsModel {
     /// then `keyState == .none` means "not known yet", not "no key".
     public private(set) var keyStateKnown = false
     public var pasteField = ""
-    public private(set) var pasteProblem: String?
+    public private(set) var pasteProblem: SettingsProblem?
     public private(set) var savedHint: String?
+    /// 删除 key asks first (§3.10: a destructive icon button turns red only in its confirmation).
+    public var confirmKeyDeletion = false
 
     public private(set) var verification: Check = .idle
     public private(set) var listing: Check = .idle
@@ -50,6 +67,10 @@ public final class TranslationSettingsModel {
     public var pendingYellow: YellowConfirmation?
 
     public private(set) var preferences: TranslationPreferences
+    /// The preferences the running session started with (§7.9: a switch changed during a
+    /// session waits for the next start); nil while none runs. See `trackSession(_:)`.
+    public private(set) var sessionBaseline: TranslationPreferences?
+    @ObservationIgnored private var sessionStart: Date?
 
     private let store: any APIKeyStore
     private let profile: PolicyProfile
@@ -88,6 +109,21 @@ public final class TranslationSettingsModel {
     public var isYellow: Bool { preferences.effort != "none" }
     public var costLine: String { TranslationSettingsText.cost(for: preferences.model, yellow: isYellow) }
 
+    /// What the 文本翻译 diagram draws now.
+    public var flowFacts: TranslationFlowFacts {
+        TranslationFlowFacts(preferences: preferences, hasKey: hasKey, keyStateKnown: keyStateKnown,
+                             baseline: sessionBaseline)
+    }
+
+    /// `start`: when the running session started, nil while none runs. The first sight of a
+    /// session keeps the current preferences as its own: only this model writes them, so they
+    /// have not changed since that session read them.
+    public func trackSession(_ start: Date?) {
+        guard start != sessionStart else { return }
+        sessionStart = start
+        sessionBaseline = start == nil ? nil : preferences
+    }
+
     // MARK: preferences
 
     public func update(_ change: (inout TranslationPreferences) -> Void) {
@@ -124,7 +160,7 @@ public final class TranslationSettingsModel {
     private func applyKeyState(exists: Bool, revision: UInt64) {
         guard revision == keyStateRevision, keyStateLoad != nil else { return }
         keyStateLoad = nil
-        keyState = exists ? .saved(masked: String(localized: "已保存")) : .none
+        keyState = exists ? .saved(masked: TranslationSettingsText.savedKeyMask) : .none
         keyStateKnown = true
     }
 
@@ -140,21 +176,21 @@ public final class TranslationSettingsModel {
         pasteField = ""
         pasteProblem = nil
         savedHint = nil
-        guard preferences.cloudConsentGiven else { pasteProblem = "请先点“同意”。"; return }
+        guard preferences.cloudConsentGiven else { pasteProblem = TranslationSettingsText.consentFirst; return }
         if let p = APIKeyShape.problem(key) {
             key = ""
-            pasteProblem = "这不像 OpenAI key：\(p)。"
+            pasteProblem = TranslationSettingsText.notAKey(p)
             return
         }
         do {
             try store.store(Data(key.utf8))
         } catch let f as KeychainSecret.Failure {
             key = ""
-            pasteProblem = "写入钥匙串失败（OSStatus \(f.status)）。"
+            pasteProblem = TranslationSettingsText.keychainWriteFailed(f.status)
             return
         } catch {
             key = ""
-            pasteProblem = "写入钥匙串失败。"
+            pasteProblem = TranslationSettingsText.keychainWriteFailed(nil)
             return
         }
         let masked = APIKeyShape.masked(key)
@@ -169,18 +205,20 @@ public final class TranslationSettingsModel {
 
     /// 验证: `GET /v1/models`, then the probe on the selected model. Green only when both pass.
     public func verify() async {
+        // A refused paste or failed delete from before would hide this check's result.
+        pasteProblem = nil
         await loadKeyState()
-        guard hasKey else { verification = .failed("还没有 key。"); return }
-        verification = .running("正在验证…")
+        guard hasKey else { verification = Check(failed: TranslationSettingsText.noKey); return }
+        verification = .running(TranslationSettingsText.verifying)
         await loadModels()
         guard case .ok = listing else {
-            if case .failed(let why) = listing { verification = .failed(why) }
+            if case let .failed(text, detail) = listing { verification = .failed(text, detail: detail) }
             return
         }
         await runProbe(model: preferences.model, effort: preferences.effort)
         switch probe {
-        case .ok: verification = .ok("key 可用，模型 \(preferences.model) 探针通过。")
-        case .failed(let why): verification = .failed(why)
+        case .ok: verification = Check(ok: TranslationSettingsText.verified(model: preferences.model))
+        case let .failed(text, detail): verification = .failed(text, detail: detail)
         default: break
         }
     }
@@ -189,10 +227,10 @@ public final class TranslationSettingsModel {
         do {
             try store.delete()
         } catch let f as KeychainSecret.Failure {
-            pasteProblem = "删除失败（OSStatus \(f.status)）。"
+            pasteProblem = TranslationSettingsText.deleteFailed(f.status)
             return
         } catch {
-            pasteProblem = "删除失败。"
+            pasteProblem = TranslationSettingsText.deleteFailed(nil)
             return
         }
         invalidateKeyStateLoad()
@@ -205,6 +243,7 @@ public final class TranslationSettingsModel {
         picker = ModelFilter.picker([], current: nil)
         listed = []
         savedHint = nil
+        pasteProblem = nil
     }
 
     // MARK: models
@@ -213,19 +252,19 @@ public final class TranslationSettingsModel {
     public func loadModels() async {
         await loadKeyState()
         guard hasKey else { listing = .idle; return }
-        listing = .running("正在读取…")
+        listing = .running(TranslationSettingsText.listing)
         do {
             let rows = try await catalog().list()
             listed = rows
             applyResolution(ModelFilter.resolve(selection: preferences.model, listed: rows))
             picker = ModelFilter.picker(rows, current: preferences.model)
-            listing = .ok("\(picker.models.count) 个可选模型")
+            listing = .ok(TranslationSettingsText.listed(picker.models.count))
         } catch let OpenAIModelCatalog.CatalogError.http(status, info) {
-            listing = .failed(TranslationSettingsText.failure(status: status, error: info, cloud: cloud))
+            listing = Check(failed: TranslationSettingsText.failure(status: status, error: info, cloud: cloud))
         } catch OpenAIModelCatalog.CatalogError.malformed {
-            listing = .failed("模型列表的格式看不懂。")
+            listing = Check(failed: TranslationSettingsText.malformedList)
         } catch {
-            listing = .failed(TranslationSettingsText.transportFailure(error))
+            listing = Check(failed: TranslationSettingsText.transportFailure(error))
         }
     }
 
@@ -278,16 +317,16 @@ public final class TranslationSettingsModel {
     private func runProbe(model: String, effort: String) async -> OpenAIModelCatalog.ProbeResult? {
         await loadKeyState()
         guard hasKey else { probe = .idle; return nil }
-        probe = .running("正在测 \(model)…")
+        probe = .running(TranslationSettingsText.probing(model))
         let r = await catalog().probe(model: model, effort: effort,
                                       reasoningBudget: effort == "none" ? 0 : Self.yellowReasoningBudget,
                                       basePolicy: profile.speakHedgePolicy)
         if r.accepted {
-            probe = .ok("\(model)（effort \(effort)）· " + TranslationSettingsText.timing(r))
+            probe = Check(ok: TranslationSettingsText.timing(r, model: model, effort: effort))
         } else if r.needsLowEffort {
-            probe = .failed("\(model) 不支持 effort none，只能走黄色路径（会明显变慢）。")
+            probe = Check(failed: TranslationSettingsText.needsLowEffort(model))
         } else {
-            probe = .failed(TranslationSettingsText.probeFailure(r, cloud: cloud))
+            probe = Check(failed: TranslationSettingsText.probeFailure(r, cloud: cloud))
         }
         return r
     }

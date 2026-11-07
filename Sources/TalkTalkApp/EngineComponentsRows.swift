@@ -141,6 +141,13 @@ final class EngineComponentsModel {
         }
     }
 
+    /// The installed model of a role ("asr", "tts") by its repository name, for help texts; nil
+    /// while that role has no model.
+    func modelName(role: String) -> String? {
+        guard let key = record?.roles[role]?.id else { return nil }
+        return EnginePins.models.first { $0.key == key }?.repo.split(separator: "/").last.map(String.init) ?? key
+    }
+
     var needsRepair: Bool {
         switch state {
         case .incomplete, .unfinished, .damaged, .incompatible: true

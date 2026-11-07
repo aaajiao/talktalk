@@ -421,10 +421,11 @@ private struct SourceChip: View {
     }
 }
 
-/// 对方语言 or 我的译音 (§3.4, §5.5): one state each, the same name everywhere. Paired with the
-/// source chip it is 34 pt wide ("EN ▾"). `lockedBy`: the running scene that holds it now (the
-/// chip shows the lock and says which scene to end first).
-private struct LanguageChip: View {
+/// 对方语言 or 我的译音 (§3.4, §5.5): one state each, the same name everywhere (the scene pages
+/// and 模型 › 文本翻译). Paired with the source chip, or beside a node's other control, it is
+/// 34 pt wide ("EN ▾"). `lockedBy`: the running scene that holds it now (the chip shows the lock
+/// and says which scene to end first).
+struct LanguageChip: View {
     @Bindable var state: AppState
     let speak: Bool
     let paired: Bool

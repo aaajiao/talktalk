@@ -46,7 +46,8 @@ let package = Package(
         .testTarget(name: "TalkTalkAppleTests", dependencies: ["TalkTalkApple", "TalkTalkCore"]),
         // m0-swift: Settings › 翻译 (§11), a reusable SwiftUI view the M1 settings window embeds.
         .target(name: "TalkTalkCloudUI", dependencies: ["TalkTalkCore", "TalkTalkCloud", "TalkTalkSettingsUI"]),
-        .testTarget(name: "TalkTalkCloudUITests", dependencies: ["TalkTalkCloudUI", "TalkTalkCloud", "TalkTalkCore"]),
+        .testTarget(name: "TalkTalkCloudUITests", dependencies: ["TalkTalkCloudUI", "TalkTalkCloud", "TalkTalkCore",
+                                                                "TalkTalkSettingsUI"]),
         // m1-listen: MeetingSession (auto-end, sleep suspend) and ListenPipeline (§13).
         .target(name: "TalkTalkSession", dependencies: ["TalkTalkCore", "TalkTalkAudio", "TalkTalkApple"]),
         .testTarget(name: "TalkTalkSessionTests", dependencies: ["TalkTalkSession", "TalkTalkCore", "TalkTalkAudio"]),

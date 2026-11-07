@@ -487,8 +487,9 @@ struct FlowNodeView: View {
     }
 }
 
-/// `chevron.right` 9 pt semibold tertiary in a 24 × 24 box, 2 pt inside the bottom-right corner.
-private struct FlowChevron: View {
+/// `chevron.right` 9 pt semibold tertiary in a 24 × 24 box, 2 pt inside the bottom-right corner
+/// (flow nodes, and DataBoundary's linked OpenAI panel).
+struct FlowChevron: View {
     var body: some View {
         Image(systemName: Icon.link)
             .font(.system(size: Ladder.micro, weight: .semibold))
