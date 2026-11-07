@@ -10,6 +10,8 @@
 > - `SubtitlePanel.swift:304` 已用 KVO 观察 `isVoiceOverEnabled`。
 > - 本机用 `NSImage(systemSymbolName:)` 检查了本文用到的 88 个符号，只有 `mic.badge.exclamationmark` 返回 nil。它是合成字形，已有回退方案（`SubtitleTokens.swift:186`）。
 
+> 2026-11-07 分类调整（用户批准）：两页保留，原“模型”更名“识别与翻译”，只保留语音识别与文本翻译；语音合成的图、状态与使用规则归入“我的声音”，无声音档案时也先显示概览，点“录制”才进入录制流程。原“组件”更名“安装与维护”，两张卡为“语音资源”和“TalkTalk Mic”；前者保留本地引擎、模型下载、档位与维护操作，后者保留驱动操作。既有卡片、流程图、颜色与控件样式不变。内部导航标识兼容旧入口；旧合成入口转到我的声音。本文旧实现记录中的名称按此更新解释。
+
 ---
 
 ## 0. 裁决摘要
@@ -144,7 +146,7 @@
 - **作用**：全窗口唯一的子页和场景导航，用于使用场景、字幕（同一组场景卡）、模型（卡间有箭头）、组件、隐私与诊断，以及引导的场景多选。
 - **尺寸**
   - 卡高固定 64，行内等宽，间距 12。
-  - 模型页卡间插 FlowArrow（`arrow.right` 11pt semibold tertiary），间距加宽到 24。
+  - 识别与翻译页卡间插 FlowArrow（`arrow.right` 11pt semibold tertiary），间距加宽到 24。
   - 圆角 10，`.bordered` 外观。
   - 内容为 VStack(spacing 6)：图标 22pt regular、hierarchical，放在 28×24 框；标题 13pt semibold，单行，≤4 字。
   - 不显示摘要行。
@@ -288,7 +290,7 @@
 - **状态**：两个方向都不用 OpenAI 时，右栏不透明度 40%，图标换成 `network.slash`，label 换成“未连接”，中间箭头消失。
 - **无障碍**：“本机：声音、声音档案、录音；OpenAI：文字、上下文、术语”。未连接时追加“，未连接”。
 - 尾部 ⓘ 原样放 `TranslationSettingsText.cloudNotice`。
-- **SwiftUI**：`DataBoundary(cloudEnabled: Bool, info: [String]? = nil, link: NodeLink? = nil)`，纯视图。`info` 是尾部 ⓘ（模型 › 文本翻译和引导第 5 步传 cloudNotice）；`link` 让右栏成为按钮，右下角画 chevron（数据与隐私链接到模型 › 文本翻译）。
+- **SwiftUI**：`DataBoundary(cloudEnabled: Bool, info: [String]? = nil, link: NodeLink? = nil)`，纯视图。`info` 是尾部 ⓘ（识别与翻译 › 文本翻译和引导第 5 步传 cloudNotice）；`link` 让右栏成为按钮，右下角画 chevron（数据与隐私链接到识别与翻译 › 文本翻译）。
 - **实现记录（第 4d 次提交 3def91e）**：左栏 chip 用 `lock.shield`（隐私承诺）图标。`cloudEnabled` 取 `TranslationFlowFacts.cloudConnected`：当前偏好或运行中会话开始时的偏好有方向选 OpenAI，并且存有 key 或 key 状态还没读到。也就是在第一次元数据查询返回之前宁可多报，不显示“未连接”；会话中关掉开关后，本场仍在发送，右栏也不灰显。大字号时两栏上下排、箭头朝下（§3.3）。
 
 ### 3.7 SettingsStatus / StatusGlyph / StatusLabel（修整后的统一词汇）
@@ -322,7 +324,7 @@
   - `.info` 与令牌 `SettingsIcon.statusInfo` 在第 1 次提交就删除了（已没有调用点），没有等到第 5 次。
   - `StatusLabel(_ text:, _ status:, help:)` 的 ok／pending／waiting 文字为次要色，warn 文字用警示令牌的墨色，字号固定 13pt。risk 字形和 busy 转圈都对齐 SF Symbol 的文字基线。
   - 新增 `SettingsProblem(_ status:, _ text:, help:)` 与 `SettingsProblem(_ status:, sentence:)`（第一个分句可见，全句进 help）。`mostSevere` 按 risk > failed > warn > waiting > pending 排序，是各页问题行以及由问题行派生的卡片角标（场景、模型、组件卡）的共同来源；菜单问题区在 TalkTalkSession 里用同样的 风险 > 失败 > 警示 > 待确认 顺序自行排序（`StatusMenu` 的 `Issue.rank`，没有等待一级），因为 TalkTalkSession 不依赖 TalkTalkSettingsUI。
-  - 页面级的加载占位（组件页、文本翻译页、引导第 3、5 步）也用 `StatusGlyph(.busy)`，并带说明加载对象的 help 与 VoiceOver 标签。
+  - 页面级的加载占位（安装与维护页、文本翻译页、引导第 3、5 步）也用 `StatusGlyph(.busy)`，并带说明加载对象的 help 与 VoiceOver 标签。
 
 ### 3.8 SectionHeader + `.settingsRow`（SettingsRowLabelStyle）
 
@@ -620,15 +622,15 @@
 
 | 节点 | 目标 |
 |---|---|
-| 识别与翻译 | 模型 › 语音识别（译音泳道上的识别与翻译 → 模型 › 文本翻译） |
+| 识别与翻译 | 识别与翻译 › 语音识别（译音泳道上的识别与翻译 → 识别与翻译 › 文本翻译） |
 | 双语字幕 | 字幕（同一场景） |
 | 麦克风 | 音频 #麦克风 |
-| TalkTalk Mic | 组件 › 虚拟麦克风 |
+| TalkTalk Mic | 安装与维护 › 虚拟麦克风 |
 | 会议应用 / Phone（原声泳道） | 音频 #TalkTalk Mic |
 | 我的声音 | 我的声音 |
 | 术语表卫星 | 术语表 |
-| 识别和合成的模型角标 | 组件 › 引擎与模型 |
-| OpenAI 节点 | 模型 › 文本翻译 |
+| 识别和合成的模型角标 | 安装与维护 › 引擎与模型 |
+| OpenAI 节点 | 识别与翻译 › 文本翻译 |
 | 字幕分析的“收听” | 使用场景 |
 | 菜单问题行 | 对应页的对应 Section，并闪烁 |
 
@@ -840,7 +842,7 @@
 - Toggle `[power] 登录时启动`。行尾按状态显示其一：
   - warn“建议开启” + ⓘ“异常退出后，默认输入可能停在 TalkTalk Mic，直到下次启动才还原。”
   - waiting“待系统允许” + 按钮 `[arrow.up.forward.app 登录项…]`
-  - warn“请移到“应用程序”文件夹”
+  - warn“登录项暂不可用”（系统未找到登录项，可尝试开启以重新注册；不推断 App 的安装目录）
   - failed“未能更改”（help 放 error）
   - 未签名构建时禁用，help“未签名构建不可用”
 - Toggle `[bell] 会议结束通知`（help“会议似乎结束时提醒你”）。行尾：
@@ -856,13 +858,13 @@ Section（无 header）：
 
 **Z4** 破坏性 Section：行 `[trash] 完全卸载…`（红色）。
 - 进行中：行尾显示进度和步骤名。
-- 引擎安装中：行禁用，行尾 waiting“引擎安装中” + 链接“组件 ›”。
-- 确认弹窗：标题“完全卸载 TalkTalk？”；正文“将删除：虚拟麦克风 · 引擎与模型 · 我的声音 · 术语表 · 日志缓存 · 设置与登录项 · 钥匙串中的 OpenAI key。需管理员密码，声音中断约 1 秒；通话中不可卸载。完成后退出并移到废纸篓。”；按钮“全部删除”“取消”。
+- 引擎安装中：行禁用，行尾 waiting“引擎安装中” + 链接“安装与维护 ›”。
+- 确认弹窗：标题“完全卸载 TalkTalk？”；正文“将删除：虚拟麦克风 · 引擎与识别与翻译 · 我的声音 · 术语表 · 日志缓存 · 设置与登录项 · 钥匙串中的 OpenAI key。需管理员密码，声音中断约 1 秒；通话中不可卸载。完成后退出并移到废纸篓。”；按钮“全部删除”“取消”。
 - 结果：“已删除 N 项”；“未删除：”后每项加 `xmark.circle.fill`。
 
 整节删除“会议与电话发言方式”（与场景页的泳道重复；列入 §9.6 待确认）。本页只有 1 个 ⓘ。
 
-**保留可见中文**：已就绪 / 登录时启动 建议开启 待系统允许 登录项… 请移到“应用程序”文件夹 未能更改 / 会议结束通知 需允许通知 允许… 系统已拒绝 系统设置… / 首次翻译前播放告知语 / 使用引导… 第 N 步，共 M 步 / 关于 TalkTalk 1.0 (29) / 完全卸载… 引擎安装中 组件 › / 弹窗与结果文字。
+**保留可见中文**：已就绪 / 登录时启动 建议开启 待系统允许 登录项… 登录项暂不可用 未能更改 / 会议结束通知 需允许通知 允许… 系统已拒绝 系统设置… / 首次翻译前播放告知语 / 使用引导… 第 N 步，共 M 步 / 关于 TalkTalk 1.0 (29) / 完全卸载… 引擎安装中 安装与维护 › / 弹窗与结果文字。
 
 **删除**：
 - 节标题“启动 / 会议与电话发言方式 / 通知 / 告知对方 / 首次引导 / 关于 / 应用管理”。
@@ -882,7 +884,7 @@ Section（无 header）：
 - 使用引导… 在引导未完成时从当前一步继续（原来总是重新开始），行尾“第 N 步，共 M 步”取 `OnboardingState.progress`，与菜单状态 A 和引导头部同源；已完成时重新开始。Apple 语音或翻译资源缺失时，这一行行尾与头图显示 warn“Apple 资源待配置”，菜单同名问题行的“通用设置…”落到这一行并闪烁（第 6 次提交）。
 - 会议结束通知的 warn／failed 状态和“允许…”“系统设置…”只在开关开启时显示。
 - 登录时启动的开关只在本页；ⓘ 跟着“建议开启”出现。音频页只在 .recommended 时显示状态行（§7.6，`LaunchAtLogin.recommendedProblem`）。
-- 完全卸载的结果只显示一行短句（如“已删除 N 项”），标题与原因放 help；只列未删除的项，以及提前停止前已完成的步骤。确认文字加了“并重置隐私权限”，对应已有的 tccutil 步骤。`FullUninstallSection` 移到 TalkTalkDriverSupport 自己的文件，接受可选模型（为 nil 时是带说明 help 的禁用行）和“组件 ›”链接。
+- 完全卸载的结果只显示一行短句（如“已删除 N 项”），标题与原因放 help；只列未删除的项，以及提前停止前已完成的步骤。确认文字加了“并重置隐私权限”，对应已有的 tccutil 步骤。`FullUninstallSection` 移到 TalkTalkDriverSupport 自己的文件，接受可选模型（为 nil 时是带说明 help 的禁用行）和“安装与维护 ›”链接。
 
 ### 7.6 音频
 
@@ -940,7 +942,7 @@ Section（无 header）：
 
 ### 7.7 我的声音（含 EnrollmentView）
 
-**Z2** FlowGrid（单泳道，gutter `person.crop.circle.fill`，节点高 82）：
+**Z2** FlowGrid（两条泳道，第一条 gutter `person.crop.circle.fill`，节点高 82；第二条沿用 §7.10 的译音路径）：
 - `[mic 录中文]`：附件按钮 `[mic.badge.plus 录制]`，有档案时为“重录”（borderedProminent small；这是本页唯一的主操作）；自检中禁用。
 - `[waveform.and.person.filled 声音档案]`：已保存时 ok，未创建时 pending，“无法读取”或“引擎已切换 · 请重录”时 warn；附件 caption2 日期“11-06”；未创建时卫星为虚线 `[speaker.wave.2 系统声音]`。
 - `[headphones 试听]`：附件 `[play.fill EN]` `[play.fill DE]`，播放时变为 `stop.fill`（AX“试听英语 / 德语”）；角标：通过为 ok（help“音色相似度 0.98”），未通过为 failed（help“建议重录”），待引擎为 waiting。
@@ -952,7 +954,7 @@ FactRow：
 - `[laptopcomputer 本机播放]`（help“试听不发送到会议”）。
 - 没有档案时加 `[speaker.wave.2 未录制时用系统声音]`。
 
-**Z4**（有档案时）：行 `[trash] 删除声音档案…`。确认对话框：“删除我的声音？”，正文“参考音、稿子和声音缓存从这台 Mac 删除；之后译音用系统声音。”，按钮“删除”“取消”。
+**Z4**（有档案时）：普通“声音档案”标签，行尾为原生 small bordered“删除…”按钮（destructive role），不再将整行画为红色点击区。点按打开系统 alert“删除声音档案？”，正文“参考音、稿子和声音缓存从这台 Mac 删除；之后译音用系统声音。”，按钮为“取消”和“删除声音档案”。后者是对用户主动删除请求的普通确认按钮，遵循 macOS 系统样式，不手工染红或指定默认快捷键；删除模型逻辑不变。
 
 档案详情（参考音、语速、自动检查、声音缓存）**移到** 隐私与诊断 › 故障检查 › 技术详情 › 声音档案。
 
@@ -987,7 +989,7 @@ FactRow：
 - “存储与隐私”折叠及路径（改为 ⓘ + Finder 按钮）；删除确认长正文（缩短）。
 - 录制窗口：“创建我的声音 / 重新录制我的声音”“录一段中文，用你的声音说英语和德语。”“录制准备 / 朗读这段中文”“找个安静的地方…离麦克风一拳左右。”“约 10–20 秒 · 按平时说话的语速读完全文”“开始后先测量环境噪声，再倒数 3 秒…”“测量环境噪声后，会倒数 3 秒再开始录制。”“自然读完全文…或点“完成录制”。”“正在检查录音质量… / 正在准备你的声音并生成英语、德语试听…”“录音检查”及每项 message、“语速约 x.x 字/秒（用于估计说话节奏）”“引擎尚未就绪：可以先保存录音…”“试听已生成。戴上耳机听一听，满意就保存。”“回读错误率 / 第 N 次生成”“参考音 x.x 秒，语速 x.x 字/秒。”“存储位置 + 路径”。
 
-### 7.8 模型 · 语音识别
+### 7.8 识别与翻译 · 语音识别
 
 **Z1** CardRow（arrows）：`[waveform 语音识别]` → `[character.bubble 文本翻译]` → `[speaker.wave.2 语音合成]`。
 - 语音识别卡：Qwen 未装时 pending；已转 Apple 备用时 warn。
@@ -1004,11 +1006,11 @@ FactRow：`[laptopcomputer 本机识别]`（help“声音在这台 Mac 上转成
 
 **保留可见中文**：语音识别 文本翻译 语音合成 / 应用声音 识别 原文 说中文 右⌥ / Qwen3-ASR Apple Speech / 备用 Apple 术语表 / 本机识别。
 
-**实现记录（第 4d 次提交 3def91e）**：听泳道识别节点的“备用 Apple”卫星只在选 Qwen3-ASR 时出现（选 Apple Speech 时没有备用），会话中转到 Apple 之前为虚线。我说话泳道的识别节点在 ASR 模型缺失时为 pending，并与听泳道一样链接到组件 › 引擎与模型；组件链接只在模型缺失或有问题时出现。图下加了问题行（与场景页同一写法），上文没有。
+**实现记录（第 4d 次提交 3def91e）**：听泳道识别节点的“备用 Apple”卫星只在选 Qwen3-ASR 时出现（选 Apple Speech 时没有备用），会话中转到 Apple 之前为虚线。我说话泳道的识别节点在 ASR 模型缺失时为 pending，并与听泳道一样链接到安装与维护 › 引擎与模型；组件链接只在模型缺失或有问题时出现。图下加了问题行（与场景页同一写法），上文没有。
 
 **删除**：卡片下 caption“声音 → 原文 / 原文 → 译文 / 译文 → 声音”（改为卡间箭头 + help）；“听对方／看视频 · 应用声音 → 原文”；“首选识别引擎”；“Qwen3-ASR（默认）”的“（默认）”；“当前运行 / 尚未开始收听”；“选择立即生效；Qwen 不可用时由 Apple Speech 接管。”；“按键翻译的识别引擎 / Qwen3-ASR，Apple Speech 备用”；“支持中文夹英语，统一生成选定的英语或德语译音。”；“我说话 · 点按右⌥开始，再点按结束”；“本地识别模型”整节（含 InfoButton，模型 id 改放 help）；“管理本地模型安装”；“识别与翻译的分工”折叠及两段说明。
 
-### 7.9 模型 · 文本翻译（TalkTalkCloudUI）
+### 7.9 识别与翻译 · 文本翻译（TalkTalkCloudUI）
 
 **Z1** CardRow（同上，选中文本翻译）。
 
@@ -1062,7 +1064,7 @@ FactRow：`[laptopcomputer 本机识别]`（help“声音在这台 Mac 上转成
 - “开始时提醒：文字发给 OpenAI”在听的方向不用 OpenAI 时禁用，因为它只对这个方向生效。
 - 语言 chip 复用场景页的 LanguageChip 及其锁定规则。
 
-### 7.10 模型 · 语音合成
+### 7.10 我的声音 · 语音合成说明（原模型子页）
 
 **Z1** CardRow（选中语音合成）。
 
@@ -1078,7 +1080,7 @@ FactRow：`[laptopcomputer 本机识别]`（help“声音在这台 Mac 上转成
 
 **删除**：“译文 → 会议里的声音”；“英语／德语译文”；“声音与试听”；“会议同传会生成译音；视频字幕只显示文字。”；节标题“我的声音 / 系统声音”及 InfoButton；“Qwen3-TTS 模型 / <模型名>／未安装”；“声音档案 / 已创建／尚未创建”；“macOS 系统声音 / 无需创建声音档案”；“没有声音档案时，译音使用系统声音。”；“声音档案与恢复说明”折叠及说明。
 
-### 7.11 组件 · 引擎与模型
+### 7.11 安装与维护 · 语音资源
 
 **Z1** CardRow：`[cpu 引擎与模型]` `[mic.circle 虚拟麦克风]`；需要安装、更新或修复时显示 warn 或 failed 角标。
 
@@ -1095,7 +1097,7 @@ FactRow：`[laptopcomputer 本机识别]`（help“声音在这台 Mac 上转成
   - 行 `[cpu] 档位` Picker（max · 4.9 GB / standard · 4.9 GB / compact-24 · 3.8 GB / compact-16 · 2.8 GB，与节点 chip 同步）+ 按钮 `[arrow.down.circle 下载]` 或“换档”；需要时加 `[wrench.and.screwdriver 修复]`；IconMenuButton `ellipsis.circle`（help“维护引擎”），菜单项 `[checkmark.shield 校验安装]` `[power 重启引擎]` `[doc.text.magnifyingglass 查看日志]` `[trash 卸载引擎…]`。
   - 状态行：已安装 · max / 可更新 / 需更新运行时 / 缺 N 个文件 · X GB / 未完成 / 记录损坏 / 完成 / 未完成：… / 已取消 / 引擎已重启 / waiting 完全卸载中。
   - 进度行：ProgressView + “2/5 · 1.2/4.9 GB”（模型名放 help）。
-- Section `[square.stack.3d.up] 模型`：每个模型一行，`[waveform | speaker.wave.2]` 等宽 key + secondary“X GB · rev” + 状态图形 13（ok / warn，help“已安装 / 待校验”）+ IconButton `trash` 或 `arrow.down.circle`（help“删除 / 下载 <key>”）。另有一行链接 `[square.stack.3d.up 模型设置 ›]`，跳到模型页。
+- Section `[square.stack.3d.up] 模型`：每个模型一行，`[waveform | speaker.wave.2]` 等宽 key + secondary“X GB · rev” + 状态图形 13（ok / warn，help“已安装 / 待校验”）+ IconButton `trash` 或 `arrow.down.circle`（help“删除 / 下载 <key>”）。另有一行链接 `[square.stack.3d.up 模型设置 ›]`，跳到识别与翻译页。
 - 弹窗（缩短）：
   - “安装引擎（max）？”“从 Hugging Face 等下载约 X GB（另加运行时），可随时取消。”[下载并安装][取消]
   - “下载模型 k？”“约 X GB。”[下载]
@@ -1115,7 +1117,7 @@ FactRow：`[laptopcomputer 本机识别]`（help“声音在这台 Mac 上转成
 
 **删除**：卡片摘要“语音识别 · 语音合成 / TalkTalk Mic · 连接会议应用”；“本页管理本地安装；模型选择在“模型”中设置。”（改为“模型设置 ›”）；“正在检查组件…”（改为 busy）；页内 headline“引擎与模型”及 `.title2` cpu 头；stateText 长句；“这个构建里没有安装器…”；“准备中 d/c · model · x/y GB”里的模型名；“取消”文字；“完全卸载正在进行：引擎的操作要等它结束。”；“换档并安装 / 下载并安装”“修复安装”“维护引擎”文字；“下载与安装说明”及其说明；“Qwen3-ASR · 把听到的声音转成原文 / Qwen3-TTS · 用你的声音朗读译文”角色行；“已安装／待修复／未安装”文字；“模型、版本与单独下载”；模型行用途说明；“已安装／待校验”文字；“删除 / 下载”文字按钮；安装弹窗长正文（缩短）。
 
-### 7.12 组件 · 虚拟麦克风（TalkTalkDriverSupport）
+### 7.12 安装与维护 · TalkTalk Mic（TalkTalkDriverSupport）
 
 **Z1** CardRow（选中虚拟麦克风）。
 
@@ -1141,7 +1143,7 @@ FactRow：`[lock.fill 需管理员授权]` + ⓘ“TalkTalk Mic 仅在 TalkTalk 
 
 **实现记录（第 4e 次提交 0f655a8，第 5 次 40bb982）**
 
-- 原来的 `DriverComponentSection` 已删除（第 7 次提交）。组件页和引导都把 `DriverComponentRows` 直接放进 Section，生命周期与刷新由 `.driverComponentLifecycle(model)` 挂在容器上。
+- 原来的 `DriverComponentSection` 已删除（第 7 次提交）。安装与维护页和引导都把 `DriverComponentRows` 直接放进 Section，生命周期与刷新由 `.driverComponentLifecycle(model)` 挂在容器上。
 - “重启音频服务”同样要管理员密码，所以也带锁。
 - `DriverComponentModel.users` 为 `[DriverUser]`（名字 + bundle id），会议应用节点画真实图标。被占用而不能安装或卸载时写应用名（“TalkTalk Mic 正被使用（Zoom）”），已知会议应用用 MeetingApp 的名字。
 - 自检检查名有长短两种：句子里用短名（“上次自检没通过（回环、隔离）”“跳过：门禁没有跑（…）”），详情行用长名。
@@ -1166,7 +1168,7 @@ FactRow：`[lock.fill 需管理员授权]` + ⓘ“TalkTalk Mic 仅在 TalkTalk 
 
 **保留可见中文**：12 / 30 云端翻译时发给 OpenAI 仅本机 保存 / 中文 EN DE 备注 / 已保存 需中文 + 至少一种译法 读取失败 保存失败 / 还没有术语 产品名 · 人名 · 专业词 添加。
 
-**实现记录（第 4b 次提交 f8a6be2）**：头图状态槽同时放计数、仍然成立的上次结果和隐私 chip：改动后不再显示“已保存”，补齐缺项后不再显示警示（`GlossarySettingsModel.currentResult`）。云端 chip 的条件是已同意云端且有方向开启，不检查是否存有 key（key 从不读取）；它读共享的翻译偏好，在模型页或引导第 5 步改动时立即更新（`GlossarySettingsView(model:translation:)`）。红色描边只在因缺项被拒保存后出现，到下次成功保存或读取时清除。列头对齐输入框边缘。Form 不加 `.settingsRow`（§3.8 实现记录）。
+**实现记录（第 4b 次提交 f8a6be2）**：头图状态槽同时放计数、仍然成立的上次结果和隐私 chip：改动后不再显示“已保存”，补齐缺项后不再显示警示（`GlossarySettingsModel.currentResult`）。云端 chip 的条件是已同意云端且有方向开启，不检查是否存有 key（key 从不读取）；它读共享的翻译偏好，在识别与翻译页或引导第 5 步改动时立即更新（`GlossarySettingsView(model:translation:)`）。红色描边只在因缺项被拒保存后出现，到下次成功保存或读取时清除。列头对齐输入框边缘。Form 不加 `.settingsRow`（§3.8 实现记录）。
 
 **删除**：“填写中文及至少一种外语译法；保存后，下次翻译请求生效。”；“术语使用说明”及“为产品名、人名和专业词指定译法…”；“添加产品名、人名或专业词，填写中文及至少一种外语译法。”；列名“English / Deutsch”（改为 EN / DE）；占位“中文 / English / Deutsch”；“备注（可选）”；“已保存，下次翻译请求生效。”；“每条填写中文，以及至少一种外语译法。”；“术语表读取失败 / 保存失败”前缀；“启用云端翻译时，术语随文字发送给 OpenAI；关闭时不发送。”（改为条件 chip）。
 
@@ -1195,7 +1197,7 @@ FactRow：`[lock.fill 需管理员授权]` + ⓘ“TalkTalk Mic 仅在 TalkTalk 
 
 **保留可见中文**：数据与隐私 字幕分析 故障检查 / 录音中：我 · 译音 · 对方 正在保存字幕文字 本场将录音 下场将录音 / DataBoundary 文字 / 保存文字记录 本机 30 天 不进诊断包 / Key：仅钥匙串 日志：不含文字和音频 / 自动清理 诊断录音 · 字幕分析 24 小时 文字记录 30 天 延迟事件 20 场 · 14 天 · 200 MB 立即清理 HH:mm · 删除 N。
 
-**实现记录（第 4e 次提交 0f655a8）**：DataBoundary 右栏用 `link` 链接到模型 › 文本翻译（§3.6）。保存文字记录开启时 Finder 按钮总是可用，文件夹还不存在时先按 TranscriptWriter 的同样权限建好再显示；关闭且没有文件夹时禁用。
+**实现记录（第 4e 次提交 0f655a8）**：DataBoundary 右栏用 `link` 链接到识别与翻译 › 文本翻译（§3.6）。保存文字记录开启时 Finder 按钮总是可用，文件夹还不存在时先按 TranscriptWriter 的同样权限建好再显示；关闭且没有文件夹时禁用。
 
 **删除**：卡片摘要“存储与清理 / 检查本次字幕 / 自检与导出”；横幅长句“字幕分析正在准备 / 正在保存本次字幕文字”、“查看字幕分析 / 查看诊断录音”可见按钮、“正在录音：麦克风、合成语音、对方”（改为“我 · 译音 · 对方”）、“已启用本场 / 下场诊断录音”；“声音与文字的去向”；“声音留在本机 / 识别为文字 / 可选云端翻译 / 翻译设置”；“语音识别与合成在本机完成，音频和声音档案不上传…”；“密钥与常规日志”折叠；“OpenAI key 只在登录钥匙串里…”；“常规日志只记 id、长度、耗时和错误码…”；“文字记录”节说明“默认关闭。开启后保存会议原文和译文，仅在本机保留 30 天，不进入诊断包。”；“文字记录的存放方式”折叠及说明；“启动时及之后每小时检查一次，按以上期限自动清理。”（改为 ⓘ）；“上次：HH:mm，删除 N 项”。
 
@@ -1276,7 +1278,7 @@ FactRow：`[text.quote 仅文字]` `[mic.slash 不录音]` `[1.circle 仅本次]
 - **场景选择**：CardRow(multiSelect)，不显示摘要；可见文字只有“你会用 TalkTalk 做什么？”和“可多选”。
 - **第 1 步（权限）**：GrantRow 改用 `.settingsRow`（15/22），只留标题：应用声音 / Apple 语音识别 / 麦克风 / Keycap 右⌥；状态只用图形；说明进 ⓘ，最多 3 个（例如“快捷键只监听、不修改按键”）。失败短句：failed“系统录音被拒绝” + `[arrow.up.forward.app 打开“隐私与安全性”]`；warn“未确认 · 开始时再查”。
 - **第 2 步（语言资源）**：语言徽章 48pt 保持，角落加状态角标（11 放在 15 圆底）；按钮 `[arrow.down.circle 下载]`。
-- **第 3 步（虚拟麦）**：`FlowGrid.driver` + FactChip `[lock.fill 需管理员授权 · 声音中断约 1 秒]`；其下是组件页同一组 `DriverComponentRows`，放在无标题 Section 里。
+- **第 3 步（虚拟麦）**：`FlowGrid.driver` + FactChip `[lock.fill 需管理员授权 · 声音中断约 1 秒]`；其下是安装与维护页同一组 `DriverComponentRows`，放在无标题 Section 里。
 - **第 4 步（引擎）**：FlowGrid `[waveform 声音]`（卫星 Qwen3-ASR）→ `[text.bubble 原文]`；`[character.bubble 译文]` → `[waveform.and.person.filled 我的声音]`（卫星 Qwen3-TTS）；FactChip `[laptopcomputer 本机]`；下面是引擎区块。
 - **第 5 步（文本翻译）**：DataBoundary + 与模型·文本翻译相同的 API key Section 组件 + FactChip `[laptopcomputer 不配也能用 Apple]`。
 - **第 6 步**：嵌入“我的声音”的主图。
@@ -1308,10 +1310,10 @@ FactRow：`[text.quote 仅文字]` `[mic.slash 不录音]` `[1.circle 仅本次]
 - 第 1 步：“打开‘隐私与安全性’”只出现在被拒的行上（应用声音另在“检查”旁）。全步只有右⌥ 行一个 ⓘ，用途说明进各行 help；探针进行中在应用声音行尾显示 `StatusGlyph(.busy)`。右⌥ 行的标题是键帽图（§3.16 实现记录），悬停显示输入监控的说明。
 - 第 2 步：各语言的失败合并为一行“下载失败”（全部原因在 help），语言代码也在 help。
 - 第 3 步：FactChip 为 warn 语气（原来的提醒是橙色）；引导里的驱动图不带 TalkTalk Mic 链接。
-- 第 4 步：用私有的 `FlowGrid.localEngine` 画本节写的两条泳道，不用组件页的安装生命周期图 `FlowGrid.engine`；模型未安装的角标在带卫星的“声音”“我的声音”节点上。其下是组件页的 `EngineControlRows`、`EngineModelRows` 两个分组（原 `EngineComponentsRows` 封装已删除）。
-- 第 5 步：`OpenAIOnboardingStep(model:)` 加 `static canContinue(_:)`，按钮移到窗口页脚；key 分组是 `OpenAIKeySection(model:, host: .onboarding)`，与模型 › 文本翻译同一组件；设置与引导同时打开时，删除 key 只在点按的那个窗口确认（§7.9 实现记录）。
+- 第 4 步：用私有的 `FlowGrid.localEngine` 画本节写的两条泳道，不用安装与维护页的安装生命周期图 `FlowGrid.engine`；模型未安装的角标在带卫星的“声音”“我的声音”节点上。其下是安装与维护页的 `EngineControlRows`、`EngineModelRows` 两个分组（原 `EngineComponentsRows` 封装已删除）。
+- 第 5 步：`OpenAIOnboardingStep(model:)` 加 `static canContinue(_:)`，按钮移到窗口页脚；key 分组是 `OpenAIKeySection(model:, host: .onboarding)`，与识别与翻译 › 文本翻译同一组件；设置与引导同时打开时，删除 key 只在点按的那个窗口确认（§7.9 实现记录）。
 - 第 6 步：嵌入整个我的声音页（概览与录制），不只是主图，这样自动开始录制和录制流程只有一个容器。
-- 第 7 步：顺序为 StepTrack → 检查状态行 → 风险 chip（§2 的页面顺序：图、问题、事实）。只读会议流程图只在组件页模型可用时显示。① 的 needsAction 描边只用于 nobodyReads（§7.1 实现记录）。
+- 第 7 步：顺序为 StepTrack → 检查状态行 → 风险 chip（§2 的页面顺序：图、问题、事实）。只读会议流程图只在安装与维护页模型可用时显示。① 的 needsAction 描边只用于 nobodyReads（§7.1 实现记录）。
 - 第 8 步：收听空闲时不显示状态，可用的“播放示例”已说明；“试说／停止”合成一个开关按钮。
 - 完成页：“需要重新检查时…”的说明改为“关闭”的 help。
 
@@ -1417,7 +1419,7 @@ FactRow：`[text.quote 仅文字]` `[mic.slash 不录音]` `[1.circle 仅本次]
 - 标题行不加粗。发声行是风险胶囊时由“对方能听到原声”行代替，不重复。风险行用固定短句，检查说明放在 tooltip。
 - 收听提示沿用标题栏芯片的字形和颜色；“保持”类提示不占行，待确认类为灰色。
 - 状态 A 中，开始与“开始会议同传（恢复输入记录）”都禁用；“Apple 资源待配置”在引导完成后指向“通用设置…”，落到 通用 › 使用引导… 并闪烁，该行与头图同显“Apple 资源待配置”（§9.6 #3：引导完成后菜单不再列“使用引导…”）；另加“组件未就绪”→“组件设置…”。
-- 修复项用不带 ReturnPill 的直达（`SettingsNavigation.reveal`）加分组锚点：音频 #TalkTalk Mic／#耳机、模型 › 语音识别／文本翻译的主图、组件 › 引擎与模型 #引擎、通用 #使用引导、故障检查 #诊断录音、字幕分析的主图；各页用同一个 `settingsAnchorTarget` 滚动并闪烁，目标页已打开时同样生效。
+- 修复项用不带 ReturnPill 的直达（`SettingsNavigation.reveal`）加分组锚点：音频 #TalkTalk Mic／#耳机、识别与翻译 › 语音识别／文本翻译的主图、安装与维护 › 引擎与模型 #引擎、通用 #使用引导、故障检查 #诊断录音、字幕分析的主图；各页用同一个 `settingsAnchorTarget` 滚动并闪烁，目标页已打开时同样生效。
 - 云端信息行覆盖两个方向：“字幕翻译：OpenAI”“我说话翻译：OpenAI”“翻译：OpenAI”；字幕翻译转 Apple 备用但本场仍把句子交给 OpenAI 时照常显示，离线或已暂停时不显示。
 - 识别未能恢复或切换失败时为红色“字幕识别出错”（原因在 tooltip）→“模型设置…”；只有正常状态的“语音识别”行删除（§8.6）。
 - 录音事实（§5.4）在问题之前，与录音横幅同词：“录音中：…”“本场将录音／下场将录音”→“查看诊断录音…”，“正在保存字幕文字”→“查看字幕分析…”。
@@ -1440,7 +1442,7 @@ FactRow：`[text.quote 仅文字]` `[mic.slash 不录音]` `[1.circle 仅本次]
 | # | 提交 | 改哪些文件 | 依赖 | 验收点 | 状态 |
 |---|---|---|---|---|---|
 | 1 | **共享 target + 令牌 + 状态词汇** | `Package.swift`（新增 `TalkTalkSettingsUI`；App、CloudUI、DriverSupport、Voice 依赖它）；新目录 `Sources/TalkTalkSettingsUI/`（迁入 VoiceCapsule、Keycap、InfoButton、SettingsStatus、风险字形绘制，并新增 StatusGlyph、StatusLabel、IconButton、IconMenuButton、FactChip、FactRow、SectionHeader、SettingsRowLabelStyle）；`SubtitleTokens.swift`（`SettingsIcon.Page.*`、§4 一义一形的令牌、Size 常量）；`SettingsFlowComponents.swift`（改为 import 新 target）；新测试 `TalkTalkCoreTests/SettingsSymbolTests.swift`（遍历 SettingsIcon、MenuIcon、VoiceIcon、SceneIcon 令牌，`NSImage(systemSymbolName:)` 非 nil；豁免 `VoiceIcon.originalRisk`，断言它的回退合成存在） | 无 | 构建通过；`check.sh --skip-stress`；侧栏图标更新；状态图形全窗口统一为 13pt；InfoButton 为 13pt，22×22 | 已完成 `7077444` |
-| 2 | **导航统一** | 新增 `SettingsCard`/`CardRow`（SettingsUI）；`SettingsTabButton.swift` 删除或改为薄封装；`ModelSettingsView.swift`（删 `SettingsSubpagePicker`）、`ComponentsSettings.swift`、`DiagnosticsView.swift`、`ScenarioSettingsView.swift`（ScenarioCardHeader 改走 CardRow）、`SubtitleSettingsView.swift`（加 GlobalRow 和 VoiceOver KVO 模型）；`SettingsWindowController.swift`（Z0 ReturnPill 槽、Z1 导航带槽、`returnTarget` 扩展、`FlowInteraction`） | 1 | 五个页面都有卡片行，固定、不收起、不随滚动；模型页卡间有箭头；角标显示正确；字幕页 GlobalRow 在卡片上方；VoiceOver 关闭时不显示朗读开关；ReturnPill 返回时恢复子页和滚动位置 | 已完成 `a0b370b` |
+| 2 | **导航统一** | 新增 `SettingsCard`/`CardRow`（SettingsUI）；`SettingsTabButton.swift` 删除或改为薄封装；`ModelSettingsView.swift`（删 `SettingsSubpagePicker`）、`ComponentsSettings.swift`、`DiagnosticsView.swift`、`ScenarioSettingsView.swift`（ScenarioCardHeader 改走 CardRow）、`SubtitleSettingsView.swift`（加 GlobalRow 和 VoiceOver KVO 模型）；`SettingsWindowController.swift`（Z0 ReturnPill 槽、Z1 导航带槽、`returnTarget` 扩展、`FlowInteraction`） | 1 | 五个页面都有卡片行，固定、不收起、不随滚动；识别与翻译页卡间有箭头；角标显示正确；字幕页 GlobalRow 在卡片上方；VoiceOver 关闭时不显示朗读开关；ReturnPill 返回时恢复子页和滚动位置 | 已完成 `a0b370b` |
 | 3 | **流程组件 + 场景三页** | SettingsUI 新增 `FlowGrid`/`FlowNode`/`NodeChip`/`FlowSatellite`/`LoopRow`/`StepTrack`；`ScenarioSettingsView.swift`、`PhoneSettingsView.swift`（FlowGrid.meeting/phone/video 工厂、ScenarioBottomBar 改写、删除 runningBanner 与描述）；`SettingsFlowComponents.swift`（SpeechFlow/SpeakingLanes 先原样保留，不改成薄封装：引导、音频、我的声音、模型、诊断各在 4c/4d/4e/7 迁到 FlowGrid，第 5 次提交删除它们） | 2 | 820 宽下节点不截断安全词；滚动和切卡不卡死（8c87ba7 回归）；chip 和开关可点，chevron 不误触；VoiceOver 读序为节点 → 控件 → 链接；会议检查 notChecked / green / physicalMic / nobodyReads 四种状态下，节点、问题行、菜单三处一致；电话“首次连接”在从未准备成功前自动展开 | 已完成 `7ab201a`，协调修正 `582176e` |
 | 4a | **字幕页** | `SubtitleSettingsView.swift`、`SubtitleLayoutPreview.swift`（热点）、新增 `ThumbnailChoice` | 3（并行于 4b–4d） | 深色黑、浅色白；没有背景选择器；热点有 help 和 AX；视频的样式和排列为缩略图 | 已完成 `6cd04df` |
 | 4b | **通用 + 术语表** | `GeneralSettings.swift`（PageHero、删除发言方式节，**先获用户确认**）、`GlossarySettings.swift`（改为 Form）；新增 `PageHero` | 1–2 | 每页 ⓘ 不超过上限；术语表边距与其他页一致 | 已完成 `f8a6be2` |
@@ -1449,7 +1451,7 @@ FactRow：`[text.quote 仅文字]` `[mic.slash 不录音]` `[1.circle 仅本次]
 | 4e | **组件 + 隐私与诊断** | `EngineComponentsRows.swift`、`DriverComponentPage.swift`、`Sources/TalkTalkDriverSupport/DriverComponentView.swift`、`PrivacySettings.swift`、`DiagnosticsView.swift`（RecordingBanner、技术详情 › 声音档案） | 3、4d（DataBoundary） | 录音横幅在三个子页都显示，卡片角标正确；risk“已卸载 · 会议改用实体麦（对方听到原声）”出现 | 已完成 `0f655a8` |
 | 5 | **清理** | 删除 `SettingsNote`、`SpeechFlow`、`SpeakingLanes`、`FlowNodeCard`、`FlowLink`、`SettingsStatus.info`、OpenAI 步 `pathStep`；清理孤立的 `Localizable.xcstrings` 键 | 4a–4e | 编译通过即证明没有灰段落；`check-strings.sh` 通过；grep 检查 `.font(.system(size:` 取值只在 {22, 18, 15, 13, 11, 9} 内 | 已完成 `40bb982`（旧组件已随 `bf2c68f` 删除，本次做清理扫描与大字号回退；`SettingsStatus.info` 在 `7077444` 删除） |
 | 6 | **菜单** | `StatusItemController.swift`（及其菜单模型和测试） | 2（深链锚点） | A/B/C/D 四态截图；没有“更多”；引导项为粗体且排第一；问题行深链能落到正确 Section | 已完成 `14b8145` |
-| 7 | **引导** | `OnboardingFlow.swift`、`OnboardingPracticeSteps.swift`、`OnboardingUIComponents.swift`、`Sources/TalkTalkCloudUI/OpenAIOnboardingStep.swift` | 3、4d、4e | 第 3 步与组件页是同一张图；第 5 步与文本翻译用同一个 DataBoundary 和 key 组件；“第 N 步，共 M 步”与菜单同源 | 已完成 `bf2c68f`（在第 5 次之前落地） |
+| 7 | **引导** | `OnboardingFlow.swift`、`OnboardingPracticeSteps.swift`、`OnboardingUIComponents.swift`、`Sources/TalkTalkCloudUI/OpenAIOnboardingStep.swift` | 3、4d、4e | 第 3 步与安装与维护页是同一张图；第 5 步与文本翻译用同一个 DataBoundary 和 key 组件；“第 N 步，共 M 步”与菜单同源 | 已完成 `bf2c68f`（在第 5 次之前落地） |
 | 8 | **文档** | `docs/ARCHITECTURE.md`（设置视觉系统、TalkTalkSettingsUI、场景卡语义、VoiceOver 开关显示规则、菜单四态）；`docs/decisions/2026-11-06-subtitle-ui-redesign.md` 新增 §9.4“图示优先设置系统”，并在 §9.1 注明“HIG pass 去图标部分被本节推翻”；`docs/remaining-work.md:29` 补“卡片导航覆盖全部子页” | 全部 | 文档与行为一致 | 已完成（本提交；新节编号为 §9.3，因为该文档只有 §9.1、§9.2） |
 
 ### 9.2 可以并行的部分

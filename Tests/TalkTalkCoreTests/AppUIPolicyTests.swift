@@ -17,7 +17,18 @@ import Testing
         #expect(approval.isOn && approval.notice == .awaitingApproval)
         let off = P.present(.notRegistered, bundleSigned: true, stronglyRecommended: false)
         #expect(!off.isOn && off.notice == nil)
-        #expect(P.present(.notFound, bundleSigned: true, stronglyRecommended: true).notice == .moveToApplications)
+        #expect(P.present(.notFound, bundleSigned: true, stronglyRecommended: true).notice == .serviceUnavailable)
+    }
+
+    @Test func missingServiceDoesNotInferWhereTheAppIsInstalled() {
+        // SMAppService.notFound can occur for an app already in Applications. It must report
+        // the missing service rather than tell the user to move a correctly installed app.
+        for recommended in [false, true] {
+            let presentation = P.present(.notFound, bundleSigned: true, stronglyRecommended: recommended)
+            #expect(presentation == .init(isOn: false, canToggle: true, notice: .serviceUnavailable))
+        }
+        #expect(P.action(wantOn: true, current: .notFound) == .register)
+        #expect(P.action(wantOn: false, current: .notFound) == .none)
     }
 
     @Test func strongRecommendationWhenTheDriverLayerDoesNotCount() {

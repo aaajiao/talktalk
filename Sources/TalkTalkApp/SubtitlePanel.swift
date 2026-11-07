@@ -236,6 +236,7 @@ final class SubtitlePanel {
         updateWindowTitle()
         updateRemoteHeadings()
         panel.contentView = content
+        panel.interactiveTitlebar = hoverStrip
         conversation.onDisplayedRowsChange = { [weak self] in self?.displayedRowsChanged() }
         videoCaptions.onDisplayedTextChange = { [weak self] in self?.recordPresentation() }
         videoCaptions.onReadingBoundsChange = { [weak self] in
@@ -320,6 +321,7 @@ final class SubtitlePanel {
 
     func setPresentation(_ value: Presentation) {
         guard value != presentation else { return }
+        panel.cancelTitlebarInteraction()
         let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens.first
         if panel.isVisible { savePosition() }
         presentation = value
@@ -1122,6 +1124,7 @@ final class SubtitlePanel {
 
     /// Ordered out or minimised: AppKit sends no mouseExited, so hover state is dropped here.
     private func windowHidden() {
+        panel.cancelTitlebarInteraction()
         hoverBar.windowHidden()
         Self.clearHover(in: panel.contentView?.superview ?? content)
         if presentation == .video { updateVideoChrome(animated: false) }
@@ -1615,7 +1618,7 @@ final class SubtitlePanel {
     #endif
 }
 
-private final class SubtitleWindow: NSPanel {
+private final class SubtitleWindow: TitlebarInteractionPanel {
     private(set) var minimizationPending = false
     private(set) var userMinimized = false
     private(set) var userHidden = false

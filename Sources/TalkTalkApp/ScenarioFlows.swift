@@ -24,7 +24,7 @@ enum SettingsAnchor {
     static let recognition = "model.recognition"
     /// 模型 › 文本翻译's diagram and problem line (TalkTalkCloudUI draws it).
     static let translation = TranslationSettingsView.flowAnchor
-    /// 组件 › 引擎与模型 › 引擎.
+    /// 安装与维护 › 语音资源 › 引擎.
     static let engine = "components.engine"
     static let driver = "components.driver"
     /// 通用 › 使用引导….
@@ -172,7 +172,7 @@ extension EngineComponentsModel {
     }
 }
 
-/// TalkTalk Mic's state (`DriverComponentModel.status`), shared by the 虚拟麦克风 card and the
+/// TalkTalk Mic's state (`DriverComponentModel.status`), shared by its maintenance card and the
 /// flow nodes; nil until the page has built the driver model, and while the driver is loaded.
 extension DriverComponentsPage {
     var driverProblem: SettingsProblem? {
@@ -309,7 +309,7 @@ extension FlowGrid {
                            link: links?.node(String(localized: "音频 · 麦克风"), .audio, anchor: SettingsAnchor.microphone))),
             .node(FlowNode("TalkTalk Mic", glyph: .symbol(Icon.talkTalkMic), badge: driverProblem?.status,
                            badgeReason: driverProblem?.text,
-                           link: links?.node(String(localized: "组件 · 虚拟麦克风"), .components, .components(.driver)))),
+                           link: links?.node(String(localized: "安装与维护 · TalkTalk Mic"), .components, .components(.driver)))),
             .node(app),
             .node(FlowNode(String(localized: "对方听到原声"), glyph: .symbol(remoteSymbol),
                            state: facts.risk ? .risk : live ? .live : .ready))
@@ -326,7 +326,7 @@ extension FlowGrid {
                            accessory: .keycap(TitlebarKey(action: String(localized: "开始翻译"), style: .idle)),
                            help: String(localized: "可夹英语"))),
             .node(FlowNode(String(localized: "识别与翻译"), glyph: .symbol(Icon.translation),
-                           link: links?.node(String(localized: "模型 · 文本翻译"), .translation, .model(.translation)))),
+                           link: links?.node(String(localized: "识别与翻译 · 文本翻译"), .translation, .model(.translation)))),
             .node(FlowNode(String(localized: "我的声音"), glyph: .symbol(Icon.myVoice),
                            badge: profile ? nil : .pending, badgeReason: profile ? nil : String(localized: "未录制"),
                            link: links?.node(String(localized: "我的声音"), .voice),
@@ -346,7 +346,7 @@ extension FlowGrid {
         let problem = facts.engine.recognitionProblem(facts.state)
         return FlowNode(String(localized: "识别与翻译"), glyph: .symbol(Icon.translation), badge: problem?.status,
                         badgeReason: problem?.text,
-                        link: links?.node(String(localized: "模型 · 语音识别"), .translation, .model(.recognition)))
+                        link: links?.node(String(localized: "识别与翻译 · 语音识别"), .translation, .model(.recognition)))
     }
 
     private static func subtitles(_ facts: ScenarioFacts, links: ScenarioLinks?) -> FlowNode {

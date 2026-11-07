@@ -24,7 +24,7 @@ public enum StatusMenuDestination: Sendable, Equatable {
     case recognition
     /// 模型 › 文本翻译, its diagram.
     case translation
-    /// 组件 › 引擎与模型 › 引擎.
+    /// 安装与维护 › 语音资源 › 引擎.
     case components
     /// 通用 › 使用引导… (§8.2: it lives there once onboarding is done), which re-runs the
     /// Apple speech download.
@@ -445,7 +445,7 @@ public enum StatusMenu {
     }
 
     private static func models(_ destination: StatusMenuDestination) -> StatusMenuRow {
-        StatusMenuRow(.action(.open(destination)), String(localized: "模型设置…"), symbol: SubtitleTokens.SettingsIcon.Page.models)
+        StatusMenuRow(.action(.open(destination)), String(localized: "识别与翻译…"), symbol: SubtitleTokens.SettingsIcon.Page.models)
     }
 
     private static var checkMicrophone: StatusMenuRow {
@@ -453,7 +453,7 @@ public enum StatusMenu {
     }
 
     private static var componentSettings: StatusMenuRow {
-        StatusMenuRow(.action(.open(.components)), String(localized: "组件设置…"), symbol: SubtitleTokens.SettingsIcon.Page.components)
+        StatusMenuRow(.action(.open(.components)), String(localized: "安装与维护…"), symbol: SubtitleTokens.SettingsIcon.Page.components)
     }
 
     /// The line of an icon fact that has none of its own (§8.1), with its sentence and fix.

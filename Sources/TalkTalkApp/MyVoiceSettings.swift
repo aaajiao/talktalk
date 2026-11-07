@@ -30,9 +30,6 @@ final class MyVoiceModel {
     /// 停止 was pressed: a play still being generated is skipped. Observed, so the button shows
     /// play (disabled) at once instead of waiting for the generation to end.
     private(set) var auditionStopped = false
-    /// The page has started a take by itself once this visit (no profile yet): 关闭 then lands on
-    /// the overview instead of starting another take. Reset when the page goes away.
-    @ObservationIgnored var autoBegan = false
     /// Whether the lifecycle's monitor output can play (read when the page appears and when the
     /// engine instance changes); false: 试听 is grayed out with the monitor's reason.
     private(set) var monitorAvailable = false
@@ -49,7 +46,7 @@ final class MyVoiceModel {
     @ObservationIgnored private var enrollmentSource: VoiceLifecycle?
     @ObservationIgnored private var monitorReadFor: VoiceLifecycle?
     private let onChange: () -> Void
-    /// Settings › 组件's installer; while it runs no audition and no new take.
+    /// Settings › 安装与维护's installer; while it runs no audition and no new take.
     private let components: EngineComponentsModel
 
     init(store: VoiceStore, engineHost: EngineHost? = nil, components: EngineComponentsModel = AppUIModels.shared.engine,
@@ -63,6 +60,10 @@ final class MyVoiceModel {
     }
 
     var installerRunning: Bool { components.running }
+    /// The same installed-resource facts used by 安装与维护; no engine is started to read them.
+    var synthesisProblem: SettingsProblem? { components.synthesisProblem }
+    var synthesisModelName: String? { components.modelName(role: "tts") }
+    func refreshSynthesisResources() { components.reload() }
     /// The installer runs and the take is past capture: the flow is held (no save starts).
     var saveBlocked: Bool { installerRunning && !recordingActive }
 
@@ -244,24 +245,27 @@ final class MyVoiceModel {
 
 
 /// Settings › 我的声音 (settings visual system §7.7). The page opens with its flow: 录中文 with
-/// the page's one primary action, the profile, and 试听 in English and German; then the one
-/// problem line and the safety facts, and last the red 删除声音档案…. Recording replaces the
+/// the page's one primary action, the profile, and 试听 in English and German, followed by the
+/// translated-voice path; then one problem line, safety facts and a native delete button. Recording replaces the
 /// page with TalkTalkVoice's `EnrollmentView`. The profile's details are under 隐私与诊断 ›
 /// 故障检查 › 技术详情.
 struct MyVoiceSettingsView: View {
     // No @State: the CLT toolchain has no SwiftUIMacros plugin, so view state lives in the model.
     @Bindable var model: MyVoiceModel
+    var navigation: SettingsNavigation? = nil
+    var driver: DriverComponentsPage? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private typealias Icon = SubtitleTokens.SettingsIcon
 
     var body: some View {
-        // One container around both branches: its onDisappear fires when the page goes away,
-        // not when recording and the overview replace each other.
         ZStack {
             content
         }
-        .onDisappear { model.autoBegan = false }
+        .onAppear {
+            model.refreshSynthesisResources()
+            driver?.load()
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -293,12 +297,8 @@ struct MyVoiceSettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .onAppear {
                     model.refreshMonitor()
-                    // No profile yet: go straight to the script and the 开始 button, once per
-                    // visit; 关闭 comes back here (录制, 未录制, 系统声音).
-                    if !model.autoBegan && !model.hasProfile && !model.profileUnreadable {
-                        model.autoBegan = true
-                        model.beginRecording()
-                    }
+                    // System-voice users can read the overview too. The existing 录制 button
+                    // explicitly opens the recording flow, whether or not a profile exists.
                 }
         }
     }
@@ -307,35 +307,57 @@ struct MyVoiceSettingsView: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
-                    FlowGrid.myVoice(model)
-                    if let problem = model.problem {
+                    FlowGrid.myVoice(model, driver: driver, links: links)
+                    if let problem = SettingsProblem.mostSevere([model.problem, model.synthesisProblem]) {
                         StatusLabel(problem.text, problem.status, help: problem.help)
                     }
                     facts
+                    synthesisFacts
                 }
                 .padding(.vertical, 4)
             }
             if model.hasProfile {
                 Section {
-                    Button { model.confirmDelete = true } label: {
-                        // A disabled plain button dims its label itself.
-                        Label("删除声音档案…", systemImage: Icon.delete)
-                            .labelStyle(.settingsRowDestructive)
-                            .contentShape(Rectangle())
+                    LabeledContent {
+                        Button("删除…", role: .destructive) { model.confirmDelete = true }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(model.deleting || !model.canRecord)
+                            .help(String(localized: "删除声音档案"))
+                            .accessibilityLabel(String(localized: "删除声音档案"))
+                    } label: {
+                        Label("声音档案", systemImage: Icon.myVoice)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(model.deleting || !model.canRecord)
                 }
             }
         }
         .formStyle(.grouped)
         .labelStyle(.settingsRow)
-        .confirmationDialog("删除我的声音？", isPresented: $model.confirmDelete) {
-            Button("删除", role: .destructive) { model.deleteProfile() }
+        .alert("删除声音档案？", isPresented: $model.confirmDelete) {
             Button("取消", role: .cancel) {}
+            // macOS uses its ordinary confirmation button after the explicit delete request.
+            Button("删除声音档案") { model.deleteProfile() }
         } message: {
             Text("参考音、稿子和声音缓存从这台 Mac 删除；之后译音用系统声音。")
         }
+    }
+
+    private var links: ScenarioLinks? {
+        navigation.map { navigation in
+            ScenarioLinks { section, subpage, anchor in navigation.open(section, subpage, anchor: anchor) }
+        }
+    }
+
+    /// The synthesis facts moved from the former 模型 › 语音合成 page, beside the voice profile.
+    private var synthesisFacts: some View {
+        FactRow([
+            FactChip(String(localized: "会议·电话生成译音"), symbol: SubtitleTokens.SceneIcon.meeting,
+                     help: String(localized: "会议和电话同传使用合成译音")),
+            FactChip(String(localized: "视频不生成"), symbol: Icon.noSpeech,
+                     help: String(localized: "视频字幕只显示文字"))
+        ], info: InfoButton(topic: String(localized: "合成译音"), lines: [
+            String(localized: "已有声音档案但克隆引擎暂不可用时，会等待恢复或不发送该段（未发送），不会改用系统声音。")
+        ]))
     }
 
     /// The safety facts (§5.4): this Mac only, with the ⓘ and the folder beside that chip (§7.7,
@@ -375,10 +397,10 @@ struct MyVoiceSettingsView: View {
     }
 }
 
-/// 我的声音's graphic (§7.7): one lane from 录中文 to the profile to 试听.
+/// 我的声音's graphic: recording and audition, then the existing translated-voice path.
 @MainActor
 extension FlowGrid {
-    static func myVoice(_ model: MyVoiceModel) -> FlowGrid {
+    static func myVoice(_ model: MyVoiceModel, driver: DriverComponentsPage? = nil, links: ScenarioLinks? = nil) -> FlowGrid {
         typealias Icon = SubtitleTokens.SettingsIcon
         let profile = model.profile
         let busy = model.externalBusy()
@@ -429,7 +451,34 @@ extension FlowGrid {
         return FlowGrid(String(localized: "我的声音"), lanes: [
             FlowLane(String(localized: "我的声音"), gutter: .symbol(Icon.me), cells: [
                 .node(record), .node(saved), .node(audition), .empty
-            ])
+            ]),
+            synthesizedVoiceLane(model, driver: driver, links: links)
+        ])
+    }
+
+    /// EN/DE translation → synthesis (my voice or system voice) → TalkTalk Mic → other party.
+    private static func synthesizedVoiceLane(_ model: MyVoiceModel, driver: DriverComponentsPage?, links: ScenarioLinks?) -> FlowLane {
+        typealias Icon = SubtitleTokens.SettingsIcon
+        let problem = model.synthesisProblem
+        let driverProblem = driver?.driverProblem
+        let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
+        // The profile controls are in this same graphic, so the satellite needs no self-link.
+        let satellite = model.hasProfile
+            ? FlowSatellite(String(localized: "我的声音"), symbol: Icon.myVoice, help: String(localized: "用我的声音合成译音"))
+            : FlowSatellite(String(localized: "系统声音"), symbol: Icon.speech,
+                            help: String(localized: "未录制时用系统声音"), dashed: true)
+        let speech = FlowNode(String(localized: "合成译音"), glyph: .symbol(Icon.speech),
+                              badge: problem?.status, badgeReason: problem?.text,
+                              link: problem == nil ? nil
+                                  : links?.node(String(localized: "安装与维护 · 语音资源"), .components, .components(.engine)),
+                              satellite: satellite, help: model.synthesisModelName)
+        return FlowLane(String(localized: "译音"), gutter: .voice(translating), cells: [
+            .node(FlowNode(String(localized: "EN/DE 译文"), glyph: .symbol(Icon.translation))),
+            .node(speech),
+            .node(FlowNode("TalkTalk Mic", glyph: .symbol(Icon.talkTalkMic), badge: driverProblem?.status,
+                           badgeReason: driverProblem?.text,
+                           link: links?.node(String(localized: "安装与维护 · TalkTalk Mic"), .components, .components(.driver)))),
+            .node(FlowNode(String(localized: "对方听到译音"), glyph: .symbol(Icon.remote)))
         ])
     }
 }

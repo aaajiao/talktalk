@@ -10,8 +10,8 @@ enum ComponentsSettingsTab: CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .engine: String(localized: "引擎与模型")
-        case .driver: String(localized: "虚拟麦克风")
+        case .engine: String(localized: "语音资源")
+        case .driver: "TalkTalk Mic"
         }
     }
 
@@ -22,13 +22,13 @@ enum ComponentsSettingsTab: CaseIterable, Identifiable {
     /// The card's help and VoiceOver hint (settings visual system §3.1).
     var summary: String {
         switch self {
-        case .engine: String(localized: "本地识别与合成")
+        case .engine: String(localized: "本地引擎与识别、合成模型")
         case .driver: String(localized: "把声音送进会议")
         }
     }
 }
 
-/// Settings › 组件 (settings visual system §7.11, §7.12); the cards sit in the window's fixed
+/// Settings › 安装与维护 (settings visual system §7.11, §7.12); the cards sit in the window's fixed
 /// band. Each sub-page opens with its flow, whose nodes scroll to the section below (its header
 /// carries the node's glyph and flashes once); no footers or explanation lines. The owners
 /// survive switching cards, preserving installer progress and confirmation and blocking rules.
@@ -63,7 +63,7 @@ struct ComponentsSettingsView: View {
         navigation.flow.flash(anchor)
     }
 
-    // MARK: 引擎与模型
+    // MARK: 语音资源
 
     @ViewBuilder private func enginePage(_ proxy: ScrollViewProxy) -> some View {
         if engine.installer == nil {
@@ -92,7 +92,7 @@ struct ComponentsSettingsView: View {
         }
     }
 
-    // MARK: 虚拟麦克风
+    // MARK: TalkTalk Mic
 
     @ViewBuilder private func driverPage(_ proxy: ScrollViewProxy) -> some View {
         if let model = driver.model {
@@ -102,7 +102,7 @@ struct ComponentsSettingsView: View {
                         FlowGrid.driver(model, talkTalkMic: NodeLink(String(localized: "驱动")) { jump(SettingsAnchor.driver, proxy) })
                         FactRow([FactChip(String(localized: "需管理员授权"), symbol: Icon.locked,
                                           help: String(localized: "安装、更新和卸载时输入密码"))],
-                                info: InfoButton(topic: String(localized: "虚拟麦克风"), lines: [
+                                info: InfoButton(topic: "TalkTalk Mic", lines: [
                                     String(localized: "TalkTalk Mic 仅在 TalkTalk 运行时出现；安装或维护时系统声音会短暂中断。")
                                 ]))
                     }

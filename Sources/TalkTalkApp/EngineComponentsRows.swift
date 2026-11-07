@@ -5,7 +5,7 @@ import TalkTalkCore
 import TalkTalkEngineHost
 import TalkTalkSettingsUI
 
-/// Settings › 组件 › 引擎与模型 (ARCHITECTURE.md §7.3–§7.5, §11), on top of M0's @Observable
+/// Settings › 安装与维护 › 语音资源 (ARCHITECTURE.md §7.3–§7.5, §11), on top of M0's @Observable
 /// `EngineInstaller`. The engine itself belongs to EngineHost (AppDelegate), which hands in
 /// `restart` and `stopEngine`; AppUIModels.shared is built before it, so both are set later.
 @MainActor
@@ -137,7 +137,7 @@ final class EngineComponentsModel {
         }
     }
 
-    /// The installation in the settings vocabulary (§7.11): one source for the 引擎与模型 card,
+    /// The installation in the settings vocabulary (§7.11): one source for the 语音资源 card,
     /// the flow's badge and the 引擎 section's status row. Not installed is something to do
     /// (warn), a damaged record a failure; the full reason is the help.
     var status: SettingsProblem {
@@ -367,7 +367,7 @@ struct EngineControlRows: View {
 }
 
 /// The 模型 section's rows (§7.11): each pinned model with its size and revision, whether it is
-/// installed, and delete or download; then `模型设置 ›` when `openModels` is given.
+/// installed, and delete or download; then `识别与翻译 ›` when `openModels` is given.
 struct EngineModelRows: View {
     @Bindable var model: EngineComponentsModel
     var openModels: (() -> Void)?
@@ -380,7 +380,7 @@ struct EngineModelRows: View {
         if let openModels {
             Button(action: openModels) {
                 HStack(spacing: 8) {
-                    Label("模型设置", systemImage: SubtitleTokens.SettingsIcon.Page.models)
+                    Label("识别与翻译", systemImage: SubtitleTokens.SettingsIcon.Page.models)
                     Spacer(minLength: 8)
                     Image(systemName: Icon.link)
                         .font(.system(size: Ladder.micro, weight: .semibold))
@@ -390,7 +390,7 @@ struct EngineModelRows: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(String(localized: "选择识别与合成用的模型"))
+            .help(String(localized: "设置语音识别与文本翻译"))
         }
     }
 
@@ -433,7 +433,7 @@ struct EngineUnavailableView: View {
     }
 }
 
-/// 组件 › 引擎与模型's graphic (§7.11): the install lifecycle in one lane, every node leading to
+/// 安装与维护 › 语音资源's graphic (§7.11): the install lifecycle in one lane, every node leading to
 /// the 引擎 section (`link`). The installation's state sits on its step (`statusStage`); the
 /// running step shows a spinner badge and 取消, 下载 its file's progress, 就绪 the 档位 chip.
 @MainActor

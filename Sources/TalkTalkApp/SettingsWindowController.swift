@@ -20,8 +20,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .subtitles: String(localized: "字幕")
         case .audio: String(localized: "音频")
         case .voice: String(localized: "我的声音")
-        case .translation: String(localized: "模型")
-        case .components: String(localized: "组件")
+        case .translation: String(localized: "识别与翻译")
+        case .components: String(localized: "安装与维护")
         case .glossary: String(localized: "术语表")
         case .privacy: String(localized: "隐私与诊断")
         }
@@ -152,17 +152,18 @@ final class SettingsNavigation {
     /// `anchor`: the target page scrolls to that section and flashes it.
     func open(_ section: SettingsSection, _ subpage: SettingsSubpage? = nil, scenario: MeetingMode? = nil,
               anchor: String? = nil) {
-        pendingAnchor = anchor
-        if anchor != nil { anchorRequest &+= 1 }
+        let destination = Self.destination(section, subpage, anchor: anchor)
+        pendingAnchor = destination.anchor
+        if destination.anchor != nil { anchorRequest &+= 1 }
         let origin = selection ?? .general
         let label = returnLabel(origin, scenario: scenario)
         let target = SettingsReturnTarget(section: origin, subpage: self.subpage(of: origin), scenario: scenario,
                                           scrollOffset: pageScrollOffset, title: label.title, symbol: label.symbol)
         followingLink = true
-        if let subpage { apply(subpage) }
-        selection = section
+        if let subpage = destination.subpage { apply(subpage) }
+        selection = destination.section
         followingLink = false
-        if section != origin { returnTarget = target }
+        if destination.section != origin { returnTarget = target }
     }
 
     /// A menu problem row (§8.1, §8.5): the page, sub-page and section of a flow link, without
@@ -176,10 +177,11 @@ final class SettingsNavigation {
     func returnToOrigin() {
         guard let target = returnTarget else { return }
         returnTarget = nil
-        pendingScrollRestore = target.scrollOffset > 0 ? target.scrollOffset : nil
+        let destination = Self.destination(target.section, target.subpage, anchor: nil)
+        pendingScrollRestore = destination.section == target.section && target.scrollOffset > 0 ? target.scrollOffset : nil
         followingLink = true
-        if let subpage = target.subpage { apply(subpage) }
-        selection = target.section
+        if let subpage = destination.subpage { apply(subpage) }
+        selection = destination.section
         followingLink = false
     }
 
@@ -195,11 +197,17 @@ final class SettingsNavigation {
 
     /// Opens a model sub-page without a way back (the subtitle window's settings; the menu's
     /// problem rows use `reveal`). Not a flow link, so a pill from an earlier link goes, even
-    /// when 模型 is already shown.
+    /// when 识别与翻译 is already shown. The retained synthesis id opens 我的声音.
     func openModel(_ stage: ModelSettingsStage) {
-        returnTarget = nil
-        modelStage = stage
-        selection = .translation
+        reveal(.translation, .model(stage))
+    }
+
+    /// Keep the old model/synthesis route usable without bringing back a third card.
+    /// Synthesis now belongs to 我的声音; an old section anchor must not scroll that page.
+    private static func destination(_ section: SettingsSection, _ subpage: SettingsSubpage?, anchor: String?)
+        -> (section: SettingsSection, subpage: SettingsSubpage?, anchor: String?) {
+        if section == .translation, subpage == .model(.synthesis) { return (.voice, nil, nil) }
+        return (section, subpage, anchor)
     }
 
     private func subpage(of section: SettingsSection) -> SettingsSubpage? {
@@ -306,7 +314,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let glossary = GlossarySettingsModel()
     /// 字幕's VoiceOver switch shows only while VoiceOver runs (§7.4).
     let subtitles = SubtitleSettingsModel()
-    /// 组件 › 虚拟麦克风 and 通用 › 完全卸载… share the same guarded maintenance owner.
+    /// 安装与维护 › TalkTalk Mic and 通用 › 完全卸载… share the guarded maintenance owner.
     let driver = DriverComponentsPage(engine: AppUIModels.shared.engine)
     private var window: NSWindow?
     private var foregroundGeneration: UInt64 = 0
@@ -446,13 +454,13 @@ struct SettingsView: View {
     @ViewBuilder private var detail: some View {
         switch navigation.selection ?? .general {
         case .voice:
-            MyVoiceSettingsView(model: voice)
+            MyVoiceSettingsView(model: voice, navigation: navigation, driver: driver)
         case .meeting:
             MeetingSettingsView(state: state, navigation: navigation, driver: driver)
         case .subtitles:
             SubtitleSettingsView(state: state, navigation: navigation)
         case .translation:
-            ModelSettingsView(state: state, navigation: navigation, translation: translation, driver: driver)
+            ModelSettingsView(state: state, navigation: navigation, translation: translation)
         case .general:
             GeneralSettingsView(model: AppUIModels.shared.general, driver: driver, navigation: navigation,
                                 appleCheck: state.appleCheck)

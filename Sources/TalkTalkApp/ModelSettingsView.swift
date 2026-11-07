@@ -3,9 +3,11 @@ import SwiftUI
 import TalkTalkCore
 import TalkTalkSettingsUI
 
-/// One place to distinguish speech recognition, translation and speech synthesis.
+/// Recognition and translation choices. Synthesis keeps its raw ID for old navigation targets,
+/// which SettingsNavigation redirects to 我的声音; it is no longer a selectable card.
 enum ModelSettingsStage: String, CaseIterable, Identifiable {
     case recognition, translation, synthesis
+    static var allCases: [Self] { [.recognition, .translation] }
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -32,15 +34,12 @@ enum ModelSettingsStage: String, CaseIterable, Identifiable {
     }
 }
 
-/// Settings › 模型 (settings visual system §7.8–§7.10). The stage cards sit in the window's fixed
-/// band (SettingsNavigationBand); each stage is its own Form and starts at the top. 语音识别 and
-/// 语音合成 are a diagram, its problem line and one fact row, with no sections: the node badges
-/// and links say what the removed rows said. 文本翻译 is TalkTalkCloudUI's page.
+/// Settings › 识别与翻译. The two stage cards sit in the window's fixed band; each stage is its
+/// own Form and starts at the top. Synthesis and its voice choice live under 我的声音.
 struct ModelSettingsView: View {
     @Bindable var state: AppState
     @Bindable var navigation: SettingsNavigation
     let translation: TranslationPage
-    let driver: DriverComponentsPage
     var engine: EngineComponentsModel = AppUIModels.shared.engine
 
     private typealias Icon = SubtitleTokens.SettingsIcon
@@ -52,7 +51,7 @@ struct ModelSettingsView: View {
                     switch navigation.modelStage {
                     case .recognition: recognition
                     case .translation: TranslationPageView(page: translation, state: state, flash: navigation.flow)
-                    case .synthesis: synthesis
+                    case .synthesis: EmptyView() // Legacy targets are redirected to 我的声音.
                     }
                 }
                 // A menu problem row lands on the stage's diagram (§8.1).
@@ -64,8 +63,6 @@ struct ModelSettingsView: View {
             engine.reload()
             // The 文本翻译 card's badge reads the model (only whether the key item exists).
             translation.load()
-            // The TalkTalk Mic node's badge reads the driver, as on the scene pages.
-            driver.load()
         }
     }
 
@@ -93,32 +90,9 @@ struct ModelSettingsView: View {
         .formStyle(.grouped)
     }
 
-    private var synthesis: some View {
-        Form {
-            Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    FlowGrid.synthesis(state, engine: engine, driver: driver, links: links)
-                    if let problem = engine.synthesisProblem {
-                        StatusLabel(problem.text, problem.status, help: problem.help)
-                    }
-                    // Whether the other party hears a voice at all (§0.2 #10): icon + shortest words.
-                    FactRow([
-                        FactChip(String(localized: "会议·电话生成译音"), symbol: SubtitleTokens.SceneIcon.meeting,
-                                 help: String(localized: "对方听到译音")),
-                        FactChip(String(localized: "视频不生成"), symbol: Icon.noSpeech,
-                                 help: String(localized: "视频字幕只显示文字"))
-                    ], info: InfoButton(topic: String(localized: "合成译音"), lines: [
-                        String(localized: "已有声音档案但克隆引擎暂不可用时，会等待恢复或不发送该段（未发送），不会改用系统声音。")
-                    ]))
-                }
-                .padding(.vertical, 4)
-            }
-        }
-        .formStyle(.grouped)
-    }
 }
 
-/// The 语音识别 and 语音合成 diagrams (§7.8, §7.10).
+/// The recognition diagram; synthesis is part of 我的声音.
 @MainActor
 extension FlowGrid {
     /// 听对方: 应用声音 → 识别 ‹Qwen3-ASR ▾› (备用 Apple) → 原文; 我说话: 说中文 (右⌥) → 识别
@@ -129,7 +103,7 @@ extension FlowGrid {
         let missing = engine.record?.roles["asr"] == nil
         let qwen = state.listenASREngine == .qwen
         let fellBack = state.meetingActive && state.listenASRFallback
-        let manage = missing ? links.node(String(localized: "组件 · 引擎与模型"), .components, .components(.engine)) : nil
+        let manage = missing ? links.node(String(localized: "安装与维护 · 语音资源"), .components, .components(.engine)) : nil
         let model = engine.modelName(role: "asr")
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
         let listen = FlowNode(String(localized: "识别"), glyph: .symbol(Icon.recognition),
@@ -166,37 +140,6 @@ extension FlowGrid {
         ])
     }
 
-    /// 译音: EN/DE 译文 → 合成译音 (我的声音 › or 系统声音) → TalkTalk Mic › → 对方听到译音.
-    static func synthesis(_ state: AppState, engine: EngineComponentsModel, driver: DriverComponentsPage,
-                          links: ScenarioLinks) -> FlowGrid {
-        typealias Icon = SubtitleTokens.SettingsIcon
-        let problem = engine.synthesisProblem
-        let driverProblem = driver.driverProblem
-        let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
-        let voice = links.node(String(localized: "我的声音"), .voice)
-        // One satellite: the profile in use, else the system voice, dashed as on the scene and
-        // 我的声音 pages (§3.3: one shape per meaning); it leads to 我的声音 to record one.
-        let satellite = state.voiceProfilePresent
-            ? FlowSatellite(String(localized: "我的声音"), symbol: Icon.myVoice, help: String(localized: "用我的声音合成译音"),
-                            link: voice)
-            : FlowSatellite(String(localized: "系统声音"), symbol: Icon.speech, help: String(localized: "未录制时用系统声音"),
-                            dashed: true, link: voice)
-        let speech = FlowNode(String(localized: "合成译音"), glyph: .symbol(Icon.speech),
-                              badge: problem?.status, badgeReason: problem?.text,
-                              link: problem == nil ? nil
-                                  : links.node(String(localized: "组件 · 引擎与模型"), .components, .components(.engine)),
-                              satellite: satellite, help: engine.modelName(role: "tts"))
-        return FlowGrid(String(localized: "语音合成路径"), lanes: [
-            FlowLane(String(localized: "译音"), gutter: .voice(translating), cells: [
-                .node(FlowNode(String(localized: "EN/DE 译文"), glyph: .symbol(Icon.translation))),
-                .node(speech),
-                .node(FlowNode("TalkTalk Mic", glyph: .symbol(Icon.talkTalkMic), badge: driverProblem?.status,
-                               badgeReason: driverProblem?.text,
-                               link: links.node(String(localized: "组件 · 虚拟麦克风"), .components, .components(.driver)))),
-                .node(FlowNode(String(localized: "对方听到译音"), glyph: .symbol(Icon.remote)))
-            ])
-        ])
-    }
 }
 
 /// 识别引擎 (§3.4, §7.8): Qwen3-ASR or Apple Speech, in effect at once (a running session

@@ -44,7 +44,7 @@ public enum FlowGlyph: Sendable, Equatable {
 }
 
 /// Where a node leads (§3.3, §6.3, §6.4): another page (with ReturnPill) or a section of this
-/// page. `destination` ("模型 · 语音识别") is the VoiceOver hint and the default tooltip.
+/// page. `destination` ("识别与翻译 · 语音识别") is the VoiceOver hint and the default tooltip.
 public struct NodeLink {
     let destination: String
     let action: () -> Void

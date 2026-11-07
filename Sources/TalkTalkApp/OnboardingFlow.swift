@@ -1076,7 +1076,7 @@ private struct DriverStep: View {
             }
         } else {
             Button { model.openDriverComponents?() } label: {
-                Label("打开组件设置", systemImage: Icon.Page.components).labelStyle(.titleAndIcon)
+                Label("打开安装与维护", systemImage: Icon.Page.components).labelStyle(.titleAndIcon)
             }
             .disabled(model.openDriverComponents == nil)
         }

@@ -19,8 +19,9 @@ public enum LaunchAtLoginPolicy {
         case recommended
         /// Registered, waiting for the user in 系统设置 › 通用 › 登录项与扩展: 待系统允许 and 登录项….
         case awaitingApproval
-        /// The system finds no login item for this bundle: 请移到“应用程序”文件夹.
-        case moveToApplications
+        /// The system cannot find this service. This does not establish an installation-path
+        /// problem, so report only the unavailable login item and keep registration retryable.
+        case serviceUnavailable
         /// An unsigned build cannot register: the switch is disabled, the reason in help.
         case unsigned
     }
@@ -44,7 +45,7 @@ public enum LaunchAtLoginPolicy {
         case .notRegistered:
             return Presentation(isOn: false, canToggle: true, notice: stronglyRecommended ? .recommended : nil)
         case .notFound:
-            return Presentation(isOn: false, canToggle: true, notice: .moveToApplications)
+            return Presentation(isOn: false, canToggle: true, notice: .serviceUnavailable)
         }
     }
 

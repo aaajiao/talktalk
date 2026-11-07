@@ -123,7 +123,7 @@ struct DiagnosticsView: View {
                 if translation.model != nil || translation.problem != nil {
                     DataBoundary(cloudEnabled: translation.model?.flowFacts.cloudConnected ?? false,
                                  info: [TranslationSettingsText.cloudNotice],
-                                 link: NodeLink(String(localized: "模型 · 文本翻译")) {
+                                 link: NodeLink(String(localized: "识别与翻译 · 文本翻译")) {
                                      navigation.open(.translation, .model(.translation))
                                  })
                         .padding(.vertical, 4)

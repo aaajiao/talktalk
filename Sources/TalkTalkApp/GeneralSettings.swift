@@ -1,5 +1,6 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import AppKit
+import Combine
 import SwiftUI
 import TalkTalkCore
 import TalkTalkDriverSupport
@@ -158,6 +159,10 @@ struct GeneralSettingsView: View {
             .settingsAnchorTarget(navigation, proxy)
         }
         .onAppear { driver.load(); model.launch.refresh(); Task { await model.refreshNotifications() } }
+        // Approval can change in System Settings while this page remains mounted.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.launch.refresh()
+        }
     }
 
     /// The Apple resources' status on 使用引导… and in the hero.
@@ -270,7 +275,7 @@ struct GeneralSettingsView: View {
 }
 
 /// Settings › 通用 › 登录时启动 (§7.5): the switch, and at the row's end only what needs the
-/// user: warn 建议开启 with its ⓘ, waiting 待系统允许 with 登录项…, warn 请移到“应用程序”文件夹,
+/// user: warn 建议开启 with its ⓘ, waiting 待系统允许 with 登录项…, warn 登录项暂不可用,
 /// failed 未能更改. Unsigned builds disable the switch with the reason in help. The switch lives
 /// only here; 音频 has a status-only row with a link to 通用 (§7.6, `recommendedProblem`).
 struct LaunchAtLoginRow: View {
@@ -322,9 +327,9 @@ extension LaunchAtLogin {
             let problem = SettingsProblem(.waiting, String(localized: "待系统允许"),
                                           help: String(localized: "在系统设置的登录项中允许 TalkTalk"))
             return (problem, problem)
-        case .moveToApplications?:
-            let problem = SettingsProblem(.warn, String(localized: "请移到“应用程序”文件夹"),
-                                          help: String(localized: "系统找不到这个 App 的登录项"))
+        case .serviceUnavailable?:
+            let problem = SettingsProblem(.warn, String(localized: "登录项暂不可用"),
+                                          help: String(localized: "系统未找到 TalkTalk 的登录项。可尝试开启以重新注册。"))
             return (problem, problem)
         case .unsigned?, nil:
             return nil

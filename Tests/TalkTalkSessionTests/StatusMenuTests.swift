@@ -82,7 +82,7 @@ import Testing
         f.onboardingNeeded = false
         let done = StatusMenu.rows(f)
         #expect(done[0].kind == .action(.quickStart(.meeting)) && done[0].isEnabled)
-        #expect(row(done, "组件设置…")?.kind == .action(.open(.components)))
+        #expect(row(done, "安装与维护…")?.kind == .action(.open(.components)))
         // 通用's 使用引导… row, which carries the same status and downloads again.
         #expect(row(done, "通用设置…")?.kind == .action(.open(.onboarding)))
         #expect(row(done, "Apple 资源待配置")?.help == "Apple：缺少英语识别资源")
@@ -228,7 +228,7 @@ import Testing
         f.icon = .remoteHearsOriginal
         let rows = StatusMenu.rows(f)
         #expect(Array(titles(rows).prefix(8)) == ["会议同传 · Zoom · 12:03", "对方能听到原声", "检查麦克风…",
-                                                  "识别：Apple 备用", "模型设置…", "字幕翻译：Apple 备用", "模型设置…",
+                                                  "识别：Apple 备用", "识别与翻译…", "字幕翻译：Apple 备用", "识别与翻译…",
                                                   "结束会议同传"])
         // The risk capsule's words are the risk line: not twice.
         #expect(!rows.contains { $0.live == .voice })

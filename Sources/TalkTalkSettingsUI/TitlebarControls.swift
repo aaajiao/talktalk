@@ -43,6 +43,14 @@ open class TitlebarControl: NSView, HoverClearing {
 
     public required init?(coder: NSCoder) { nil }
 
+    /// Icons and labels are decoration, not separate mouse targets. NSImageView can reject
+    /// the first click in a non-key panel, while an NSTextField label can start a window drag.
+    /// Route their whole hit area through this control's existing first-click and action rules.
+    open override func hitTest(_ point: NSPoint) -> NSView? {
+        guard alphaValue > 0, super.hitTest(point) != nil else { return nil }
+        return self
+    }
+
     open override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
@@ -67,6 +75,9 @@ open class TitlebarControl: NSView, HoverClearing {
     open override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
     open override func mouseDown(with event: NSEvent) {
         if isEnabled, onClick != nil { isPressed = true }
+    }
+    open override func mouseDragged(with event: NSEvent) {
+        isPressed = isEnabled && onClick != nil && bounds.contains(convert(event.locationInWindow, from: nil))
     }
     open override func mouseUp(with event: NSEvent) {
         isPressed = false
