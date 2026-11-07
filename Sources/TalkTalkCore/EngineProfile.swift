@@ -6,6 +6,9 @@ import Foundation
 public enum EngineProfile: String, CaseIterable, Sendable, Identifiable {
     case max, standard, compact24, compact16
 
+    /// The resource picker offers local TTS + ASR combinations. compact16 remains
+    /// readable for older installations and CLI compatibility, not as an ASR choice.
+    public static let selectablePresets: [Self] = [.max, .standard, .compact24]
     public static let customID = "custom"
     public var id: String { rawValue }
     public var title: String {
@@ -13,7 +16,7 @@ public enum EngineProfile: String, CaseIterable, Sendable, Identifiable {
         case .max: String(localized: "Max")
         case .standard: String(localized: "标准")
         case .compact24: String(localized: "轻量")
-        case .compact16: String(localized: "Apple 识别")
+        case .compact16: String(localized: "仅语音合成")
         }
     }
 

@@ -5,6 +5,7 @@
 #   install-engine.sh [--profile max|standard|compact24|compact16] [--json-progress]   install / update / repair
 #   install-engine.sh --check [--json-progress]                                        verify only, exit 0/1
 #   install-engine.sh --add-model <key> | --remove-model <key> [--json-progress]
+#   install-engine.sh --remove-model <key> --allow-active-model   caller must stop the engine first
 #   install-engine.sh --uninstall [--json-progress]
 #   install-engine.sh --no-smoke ...    M0 only: skip the smoke run; install.json is then NOT written
 #
@@ -23,13 +24,14 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/models.sh
 . "$here/lib/models.sh"
 
-op="install"; profile=""; model_arg=""; smoke=1
+op="install"; profile=""; model_arg=""; smoke=1; allow_active_model=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --profile) profile="${2:-}"; shift 2 ;;
     --check) op="check"; shift ;;
     --add-model) op="add"; model_arg="${2:-}"; shift 2 ;;
     --remove-model) op="remove"; model_arg="${2:-}"; shift 2 ;;
+    --allow-active-model) allow_active_model=1; shift ;;
     --uninstall) op="uninstall"; shift ;;
     --json-progress) TT_JSON_PROGRESS=1; shift ;;
     --no-smoke) smoke=0; shift ;;
@@ -37,6 +39,7 @@ while [ $# -gt 0 ]; do
     *) tt_die "unknown argument: $1" ;;
   esac
 done
+[ "$allow_active_model" = "0" ] || [ "$op" = "remove" ] || tt_die "--allow-active-model requires --remove-model"
 export TT_JSON_PROGRESS
 
 case "$here" in
@@ -352,12 +355,13 @@ do_add() {
 
 do_remove() {
   check_model_key "$model_arg"
-  local prof d allow foreign models k keep=""
-  prof="$(installed_profile)"
-  if [ -n "$prof" ] && [ "$prof" != "custom" ] && tt_in_list "$model_arg" "$(profile_models "$prof")"; then
-    tt_die "$model_arg is used by the current profile ($prof)"
-  fi
   acquire_lock
+  local prof d allow foreign models active k keep=""
+  prof="$(installed_profile)"
+  active="$(installed_field '.roles[]?.id' | /usr/bin/tr '\n' ' ')"
+  if [ "$allow_active_model" = "0" ] && tt_in_list "$model_arg" "$active"; then
+    tt_die "$model_arg is active; stop the engine and use --allow-active-model to remove it"
+  fi
   d="$(model_dir "$model_arg")"
   if [ -d "$d" ]; then
     tt_assert_safe_dir "$d"

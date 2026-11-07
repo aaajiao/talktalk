@@ -34,7 +34,9 @@ final class EngineHost {
     /// Effective resource profile of the current validated instance. Creating that instance
     /// is lazy: this is available at app launch without starting Python or loading a model.
     var installedProfile: EngineProfile? { processRecord.flatMap { EngineProfile.matching(record: $0) } }
-    private var stopping = false
+    @ObservationIgnored private var stoppingTask: Task<Void, Never>?
+    /// Installer ownership withdraws all app-facing references until disk has been reread.
+    private(set) var maintenanceActive = false
     /// Rebuilt with the engine instance (and only then).
     private(set) var routing: SpeakVoiceRouting
     private(set) var lifecycle: VoiceLifecycle
@@ -67,6 +69,10 @@ final class EngineHost {
     /// Settings › 组件 › 重启引擎 (neither SPEAK nor a meeting asked for it): restart, then idle
     /// out like after enrollment (`enrollmentFinished` leaves meeting mode alone).
     func restartFromSettings() async throws {
+        guard !maintenanceActive else { return }
+        sync()
+        await stoppingTask?.value
+        guard !maintenanceActive else { return }
         guard let p = process else { return }
         _ = try await p.userRestart()
         await p.enrollmentFinished()
@@ -77,21 +83,39 @@ final class EngineHost {
     /// from, stops it first and then drops or rebuilds it. Call at launch and after every
     /// installer run.
     func sync() {
-        guard !stopping else { return }   // the stop re-reads the installation when it is done
+        guard !maintenanceActive, stoppingTask == nil else { return }
         let now = startable()
         guard let p = process else {
             if let now { set(make(now), now.record) }
             return
         }
         guard now?.record != processRecord else { return }
-        stopping = true
-        Task {
+        // No new session may acquire a process built from stale roles while stop suspends.
+        set(nil, nil)
+        stoppingTask = Task {
             await p.stop()
-            stopping = false
-            guard process === p else { return }
-            let again = startable()   // the installation may have moved on meanwhile
-            set(again.map(make), again?.record)
+            stoppingTask = nil
+            sync()   // rereads disk, unless an installer acquired maintenance meanwhile
         }
+    }
+
+    /// Called before every installer run. Withdrawing the bridge is synchronous, before the
+    /// first await, so a queued session cannot capture the old EngineConfig during removal.
+    func beginMaintenance() async {
+        guard !maintenanceActive else { return }
+        maintenanceActive = true
+        let previous = process
+        set(nil, nil)
+        await stoppingTask?.value
+        await previous?.stop()
+    }
+
+    /// Called for success, failure and cancellation before the installer releases its busy
+    /// state. sync only constructs a lazy instance; it neither loads nor downloads a model.
+    func endMaintenance() {
+        guard maintenanceActive else { return }
+        maintenanceActive = false
+        sync()
     }
 
     private struct Startable {

@@ -232,6 +232,7 @@ final class SpeakController {
 
     private func begin(demo: Bool = false) async {
         guard !closed, owner == nil, !demoActive else { return }
+        guard !engineHost.maintenanceActive, !AppUIModels.shared.engine.running else { return }
         let session = demo ? nil : meeting.session
         guard demo || session?.mode.supportsSpeaking == true else { return }
         let log = session?.eventLog
@@ -353,8 +354,8 @@ final class SpeakController {
             let translator = FallbackMT(cloud: cloud.speak, apple: apple, profile: profile, gate: gate,
                                        glossary: { AppGlossary.store.snapshot() },
                                        prepareApple: prepareApple, log: log)
-            // The Apple profile has no Qwen ASR by design. A nil primary uses the existing
-            // Apple-final path, including pausing its live preview before clip recognition.
+            // Selecting Apple skips Qwen without changing any installed model. A nil primary
+            // keeps the existing Apple-final path, pausing live preview before clip recognition.
             let recognitionEngine = state.effectiveSpeakASREngine
             sessionRecognitionEngine = recognitionEngine
             let primaryASR: (any ClipASREngine)? = recognitionEngine == .apple

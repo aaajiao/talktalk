@@ -146,7 +146,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 selfTestRunning: { [weak settings, weak privacy] in
                     settings?.driver.model?.selfTestRunning == true || privacy?.diagnosticsStatus.isAudioSelfTestRunning == true
                 })
-            speak.onChange = { [weak self] in self?.updateIcon() }
+            speak.onChange = { [weak self, weak speak] in
+                self?.state.speakSessionActive = speak?.isActive == true
+                self?.updateIcon()
+            }
             speak.onMonitorAvailabilityChange = { [weak settings, weak onboardingModel] in
                 settings?.voice.refreshMonitorAvailability()
                 onboardingModel?.voice.refreshMonitorAvailability()
@@ -174,12 +177,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     && onboardingModel.voice.enrollment == nil && onboardingModel.voice.auditioning == nil
                     && !AppUIModels.shared.engine.running && settings.driver.model?.selfTestRunning != true
             }
-            meeting.canStartMeeting = { [weak privacy, weak self] in
-                privacy?.diagnosticsStatus.isAudioSelfTestRunning != true && self?.speak?.isActive != true
-            }
             settings.voice.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
             onboardingModel.voice.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
             settings.driver.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
+        }
+        meeting.canStartMeeting = { [weak privacy, weak self] in
+            privacy?.diagnosticsStatus.isAudioSelfTestRunning != true && self?.speak?.isActive != true
+                && !AppUIModels.shared.engine.running && self?.engineHost.maintenanceActive != true
         }
         meeting.beforeUserEnd = { [weak systemInput] in systemInput?.confirmUserEnd() }
         let status = StatusItemController(state: state, actions: .init(
@@ -290,6 +294,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do { try await engineHost?.restartFromSettings(); return nil } catch { return "\(error)" }
         }
         components.stopEngine = { [weak engineHost] in await engineHost?.engine()?.stop() }
+        components.beginMaintenance = { [weak engineHost] in await engineHost?.beginMaintenance() }
+        components.maintenanceFinished = { [weak engineHost] in engineHost?.endMaintenance() }
+        components.sessionActive = { [weak self] in
+            guard let self else { return true }
+            // These observable voice fields cover recording, enrollment/save, generation and
+            // playback. SPEAK owns its demo until asynchronous shutdown has fully completed.
+            let voices = [settings?.voice, onboarding?.model.voice].compactMap { $0 }
+            return state.meetingActive || state.meetingStarting || state.meetingStopping
+                || state.speakSessionActive || speak?.isActive == true
+                || voices.contains { $0.enrollment != nil || $0.auditioning != nil || $0.deleting || $0.externalBusy() }
+                || settings?.driver.model?.selfTestRunning == true
+                || AppUIModels.shared.engine.blocked
+        }
     }
 
     private func followInstallation() {

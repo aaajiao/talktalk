@@ -2,6 +2,13 @@ import Testing
 @testable import TalkTalkCore
 
 @Suite struct EngineProfileTests {
+    @Test func resourcePickerOffersOnlyLocalPairsWhileLegacyRemainsReadable() {
+        #expect(EngineProfile.selectablePresets == [.max, .standard, .compact24])
+        #expect(EngineProfile.selectablePresets.allSatisfy { Set($0.expectedRoles.keys) == ["tts", "asr"] })
+        #expect(EngineProfile(rawValue: "compact16") == .compact16)
+        #expect(EngineProfile.matching(activeRoles: EngineProfile.compact16.expectedRoles) == .compact16)
+    }
+
     @Test func fourDistinctPresetsDescribeTheirActualModels() {
         #expect(EngineProfile.allCases.map(\.rawValue) == ["max", "standard", "compact24", "compact16"])
         #expect(EngineProfile.max.expectedRoles == ["tts": "tts-qwen3-1.7b-base-8bit", "asr": "asr-qwen3-1.7b-8bit"])

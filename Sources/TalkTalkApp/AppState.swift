@@ -39,6 +39,7 @@ final class AppState {
     private enum Key {
         static let remoteLanguage = "listen.remoteLanguage"
         static let listenASREngine = "listen.asrEngine"
+        static let speakASREngine = "speak.asrEngine"
         static let subtitlesVisible = "ui.subtitlesVisible"
         static let subtitleFontSize = "ui.subtitleFontSize"
         static let subtitleBackgroundOpacity = "ui.subtitleBackgroundOpacity"
@@ -71,6 +72,11 @@ final class AppState {
             if effectiveListenASREngine != previous { onListenConfigurationChange?() }
         }
     }
+    /// The SPEAK pipeline observes its effective choice and safely rebuilds when it changes.
+    /// Keeping its own key leaves the LISTEN choice and installed model roles untouched.
+    var speakASREngine: SpeechRecognitionEngine {
+        didSet { defaults.set(speakASREngine.rawValue, forKey: Key.speakASREngine) }
+    }
     /// The active, validated installation supplied by EngineHost, never the picker’s pending
     /// choice. Applying a profile must not overwrite the user's saved recognition preference.
     var installedEngineProfile: EngineProfile? {
@@ -82,8 +88,8 @@ final class AppState {
     var effectiveListenASREngine: ListenASREngine {
         EngineRecognitionPolicy.listening(preferred: listenASREngine, installedProfile: installedEngineProfile)
     }
-    var effectiveSpeakASREngine: ListenASREngine {
-        EngineRecognitionPolicy.speaking(installedProfile: installedEngineProfile)
+    var effectiveSpeakASREngine: SpeechRecognitionEngine {
+        EngineRecognitionPolicy.speaking(preferred: speakASREngine, installedProfile: installedEngineProfile)
     }
     /// Selected engine and actual backend may differ when Qwen falls back to Apple.
     var listenASRStatus: String?
@@ -278,6 +284,9 @@ final class AppState {
     var meetingHint: String?
     var meetingStarting = false
     var meetingStopping = false
+    /// Includes standalone SPEAK demos and their asynchronous startup/shutdown. Mirrored by
+    /// the owner so resource-maintenance controls observe the same lifetime they guard.
+    var speakSessionActive = false
     /// The last session ended on a failure (menu attention line); cleared at the next start.
     var lastEndProblem: MeetingMode?
     /// §7.5 item 6 summary when something Apple-side is missing (nil = all fine or not checked).
@@ -310,6 +319,7 @@ final class AppState {
         videoSourceID = ListeningSourcePreferences.source(for: .captions, defaults: defaults) ?? ""
         remoteLanguage = RemoteLanguage(rawValue: defaults.string(forKey: Key.remoteLanguage) ?? "") ?? .en
         listenASREngine = ListenASREngine(rawValue: defaults.string(forKey: Key.listenASREngine) ?? "") ?? .qwen
+        speakASREngine = SpeechRecognitionEngine(rawValue: defaults.string(forKey: Key.speakASREngine) ?? "") ?? .qwen
         speakLanguage = RemoteLanguage(rawValue: defaults.string(forKey: Key.speakLanguage) ?? "") ?? .en
         subtitlesVisible = defaults.object(forKey: Key.subtitlesVisible) as? Bool ?? true
         let savedSize = defaults.object(forKey: Key.subtitleFontSize) as? Double ?? 22

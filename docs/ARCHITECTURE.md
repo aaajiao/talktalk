@@ -136,7 +136,11 @@ Feed 的第 1 声道送会议 Mic，第 2 声道只送 Test Mic；自检不能�
 ## 引擎、翻译与播放
 
 Python/MLX 在独立进程中运行，通过仅本机 HTTP 与每次启动的认证 token 通信；模型、私有 Python 和 venv 位于 bundle 外。一个 GPU worker 按 TTS、SPEAK ASR、LISTEN ASR、后台工作的优先级调度。
-默认“标准”配置使用 Qwen3-ASR-0.6B 与 Qwen3-TTS-1.7B-Base。Max 为 TTS 1.7B＋ASR 1.7B（约 5.6 GB 模型文件），标准为 1.7B＋0.6B（4.1 GB），轻量为 0.6B＋0.6B（3.0 GB），Apple 识别为 TTS 0.6B＋Apple Speech（2.0 GB）。这些容量不含运行时，也不是运行内存保证；raw ID max/standard/compact24/compact16 保持兼容，界面只用统一的显示名称。安装状态按 install.json 的 active roles 归类，额外下载但未选用的模型不改变档位；旧 max 的 1.7B＋0.6B 显示为标准，读取不改写记录或模型。合法但不属于预设的组合显示为自定义组合，不影响原有兼容性与文件校验。无显式目标的安装／修复保留可识别的实际组合，无法匹配的自定义组合必须明确选择目标，避免意外换模型。Apple 识别档正常使用 Apple：LISTEN 直接选择 Apple，SPEAK 跳过可选 Qwen 主识别并保留现有 AppleFinalizeASR 的暂停预览流程；不改写用户保存的识别偏好，离开该档后恢复其选择。具体 revision、文件散列、依赖与配置以 `scripts/lib/versions.sh` 和 lock 文件为准。
+默认“标准”配置使用 Qwen3-ASR-0.6B 与 Qwen3-TTS-1.7B-Base。本地资源只提供三个可选预设：Max 为 TTS 1.7B＋ASR 1.7B（约 5.6 GB 模型文件），标准为 1.7B＋0.6B（4.1 GB），轻量为 0.6B＋0.6B（3.0 GB）。这些容量不含运行时，也不是运行内存保证。旧 raw ID compact16 保留读取和 CLI 兼容，显示“仅语音合成”，不再作为新的资源选项；其 TTS 0.6B 保留不动。
+
+安装状态按 install.json 的 active roles 归类，额外下载但未选用的模型不改变档位；旧 max 的 1.7B＋0.6B 显示为标准，读取不改写记录或模型。合法但不属于预设的组合显示为自定义组合，不影响原有兼容性与文件校验。无显式目标的安装／修复保留可识别的实际组合，无法匹配的自定义组合必须明确选择目标，避免意外换模型。档位下方以共用 FlowNode 的两张并列卡展示所需 ASR/TTS；reload 时检查当前 pin 的文件、revision stamp 和大小，缓存是否就绪，不只依据安装记录，也不做全量 hash。
+
+Apple Speech 是独立识别偏好，LISTEN 与 SPEAK 分别保存，默认 Qwen；选 Apple 不触发安装器或改变 TTS。SPEAK 跳过可选 Qwen 主识别并保留现有 AppleFinalizeASR 的暂停预览流程。旧 compact16 安装仍强制两路 Apple，不改写保存偏好，离开该安装后恢复选择。模型删除入口在空闲时允许删除当前角色，原生确认说明影响；会话启动、活动、停止及试听期间阻止当前角色删除。UI 使用显式 removeActiveModel 操作，安装器先停止引擎再传 --allow-active-model；CLI 默认拒绝删除 active role。删除仅移除目标及该角色，不自动启用额外模型；重新下载也不自动激活。具体 revision、文件散列、依赖与配置以 `scripts/lib/versions.sh` 和 lock 文件为准。
 同场 LISTEN/SPEAK 复用一个 OpenAI 后端及其熔断和连接状态，各方向保留独立开关；语言热切换不能新建后端割裂这些状态。模型设置在下一场生效，术语表按请求读取，最多 30 条生效。
 云端只接收待翻译文本、短上下文和术语；未同意或关闭时走 Apple。超时、网络及服务错误按既有预算兜底；翻译结果仍须经过目标文本与数字检查。
 有可用声音档案时使用“我的声音”，否则按当前策略使用系统声音或停止发声；界面必须说明实际选择与不可用原因。

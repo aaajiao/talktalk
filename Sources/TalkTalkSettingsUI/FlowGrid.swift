@@ -171,7 +171,10 @@ public struct FlowNode {
         case .dimmed: parts.append(String(localized: "暂不可用"))
         case .ready, .needsAction: break
         }
-        if let badge, state != .risk { parts.append(badgeReason ?? badge.spokenName) }
+        if state != .risk {
+            if let badge { parts.append(badgeReason ?? badge.spokenName) }
+            else if let badgeReason { parts.append(badgeReason) }
+        }
         if parts.isEmpty { parts.append(SettingsStatus.ok.spokenName) }
         return parts.joined(separator: String(localized: "，"))
     }
@@ -293,6 +296,19 @@ public struct FlowGrid: View {
         hasAccessory = lanes.contains { lane in
             lane.cells.contains { if case let .node(node) = $0 { node.accessory != nil } else { false } }
         }
+    }
+
+    /// Parallel requirements use the same node renderer without implying a sequence.
+    public static func cards(_ label: String, nodes: [FlowNode]) -> some View {
+        let height = nodes.contains { $0.accessory != nil } ? accessoryHeight : compactHeight
+        return HStack(alignment: .top, spacing: arrowWidth) {
+            ForEach(nodes.indices, id: \.self) { index in
+                FlowNodeView(node: nodes[index], height: height)
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: label))
     }
 
     /// Whether the lane labels can move into the lanes' first nodes (§3.3). A capsule (原声 /

@@ -62,6 +62,7 @@ struct InstallerTests {
         #expect(i.launchSpec(for: .check).arguments == [s.path, "--check", "--json-progress"])
         #expect(i.launchSpec(for: .addModel("k")).arguments == [s.path, "--add-model", "k", "--json-progress"])
         #expect(i.launchSpec(for: .removeModel("k")).arguments == [s.path, "--remove-model", "k", "--json-progress"])
+        #expect(i.launchSpec(for: .removeActiveModel("k")).arguments == [s.path, "--remove-model", "k", "--allow-active-model", "--json-progress"])
         #expect(i.launchSpec(for: .uninstall).arguments == [s.path, "--uninstall", "--json-progress"])
         let spec = i.launchSpec(for: .check)
         #expect(spec.executable == "/bin/bash")
@@ -102,6 +103,21 @@ struct InstallerTests {
     }
 
     // MARK: runs
+
+    @Test func activeModelRemovalStopsEngineBeforeLaunching() async throws {
+        let launched = dir.appendingPathComponent("removal-launched")
+        let s = try script("remove.sh", """
+            : > '\(launched.path)'
+            [ "$1" = '--remove-model' ] && [ "$2" = 'fixture-model' ] && [ "$3" = '--allow-active-model' ] || exit 1
+            echo '{"event":"done","removed":1}'
+            """)
+        let order = Mutex<[String]>([])
+        let i = installer(s) {
+            order.withLock { $0.append(FileManager.default.fileExists(atPath: launched.path) ? "stop-after" : "stop-before") }
+        }
+        #expect(await i.run(.removeActiveModel("fixture-model")) == .finished)
+        #expect(order.withLock { $0 } == ["stop-before"])
+    }
 
     @Test func successfulRunEnvironmentLogAndEngineStop() async throws {
         let envOut = dir.appendingPathComponent("env.txt")

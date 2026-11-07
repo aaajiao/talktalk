@@ -370,7 +370,7 @@ final class MeetingController {
         lastStartSucceeded = false
         guard !state.meetingActive, !state.meetingStarting else { return }
         guard canStartMeeting() else {
-            alert("暂时不能开始收听", "请先结束正在运行的自检或说话测试。")
+            alert("暂时不能开始收听", "请先结束正在运行的自检或说话测试，或等待语音资源维护完成。")
             return
         }
         state.meetingMode = mode

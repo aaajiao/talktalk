@@ -10,7 +10,9 @@ python3 -I -B tools/subtitle_report.py "/完整路径/trace.jsonl"
 
 需要逐句原译对照时加 `--include-text`。报告不能自动判断翻译准确率，仍需对照原声或参考字幕。
 
-模型和专用 Python 位于 `~/Library/Application Support/TalkTalk/engine`，由组件页管理。仅替换 App 不会删除它们。
+模型和专用 Python 位于 `~/Library/Application Support/TalkTalk/engine`，由“安装与维护 › 语音资源”管理。仅替换 App 不会删除它们。
+
+要移除单个模型，先结束会话、试听或录制，再点击模型行右侧的红色删除图标。当前模型也可删除，确认框会说明对识别或语音合成的影响；其余模型和声音档案保留，不自动换用其他模型。以后可重新下载，再通过档位明确选择需要启用的组合。Apple Speech 在“识别与翻译”独立选择，不需要在资源页下载一个 Apple 模型。
 
 ## 卸载
 

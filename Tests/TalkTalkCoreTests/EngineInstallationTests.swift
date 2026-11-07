@@ -119,6 +119,34 @@ import Testing
         #expect(record?.roles["tts"]?.rev == Self.ttsRev)
     }
 
+    @Test func modelReadinessUsesCurrentFilesRatherThanInstallationRecord() throws {
+        let h = try Home(); defer { h.remove() }
+        let installation = inst(h)
+        let modelURL = h.url.appendingPathComponent("models/ASR-Y@\(Self.asrRev.prefix(12))/model.safetensors")
+        #expect(installation.isModelReady(id: "asr-y"))
+        try FileManager.default.removeItem(at: modelURL)
+        #expect(!installation.isModelReady(id: "asr-y")) // stale record cannot claim ready
+        try Data(repeating: 0x41, count: 3).write(to: modelURL)
+        try FileManager.default.removeItem(at: installation.recordURL)
+        #expect(installation.isModelReady(id: "asr-y")) // a verified extra download is reusable
+        #expect(!installation.isModelReady(id: "unknown"))
+    }
+
+    @Test func modelReadinessRejectsOldRevisionWrongStampAndWrongSize() throws {
+        let h = try Home(ttsRev: Self.ttsOldRev); defer { h.remove() }
+        let installation = inst(h)
+        #expect(!installation.isModelReady(id: "tts-x"))
+        let asrDir = h.url.appendingPathComponent("models/ASR-Y@\(Self.asrRev.prefix(12))")
+        let stamp = asrDir.appendingPathComponent(".talktalk-verified")
+        try Data("wrong\n".utf8).write(to: stamp)
+        #expect(!installation.isModelReady(id: "asr-y"))
+        try Data("\(Self.asrRev)\n".utf8).write(to: stamp)
+        try Data(repeating: 0x41, count: 4).write(to: asrDir.appendingPathComponent("model.safetensors"))
+        #expect(!installation.isModelReady(id: "asr-y"))
+        try FileManager.default.removeItem(at: stamp)
+        #expect(!installation.isModelReady(id: "asr-y"))
+    }
+
     @Test func emptyHomeIsNotInstalled() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("tt-none-\(UUID().uuidString)")
         let s = EngineInstallation(engineHome: url, lockCompat: [Self.lock], engineAPI: 2, pins: Self.pins).check().state

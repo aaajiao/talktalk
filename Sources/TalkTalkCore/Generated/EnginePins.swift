@@ -3,7 +3,7 @@
 
 public enum EnginePins {
     public static let appVersion = "1.0.15"
-    public static let appBuild = "33"
+    public static let appBuild = "34"
     public static let engineAPI = 2
     public static let engineRecipe = 1
     public static let pythonVersion = "3.12.15"

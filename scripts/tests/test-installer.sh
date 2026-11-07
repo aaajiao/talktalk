@@ -181,12 +181,40 @@ inst --add-model fake-asr-large && [ "$(/usr/bin/jq -cS .roles "$eng/install.jso
 inst --remove-model fake-asr && no "actual standard ASR removal refused" || ok "actual standard ASR removal refused"
 inst --remove-model fake-asr-large && [ "$(/usr/bin/jq -cS .roles "$eng/install.json")" = "$roles_before" ] \
   && ok "unused larger ASR can be removed without changing roles" || no "unused ASR removal"
+
+# Explicit active removal keeps the other role and never activates a spare download.
+inst --add-model fake-asr-large
+tts_before="$(/usr/bin/jq -cS .roles.tts "$eng/install.json")"
+inst --remove-model fake-asr --allow-active-model \
+  && [ ! -d "$eng/models/Fake-ASR@222222222222" ] \
+  && [ "$(/usr/bin/jq -cS .roles.tts "$eng/install.json")" = "$tts_before" ] \
+  && [ "$(/usr/bin/jq -r '.roles | has("asr")' "$eng/install.json")" = false ] \
+  && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = compact16 ] \
+  && [ -d "$eng/models/Fake-ASR-Large@333333333333" ] \
+  && ok "opt-in active removal preserves TTS and leaves spare ASR inactive" || no "active ASR removal"
+inst --add-model fake-asr && [ -d "$eng/models/Fake-ASR@222222222222" ] \
+  && [ "$(/usr/bin/jq -r '.roles | has("asr")' "$eng/install.json")" = false ] \
+  && ok "removed ASR can be downloaded again without silently activating it" || no "active ASR redownload"
+inst --profile standard && [ "$(/usr/bin/jq -r .roles.asr.id "$eng/install.json")" = fake-asr ] \
+  && ok "explicit preset restores the removed role" || no "active ASR restore"
+before_invalid="$(tt_sha256 "$eng/install.json")"
+inst --allow-active-model && no "active removal flag cannot trigger install" || ok "active removal flag cannot trigger install"
+[ "$(tt_sha256 "$eng/install.json")" = "$before_invalid" ] \
+  && ok "invalid flag usage preserves record" || no "invalid flag mutated record"
+
 inst --profile compact16 && inst --add-model fake-asr-large \
   && [ "$(/usr/bin/jq -r '.roles | has("asr")' "$eng/install.json")" = false ] \
   && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = compact16 ] \
   && ok "Apple recognition preset stays without active ASR after model add" || no "Apple preset add"
 inst --profile standard
-set_record 'del(.roles.tts) | .profile = "max"'
+asr_before="$(/usr/bin/jq -cS .roles.asr "$eng/install.json")"
+inst --remove-model fake-tts --allow-active-model \
+  && [ ! -d "$eng/models/Fake-TTS@111111111111" ] \
+  && [ "$(/usr/bin/jq -cS .roles.asr "$eng/install.json")" = "$asr_before" ] \
+  && [ "$(/usr/bin/jq -r '.roles | has("tts")' "$eng/install.json")" = false ] \
+  && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = custom ] \
+  && ok "opt-in active TTS removal preserves ASR and records custom composition" || no "active TTS removal"
+set_record '.profile = "max"'
 before_custom="$(tt_sha256 "$eng/install.json")"
 inst && no "custom repair requires explicit target" || ok "custom repair requires explicit target"
 [ "$(tt_sha256 "$eng/install.json")" = "$before_custom" ] && ok "refused custom repair leaves record unchanged" || no "custom record changed"
@@ -194,7 +222,9 @@ roles_before="$(/usr/bin/jq -cS .roles "$eng/install.json")"
 inst --add-model fake-asr-large && [ "$(/usr/bin/jq -cS .roles "$eng/install.json")" = "$roles_before" ] \
   && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = custom ] \
   && ok "adding a model preserves custom active roles" || no "custom add"
-inst --remove-model fake-asr && [ "$(/usr/bin/jq -r '.roles | length' "$eng/install.json")" = 0 ] \
+inst --remove-model fake-asr && no "custom active role also requires opt-in" || ok "custom active role also requires opt-in"
+inst --remove-model fake-asr --allow-active-model && [ "$(/usr/bin/jq -r '.roles | length' "$eng/install.json")" = 0 ] \
+  && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = custom ] \
   && ok "custom role removal does not activate another downloaded model" || no "custom remove"
 inst --profile standard
 inst --remove-model fake-asr-large

@@ -8,6 +8,8 @@ public enum InstallerOp: Sendable, Equatable {
     case check
     case addModel(String)
     case removeModel(String)
+    /// The caller has confirmed removing an active role. run() still stops the engine first.
+    case removeActiveModel(String)
     case uninstall
 
     public var arguments: [String] {
@@ -16,6 +18,7 @@ public enum InstallerOp: Sendable, Equatable {
         case .check: ["--check"]
         case .addModel(let k): ["--add-model", k]
         case .removeModel(let k): ["--remove-model", k]
+        case .removeActiveModel(let k): ["--remove-model", k, "--allow-active-model"]
         case .uninstall: ["--uninstall"]
         }
     }
@@ -110,6 +113,7 @@ public final class EngineInstaller {
     @ObservationIgnored public let engineHome: URL
     @ObservationIgnored let launcher: any ProcessLauncher
     @ObservationIgnored let stopEngine: @Sendable () async -> Void
+    @ObservationIgnored let finishMaintenance: @Sendable () async -> Void
     @ObservationIgnored let homeDirectory: String
     @ObservationIgnored let lang: String
     @ObservationIgnored let termGrace: Duration
@@ -121,12 +125,14 @@ public final class EngineInstaller {
                 launcher: any ProcessLauncher = PosixSpawnLauncher(),
                 homeDirectory: String = NSHomeDirectory(), lang: String = "en_US.UTF-8",
                 termGrace: Duration = .seconds(2),
-                stopEngine: @escaping @Sendable () async -> Void = {}) {
+                stopEngine: @escaping @Sendable () async -> Void = {},
+                finishMaintenance: @escaping @Sendable () async -> Void = {}) {
         self.script = script
         self.paths = paths
         self.engineHome = engineHome ?? paths.engineHome()
         self.launcher = launcher
         self.stopEngine = stopEngine
+        self.finishMaintenance = finishMaintenance
         self.homeDirectory = homeDirectory
         self.lang = lang
         self.termGrace = termGrace
@@ -167,7 +173,7 @@ public final class EngineInstaller {
         state = .running(op, progress)
 
         await stopEngine()
-        if cancelRequested { return finish(.cancelled) }
+        if cancelRequested { return await finish(.cancelled) }
 
         let spec = launchSpec(for: op)
         let launched: LaunchedProcess
@@ -179,7 +185,7 @@ public final class EngineInstaller {
             ServerLog.note(paths.installLog, "install-engine.sh \((op.arguments + ["--json-progress"]).joined(separator: " "))")
             launched = try launcher.launch(spec)
         } catch {
-            return finish(.failed("cannot start the installer: \(error)"))
+            return await finish(.failed("cannot start the installer: \(error)"))
         }
         runningPID = launched.pid
         // The installer never reads stdin; EOF there is harmless.
@@ -203,10 +209,10 @@ public final class EngineInstaller {
         let status = await exit.value
         runningPID = nil
 
-        if cancelRequested { return finish(.cancelled) }
-        if WaitStatus.exited(status), WaitStatus.exitCode(status) == 0 { return finish(.finished) }
-        if op == .check, checkOK == false { return finish(.failed(lastError ?? "check found problems")) }
-        return finish(.failed(lastError ?? "install-engine.sh: \(WaitStatus.describe(status))"))
+        if cancelRequested { return await finish(.cancelled) }
+        if WaitStatus.exited(status), WaitStatus.exitCode(status) == 0 { return await finish(.finished) }
+        if op == .check, checkOK == false { return await finish(.failed(lastError ?? "check found problems")) }
+        return await finish(.failed(lastError ?? "install-engine.sh: \(WaitStatus.describe(status))"))
     }
 
     /// SIGTERM to the installer's process group (curl and pip die with it; a re-run resumes),
@@ -225,7 +231,10 @@ public final class EngineInstaller {
         }
     }
 
-    private func finish(_ s: InstallerState) -> InstallerState {
+    private func finish(_ s: InstallerState) async -> InstallerState {
+        // All callers, including full uninstall, finish the host's maintenance boundary
+        // before controls can see the installer as idle and start another engine operation.
+        await finishMaintenance()
         state = s
         return s
     }

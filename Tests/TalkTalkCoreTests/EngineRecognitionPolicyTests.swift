@@ -2,31 +2,39 @@ import Testing
 @testable import TalkTalkCore
 
 @Suite struct EngineRecognitionPolicyTests {
-    @Test func intentionalAppleProfileUsesAppleInBothDirections() {
+    @Test func legacySynthesisOnlyProfileUsesAppleInBothDirections() {
         for preference in SpeechRecognitionEngine.allCases {
             #expect(EngineRecognitionPolicy.listening(preferred: preference, installedProfile: .compact16) == .apple)
+            #expect(EngineRecognitionPolicy.speaking(preferred: preference, installedProfile: .compact16) == .apple)
         }
-        #expect(EngineRecognitionPolicy.speaking(installedProfile: .compact16) == .apple)
     }
 
-    @Test func qwenProfilesPreserveTheUsersListenChoice() {
-        for profile in [EngineProfile.max, .standard, .compact24] {
-            for preference in SpeechRecognitionEngine.allCases {
-                #expect(EngineRecognitionPolicy.listening(preferred: preference, installedProfile: profile) == preference)
+    @Test func localProfilesKeepListenAndSpeakChoicesIndependent() {
+        for profile in EngineProfile.selectablePresets {
+            for listen in SpeechRecognitionEngine.allCases {
+                for speak in SpeechRecognitionEngine.allCases {
+                    #expect(EngineRecognitionPolicy.listening(preferred: listen, installedProfile: profile) == listen)
+                    #expect(EngineRecognitionPolicy.speaking(preferred: speak, installedProfile: profile) == speak)
+                }
             }
-            #expect(EngineRecognitionPolicy.speaking(installedProfile: profile) == .qwen)
         }
     }
 
-    @Test func missingOrUnknownInstallationIsNotAnIntentionalAppleProfile() {
-        #expect(EngineRecognitionPolicy.listening(preferred: .qwen, installedProfile: nil) == .qwen)
-        #expect(EngineRecognitionPolicy.listening(preferred: .apple, installedProfile: nil) == .apple)
-        #expect(EngineRecognitionPolicy.speaking(installedProfile: nil) == .qwen)
+    @Test func missingOrCustomInstallationPreservesExplicitChoices() {
+        for preference in SpeechRecognitionEngine.allCases {
+            #expect(EngineRecognitionPolicy.listening(preferred: preference, installedProfile: nil) == preference)
+            #expect(EngineRecognitionPolicy.speaking(preferred: preference, installedProfile: nil) == preference)
+        }
     }
 
-    @Test func leavingTheAppleProfileRestoresTheUnchangedPreference() {
-        let savedPreference = SpeechRecognitionEngine.qwen
-        #expect(EngineRecognitionPolicy.listening(preferred: savedPreference, installedProfile: .compact16) == .apple)
-        #expect(EngineRecognitionPolicy.listening(preferred: savedPreference, installedProfile: .standard) == .qwen)
+    @Test func leavingLegacyProfileRestoresEachUnchangedPreference() {
+        for listen in SpeechRecognitionEngine.allCases {
+            for speak in SpeechRecognitionEngine.allCases {
+                #expect(EngineRecognitionPolicy.listening(preferred: listen, installedProfile: .compact16) == .apple)
+                #expect(EngineRecognitionPolicy.speaking(preferred: speak, installedProfile: .compact16) == .apple)
+                #expect(EngineRecognitionPolicy.listening(preferred: listen, installedProfile: .standard) == listen)
+                #expect(EngineRecognitionPolicy.speaking(preferred: speak, installedProfile: .standard) == speak)
+            }
+        }
     }
 }

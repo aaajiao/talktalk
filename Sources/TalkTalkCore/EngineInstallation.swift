@@ -173,6 +173,16 @@ public struct EngineInstallation: Sendable {
         case damaged(String)
     }
 
+    /// Whether the current pinned model is available on disk, including downloads not
+    /// listed in install.json. Checks its revision stamp and file sizes, never hashes or
+    /// changes files. Callers can cache this inexpensive result when reloading settings.
+    public func isModelReady(id: String) -> Bool {
+        guard let pin = pins.first(where: { $0.key == id }) else { return false }
+        let model = Record.Model(id: pin.key, repo: pin.repo, rev: pin.revision,
+                                 role: pin.role, dir: pin.directoryName)
+        return checkModelDirectory(model, pin: pin) == .ok
+    }
+
     /// Directory present, `.talktalk-verified` whose first line is the revision, and (for the
     /// recommended revision) every pinned file with its pinned size.
     func checkModelDirectory(_ model: Record.Model, pin: EnginePins.Model?) -> ModelCheck {
