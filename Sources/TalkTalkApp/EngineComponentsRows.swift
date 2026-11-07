@@ -425,27 +425,6 @@ struct EngineModelRows: View {
     }
 }
 
-/// Onboarding step 2's engine block: the same rows in a VStack (row 7 of the settings visual
-/// system moves that step onto the engine flow).
-struct EngineComponentsRows: View {
-    @Bindable var model: EngineComponentsModel
-
-    var body: some View {
-        Group {
-            if model.installer == nil {
-                EngineUnavailableView()
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    EngineControlRows(model: model)
-                    EngineModelRows(model: model)
-                }
-                .labelStyle(.settingsRow)
-            }
-        }
-        .onAppear { model.reload() }
-    }
-}
-
 /// A development binary without the installer (§5.2, §7.11): the reason is the help.
 struct EngineUnavailableView: View {
     var body: some View {

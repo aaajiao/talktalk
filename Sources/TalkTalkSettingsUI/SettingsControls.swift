@@ -36,18 +36,28 @@ public struct VoiceCapsule: NSViewRepresentable {
     }
 }
 
-/// The subtitle window's 右⌥ keycap with its action text.
+/// The subtitle window's 右⌥ keycap with its action text. `decorative`: it only draws a row's
+/// title (onboarding's 右⌥ permission row), so it is no accessibility element and has no tooltip
+/// of its own; the row speaks and shows its help.
 public struct Keycap: NSViewRepresentable {
     let key: TitlebarKey
+    let decorative: Bool
     @Environment(\.colorScheme) private var colorScheme
 
-    public init(key: TitlebarKey) { self.key = key }
+    public init(key: TitlebarKey, decorative: Bool = false) {
+        self.key = key
+        self.decorative = decorative
+    }
 
     public func makeNSView(context: NSViewRepresentableContext<Self>) -> KeycapActionView { KeycapActionView() }
 
     public func updateNSView(_ view: KeycapActionView, context: NSViewRepresentableContext<Self>) {
         view.lightSurface = colorScheme == .light
         view.effectiveAppearance.performAsCurrentDrawingAppearance { view.apply(key, showsAction: true) }
+        if decorative {
+            view.setAccessibilityElement(false)
+            view.toolTip = nil
+        }
     }
 
     public func sizeThatFits(_ proposal: ProposedViewSize, nsView: KeycapActionView,

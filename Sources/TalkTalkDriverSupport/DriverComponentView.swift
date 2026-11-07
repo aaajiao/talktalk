@@ -333,20 +333,3 @@ private struct DriverComponentLifecycle: ViewModifier {
         }
     }
 }
-
-/// The 驱动 rows as one block for onboarding step 3 (§7.12: no header or footnote of its own when
-/// embedded), with their lifecycle and the row label style.
-public struct DriverComponentSection: View {
-    private let model: DriverComponentModel
-
-    public init(model: DriverComponentModel) { self.model = model }
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            DriverComponentRows(model: model)
-        }
-        .labelStyle(.settingsRow)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .driverComponentLifecycle(model)
-    }
-}

@@ -16,9 +16,9 @@ import TalkTalkCore
         }
     }
 
-    @Test func donePageGlyphsExist() {
+    @Test func headerStepOneAndDonePageGlyphsExist() {
         typealias O = SubtitleTokens.OnboardingIcon
-        for name in [O.menuBar, O.quickStart, O.otherScenes] {
+        for name in [O.stepPassed, O.stepSkipped, O.inputMonitoring, O.done, O.menuBar, O.quickStart, O.otherScenes] {
             #expect(exists(name), "\(name)")
         }
     }

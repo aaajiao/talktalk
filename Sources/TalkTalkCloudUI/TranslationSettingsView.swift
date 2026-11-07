@@ -252,12 +252,15 @@ public struct TranslationSettingsView: View {
 /// `.labelStyle(.settingsRow)` on the Form.
 public struct OpenAIKeySection: View {
     @Bindable var model: TranslationSettingsModel
+    /// Where this section is shown: its own 删除 key confirmation appears only there.
+    let host: TranslationSettingsModel.KeySectionHost
 
     private typealias Icon = SubtitleTokens.SettingsIcon
     private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 
-    public init(model: TranslationSettingsModel) {
+    public init(model: TranslationSettingsModel, host: TranslationSettingsModel.KeySectionHost = .settings) {
         self.model = model
+        self.host = host
     }
 
     public var body: some View {
@@ -308,7 +311,7 @@ public struct OpenAIKeySection: View {
                     Task { await model.verify() }
                 }
                 .disabled(isRunning(model.verification))
-                IconButton(Icon.delete, help: String(localized: "删除 key")) { model.confirmKeyDeletion = true }
+                IconButton(Icon.delete, help: String(localized: "删除 key")) { model.keyDeletionAskedBy = host }
             }
         } label: {
             Label {
@@ -320,7 +323,7 @@ public struct OpenAIKeySection: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "已存入钥匙串的 key"))
         // OpenAI shows a secret key once: a slip beside 验证 must not cost the key.
-        .confirmationDialog(String(localized: "删除 key？"), isPresented: $model.confirmKeyDeletion) {
+        .confirmationDialog(String(localized: "删除 key？"), isPresented: confirmsDeletion) {
             Button(String(localized: "删除"), role: .destructive) { model.deleteKey() }
             Button(String(localized: "取消"), role: .cancel) {}
         } message: {
@@ -350,6 +353,12 @@ public struct OpenAIKeySection: View {
                 .help(String(localized: "存入钥匙串并验证"))
             Spacer(minLength: 0)
         }
+    }
+
+    /// This section's 删除 key confirmation; another window's stays closed.
+    private var confirmsDeletion: Binding<Bool> {
+        Binding(get: { model.keyDeletionAskedBy == host },
+                set: { if !$0, model.keyDeletionAskedBy == host { model.keyDeletionAskedBy = nil } })
     }
 
     private func isRunning(_ c: TranslationSettingsModel.Check) -> Bool {

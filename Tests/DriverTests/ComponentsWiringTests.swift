@@ -330,10 +330,12 @@ struct ComponentsWiringTests {
     func render(_ m: DriverComponentModel, to url: URL) throws {
         // 完全卸载 as Settings › 通用 shows it: its own section of a grouped Form.
         let root = Form {
-            Section { DriverComponentSection(model: m) }
+            Section { DriverComponentRows(model: m) }
             Section { FullUninstallSection(model: m) }
         }
         .formStyle(.grouped)
+        .labelStyle(.settingsRow)
+        .driverComponentLifecycle(m)
         .frame(width: 640, height: 560)
         .background(Color(nsColor: .windowBackgroundColor))
         _ = NSApplication.shared

@@ -27,6 +27,8 @@ struct ScenarioFacts {
     let mode: MeetingMode
     var audio: AudioSettingsModel = AppUIModels.shared.audio
     var engine: EngineComponentsModel = AppUIModels.shared.engine
+    /// Onboarding step 7's own meeting check, read instead of the running session's.
+    var check: MeetingMicCheck? = nil
 
     var sessionBusy: Bool { state.meetingActive || state.meetingStarting || state.meetingStopping }
     /// This scene's session runs now.
@@ -37,7 +39,10 @@ struct ScenarioFacts {
     var anotherRunning: Bool { sessionBusy && state.meetingMode != mode }
 
     /// The meeting or Phone check (MeetingMicGuard) of this scene's running session.
-    var micCheck: MeetingMicCheck { running && mode.supportsSpeaking ? audio.meetingMic : .notChecked }
+    var micCheck: MeetingMicCheck {
+        if let check { return check }
+        return running && mode.supportsSpeaking ? audio.meetingMic : .notChecked
+    }
 
     var voice: VoiceState? {
         guard running else { return nil }
@@ -46,7 +51,7 @@ struct ScenarioFacts {
 
     /// The other party can hear the original voice now.
     var risk: Bool {
-        guard running, mode.supportsSpeaking else { return false }
+        guard running || check != nil, mode.supportsSpeaking else { return false }
         if case .physicalMic = micCheck { return true }
         return voice?.kind == .remoteHearsOriginal
     }
@@ -182,9 +187,10 @@ struct ScenarioLinks {
 /// 识别与翻译 in column 2, the app in column 3, the other party in column 4.
 @MainActor
 extension FlowGrid {
-    static func meeting(_ facts: ScenarioFacts, driver: DriverComponentsPage, links: ScenarioLinks) -> FlowGrid {
+    /// `links` nil: onboarding step 7's read-only copy (§7.17), without the chips and links.
+    static func meeting(_ facts: ScenarioFacts, driver: DriverComponentsPage, links: ScenarioLinks?) -> FlowGrid {
         let state = facts.state
-        let remote = FlowNode(String(localized: "对方"), glyph: .symbol(Icon.remote), accessory: .controls {
+        let remote = FlowNode(String(localized: "对方"), glyph: .symbol(Icon.remote), accessory: links == nil ? nil : .controls {
             HStack(spacing: 4) {
                 SourceChip(facts: facts)
                 LanguageChip(state: state, speak: false, paired: true)
@@ -270,14 +276,14 @@ extension FlowGrid {
                 text: String(localized: "播完回到原声"), spoken: String(localized: "再点按右⌥结束；译音播完后回到原声"))
     }
 
-    private static func listenLane(_ facts: ScenarioFacts, remote: FlowNode, links: ScenarioLinks) -> FlowLane {
+    private static func listenLane(_ facts: ScenarioFacts, remote: FlowNode, links: ScenarioLinks?) -> FlowLane {
         FlowLane(String(localized: "听对方"), gutter: .symbol(Icon.listen), cells: [
             .node(remote), .node(recognition(facts, links: links)), .node(subtitles(facts, links: links)), .empty
         ])
     }
 
     private static func originalLane(_ facts: ScenarioFacts, driver: DriverComponentsPage, app: FlowNode,
-                                     links: ScenarioLinks) -> FlowLane {
+                                     links: ScenarioLinks?) -> FlowLane {
         let original = VoiceState.resolve(audio: .original, scene: facts.mode.scene, phoneInputConfirmed: true)
         let remoteSymbol = facts.mode == .phone ? SubtitleTokens.ConversationIcon.phoneRemote : Icon.remote
         let live = facts.voice?.kind == .original
@@ -286,17 +292,17 @@ extension FlowGrid {
             .node(FlowNode(String(localized: "麦克风"), glyph: .symbol(Icon.physicalMic),
                            badge: facts.noMicrophone ? .failed : nil,
                            badgeReason: facts.noMicrophone ? String(localized: "无可用麦克风") : nil,
-                           link: links.node(String(localized: "音频 · 麦克风"), .audio, anchor: SettingsAnchor.microphone))),
+                           link: links?.node(String(localized: "音频 · 麦克风"), .audio, anchor: SettingsAnchor.microphone))),
             .node(FlowNode("TalkTalk Mic", glyph: .symbol(Icon.talkTalkMic), badge: driverProblem?.status,
                            badgeReason: driverProblem?.text,
-                           link: links.node(String(localized: "组件 · 虚拟麦克风"), .components, .components(.driver)))),
+                           link: links?.node(String(localized: "组件 · 虚拟麦克风"), .components, .components(.driver)))),
             .node(app),
             .node(FlowNode(String(localized: "对方听到原声"), glyph: .symbol(remoteSymbol),
                            state: facts.risk ? .risk : live ? .live : .ready))
         ])
     }
 
-    private static func translateLane(_ facts: ScenarioFacts, links: ScenarioLinks) -> FlowLane {
+    private static func translateLane(_ facts: ScenarioFacts, links: ScenarioLinks?) -> FlowLane {
         let state = facts.state
         let translating = VoiceState.resolve(audio: .translating, scene: facts.mode.scene, phoneInputConfirmed: true)
         let remoteSymbol = facts.mode == .phone ? SubtitleTokens.ConversationIcon.phoneRemote : Icon.remote
@@ -306,14 +312,14 @@ extension FlowGrid {
                 Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle))
             }, help: String(localized: "可夹英语"))),
             .node(FlowNode(String(localized: "识别与翻译"), glyph: .symbol(Icon.translation),
-                           link: links.node(String(localized: "模型 · 文本翻译"), .translation, .model(.translation)))),
+                           link: links?.node(String(localized: "模型 · 文本翻译"), .translation, .model(.translation)))),
             .node(FlowNode(String(localized: "我的声音"), glyph: .symbol(Icon.myVoice),
                            badge: profile ? nil : .pending, badgeReason: profile ? nil : String(localized: "未录制"),
-                           link: links.node(String(localized: "我的声音"), .voice),
+                           link: links?.node(String(localized: "我的声音"), .voice),
                            satellite: profile ? nil : FlowSatellite(String(localized: "系统声音"), symbol: Icon.speech,
                                                                     help: String(localized: "未录制时用系统声音"),
                                                                     dashed: true))),
-            .node(FlowNode(String(localized: "对方听到译音"), glyph: .symbol(remoteSymbol), accessory: .controls {
+            .node(FlowNode(String(localized: "对方听到译音"), glyph: .symbol(remoteSymbol), accessory: links == nil ? nil : .controls {
                 LanguageChip(state: state, speak: true, paired: false,
                              lockedBy: facts.mode == .phone ? facts.lockedBy : nil)
             }))
@@ -322,21 +328,21 @@ extension FlowGrid {
 
     // MARK: nodes
 
-    private static func recognition(_ facts: ScenarioFacts, links: ScenarioLinks) -> FlowNode {
+    private static func recognition(_ facts: ScenarioFacts, links: ScenarioLinks?) -> FlowNode {
         let problem = facts.engine.recognitionProblem(facts.state)
         return FlowNode(String(localized: "识别与翻译"), glyph: .symbol(Icon.translation), badge: problem?.status,
                         badgeReason: problem?.text,
-                        link: links.node(String(localized: "模型 · 语音识别"), .translation, .model(.recognition)))
+                        link: links?.node(String(localized: "模型 · 语音识别"), .translation, .model(.recognition)))
     }
 
-    private static func subtitles(_ facts: ScenarioFacts, links: ScenarioLinks) -> FlowNode {
+    private static func subtitles(_ facts: ScenarioFacts, links: ScenarioLinks?) -> FlowNode {
         FlowNode(String(localized: "双语字幕"), glyph: .symbol(Icon.subtitles),
                  state: facts.state.subtitlesVisible ? .ready : .off,
-                 link: links.node(String(localized: "字幕"), .subtitles))
+                 link: links?.node(String(localized: "字幕"), .subtitles))
     }
 
     /// The meeting app's check (§7.1): the badge the menu's 会议麦克风 line also shows.
-    private static func meetingAppNode(_ facts: ScenarioFacts, links: ScenarioLinks) -> FlowNode {
+    private static func meetingAppNode(_ facts: ScenarioFacts, links: ScenarioLinks?) -> FlowNode {
         let app = facts.sourceApp
         let check = facts.micCheck
         let badge: (SettingsStatus, String) = switch check {
@@ -345,20 +351,19 @@ extension FlowGrid {
         case let .physicalMic(app, _): (.risk, String(localized: "\(app) 正在使用实体麦克风"))
         case .nobodyReads: (.warn, String(localized: "会议尚未使用 TalkTalk Mic"))
         }
-        let needsAction = check == .nobodyReads
         return FlowNode(app?.name ?? String(localized: "会议应用"), glyph: .app(bundleID: app?.id, fallback: Icon.unknownApp),
-                        state: needsAction ? .needsAction : .ready, badge: badge.0, badgeReason: badge.1,
-                        link: links.node(String(localized: "音频 · TalkTalk Mic"), .audio, anchor: SettingsAnchor.talkTalkMic),
+                        state: check.nodeState, badge: badge.0, badgeReason: badge.1,
+                        link: links?.node(String(localized: "音频 · TalkTalk Mic"), .audio, anchor: SettingsAnchor.talkTalkMic),
                         // A long app name truncates in the node: the tooltip carries it whole.
                         help: [app?.name, String(localized: "静音请用会议应用的按钮")].compactMap { $0 }.joined(separator: " · "))
     }
 
     /// The Phone check (§7.2, `ScenarioFacts.phoneCheck`), as the problem line reads it.
-    private static func phoneAppNode(_ facts: ScenarioFacts, links: ScenarioLinks) -> FlowNode {
+    private static func phoneAppNode(_ facts: ScenarioFacts, links: ScenarioLinks?) -> FlowNode {
         let check = facts.phoneCheck
         return FlowNode("Phone", glyph: .app(bundleID: MeetingMode.phoneAppID, fallback: SubtitleTokens.SceneIcon.phone),
                         state: check.status == .warn ? .needsAction : .ready, badge: check.status, badgeReason: check.text,
-                        link: links.node(String(localized: "音频 · TalkTalk Mic"), .audio, anchor: SettingsAnchor.talkTalkMic),
+                        link: links?.node(String(localized: "音频 · TalkTalk Mic"), .audio, anchor: SettingsAnchor.talkTalkMic),
                         help: String(localized: "静音或挂断请用 Phone"))
     }
 }

@@ -297,6 +297,10 @@ public enum SubtitleTokens {
             /// the script the user reads.
             public static let enrollmentCountdown: Double = 72
             public static let enrollmentScript: Double = 26
+            /// Onboarding's header step indicator (§7.17), its own component and the one place
+            /// these appear, not ladder steps: a 16 pt glyph in a 30 pt disc.
+            public static let onboardingStep: Double = 16
+            public static let onboardingStepDisc: Double = 30
         }
 
         /// The other party in flow diagrams (the timeline's remote marker is its .fill form).
@@ -534,8 +538,16 @@ public enum SubtitleTokens {
         public static let onboarding = "arrow.clockwise.circle"
     }
 
-    /// Onboarding's done page: how to start from the menu bar.
+    /// Onboarding (§7.17): the header's step marks, step 1's input-monitoring row and the done
+    /// page (how to start from the menu bar).
     public enum OnboardingIcon {
+        /// A step passed (not proof it was verified: secondary, never green) or skipped.
+        public static let stepPassed = "checkmark"
+        public static let stepSkipped = "minus"
+        /// Step 1's 右⌥ row: the Input Monitoring permission.
+        public static let inputMonitoring = "keyboard"
+        /// The done page's title.
+        public static let done = "flag.checkered"
         /// The status item's own glyph.
         public static let menuBar = MenuIcon.standby
         /// The menu's quick start (MenuQuickStart.symbol).

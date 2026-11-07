@@ -16,6 +16,9 @@ public struct EnrollmentView: View {
     private typealias Icon = SubtitleTokens.SettingsIcon
     private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 
+    /// The take's smallest height: a host shorter than this (onboarding step 6) scrolls it.
+    public static let minimumHeight: Double = 520
+
     public init(controller: EnrollmentController, onClose: (() -> Void)? = nil) {
         self.controller = controller
         self.onClose = onClose
@@ -31,7 +34,7 @@ public struct EnrollmentView: View {
             footer
         }
         .padding(20)
-        .frame(minWidth: 600, minHeight: 520)
+        .frame(minWidth: 600, minHeight: Self.minimumHeight)
     }
 
     // MARK: - StepTrack (§3.5)

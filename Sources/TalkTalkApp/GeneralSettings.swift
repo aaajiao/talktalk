@@ -342,15 +342,6 @@ extension LaunchAtLogin {
     }
 }
 
-/// Gray explanatory text under a control. The text is a localization key.
-struct SettingsNote: View {
-    let key: LocalizedStringKey
-    init(_ key: LocalizedStringKey) { self.key = key }
-    var body: some View {
-        Text(key).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-    }
-}
-
 /// The models behind Settings › 通用 / 音频 / 组件, shared with onboarding (one LaunchAtLogin,
 /// one EngineComponentsModel), created on first use like `PrivacySettings.shared`.
 @MainActor

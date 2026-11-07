@@ -36,8 +36,6 @@ enum MeetingMicCheck: Equatable {
         case .physicalMic: .risk
         }
     }
-
-    var color: Color { status.color }
 }
 
 /// "这是耳机吗？" (§11): asked once per unconfirmed Bluetooth or USB output, remembered by UID,
