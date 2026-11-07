@@ -26,6 +26,14 @@ public protocol ASRStream: AnyObject, Sendable {
     var finalEvents: AsyncStream<ASREvent> { get }
     /// Always finalizes or cancels, releasing the recognizer slot.
     func close() async
+    /// Discards pending recognition and waits until the recognizer slot is released. Use when
+    /// no consumer needs a final result, including session end and obsolete initialization.
+    func cancel() async
+}
+
+public extension ASRStream {
+    /// Backends without a distinct discard path retain their existing shutdown behavior.
+    func cancel() async { await close() }
 }
 
 public protocol StreamingASREngine: Sendable {                      // AppleSpeechASR

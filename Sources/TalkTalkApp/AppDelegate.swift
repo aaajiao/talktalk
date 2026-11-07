@@ -114,8 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard prefs.cloudConsentGiven, prefs.listenCloudEnabled || prefs.speakCloudEnabled else { return false }
             settings?.translation.load()
             guard let model = settings?.translation.model else { return false }
-            await model.loadModels()
-            return model.preferences.model != prefs.model
+            return model.prepareForSession()
         }
         let profile = try? PolicyProfile.loadDefault()
         let output = isSmoke ? nil : profile.flatMap { try? SpeakOutput(profile: $0) }

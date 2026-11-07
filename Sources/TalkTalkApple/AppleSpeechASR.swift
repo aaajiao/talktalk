@@ -131,6 +131,7 @@ public final class AppleSpeechStream: ASRStream, @unchecked Sendable {
     private var fed: Int64 = 0                                  // 16 kHz frames
     private var anchors: [(frame: Int64, host: HostTime)] = []
     private var closed = false
+    private var shutdownTask: Task<Void, Never>?
     private var listener: Task<Void, Never>?
     private var _droppedFinals = 0
     private var _lastError: String?
@@ -248,28 +249,51 @@ public final class AppleSpeechStream: ASRStream, @unchecked Sendable {
     /// SPEAK preview replacement does not need a final transcript. Cancel before opening the
     /// next analyzer, instead of leaving the previous one finalizing for up to two seconds.
     public func cancel() async {
-        let already = lock.withLock { defer { closed = true }; return closed }
-        guard !already else { return }
-        input.finish()
-        listener?.cancel()
-        await analyzer.cancelAndFinishNow()
-        volatileCont.finish()
-        finalCont.finish()
+        await shutdown(discard: true)
     }
 
     /// Finalizes what was fed (bounded to 2 s), else cancels; frees the recognizer slot either way.
     public func close() async {
-        let already: Bool = lock.withLock { defer { closed = true }; return closed }
-        guard !already else { return }
+        await shutdown(discard: false)
+    }
+
+    private func shutdown(discard: Bool) async {
+        let task = lock.withLock {
+            if let shutdownTask {
+                if discard { shutdownTask.cancel() }
+                return shutdownTask
+            }
+            closed = true
+            let task = Task { await finish(discard: discard) }
+            shutdownTask = task
+            return task
+        }
+        // Concurrent callers must wait for the same release, not merely observe `closed`.
+        await task.value
+    }
+
+    private func finish(discard: Bool) async {
         input.finish()
+        if discard || Task.isCancelled {
+            listener?.cancel()
+            await analyzer.cancelAndFinishNow()
+            volatileCont.finish(); finalCont.finish()
+            return
+        }
         let done = DoneFlag()
         let a = analyzer
-        Task { try? await a.finalizeAndFinishThroughEndOfInput(); done.set() }
+        let finalizing = Task { try? await a.finalizeAndFinishThroughEndOfInput(); done.set() }
         let until = ContinuousClock.now + .seconds(2)
-        while !done.value, ContinuousClock.now < until { try? await Task.sleep(for: .milliseconds(20)) }
-        if !done.value { await analyzer.cancelAndFinishNow() }
-        // Let the listener deliver the last finals, then end both streams.
-        try? await Task.sleep(for: .milliseconds(50))
+        while !done.value, !Task.isCancelled, ContinuousClock.now < until {
+            do { try await Task.sleep(for: .milliseconds(20)) } catch { break }
+        }
+        if !done.value || Task.isCancelled {
+            finalizing.cancel()
+            await analyzer.cancelAndFinishNow()
+        } else {
+            // Only callers that need final results give the listener a delivery grace period.
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         listener?.cancel()
         volatileCont.finish()
         finalCont.finish()

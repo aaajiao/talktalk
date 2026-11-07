@@ -89,6 +89,8 @@ class Job:
         self.seq = next(_seq)
         self.produced_audio_ms = 0.0
         self.steps = 0
+        # Watchdog time excludes idle time and deliberate scheduler parking. Updated under cv.
+        self.runnable_since_ms = None
 
     def cancel(self):
         self.cancelled.set()
@@ -169,6 +171,7 @@ class GpuScheduler:
     def submit(self, job):
         with self.cv:
             self.jobs.append(job)
+            self._watchdog_jobs_locked(_now_ms())
             self.cv.notify()
         return job
 
@@ -180,17 +183,20 @@ class GpuScheduler:
                    (scope == "speak" and j.priority in (P0, P1)) or (scope == "listen" and j.priority == P2):
                     j.cancel()
                     n += 1
+            self._watchdog_jobs_locked(_now_ms())
             self.cv.notify()
         return n
 
     def report_playout(self, buffered_ms):
         with self.cv:
             self.playout = [float(buffered_ms), _now_ms(), 0.0]
+            self._watchdog_jobs_locked(_now_ms())
             self.cv.notify()
 
     def set_session(self, speak_active):
         with self.cv:
             self.speak_active = bool(speak_active)
+            self._watchdog_jobs_locked(_now_ms())
             self.cv.notify()
 
     def buffered_ahead_ms(self, now=None):
@@ -200,24 +206,37 @@ class GpuScheduler:
         now = now if now is not None else _now_ms()
         return max(0.0, p[0] + p[2] - (now - p[1]))
 
+    def _watchdog_jobs_locked(self, now):
+        # These waits are intentional, not stalled GPU work: the render horizon, P2 paused
+        # during SPEAK, and another generator owning the shared TTS decoder.
+        live = [j for j in self.jobs if not j.finished and not j.cancelled.is_set()]
+        owner = self._decoder_owner(live)
+        parked = {j for j in live if owner is not None and j is not owner and j.kind in _TTS_DECODER_JOBS}
+        tts_live = [j for j in live if j.priority == P0]
+        buffered = self.buffered_ahead_ms(now)
+        if buffered is not None and buffered >= self.horizon_ms:
+            parked.update(tts_live)
+        if self.speak_active or tts_live:
+            parked.update(j for j in live if j.priority == P2)
+        runnable = set(live) - parked
+        for j in self.jobs:
+            if j not in runnable:
+                j.runnable_since_ms = None
+            elif j.runnable_since_ms is None:
+                j.runnable_since_ms = now
+        return live, parked
+
     def health(self):
         with self.cv:
-            q = {f"p{i}": sum(1 for j in self.jobs if j.priority == i) for i in range(4)}
-            # Jobs pending on purpose, which the app's hang rule (§7.6) must not count (00f65f3
-            # review): TTS held by rule 0 (buffer at the horizon, e.g. while playback is paused) and
-            # LISTEN second-pass ASR (P2) held by rule 6, and generators waiting for the shared
-            # TTS decoder. The decoder owner itself remains runnable unless rule 0 parks it.
-            live = [j for j in self.jobs if not j.finished and not j.cancelled.is_set()]
-            owner = self._decoder_owner(live)
-            parked_jobs = {j for j in live if owner is not None and j is not owner and j.kind in _TTS_DECODER_JOBS}
-            tts_live = [j for j in live if j.priority == P0]
-            buffered = self.buffered_ahead_ms()
-            if buffered is not None and buffered >= self.horizon_ms:
-                parked_jobs.update(tts_live)
-            if self.speak_active or tts_live:
-                parked_jobs.update(j for j in live if j.priority == P2)
+            now = _now_ms()
+            live, parked_jobs = self._watchdog_jobs_locked(now)
+            q = {f"p{i}": sum(1 for j in live if j.priority == i) for i in range(4)}
             parked = len(parked_jobs)
-        age = None if self.last_step_at is None else round(_now_ms() - self.last_step_at, 1)
+            starts = [j.runnable_since_ms for j in live if j not in parked_jobs]
+            # Keep the wire field, but never charge a new/unparked job for earlier idle time.
+            # New arrivals cannot reset an older runnable job's genuine stall.
+            since = max(min(starts), self.last_step_at or 0.0) if starts else None
+            age = None if since is None else round(max(0.0, now - since), 1)
         rtf = sorted(self.tts_rtf_recent)
         return {"last_step_age_ms": age, "in_long_step": self.in_long_step, "queue": q, "parked": parked,
                 "expired_dropped": self.expired_dropped,
@@ -254,6 +273,7 @@ class GpuScheduler:
         return next((j for j in live if j.kind in _TTS_DECODER_JOBS and j.gen is not None), None)
 
     def _pick(self, now):
+        self._watchdog_jobs_locked(now)
         live = [j for j in self.jobs if not j.finished]
         if not live:
             return None
@@ -308,6 +328,7 @@ class GpuScheduler:
         with self.cv:
             if job in self.jobs:
                 self.jobs.remove(job)
+            self._watchdog_jobs_locked(_now_ms())
         try:
             job.on_done(err)
         except Exception:  # noqa: BLE001

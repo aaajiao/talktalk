@@ -2,6 +2,7 @@
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from talktalk_engine.scheduler import (DEFAULT_FIRST_COST_MS, P0, P1, P2, P3, GpuScheduler, Job, _now_ms,
                                        step_class)
@@ -184,6 +185,80 @@ class PickTests(unittest.TestCase):
 
 
 class LoopTests(unittest.TestCase):
+    def test_health_excludes_cancelled_and_finished_jobs_before_retirement(self):
+        s = GpuScheduler()
+        cancelled, finished = job("asr", P1), job("tts", P0)
+        s.submit(cancelled)
+        s.submit(finished)
+        cancelled.cancel()                         # HTTP disconnect can cancel the job directly
+        finished.finished = True                  # still present until generator close finishes
+        s.last_step_at = _now_ms() - 20_000
+        h = s.health()
+        self.assertEqual(sum(h["queue"].values()), 0)
+        self.assertEqual(h["parked"], 0)
+        self.assertIsNone(h["last_step_age_ms"])
+
+    def test_first_step_after_idle_has_a_fresh_watchdog_clock_but_still_times_out(self):
+        s = GpuScheduler()
+        entered, release, done = threading.Event(), threading.Event(), threading.Event()
+
+        def gen():
+            entered.set()
+            release.wait(2)                        # fake GPU step, no model/audio/network
+            yield None
+
+        with patch("talktalk_engine.scheduler._now_ms", return_value=20_000.0) as now:
+            s.last_step_at = 1000.0
+            s.start()
+            first = s.submit(Job("asr", P1, gen, on_done=lambda _: done.set()))
+            try:
+                self.assertTrue(entered.wait(1))
+                self.assertEqual(s.health()["last_step_age_ms"], 0.0)
+                now.return_value = 25_001.0
+                self.assertGreater(s.health()["last_step_age_ms"], 4000.0)
+                # A new queued job cannot hide the older one that is genuinely stuck.
+                second = s.submit(job("asr", P1))
+                self.assertGreater(s.health()["last_step_age_ms"], 4000.0)
+                first.cancel()
+                self.assertEqual(s.health()["queue"]["p1"], 1)
+                self.assertEqual(s.health()["last_step_age_ms"], 0.0)
+                second.cancel()
+                self.assertIsNone(s.health()["last_step_age_ms"])
+            finally:
+                release.set()
+                self.assertTrue(done.wait(1))
+
+    def test_watchdog_restarts_when_horizon_or_speak_pause_ends(self):
+        for kind in ("horizon", "speak"):
+            with self.subTest(kind=kind), patch("talktalk_engine.scheduler._now_ms", return_value=1000.0) as now:
+                s = GpuScheduler()
+                s.last_step_at = 500.0
+                if kind == "horizon":
+                    s.report_playout(200_000)
+                    s.submit(job("tts", P0))
+                else:
+                    s.set_session(True)
+                    s.submit(job("asr", P2, deadline=1_000_000))
+                now.return_value = 51_000.0
+                self.assertIsNone(s.health()["last_step_age_ms"])
+                if kind == "horizon": s.report_playout(0)
+                else: s.set_session(False)
+                self.assertEqual(s.health()["last_step_age_ms"], 0.0)
+                now.return_value = 55_001.0
+                self.assertGreater(s.health()["last_step_age_ms"], 4000.0)
+
+    def test_decoder_waiter_does_not_inherit_its_owners_stall(self):
+        with patch("talktalk_engine.scheduler._now_ms", return_value=1000.0) as now:
+            s = GpuScheduler()
+            owner = job("tts", P0)
+            owner.gen = (None for _ in range(1))
+            s.submit(owner)
+            s.submit(job("voice_warmup", P3))
+            now.return_value = 51_000.0
+            self.assertGreater(s.health()["last_step_age_ms"], 4000.0) # owner still protected
+            s._retire(owner)
+            self.assertEqual(s.health()["last_step_age_ms"], 0.0)   # warmup only became runnable now
+
     def test_jobs_run_on_gpu_thread_and_call_works(self):
         s = GpuScheduler()
         s.start()

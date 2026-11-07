@@ -369,15 +369,16 @@ public final class MeetingSession: SpeakEchoSink {
     // MARK: - start / stop
 
     /// `choice`: the bundle id the user picked; `preferred`: the last choice (remembered).
-    public func start(lang: Lang, choice: String? = nil, preferred: String? = nil) async -> StartResult {
+    public func start(lang: Lang, choice: String? = nil, preferred: String? = nil,
+                      requestedAt: HostTime? = nil) async -> StartResult {
         switch state {
         case .idle, .ended: break
         default: return .failed("already running")
         }
-        return await startFresh(lang: lang, choice: choice, preferred: preferred)
+        return await startFresh(lang: lang, choice: choice, preferred: preferred, requestedAt: requestedAt ?? HostClock.now())
     }
 
-    private func startFresh(lang: Lang, choice: String?, preferred: String?) async -> StartResult {
+    private func startFresh(lang: Lang, choice: String?, preferred: String?, requestedAt: HostTime) async -> StartResult {
         let candidates = mode.sourceCandidates(in: (try? resolver.currentCandidates()) ?? [])
         let picked = mode.source(in: candidates, choice: choice, preferred: preferred)
         guard let source = picked else {
@@ -392,14 +393,18 @@ public final class MeetingSession: SpeakEchoSink {
         startHost = HostClock.now()
         let log = (try? EventLog(sessionID: String(UUID().uuidString.prefix(8)))) ?? EventLog(inMemory: HostClock.now)
         self.log = log
+        // Metadata only: includes controller preparation before the session log was created.
+        log.event("meeting.start_requested", ["mode": .tag(mode.rawValue)], at: requestedAt)
 
         // TCC first: silence in a meeting never means "denied" (§3.1), only the probe decides.
+        let probeStartedAt = HostClock.now()
         var probe = await Task.detached { TCCProbe.run() }.value
         guard session == sessionGeneration, !stopping else { return .failed("cancelled") }
         if probe.verdict == .inconclusive { probe = await Task.detached { TCCProbe.run() }.value }
         guard session == sessionGeneration, !stopping else { return .failed("cancelled") }
         log.event("tcc.probe", ["verdict": .tag(probe.verdict.rawValue), "tap_start_ms": .int(probe.tapStartMs ?? -1),
-                                "chunks": .int(probe.chunks)])
+                                "chunks": .int(probe.chunks),
+                                "elapsed_ms": .int(HostClock.ms(probeStartedAt, to: HostClock.now()))])
         if probe.verdict == .denied {
             log.close()
             set(.idle)
@@ -430,7 +435,8 @@ public final class MeetingSession: SpeakEchoSink {
             return .failed("\(error)")
         }
         log.event("meeting.start", ["app": .tag(source.app.id), "mode": .tag(mode.rawValue), "processes": .int(processes.count),
-                                    "lang": .tag((listenLanguage ?? lang).rawValue)])
+                                    "lang": .tag((listenLanguage ?? lang).rawValue),
+                                    "startup_ms": .int(HostClock.ms(requestedAt, to: HostClock.now()))])
         watchdog.reset()
         autoEnd = MeetingAutoEnd()
         lifecycle = MeetingLifecycle()
@@ -477,6 +483,8 @@ public final class MeetingSession: SpeakEchoSink {
     }
 
     private func performStop(_ reason: EndReason) async {
+        let stopStartedAt = HostClock.now()
+        log?.event("meeting.stopping", ["reason": .tag(reason.rawValue)], at: stopStartedAt)
         timer?.invalidate(); timer = nil
         echoTask?.cancel(); echoTask = nil
         noticeTask?.cancel()
@@ -489,6 +497,7 @@ public final class MeetingSession: SpeakEchoSink {
         for o in lockObservers { DistributedNotificationCenter.default().removeObserver(o) }
         lockObservers.removeAll()
         tap?.stop(); tap = nil
+        log?.event("meeting.capture_stopped", ["elapsed_ms": .int(HostClock.ms(stopStartedAt, to: HostClock.now()))])
         let p = pipeline, pending = listenTask
         pipeline = nil; listenTask = nil; listenTaskConfigurationID = nil; listenLanguage = nil
         if let p { await p.stop() }
@@ -496,7 +505,8 @@ public final class MeetingSession: SpeakEchoSink {
         ingest.reset(); echoRecords.removeAll()
         if let a = activity { ProcessInfo.processInfo.endActivity(a) }
         activity = nil
-        log?.event("meeting.end", ["reason": .tag(reason.rawValue), "minutes": .double(Double(nowMs) / 60_000)])
+        log?.event("meeting.end", ["reason": .tag(reason.rawValue), "minutes": .double(Double(nowMs) / 60_000),
+                                   "stop_ms": .int(HostClock.ms(stopStartedAt, to: HostClock.now()))])
         log?.close(); log = nil
         startedAt = nil
         setHint(nil)

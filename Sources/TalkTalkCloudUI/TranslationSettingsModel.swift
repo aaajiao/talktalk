@@ -83,17 +83,25 @@ public final class TranslationSettingsModel {
     @ObservationIgnored private var listed: [ModelFilter.Listed] = []
     @ObservationIgnored private var keyStateLoad: Task<Bool, Never>?
     @ObservationIgnored private var keyStateRevision: UInt64 = 0
+    @ObservationIgnored private var modelListTask: Task<Void, Never>?
+    @ObservationIgnored private var modelListRevision: UInt64 = 0
+    @ObservationIgnored private var hasModelList = false
+    @ObservationIgnored private var lastModelListAttempt: Date?
+    @ObservationIgnored private let now: () -> Date
+    private static let modelListCooldown: TimeInterval = 5 * 60
 
     /// - Parameters:
     ///   - store: the app's key item, normally `KeychainSecret.openAI(bundleID:)`.
     ///   - protocolClasses: tests only (fake server).
     public init(store: any APIKeyStore, profile: PolicyProfile, prompts: MTPrompts,
-                defaults: UserDefaults = .standard, protocolClasses: [Leg: [AnyClass]] = [:]) {
+                defaults: UserDefaults = .standard, protocolClasses: [Leg: [AnyClass]] = [:],
+                now: @escaping () -> Date = Date.init) {
         self.store = store
         self.profile = profile
         self.prompts = prompts
         self.defaults = defaults
         self.protocolClasses = protocolClasses
+        self.now = now
         self.preferences = TranslationPreferences.load(defaults)
         refreshKeyState()
     }
@@ -132,8 +140,10 @@ public final class TranslationSettingsModel {
         var p = preferences
         change(&p)
         guard p != preferences else { return }
+        let revokedConsent = preferences.cloudConsentGiven && !p.cloudConsentGiven
         preferences = p
         p.save(defaults)
+        if revokedConsent { invalidateModelList() }
     }
 
     public func giveConsent() { update { $0.cloudConsentGiven = true } }
@@ -198,6 +208,7 @@ public final class TranslationSettingsModel {
         let masked = APIKeyShape.masked(key)
         key = ""
         savedHint = TranslationSettingsText.clearClipboard
+        invalidateModelList()
         client = nil        // the next request reads the new key
         invalidateKeyStateLoad()
         keyState = .saved(masked: masked)
@@ -236,6 +247,7 @@ public final class TranslationSettingsModel {
             return
         }
         invalidateKeyStateLoad()
+        invalidateModelList()
         client = nil
         keyState = .none
         keyStateKnown = true
@@ -250,24 +262,86 @@ public final class TranslationSettingsModel {
 
     // MARK: models
 
-    /// The live list (§11), with the retirement fallback checked once per load.
+    /// Starting a scene only resolves the current selection from this key's cached list.
+    /// Refreshing the catalog belongs to a retained background task, never the startup path.
+    @discardableResult
+    public func prepareForSession() -> Bool {
+        guard preferences.cloudConsentGiven, preferences.anyCloud else { return false }
+        let previous = preferences.model
+        if hasModelList {
+            applyResolution(ModelFilter.resolve(selection: preferences.model, listed: listed))
+            picker = ModelFilter.picker(listed, current: preferences.model)
+        }
+        _ = refreshModelList(force: false)
+        return preferences.model != previous
+    }
+
+    /// An explicit refresh still performs a fresh request, even within the startup cooldown.
     public func loadModels() async {
+        await refreshModelList(force: true)?.value
+    }
+
+    private func refreshModelList(force: Bool) -> Task<Void, Never>? {
+        // The explicit settings action remains authorized on its own; only an automatic
+        // refresh requires the cloud-consent preference. Revocation invalidates either kind.
+        guard force || preferences.cloudConsentGiven else { return nil }
+        if !force {
+            if let modelListTask { return modelListTask }
+            if let lastModelListAttempt, now().timeIntervalSince(lastModelListAttempt) < Self.modelListCooldown { return nil }
+        }
+        modelListTask?.cancel()
+        modelListRevision &+= 1
+        let revision = modelListRevision
+        lastModelListAttempt = now()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.fetchModelList(revision: revision, requiresConsent: !force)
+        }
+        modelListTask = task
+        return task
+    }
+
+    private func acceptsModelList(_ revision: UInt64, requiresConsent: Bool) -> Bool {
+        revision == modelListRevision && (!requiresConsent || preferences.cloudConsentGiven) && !Task.isCancelled
+    }
+
+    private func fetchModelList(revision: UInt64, requiresConsent: Bool) async {
+        defer { if revision == modelListRevision { modelListTask = nil } }
         await loadKeyState()
+        guard acceptsModelList(revision, requiresConsent: requiresConsent) else { return }
         guard hasKey else { listing = .idle; return }
         listing = .running(TranslationSettingsText.listing)
         do {
             let rows = try await catalog().list()
+            guard acceptsModelList(revision, requiresConsent: requiresConsent) else { return }
             listed = rows
+            hasModelList = true
             applyResolution(ModelFilter.resolve(selection: preferences.model, listed: rows))
             picker = ModelFilter.picker(rows, current: preferences.model)
             listing = .ok(TranslationSettingsText.listed(picker.models.count))
         } catch let OpenAIModelCatalog.CatalogError.http(status, info) {
+            guard acceptsModelList(revision, requiresConsent: requiresConsent) else { return }
             listing = Check(failed: TranslationSettingsText.failure(status: status, error: info, cloud: cloud))
         } catch OpenAIModelCatalog.CatalogError.malformed {
+            guard acceptsModelList(revision, requiresConsent: requiresConsent) else { return }
             listing = Check(failed: TranslationSettingsText.malformedList)
         } catch {
+            guard acceptsModelList(revision, requiresConsent: requiresConsent) else { return }
             listing = Check(failed: TranslationSettingsText.transportFailure(error))
         }
+    }
+
+    private func invalidateModelList() {
+        modelListRevision &+= 1
+        modelListTask?.cancel()
+        modelListTask = nil
+        lastModelListAttempt = nil
+        listed = []
+        hasModelList = false
+        listing = .idle
+        picker = ModelFilter.picker([], current: preferences.model)
+        notice = nil
+        retirement = nil
     }
 
     private func applyResolution(_ r: ModelFilter.Resolution) {

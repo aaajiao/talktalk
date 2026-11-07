@@ -44,7 +44,7 @@ public struct QwenStreamingASR: StreamingASREngine {
             catch { log?.event("asr.fallback", ["reason": .tag("qwenNotReady")]) }
         } else { log?.event("asr.fallback", ["reason": .tag("qwenNotInstalled")]) }
         let stream = try await fallback.open(lang, highPriority: highPriority)
-        if Task.isCancelled { await stream.close(); throw CancellationError() }
+        if Task.isCancelled { await stream.cancel(); throw CancellationError() }
         onEngine(fallback.id)
         return stream
     }
@@ -101,6 +101,8 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
     private let onEngine: @Sendable (EngineID) -> Void
     private let lock = NSLock()
     private var closed = false
+    private var shutdownTask: Task<Void, Never>?
+    private var discarding = false
     private var blocks: [Block] = []
     private var count = 0
     private var generation: UInt64 = 0
@@ -307,7 +309,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
             fallbackTask = Task { [weak self, fallback, language, highPriority] in
                 do {
                     let stream = try await fallback.open(language, highPriority: highPriority)
-                    guard let self else { await stream.close(); return }
+                    guard let self else { await stream.cancel(); return }
                     let accepted = self.lock.withLock { () -> Bool in
                         guard !self.closed, !Task.isCancelled else { return false }
                         // A finalize may have arrived while Apple was opening. Close that
@@ -329,10 +331,11 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
                         return true
                     }
                     if accepted { self.onEngine(fallback.id) }
-                    else { await stream.close() }
+                    else { await stream.cancel() }
                 } catch {
                     self?.log?.event("asr.unavailable", ["reason": .tag("fallbackFailed")])
-                    await self?.close()
+                    // shutdown waits for this opening task; never await it from itself.
+                    Task { await self?.cancel() }
                 }
             }
         }
@@ -351,17 +354,38 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
     }
 
     public func close() async {
-        let closing: ((any ASRStream)?, JobID?) = lock.withLock {
-            guard !closed else { return (nil, nil) }
+        await shutdown(discard: false)
+    }
+
+    public func cancel() async {
+        await shutdown(discard: true)
+    }
+
+    private func shutdown(discard: Bool) async {
+        let (task, interrupt): (Task<Void, Never>, (any ASRStream)?) = lock.withLock {
+            if let shutdownTask {
+                let interrupt = discard && !discarding
+                if interrupt { discarding = true; shutdownTask.cancel() }
+                return (shutdownTask, interrupt ? fallbackStream : nil)
+            }
             closed = true
+            discarding = discard
             active?.task.cancel(); finalTimer?.cancel(); fallbackTask?.cancel()
             fallbackReaders.forEach { $0.cancel() }; fallbackReaders.removeAll()
             blocks.removeAll(); count = 0
             vol.finish(); fin.finish()
-            let old = fallbackStream; fallbackStream = nil
-            return (old, active?.request.job)
+            let old = fallbackStream, opening = fallbackTask, job = active?.request.job
+            let task = Task {
+                if let job { Task { await primary.cancel(job) } }
+                if discard || Task.isCancelled { await old?.cancel() }
+                else { await old?.close() }
+                // A late Apple open must be cancelled before another session can open one.
+                await opening?.value
+            }
+            shutdownTask = task
+            return (task, nil)
         }
-        if let job = closing.1 { Task { await primary.cancel(job) } }
-        await closing.0?.close()
+        await interrupt?.cancel()
+        await task.value
     }
 }

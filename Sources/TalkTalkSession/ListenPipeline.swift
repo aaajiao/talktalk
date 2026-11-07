@@ -85,8 +85,13 @@ public actor ListenPipeline {
         public var primary: (any MTEngine)?
         /// Second pass (RemoteQwenASR, talktalk-m0); used only when `listen.secondPassASR` is on.
         public var secondPass: (any ClipASREngine)?
-        public init(asr: any StreamingASREngine, apple: (any MTEngine)?, primary: (any MTEngine)?, secondPass: (any ClipASREngine)? = nil) {
+        /// Per-session translation preparation can overlap recognizer opening. No input is
+        /// attached and start does not succeed until both preparation paths have completed.
+        public var prepareTranslation: @Sendable () async -> Void
+        public init(asr: any StreamingASREngine, apple: (any MTEngine)?, primary: (any MTEngine)?, secondPass: (any ClipASREngine)? = nil,
+                    prepareTranslation: @escaping @Sendable () async -> Void = {}) {
             self.asr = asr; self.apple = apple; self.primary = primary; self.secondPass = secondPass
+            self.prepareTranslation = prepareTranslation
         }
     }
 
@@ -107,6 +112,7 @@ public actor ListenPipeline {
     private var segmenter: ListenSegmenter
     private var echo: EchoFilter
     private var stream: (any ASRStream)?
+    private var stopTask: Task<Void, Never>?
     private var tasks: [Task<Void, Never>] = []
     private var streamTasks: [Task<Void, Never>] = []
     private var streamEpoch: UInt64 = 0
@@ -178,16 +184,23 @@ public actor ListenPipeline {
     // MARK: - lifecycle
 
     public func start() async throws {
+        if let stopTask { await stopTask.value; self.stopTask = nil }
         streamEpoch &+= 1
         let epoch = streamEpoch
         startHost = clock()
         lastFinalThrough = nil
         sourceAudioThrough = nil; rejectedEcho = nil; echoObservations.removeAll()
+        async let translationPreparation: Void = engines.prepareTranslation()
         let s = try await engines.asr.open(lang, highPriority: false)
         guard epoch == streamEpoch, !Task.isCancelled else {
-            await s.close(); throw CancellationError()
+            await s.cancel(); throw CancellationError()
         }
         stream = s
+        await translationPreparation
+        guard epoch == streamEpoch, !Task.isCancelled else {
+            if stream === s { stream = nil }
+            await s.cancel(); throw CancellationError()
+        }
         running = true
         ingest.attach(s)
         log.event("listen.start", ["lang": .tag(lang.rawValue), "primary": .bool(engines.primary != nil),
@@ -204,8 +217,15 @@ public actor ListenPipeline {
     }
 
     public func stop() async {
+        if let stopTask { await stopTask.value; return }
         running = false
         streamEpoch &+= 1
+        let task = Task { await performStop() }
+        stopTask = task
+        await task.value
+    }
+
+    private func performStop() async {
         for t in streamTasks { t.cancel() }; streamTasks.removeAll()
         acousticEcho = nil
         sourceAudioThrough = nil; rejectedEcho = nil; echoObservations.removeAll()
@@ -223,7 +243,7 @@ public actor ListenPipeline {
         for job in pendingApple { await engines.apple?.cancel(job) }
         for job in pendingCloud { await engines.primary?.cancel(job) }
         for job in pendingSecondPass { await engines.secondPass?.cancel(job) }
-        await oldStream?.close()
+        await oldStream?.cancel()
         log.event("listen.stop", ["sentences": .int(Int(segmenter.sentence) - 1), "revisions": .int(segmenter.revisions + lookbackRevisions)])
     }
 
@@ -257,13 +277,15 @@ public actor ListenPipeline {
         let epoch = streamEpoch
         ingest.detach()
         for t in streamTasks { t.cancel() }; streamTasks.removeAll()
-        let old = stream; stream = nil
+        // Keep the retiring stream reachable by a concurrent stop; both callers await the
+        // same backend shutdown before a replacement may acquire its recognizer slot.
+        let old = stream
         await perform(segmenter.audioGap(nowMs: nowMs))
         sourceAudioThrough = nil; rejectedEcho = nil; echoObservations.removeAll(); acousticEcho = nil
-        await old?.close()
+        await old?.cancel()
         guard running, streamEpoch == epoch else { return }
         let next = try await engines.asr.open(lang, highPriority: false)
-        guard running, streamEpoch == epoch else { await next.close(); return }
+        guard running, streamEpoch == epoch else { await next.cancel(); return }
         ingest.attach(next); stream = next
         observeStream(next)
         log.event("listen.analyzer_restart", ["gap_ms": .int(gapMs)])

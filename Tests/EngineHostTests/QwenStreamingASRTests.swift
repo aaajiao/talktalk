@@ -41,17 +41,30 @@ private final class StreamingFallbackFake: ASRStream, StreamingASREngine, Sendab
     let vol: AsyncStream<ASREvent>.Continuation
     let fin: AsyncStream<ASREvent>.Continuation
     let fed = Mutex<[(at: HostTime, samples: Int)]>([])
-    let opens = Mutex(0), closes = Mutex(0)
-    init() {
+    let opens = Mutex(0), closes = Mutex(0), cancels = Mutex(0)
+    let openGate = AsyncStream<Void>.makeStream(), cancelGate = AsyncStream<Void>.makeStream()
+    let blockOpen: Bool, blockCancel: Bool
+    init(blockOpen: Bool = false, blockCancel: Bool = false) {
+        self.blockOpen = blockOpen; self.blockCancel = blockCancel
         (volatileEvents, vol) = AsyncStream.makeStream()
         (finalEvents, fin) = AsyncStream.makeStream()
     }
     func open(_ lang: Lang, highPriority: Bool) async throws -> any ASRStream {
-        opens.withLock { $0 += 1 }; return self
+        opens.withLock { $0 += 1 }
+        if blockOpen {
+            let gate = openGate.stream
+            await Task.detached { for await _ in gate { break } }.value
+        }
+        return self
     }
     func feed(_ frames: UnsafeBufferPointer<Int16>, at: HostTime) { fed.withLock { $0.append((at, frames.count)) } }
     func finalize(through: HostTime) async {}
     func close() async { closes.withLock { $0 += 1 }; vol.finish(); fin.finish() }
+    func cancel() async {
+        cancels.withLock { $0 += 1 }
+        if blockCancel { for await _ in cancelGate.stream { break } }
+        vol.finish(); fin.finish()
+    }
 }
 
 struct QwenStreamingASRTests {
@@ -68,6 +81,43 @@ struct QwenStreamingASRTests {
             try? await Task.sleep(for: .milliseconds(5))
         }
         return await predicate()
+    }
+
+    @Test func discardForwardsCancellationAndConcurrentCallersWaitForRelease() async throws {
+        let primary = StreamingClipFake(failFrom: 1), fallback = StreamingFallbackFake(blockCancel: true)
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: config)
+            .open(.en, highPriority: false)
+        feed(stream, at: 1_000_000_000)
+        #expect(await until { fallback.fed.withLock { !$0.isEmpty } })
+        let finished = Mutex(0)
+        let first = Task { await stream.cancel(); finished.withLock { $0 += 1 } }
+        #expect(await until { fallback.cancels.withLock { $0 } == 1 })
+        let second = Task { await stream.cancel(); finished.withLock { $0 += 1 } }
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(finished.withLock { $0 } == 0)
+        fallback.cancelGate.continuation.finish()
+        await first.value; await second.value
+        #expect(finished.withLock { $0 } == 2)
+        #expect(fallback.cancels.withLock { $0 } == 1)
+        #expect(fallback.closes.withLock { $0 } == 0)
+    }
+
+    @Test func discardWaitsForAnObsoleteFallbackOpenToReleaseItsRecognizer() async throws {
+        let primary = StreamingClipFake(failFrom: 1), fallback = StreamingFallbackFake(blockOpen: true)
+        let selected = Mutex<[EngineID]>([])
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: config,
+            onEngine: { engine in selected.withLock { $0.append(engine) } }).open(.en, highPriority: false)
+        feed(stream, at: 1_000_000_000)
+        #expect(await until { fallback.opens.withLock { $0 } == 1 })
+        let finished = Mutex(false)
+        let cancel = Task { await stream.cancel(); finished.withLock { $0 = true } }
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(!finished.withLock { $0 })
+        fallback.openGate.continuation.yield()
+        await cancel.value
+        #expect(fallback.cancels.withLock { $0 } == 1)
+        #expect(fallback.closes.withLock { $0 } == 0)
+        #expect(selected.withLock { $0 } == [primary.id])
     }
 
     @Test func cumulativeWindowsFinalizeAtHostBoundaryAndNeverOverlapJobs() async throws {

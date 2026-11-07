@@ -155,9 +155,16 @@ final class MeetingController {
     func toggle(mode: MeetingMode = .meeting) {
         guard !state.meetingStopping else { return }   // one stop
         if state.meetingActive {
+            let requestedAt = HostClock.now()
+            session?.eventLog?.event("meeting.end_requested", at: requestedAt)
             panel.endSession()
             state.meetingStopping = true
-            if session?.mode.supportsSpeaking == true { beforeUserEnd?() }
+            if session?.mode.supportsSpeaking == true {
+                beforeUserEnd?()
+                session?.eventLog?.event("meeting.input_restore_finished", [
+                    "elapsed_ms": .int(HostClock.ms(requestedAt, to: HostClock.now()))
+                ])
+            }
             refreshPhoneContext()
             Task {
                 await session?.stop(.user)
@@ -351,8 +358,11 @@ final class MeetingController {
             }
             if #available(macOS 26.4, *) {
                 let mt = AppleTranslationMT()
-                try? await mt.prepare(lang == .de ? .listenDeZh : .listenEnZh)
                 engines.apple = mt
+                let direction: MTSession = lang == .de ? .listenDeZh : .listenEnZh
+                // Independent preparation overlaps ASR.open; the pipeline still awaits both
+                // before reporting ready, and permission checks remain ahead of either one.
+                engines.prepareTranslation = { try? await mt.prepare(direction) }
             }
             return engines
         }
@@ -367,6 +377,7 @@ final class MeetingController {
     private var lastStartSucceeded = false
 
     func start(mode: MeetingMode = .meeting, choice: String? = nil, askForChoice: Bool = true) async {
+        let requestedAt = HostClock.now()
         lastStartSucceeded = false
         guard !state.meetingActive, !state.meetingStarting else { return }
         guard canStartMeeting() else {
@@ -480,7 +491,7 @@ final class MeetingController {
             captionsWarmup = Task { _ = try? await engine.start() }
         }
         let lang = state.remoteLanguage.lang
-        let result = await s.start(lang: lang, choice: selectedSource, preferred: nil)
+        let result = await s.start(lang: lang, choice: selectedSource, preferred: nil, requestedAt: requestedAt)
         guard session === s else { return }
         if case .started = result { } else {
             if mode == .captions { releaseCaptionsEngine() }
