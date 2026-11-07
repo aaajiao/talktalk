@@ -4,7 +4,7 @@
 
 /// The preview renders the live window's components at their real logical size and scales
 /// the whole window into the settings column, so breakpoints, compaction and font formulas
-/// behave exactly as in a 760×480 meeting/phone window or a 960×150 video window.
+/// behave exactly as in a 760×480 meeting/phone window or the default 960×184 video window.
 public struct SubtitlePreviewLayout: Sendable, Equatable {
     /// Backdrop visible around the window on every side.
     public static let margin: Double = 16
@@ -22,20 +22,22 @@ public struct SubtitlePreviewLayout: Sendable, Equatable {
     /// Canvas points per logical window point (≤ 1 in the settings window).
     public let scale: Double
 
-    /// Locked aspect: 760:480 (meeting, phone) and 960:150 (video), titlebar included. Video
-    /// uses a full-size content view, so its hover bar lies over the caption area.
+    /// Locked aspect: 760:480 (meeting, phone) and 960:184 (video), titlebar included. Video
+    /// reserves its control strip and gap inside the full-size view without moving captions
+    /// when the pointer reveals or hides the strip.
     public static func logicalSize(for scene: SubtitleScene) -> (width: Double, height: Double) {
         scene == .video
             ? (VideoCaptionLayout.defaultContentWidth, VideoCaptionLayout.defaultContentHeight)
             : (760, 480)
     }
 
-    /// 32 pt titlebar; the video hover bar is 28 pt and drawn in its shown state.
+    /// 32 pt titlebar; the video hover bar is 28 pt. All previews reveal these on hover.
     public static func titlebarHeight(for scene: SubtitleScene) -> Double {
         scene == .video ? SubtitleTokens.Size.videoHoverBarHeight : SubtitleTokens.Size.titlebarHeight
     }
 
-    /// Logical reading area: below the titlebar for meeting/phone, the whole window for video.
+    /// Logical content view: below the titlebar for meeting/phone, the whole window for video.
+    /// The video caption view itself reserves the control strip and its gap.
     public static func contentHeight(for scene: SubtitleScene) -> Double {
         let size = logicalSize(for: scene)
         return scene == .video ? size.height : size.height - titlebarHeight(for: scene)

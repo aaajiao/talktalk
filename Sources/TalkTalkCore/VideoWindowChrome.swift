@@ -4,8 +4,8 @@ import Foundation
 // Video window chrome and quiet dimming (redesign §6 窗口 / 鼠标穿透, §1 长静默变暗). Pure
 // timing and mapping; SubtitlePanel applies the results to AppKit. Times are monotonic seconds.
 
-/// The hover-only 28 pt bar of the video window. It fades in over 200 ms while the pointer is
-/// over the window and fades out 1.5 s after it leaves. A menu or popover opened from the
+/// Shared hover timing for the subtitle windows. It fades in over 200 ms while the pointer is
+/// over the reading area or its controls and fades out 350 ms after it leaves. A menu or popover opened from the
 /// window holds a bar that is already shown. A locked (mouse-through) window never shows it.
 public struct VideoHoverBar: Sendable, Equatable {
     public private(set) var pointerInside = false

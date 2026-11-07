@@ -348,6 +348,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showFront() {
         #if TALKTALK_DEV
         if isSmoke, CommandLine.arguments.contains("--preview") {
+            guard hud.model.meetingActive else { return }
+            if conversationPanel.canRestoreWindow { conversationPanel.restoreWindow() }
             conversationPanel.markPreviewForSmoke()
             return
         }
@@ -384,7 +386,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// `--smoke-ui` (dev build): opens settings on 我的声音, reports what is on screen, quits after
-    /// 1.5 s. Never opens the microphone (no take is started), so it needs no TCC grant.
+    /// 1.5 s. `--preview` keeps a UI-only fixture open; `--preview-scene` chooses a scene and
+    /// `--preview-speaking` keeps my live text visible. No audio or system-input owner is started.
     private func runSmoke() {
         settings?.show(.voice)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [self] in
@@ -456,20 +459,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 combined["audio_status_remains"] = hud.isVisible && !hud.shownLines.isEmpty
                 r["conversation_panel"] = combined
                 if CommandLine.arguments.contains("--preview") {
-                    // UI-only fixture: keep its reading clock fixed for manual drag/details
-                    // checks. No audio owners exist in the smoke launch path.
-                    let previewTime = hud.clock()
-                    hud.clock = { previewTime }
-                    hud.pushToTalk(.idle)
-                    hud.meetingAudio(.unavailable(reason: "会议仍在使用实体麦"))
-                    hud.post(.remoteHearsYourVoice)
-                    hud.setSubtitlesVisible(true)
-                    hud.renderForSmoke()
-                    panel.setVisible(true)
+                    let scene = argumentValue("--preview-scene").flatMap { SubtitlePanel.Presentation(rawValue: $0) }
+                    let speaking = CommandLine.arguments.contains("--preview-speaking")
+                    configureSmokePreview(panel, scene: scene, speaking: speaking)
                     panel.markPreviewForSmoke()
                     window?.orderOut(nil)
                     NSApp.setActivationPolicy(.accessory)
                     r["preview"] = true
+                    r["preview_scene"] = panel.presentation.rawValue
+                    r["preview_speaking"] = speaking
+                    r["preview_fixture"] = scene == nil && !speaking ? "original-risk" : "static-scene"
                     r["preview_window_visible"] = panel.isWindowVisible
                     r["settings_visible"] = false
                     writeResult(r, to: smokeOut)
@@ -487,6 +486,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             smokeOnboarding(into: r)
         }
     }
+
+    #if TALKTALK_DEV
+    /// Feed only the presentation models. In particular, no MeetingController start/toggle,
+    /// Phone opener, microphone capture, output device or default-input write is involved.
+    private func configureSmokePreview(_ panel: SubtitlePanel, scene requested: SubtitlePanel.Presentation?, speaking: Bool) {
+        let previewTime = hud.clock()
+        hud.clock = { previewTime }
+        panel.openPhone = {} // Show the real Phone control without launching another app.
+        hud.onEndSession = { [weak hud, weak panel] in
+            panel?.endSession()
+            hud?.meetingEnded()
+        }
+        // Keep the established risk/details fixture when no scene or speaking sample is asked for.
+        guard requested != nil || speaking else {
+            hud.pushToTalk(.idle)
+            hud.meetingAudio(.unavailable(reason: "会议仍在使用实体麦"))
+            hud.post(.remoteHearsYourVoice)
+            hud.setSubtitlesVisible(true)
+            hud.renderForSmoke()
+            panel.setVisible(true)
+            return
+        }
+
+        let scene = requested ?? .meeting
+        hud.meetingEnded()
+        panel.clear(includingMyTurns: true)
+        panel.setPresentation(scene)
+        panel.setSourceName(scene == .video ? "Safari" : scene == .phone ? "Phone" : "Google Meet")
+        panel.setRemoteLanguageTitle("英语")
+        panel.setPhoneContext(scene == .phone ? "界面预览（无音频）" : nil)
+        panel.setPhoneActionsEnabled(true)
+        panel.setClickThroughLocked(false)
+        panel.setVideoQuietDimEnabled(false)
+        // This is a simulated input fact only; the smoke path has no SystemInputController.
+        hud.phoneInputIsConfirmed = { scene == .phone }
+        hud.meetingStarted()
+        hud.setPushToTalkAvailable(scene != .video)
+        hud.meetingAudio(scene == .video ? nil : speaking ? .translating : .original)
+        hud.pushToTalk(speaking ? .holding(level: 0.4, preview: "", committed: [], queued: 0) : .idle)
+        if speaking {
+            hud.transcript(.init(press: 2, source: "我们可以先确认时间，再讨论展览的具体安排。",
+                                 target: "Let's confirm the time first, then discuss the exhibition arrangements.", isFinal: false))
+        }
+        let source = scene == .video
+            ? "Tomorrow we will explore how artists use sound and moving images to shape a shared space."
+            : "We can review the exhibition schedule together and confirm the details tomorrow."
+        let translation = scene == .video
+            ? "明天我们将探讨艺术家如何用声音与影像，构建一个共同的空间。"
+            : "我们可以一起查看展览日程，明天再确认具体安排。"
+        panel.apply(.final(sentence: 1, text: translation, source: source, approx: false, numberWarning: false))
+        hud.setSubtitlesVisible(true)
+        hud.renderForSmoke()
+        panel.setVisible(true)
+    }
+    #endif
 
     /// app-ui's onboarding on a throwaway defaults suite (the user's own progress is untouched):
     /// step 1 is passed with the dev facts *before* the window opens, so its automatic afplay

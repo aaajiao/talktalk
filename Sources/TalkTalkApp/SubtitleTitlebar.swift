@@ -104,7 +104,7 @@ final class SubtitleTitlebarView: NSView {
         let spacing = SubtitleTokens.Size.controlSpacing
         var total = widths.reduce(0, +) + CGFloat(max(0, widths.count - 1)) * spacing
         if content.showsEnd {
-            let endWidth = EndTextButton.width(title: content.scene.endTitle, showsText: compaction.showsEndText)
+            let endWidth = EndTextButton.width
             total += (widths.isEmpty ? 0 : SubtitleTokens.Size.endDividerGap * 2 + 1) + endWidth
         }
         return ceil(total + (content.hasTrailingItems ? trailingInset : 0))
@@ -144,8 +144,7 @@ final class SubtitleTitlebarView: NSView {
         more.apply(display: nextDisplay)
         end.isHidden = !next.showsEnd
         end.isEnabled = next.endEnabled
-        end.apply(scene: next.scene, showsText: nextCompaction.showsEndText, inputSwitched: next.endInputSwitched,
-                  display: nextDisplay)
+        end.apply(scene: next.scene, inputSwitched: next.endInputSwitched, display: nextDisplay)
         divider.layer?.backgroundColor = SubtitleStyle.color(.divider, display: nextDisplay).cgColor
         relayout()
     }
@@ -232,7 +231,7 @@ final class SubtitleTitlebarView: NSView {
                 divider.frame = NSRect(x: x, y: (height - 14) / 2, width: 1, height: 14)
                 x += 1 + SubtitleTokens.Size.endDividerGap
             }
-            let width = EndTextButton.width(title: content.scene.endTitle, showsText: compaction.showsEndText)
+            let width = EndTextButton.width
             end.frame = NSRect(x: x, y: y, width: width, height: control)
             x += width
         }
@@ -438,8 +437,8 @@ final class CloudPrivacyView: TitlebarControl {
         dot.cornerRadius = SubtitleTokens.Size.cloudDotSize / 2
         layer?.addSublayer(dot)
         setAccessibilityLabel(String(localized: "云端翻译已开启"))
-        setAccessibilityHelp(String(localized: "会议文字会发送给 OpenAI。"))
-        toolTip = String(localized: "云端翻译已开启：会议文字会发送给 OpenAI。")
+        setAccessibilityHelp(String(localized: "待翻译的文字会发送给 OpenAI。"))
+        toolTip = String(localized: "云端翻译已开启：待翻译的文字会发送给 OpenAI。")
     }
 
     required init?(coder: NSCoder) { nil }
@@ -459,41 +458,29 @@ final class CloudPrivacyView: TitlebarControl {
     }
 }
 
-/// "结束同传" / "结束": 11 pt text, white 70%, #FF453A on hover; `stop.circle` when narrow.
-/// The label and tooltip name the scene's session, and help says what does not end.
+/// The shared end-session `stop.circle`: white 70%, #FF453A on hover, at every window width.
+/// The accessibility label and tooltip name the full scene and explain the consequence.
 @MainActor
 final class EndTextButton: TitlebarControl {
-    private let label = NSTextField(labelWithString: "")
+    static let width: CGFloat = 22
     private let icon = NSImageView()
-    private var showsText = true
     private var display = SubtitleStyle.Display.current
 
     override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
-        label.font = SubtitleStyle.controlFont(ControlTypography.endButton, weight: .medium)
         icon.imageScaling = .scaleNone
         icon.image = SubtitleStyle.symbol(SubtitleTokens.VoiceIcon.end, size: SubtitleTokens.Size.iconOnlySymbol,
                                           weight: .medium)
-        for view in [label, icon] as [NSView] { view.setAccessibilityElement(false); addSubview(view) }
+        icon.setAccessibilityElement(false)
+        addSubview(icon)
         hoverChanged()
     }
 
     required init?(coder: NSCoder) { nil }
 
-    static func width(title: String, showsText: Bool) -> CGFloat {
-        guard showsText else { return 22 }
-        let text = (title as NSString).size(withAttributes: [
-            .font: SubtitleStyle.controlFont(ControlTypography.endButton, weight: .medium)]).width
-        return ceil(text) + 4
-    }
-
-    func apply(scene: SubtitleScene, showsText nextShowsText: Bool, inputSwitched: Bool,
+    func apply(scene: SubtitleScene, inputSwitched: Bool,
                display nextDisplay: SubtitleStyle.Display = .current) {
-        showsText = nextShowsText
         display = nextDisplay
-        label.stringValue = scene.endTitle
-        label.isHidden = !nextShowsText
-        icon.isHidden = nextShowsText
         setAccessibilityLabel(scene.endAccessibilityLabel)
         // 结束 ends at once: its help and tooltip carry the consequence (redesign §3).
         let help = scene.endHelp(systemInputSwitched: inputSwitched)
@@ -506,14 +493,11 @@ final class EndTextButton: TitlebarControl {
     override func hoverChanged() {
         let color = (isHovered || isPressed) && isEnabled
             ? SubtitleStyle.color(.riskStroke, display: display) : SubtitleStyle.color(.controlSecondary, display: display)
-        label.textColor = color
         icon.contentTintColor = color
     }
 
     override func layout() {
         super.layout()
-        let labelHeight = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: 2, y: (bounds.height - labelHeight) / 2, width: max(0, bounds.width - 4), height: labelHeight)
         icon.frame = NSRect(x: (bounds.width - 16) / 2, y: (bounds.height - 16) / 2, width: 16, height: 16)
     }
 }

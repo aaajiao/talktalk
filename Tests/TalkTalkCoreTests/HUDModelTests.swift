@@ -28,7 +28,7 @@ import Testing
         let recording = HUDModel.MeetingAudio.translating.phonePresentation(inputConfirmed: true)
         let draining = HUDModel.MeetingAudio.draining.phonePresentation(inputConfirmed: true)
         #expect(recording.tone == .translation && draining.tone == .progress)
-        #expect(recording.action.contains("结束发言"))
+        #expect(recording.action.contains("完成发言"))
         #expect(draining.action.contains("继续翻译"))
         #expect(recording.detail.contains("原声已关闭"))
         #expect(draining.detail.contains("原声保持关闭"))
@@ -408,6 +408,8 @@ import Testing
         model.meetingAudio = .phoneReady
         #expect(model.voiceState?.kind == .phoneNotConnected && model.voiceState?.appearance == .dashed)
         #expect(model.voiceState?.title == "未接入 Phone")
+        #expect(model.voiceState?.consequence == "Phone 尚未接收音频")
+        #expect(model.voiceState?.shortConsequence == "Phone 尚未接收音频")
         #expect(model.titlebarKey?.action == "本机试说")
         model.meetingAudio = .original
         #expect(model.voiceState?.kind == .phoneLocalTrial && model.voiceState?.title == "本机试说")
@@ -417,6 +419,8 @@ import Testing
         #expect(model.voiceState?.consequence.contains("送入 Phone") == true)
         model.meetingAudio = .draining; model.outputPlaying = true
         #expect(model.voiceState?.kind == .playingTranslation)
+        #expect(model.voiceState?.shortConsequence == "译音正在送入 Phone")
+        #expect(model.voiceState?.announcement == "译音正在送入 Phone")
         #expect(!model.issueChips(now: 0).contains { $0.label == "Phone 未接收" })
         model.phoneInputConfirmed = false
         let local = try #require(model.voiceState)
@@ -456,7 +460,7 @@ import Testing
         #expect(model.titlebarKey?.action == "开始翻译")
         model.pushToTalk = .holding(level: 0.2, preview: "草稿", committed: [], queued: 0)
         #expect(model.voiceState?.kind == .translating)
-        #expect(model.titlebarKey == TitlebarKey(action: "结束", symbol: "stop.fill", style: .translating))
+        #expect(model.titlebarKey == TitlebarKey(action: "完成发言", style: .translating))
         model.pushToTalk = .playing(lang: .en, voice: .system, source: .openAI, queued: 3)
         // No raw gate: playback is local only and never claims the other side hears it.
         let local = try #require(model.voiceState)
@@ -630,8 +634,8 @@ import Testing
         #expect(model.issueSlot(now: 1) == nil)
     }
 
-    /// Video has neither people nor a meeting: its silence chips name the app's sound.
-    @Test func videoSilenceChipsTalkAboutTheAppNotTheMeeting() throws {
+    /// Silence chips name each scene's sound without inferring a disconnected phone call.
+    @Test func silenceChipsMatchTheScene() throws {
         var model = HUDModel()
         model.meetingStarted(); model.scene = .video
         model.post(.meetingSilent, now: 0)
@@ -646,6 +650,10 @@ import Testing
         // Meeting keeps its own wording.
         model.scene = .meeting
         #expect(model.issueSlot(now: 0)?.chip?.label == "会议似乎已结束")
+        model.scene = .phone
+        let phone = try #require(model.issueSlot(now: 0)?.chip)
+        #expect(phone.label == "长时间无通话音频" && phone.symbol == "waveform.slash" && phone.tone == .info)
+        #expect(phone.detail == "Phone 已长时间没有通话音频，即将结束电话同传。")
     }
 
     /// The empty meeting timeline already says "暂未听到对方声音": the gray chip yields to the

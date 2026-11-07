@@ -10,7 +10,7 @@ import Testing
         #expect(meeting.canvasHeight == (608 * 480 / 760 + 32).rounded(.up))
         #expect(meeting.scale == 608.0 / 760.0)
         let video = SubtitlePreviewLayout(scene: .video, canvasWidth: 640)
-        #expect(abs(video.windowWidth / video.windowHeight - 960.0 / 150.0) < 1e-9)
+        #expect(abs(video.windowWidth / video.windowHeight - 960.0 / 184.0) < 1e-9)
         #expect(SubtitlePreviewLayout(scene: .phone, canvasWidth: 640) == SubtitlePreviewLayout(scene: .phone, canvasWidth: 640))
         // No proposal or a nonsense width falls back to a usable size.
         #expect(SubtitlePreviewLayout(scene: .meeting, canvasWidth: .nan).canvasWidth == SubtitlePreviewLayout.fallbackWidth)
@@ -19,12 +19,12 @@ import Testing
 
     @Test func logicalWindowAndTitlebarMatchTheLiveScenes() {
         #expect(SubtitlePreviewLayout.logicalSize(for: .meeting) == (760, 480))
-        #expect(SubtitlePreviewLayout.logicalSize(for: .video) == (960, 150))
+        #expect(SubtitlePreviewLayout.logicalSize(for: .video) == (960, 184))
         #expect(SubtitlePreviewLayout.titlebarHeight(for: .phone) == 32)
         #expect(SubtitlePreviewLayout.titlebarHeight(for: .video) == 28)
-        // Video draws its hover bar over the full-size content; meeting/phone sit below it.
+        // Video reserves its hover bar inside the full-size content; meeting/phone sit below it.
         #expect(SubtitlePreviewLayout.contentHeight(for: .meeting) == 448)
-        #expect(SubtitlePreviewLayout.contentHeight(for: .video) == 150)
+        #expect(SubtitlePreviewLayout.contentHeight(for: .video) == 184)
     }
 
     @Test func opacitySliderIsGreyedForStrokeAndUnderReduceTransparency() {

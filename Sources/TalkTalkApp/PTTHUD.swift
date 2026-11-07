@@ -415,7 +415,8 @@ final class PTTHUD {
     /// is expanded. The keycap is the titlebar's alone.
     private func dockContent(voice: VoiceState?, key: TitlebarKey?, expanded: Bool) -> MicStatusDock.Content? {
         guard let voice else { return nil }
-        let presentation = MicDockPresentation.make(voice, scene: panel.scene)
+        let presentation = MicDockPresentation.make(voice, scene: panel.scene,
+                                                    audio: model.meetingAudio, playing: model.outputPlaying)
         let live = track.flatMap { $0.committed == nil ? $0.turn : nil }
         // The start hint teaches the key once: it goes for good after the first own turn.
         let hint = presentation.allowsStartHint && key != nil && !Self.startHintDone
@@ -578,6 +579,7 @@ final class PTTHUD {
         let focusedControl = (detailsPopover.contentViewController?.view.window?.firstResponder as? NSButton)?.identifier
         popoverActions.removeAll()
         let document = HUDDetailsView()
+        document.onDismiss = { [weak self] in self?.detailsPopover.close() }
         let detailWidth = SubtitleTokens.Size.detailsPopoverWidth
         var y: CGFloat = 14
         @discardableResult
@@ -622,19 +624,6 @@ final class PTTHUD {
             document.addSubview(button)
             y += 32
         }
-        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)!,
-                             target: nil, action: nil)
-        close.isBordered = false
-        close.identifier = NSUserInterfaceItemIdentifier("close-status-details")
-        close.setAccessibilityLabel(String(localized: "关闭详情"))
-        close.toolTip = String(localized: "关闭详情")
-        close.keyEquivalent = "\u{1b}"
-        let closeAction = HUDButtonAction { [weak self] in self?.detailsPopover.close() }
-        popoverActions.append(closeAction)
-        close.target = closeAction; close.action = #selector(HUDButtonAction.run)
-        close.frame = NSRect(x: detailWidth - 36, y: 10, width: 24, height: 24)
-        document.addSubview(close)
-
         // Top row: a 24 pt capsule and its consequence in one sentence.
         if let voice = model.voiceState {
             let capsule = VoiceCapsuleView(large: true)
@@ -672,7 +661,10 @@ final class PTTHUD {
             // The row above says how to start; an idle key adds only how it ends.
             let idleKinds: [VoiceState.Kind] = [.original, .notSent, .phoneNotConnected]
             if key.style == .idle, let kind = model.voiceState?.kind, idleKinds.contains(kind) {
-                text(String(localized: "再点按一次结束；译音播完后回到原声。"),
+                let completion = kind == .original
+                    ? String(localized: "再点按一次完成发言；译音播完后回到原声。")
+                    : String(localized: "再点按一次完成发言。")
+                text(completion,
                      font: .systemFont(ofSize: ControlTypography.popoverSecondary), color: SubtitleStyle.white(0.6))
             }
         }
@@ -689,7 +681,7 @@ final class PTTHUD {
                  color: SubtitleStyle.white(0.6))
         }
         if let reminder = cloudReminder {
-            text(String(localized: "云端翻译已开启：会议文字会发送给 OpenAI。"),
+            text(String(localized: "云端翻译已开启：待翻译的文字会发送给 OpenAI。"),
                  font: .systemFont(ofSize: ControlTypography.popoverBody),
                  symbol: SubtitleTokens.VoiceIcon.cloud, symbolColor: SubtitleStyle.color(.voiceTranslate))
             button(String(localized: "本场只用 Apple 翻译听到的话")) { [weak self] in
@@ -767,5 +759,19 @@ private final class HUDButtonAction: NSObject {
 }
 
 private final class HUDDetailsView: NSView {
+    var onDismiss: (() -> Void)?
     override var isFlipped: Bool { true }
+
+    override func cancelOperation(_ sender: Any?) { onDismiss?() }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Keep Escape available even when the popover has no action buttons. Do not make
+        // its nonactivating parent key or monitor keys belonging to another application.
+        if event.keyCode == 53,
+           event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty {
+            onDismiss?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }

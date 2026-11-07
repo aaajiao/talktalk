@@ -10,8 +10,8 @@ import TalkTalkSettingsUI
 /// view with fixed examples, at the real logical window size, scaled into the settings column.
 /// Numbered hotspots on the titlebar's capsule, 右⌥ keycap and end button (phone adds a glyph
 /// dot on its Phone button; video, a pointer on the hover bar's corner) say what those do in
-/// their tooltip and VoiceOver label, in place of a caption. It never starts audio, a session or an animation timer, and it takes no
-/// clicks.
+/// their tooltip and VoiceOver label, in place of a caption. Moving over the picture reveals
+/// the same controls as the live window. It never starts audio or a session, and takes no clicks.
 struct SubtitleLayoutPreview: NSViewRepresentable {
     struct Configuration: Equatable {
         var scene: SubtitleScene
@@ -42,7 +42,7 @@ struct SubtitleLayoutPreview: NSViewRepresentable {
 }
 
 /// Backdrop, then a rounded window with a shadow. Inside it, `root` has logical bounds
-/// (760×480 or 960×150) so every component lays out exactly as in the live window.
+/// (760×480 or the default video size) so every component lays out as in the live window.
 @MainActor
 final class SubtitlePreviewCanvas: NSView {
     private let backdrop = SubtitlePreviewBackdropView()
@@ -53,7 +53,7 @@ final class SubtitlePreviewCanvas: NSView {
     private let opaqueBackground = NSView()
     private let titlebarTint = NSView()
     private let titlebarSeparator = NSView()
-    private let hoverStrip = NSVisualEffectView()
+    private let hoverStrip = NSView()
     private let lights = PreviewTrafficLightsView()
     private let titleView = SubtitleTitleView()
     private let titlebar = SubtitleTitlebarView()
@@ -72,14 +72,21 @@ final class SubtitlePreviewCanvas: NSView {
     }
     private var configuration: SubtitleLayoutPreview.Configuration?
     private var laidOut: (configuration: SubtitleLayoutPreview.Configuration, size: NSSize)?
+    private var hoverArea: NSTrackingArea?
+    private var hoverBar = VideoHoverBar()
+    private var hoverTimer: Timer?
+    private var voiceOverObservation: NSKeyValueObservation?
 
     override var isFlipped: Bool { true }
-    // A picture of the window: clicks, hover and drags go nowhere. Only the hotspots take the
-    // pointer, for their tooltips.
+    // Keep the picture in hit testing so the hosting view can route pointer movement here.
+    // Child controls remain inert: only the explanatory hotspots may become the hit view.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        return hotspots.first { !$0.isHidden && $0.frame.contains(local) }
+        guard !isHidden, bounds.contains(local) else { return nil }
+        return hotspots.first { !$0.isHidden && $0.frame.contains(local) } ?? self
     }
+
+    override func mouseDown(with event: NSEvent) {}
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -102,15 +109,14 @@ final class SubtitlePreviewCanvas: NSView {
         // The subtitle window is always darkAqua (§2).
         root.appearance = NSAppearance(named: .darkAqua)
         windowClip.addSubview(root)
-        for effect in [glass, hoverStrip] {
-            effect.material = .hudWindow
-            // The settings window has nothing of ours behind it: blur the in-window backdrop.
-            effect.blendingMode = .withinWindow
-            effect.state = .active
-        }
+        glass.material = .hudWindow
+        // The settings window has nothing of ours behind it: blur the in-window backdrop.
+        glass.blendingMode = .withinWindow
+        glass.state = .active
         opaqueBackground.wantsLayer = true
         titlebarTint.wantsLayer = true
-        titlebarTint.layer?.backgroundColor = SubtitleStyle.white(0.04).cgColor
+        hoverStrip.wantsLayer = true
+        hoverStrip.layer?.cornerRadius = CGFloat(SubtitleTokens.Radius.window)
         titlebarSeparator.wantsLayer = true
         videoCaption.glassBlendingMode = .withinWindow
         dock.setAccessibilityElement(false)
@@ -126,9 +132,15 @@ final class SubtitlePreviewCanvas: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(String(localized: "字幕窗口布局预览"))
+        setAccessibilityHelp(String(localized: "鼠标悬停时显示控制条，移开后字幕位置不变。"))
+        voiceOverObservation = NSWorkspace.shared.observe(\.isVoiceOverEnabled, options: [.new]) { @Sendable [weak self] _, _ in
+            Task { @MainActor in self?.updatePreviewChrome() }
+        }
     }
 
     required init?(coder: NSCoder) { nil }
+
+    isolated deinit { hoverTimer?.invalidate() }
 
     // The sample rows are not content: VoiceOver reads the preview's name and its hotspots.
     override func accessibilityChildren() -> [Any]? { hotspots.filter { !$0.isHidden } }
@@ -159,7 +171,90 @@ final class SubtitlePreviewCanvas: NSView {
         root.frame = windowClip.bounds
         root.bounds = NSRect(x: 0, y: 0, width: logical.width, height: logical.height)
         if configuration.scene == .video { layoutVideo(configuration) } else { layoutConversation(configuration) }
-        layoutHotspots(configuration.scene)
+        updateTrackingAreas()
+        updatePreviewChrome()
+    }
+
+    // MARK: hover preview
+
+    /// Includes the small explanatory badges above the window, so reaching a tooltip does
+    /// not count as leaving the preview and immediately hide its target.
+    private var hoverBounds: NSRect { shadowHost.frame.insetBy(dx: -8, dy: -8).intersection(bounds) }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(rect: hoverBounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverArea = area
+        if let window {
+            let point = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+            let inside = hoverBounds.contains(point)
+            if inside != hoverBar.pointerInside {
+                // Keep sampled state and visibility together: a rebuilt tracking area can
+                // contain the pointer already, so no new mouseEntered is guaranteed.
+                hoverBar.pointer(inside: inside, at: ProcessInfo.processInfo.systemUptime)
+                updatePreviewChrome()
+            }
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+        hoverBar.windowHidden()
+        updateTrackingAreas()
+        updatePreviewChrome()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard event.trackingArea === hoverArea else { super.mouseEntered(with: event); return }
+        hoverBar.pointer(inside: true, at: ProcessInfo.processInfo.systemUptime)
+        updatePreviewChrome()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard event.trackingArea === hoverArea else { super.mouseExited(with: event); return }
+        hoverBar.pointer(inside: false, at: ProcessInfo.processInfo.systemUptime)
+        updatePreviewChrome()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        // A representable can be laid out underneath a stationary pointer without receiving
+        // mouseEntered. Resampling on movement repairs that boundary without rebuilding the
+        // preview or restarting the hide timer for every event.
+        let inside = hoverBounds.contains(convert(event.locationInWindow, from: nil))
+        guard inside != hoverBar.pointerInside else { return }
+        hoverBar.pointer(inside: inside, at: ProcessInfo.processInfo.systemUptime)
+        updatePreviewChrome()
+    }
+
+    private func updatePreviewChrome() {
+        hoverTimer?.invalidate(); hoverTimer = nil
+        guard let configuration else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        hoverBar.setPinned(NSWorkspace.shared.isVoiceOverEnabled)
+        let shown = hoverBar.isShown(at: now)
+        let video = configuration.scene == .video
+        for view in [lights, titleView, titlebar] as [NSView] { view.isHidden = !shown }
+        titlebarTint.isHidden = !shown || video
+        titlebarSeparator.isHidden = !shown || video
+        hoverStrip.isHidden = !shown || !video
+        dock.setStatusVisible(shown)
+        if shown, !video {
+            // setStatusVisible restores the meter's visibility before the fixed sample level.
+            // Hidden meters discard input, so re-entering the preview needs this refresh.
+            dock.setPreviewLevel(0.04)
+        }
+        layoutHotspots(configuration.scene, shown: shown)
+        if let deadline = hoverBar.hideDeadline(at: now), window != nil {
+            let timer = Timer(timeInterval: max(0.01, deadline - now), repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updatePreviewChrome() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            hoverTimer = timer
+        }
     }
 
     // MARK: hotspots
@@ -167,7 +262,7 @@ final class SubtitlePreviewCanvas: NSView {
     /// Every dot sits on its control's top-right corner, like a badge: the numbered ones on the
     /// titlebar's capsule, keycap and end button, phone's glyph dot on the Phone button, and the
     /// video's pointer on the hover bar (clear of the canvas edge and of the bar's controls).
-    private func layoutHotspots(_ scene: SubtitleScene) {
+    private func layoutHotspots(_ scene: SubtitleScene, shown: Bool) {
         let diameter = PreviewHotspotView.diameter
         /// `spoken` names the subject for VoiceOver where the tooltip leaves it to the picture.
         func place(_ hotspot: PreviewHotspotView, on control: NSView, help: String, spoken: String? = nil) {
@@ -178,12 +273,13 @@ final class SubtitlePreviewCanvas: NSView {
             hotspot.isHidden = false
         }
         for hotspot in hotspots { hotspot.isHidden = true }
+        guard shown else { return }
         if scene == .video {
             place(hoverHotspot, on: hoverStrip, help: String(localized: "悬停时显示"),
                   spoken: String(localized: "标题栏：鼠标悬停时显示"))
             return
         }
-        let helps = [String(localized: "发声状态：点开看说明"), String(localized: "右⌥：开始或结束翻译"),
+        let helps = [String(localized: "发声状态：点开看说明"), String(localized: "右⌥：开始翻译或完成发言"),
                      scene == .phone ? String(localized: "结束同传，不挂断电话") : String(localized: "结束同传")]
         for (index, control) in ([titlebar.capsule, titlebar.keycap, titlebar.end] as [NSView]).enumerated()
         where !control.isHidden {
@@ -200,11 +296,11 @@ final class SubtitlePreviewCanvas: NSView {
 
     // MARK: titlebar
 
-    private func layoutTitlebar(_ content: SubtitleTitlebarContent, height: CGFloat, trailingMargin: CGFloat,
+    private func layoutTitlebar(_ content: SubtitleTitlebarContent, frame: NSRect, trailingMargin: CGFloat,
                                 display: SubtitleStyle.Display) {
-        let width = root.bounds.width
+        let width = frame.width, height = frame.height
         lights.showsZoom = content.scene != .video
-        lights.frame = NSRect(x: 0, y: 0, width: SubtitleTitlebarView.leadingTitleX, height: height)
+        lights.frame = NSRect(x: frame.minX, y: frame.minY, width: SubtitleTitlebarView.leadingTitleX, height: height)
         titleView.apply(scene: content.scene, source: content.sourceTitle)
         titlebar.trailingInset = content.scene == .video ? CGFloat(VideoStatusDot.reservedTrailingWidth) : 0
         titlebar.frame = NSRect(x: 0, y: 0, width: titlebar.frame.width, height: height)
@@ -214,8 +310,9 @@ final class SubtitlePreviewCanvas: NSView {
         }
         titlebar.apply(content, compaction: compaction, display: display)
         let barWidth = titlebar.frame.width
-        titlebar.frame = NSRect(x: width - trailingMargin - barWidth, y: 0, width: barWidth, height: height)
-        titleView.frame = NSRect(x: SubtitleTitlebarView.leadingTitleX, y: 0, width: titleView.frame.width, height: height)
+        titlebar.frame = NSRect(x: frame.maxX - trailingMargin - barWidth, y: frame.minY, width: barWidth, height: height)
+        titleView.frame = NSRect(x: frame.minX + SubtitleTitlebarView.leadingTitleX, y: frame.minY,
+                                 width: titleView.frame.width, height: height)
         titleView.setWidth(min(titleView.naturalWidth,
                                max(titleView.minimumWidth, width - SubtitleTitlebarView.windowChrome - barWidth)))
     }
@@ -229,15 +326,17 @@ final class SubtitlePreviewCanvas: NSView {
         let width = root.bounds.width, height = root.bounds.height
         let titleHeight = CGFloat(SubtitlePreviewLayout.titlebarHeight(for: scene))
         let opacity = effectiveOpacity(configuration)
+        let readingRect = NSRect(x: 0, y: titleHeight, width: width, height: max(0, height - titleHeight))
         // Same rule as the live window: Reduce Transparency or 100% makes it opaque.
         let opaque = display.reduceTransparency || opacity >= 1
         glass.isHidden = opaque
         glass.alphaValue = CGFloat(opacity)
-        glass.frame = root.bounds
+        glass.frame = readingRect
         opaqueBackground.isHidden = !opaque
-        opaqueBackground.frame = root.bounds
+        opaqueBackground.frame = readingRect
         NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
             opaqueBackground.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            titlebarTint.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
             titlebarSeparator.layer?.backgroundColor = SubtitleStyle.color(.separator, display: display).cgColor
         }
         titlebarTint.isHidden = false
@@ -254,7 +353,7 @@ final class SubtitlePreviewCanvas: NSView {
         let key = TitlebarKey.make(SpeechStatusPresentation(audio: audio, phoneInputConfirmed: phone ? true : nil), voice: voice)
         layoutTitlebar(SubtitleTitlebarContent(scene: scene, source: phone ? nil : "Zoom", voice: voice, key: key,
                                                showsPhone: phone, showsEnd: true),
-                       height: titleHeight, trailingMargin: 8, display: display)
+                       frame: NSRect(x: 0, y: 0, width: width, height: titleHeight), trailingMargin: 16, display: display)
 
         let contentHeight = height - titleHeight
         let rules = ConversationLayout(contentWidth: Double(width), contentHeight: Double(contentHeight))
@@ -274,8 +373,7 @@ final class SubtitlePreviewCanvas: NSView {
         dock.frame = NSRect(x: 0, y: height - dockHeight, width: width, height: dockHeight)
         timeline.layoutSubtreeIfNeeded()
         dock.layoutSubtreeIfNeeded()
-        // A fixed example level: the preview never starts audio, and this curve never expires.
-        dock.setPreviewLevel(0.04)
+        // updatePreviewChrome supplies the fixed example level only when the status is shown.
     }
 
     private static func row(_ id: ConversationTimeline.RowID, _ speaker: ConversationTimeline.Speaker, source: String,
@@ -327,14 +425,13 @@ final class SubtitlePreviewCanvas: NSView {
         videoCaption.isHidden = false
         hoverStrip.isHidden = false
         hoverStrip.alphaValue = 1
-        hoverStrip.frame = NSRect(x: 0, y: 0, width: width, height: barHeight)
-        layoutTitlebar(SubtitleTitlebarContent(scene: .video, source: "Google Chrome",
-                                               voice: VoiceState.resolve(audio: nil, scene: .video),
-                                               showsEnd: true, showsMore: true),
-                       height: barHeight, trailingMargin: 0, display: display)
+        NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
+            hoverStrip.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
 
         let typography = VideoCaptionTypography(base: configuration.fontSize, width: Double(width))
         videoCaption.frame = root.bounds
+        videoCaption.reservedChromeHeight = barHeight + CGFloat(VideoCaptionLayout.controlBarGap)
         videoCaption.appearanceSettings = .init(
             style: configuration.videoStyle.effective(reduceTransparency: display.reduceTransparency),
             arrangement: configuration.videoArrangement, opacity: CGFloat(effectiveOpacity(configuration)),
@@ -349,6 +446,12 @@ final class SubtitlePreviewCanvas: NSView {
                                                        font: SubtitleStyle.font(typography.translation))
         videoCaption.setCaption(source: source, translation: target, sentence: 1, isFinal: false, at: 0)
         videoCaption.layoutSubtreeIfNeeded()
+        let barFrame = videoCaption.controlBarFrame(height: barHeight)
+        hoverStrip.frame = barFrame
+        layoutTitlebar(SubtitleTitlebarContent(scene: .video, source: "Google Chrome",
+                                               voice: VoiceState.resolve(audio: nil, scene: .video),
+                                               showsEnd: true, showsMore: true),
+                       frame: barFrame, trailingMargin: 0, display: display)
     }
 }
 

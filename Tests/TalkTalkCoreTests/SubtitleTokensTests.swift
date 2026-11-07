@@ -65,7 +65,7 @@ import Testing
             #expect(motion.duration(reduceMotion: false) > 0)
         }
         #expect(SubtitleTokens.Motion.noticeFadeOut.seconds == 0.3)
-        #expect(SubtitleTokens.Motion.videoTitlebarHideDelay.duration(reduceMotion: true) == 1.5)
+        #expect(SubtitleTokens.Motion.videoTitlebarHideDelay.duration(reduceMotion: true) == 0.35)
     }
 
     @Test func narrowTitlebarsYieldInTheSpecifiedOrderAndKeepTheCapsule() {
@@ -73,31 +73,30 @@ import Testing
         let measure: (TitlebarCompaction) -> Double = { 100 - Double($0.level) * 10 }
         #expect(TitlebarCompaction.choose(windowWidth: 800, reservedLeading: 200, measure: measure).level == 0)
         #expect(TitlebarCompaction.choose(windowWidth: 290, reservedLeading: 200, measure: measure).level == 1)
-        #expect(TitlebarCompaction.choose(windowWidth: 100, reservedLeading: 200, measure: measure).level == 5)
-        let steps = (0...5).map { TitlebarCompaction(level: $0, windowWidth: 800) }
-        #expect(steps.map(\.showsKeyAction) == [true, false, false, false, false, false])
-        #expect(steps.map(\.showsPhoneText) == [true, true, false, false, false, false])
-        #expect(steps.map(\.showsEndText) == [true, true, true, false, false, false])
-        #expect(steps.map(\.showsChipText) == [true, true, true, true, false, false])
-        #expect(steps.map(\.showsFullCapsule) == [true, true, true, true, true, false])
+        #expect(TitlebarCompaction.choose(windowWidth: 100, reservedLeading: 200, measure: measure).level == 4)
+        let steps = (0...4).map { TitlebarCompaction(level: $0, windowWidth: 800) }
+        #expect(steps.map(\.showsKeyAction) == [true, false, false, false, false])
+        #expect(steps.map(\.showsPhoneText) == [true, true, false, false, false])
+        #expect(steps.map(\.showsEndText) == [false, false, false, false, false])
+        #expect(steps.map(\.showsChipText) == [true, true, true, false, false])
+        #expect(steps.map(\.showsFullCapsule) == [true, true, true, true, false])
         #expect(!TitlebarCompaction(level: 0, windowWidth: 559).showsKeyAction)
     }
 
     @Test func endButtonMatchesTheScene() {
         #expect(SubtitleScene.video.endTitle == "结束" && SubtitleScene.meeting.endTitle == "结束同传")
-        // The end button's label names the session; its help (also the tooltip) names what the
-        // meeting or call receives afterwards, since 结束 ends with no confirmation.
+        // The end button names the session and only promises TalkTalk's local actions.
         #expect(SubtitleScene.meeting.endAccessibilityLabel == "结束会议同传")
         #expect(SubtitleScene.phone.endAccessibilityLabel == "结束电话同传")
         #expect(SubtitleScene.video.endAccessibilityLabel == "结束视频字幕")
         #expect(SubtitleScene.meeting.endHelp(systemInputSwitched: true)
-            == "结束会议同传：会议不会结束；系统麦克风还原后，会议会收到你的原声")
+            == "结束会议同传：不会退出会议；TalkTalk 停止收听和译音，并还原系统麦克风")
         #expect(SubtitleScene.meeting.endHelp(systemInputSwitched: false)
-            == "结束会议同传：会议不会结束；之后会议听不到你的声音")
+            == "结束会议同传：不会退出会议；TalkTalk 停止收听和译音")
         #expect(SubtitleScene.phone.endHelp(systemInputSwitched: true)
-            == "结束电话同传：通话不会挂断；系统麦克风还原后，对方会听到你的原声")
+            == "结束电话同传：通话不会挂断；TalkTalk 停止收听和译音，并还原系统麦克风")
         #expect(SubtitleScene.phone.endHelp(systemInputSwitched: false)
-            == "结束电话同传：通话不会挂断；之后对方听不到你的声音")
+            == "结束电话同传：通话不会挂断；TalkTalk 停止收听和译音")
         #expect(SubtitleScene.video.endHelp(systemInputSwitched: true) == "结束视频字幕：停止收听和翻译")
     }
 
@@ -134,11 +133,11 @@ import Testing
         #expect(S.recognition == SubtitleTokens.VoiceIcon.translating && S.audio != S.recognition)
     }
 
-    @Test func keycapShowsStartAndEndAsGlyphsButKeepsLocalTrialAndReleaseAsText() {
+    @Test func keycapDistinguishesCompletingSpeechFromEndingTheSession() {
         let start = SpeechStatusPresentation(audio: .original)
         #expect(start.keyAction == "开始翻译" && start.keySymbol == "translate")
         let end = SpeechStatusPresentation(audio: .translating)
-        #expect(end.keyAction == "结束" && end.keySymbol == "stop.fill")
+        #expect(end.keyAction == "完成发言" && end.keySymbol == nil)
         #expect(SpeechStatusPresentation(audio: .switching).keySymbol == nil)
         let trial = SpeechStatusPresentation(audio: .original, phoneInputConfirmed: false)
         #expect(trial.keyAction == "本机试说" && trial.keySymbol == nil)
@@ -165,6 +164,9 @@ import Testing
         #expect(notConnected.symbol == nil && notConnected.drawsAction && notConnected.action == "本机试说")
         let start = try key(.original)
         #expect(start.drawsAction && start.symbol == "translate")
+        // Completing a local trial must not acquire the fallback start glyph.
+        let finish = try key(.translating, confirmed: false)
+        #expect(finish.action == "完成发言" && finish.symbol == nil && finish.drawsAction)
         #expect(TitlebarKey.make(SpeechStatusPresentation(audio: .preparing),
                                  voice: VoiceState.resolve(audio: .preparing, scene: .meeting)) == nil)
     }

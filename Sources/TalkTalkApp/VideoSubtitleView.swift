@@ -43,6 +43,19 @@ final class VideoSubtitleView: NSView {
     private var fallback = false
     /// Glass, or the text blocks plus the glass padding: the only area that drags the window.
     private(set) var textBlockRect = NSRect.null
+    /// Reserved even while controls are hidden, so a two-line page never collides with them.
+    var reservedChromeHeight: CGFloat = 0 {
+        didSet { if reservedChromeHeight != oldValue { needsLayout = true } }
+    }
+    var onReadingBoundsChange: (() -> Void)?
+
+    func controlBarFrame(height: CGFloat) -> NSRect {
+        let width = CGFloat(VideoCaptionLayout.readingWidth(windowWidth: Double(bounds.width),
+            translationSize: Double(translationFont.pointSize), sourceSize: Double(sourceFont.pointSize)))
+        let top = textBlockRect.isNull ? 0
+            : CGFloat(VideoCaptionLayout.controlBarTop(readingTop: Double(textBlockRect.minY), height: Double(height)))
+        return NSRect(x: (bounds.width - width) / 2, y: top, width: width, height: height)
+    }
     /// Long-silence dimming (§1): text 35%, glass or plates at most 40%.
     private(set) var quietDimmed = false
     private var sourcePages: [Page] = []
@@ -370,7 +383,7 @@ final class VideoSubtitleView: NSView {
         let translationLine = Self.lineHeight(translationFont), sourceLine = Self.lineHeight(sourceFont)
         let needed = CGFloat(VideoCaptionLayout.glassVerticalPadding) + 2 * sourceLine
             + CGFloat(VideoCaptionLayout.blockGap) + 2 * translationLine + CGFloat(VideoCaptionLayout.bottomBaselineInset)
-        return bounds.height >= needed ? VideoCaptionLayout.maxLinesPerPage : 1
+        return bounds.height - reservedChromeHeight >= needed ? VideoCaptionLayout.maxLinesPerPage : 1
     }
 
     private func paginate(_ text: NSAttributedString, lineWidth: CGFloat, maxLines: Int) -> [Page] {
@@ -594,14 +607,23 @@ final class VideoSubtitleView: NSView {
         if showsDots { union = union.union(dots.frame) }
         let showsGlass = style == .fittedGlass && !union.isNull
         glass.isHidden = !showsGlass
-        let padded = union.isNull ? NSRect.null
+        var padded = union.isNull ? NSRect.null
             : union.insetBy(dx: -CGFloat(VideoCaptionLayout.glassHorizontalPadding),
                             dy: -CGFloat(VideoCaptionLayout.glassVerticalPadding)).integral
+        if !padded.isNull {
+            let readingWidth = CGFloat(VideoCaptionLayout.readingWidth(windowWidth: Double(bounds.width),
+                translationSize: Double(translationFont.pointSize), sourceSize: Double(sourceFont.pointSize)))
+            padded.origin.x = (bounds.width - readingWidth) / 2
+            padded.size.width = readingWidth
+        }
         if showsGlass {
             glass.frame = padded
             glass.alphaValue = glassAlpha
         }
-        textBlockRect = padded
+        if textBlockRect != padded {
+            textBlockRect = padded
+            onReadingBoundsChange?()
+        }
     }
 
     private func place(_ view: VideoCaptionTextView, top: CGFloat, lines: Int, font: NSFont) {

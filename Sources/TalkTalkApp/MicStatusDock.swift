@@ -30,6 +30,7 @@ final class MicStatusDock: NSView {
     private(set) var content: Content?
     private var style: ConversationStyle?
     private var compact = false
+    private var statusVisible = true
 
     private let fill = NSView()
     private let bar = NSView()
@@ -98,6 +99,35 @@ final class MicStatusDock: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+    /// Hover controls are independent from my live subtitles. Keep the row's space so neither
+    /// the turn nor the timeline moves. Hide immediately, including hit testing and VoiceOver;
+    /// this also respects Reduce Motion and cannot leave invisible controls during a fade.
+    func setStatusVisible(_ visible: Bool, animated _: Bool = false) {
+        guard statusVisible != visible else { return }
+        statusVisible = visible
+        updateStatusVisibility()
+        if let content, let style { applyBackground(content, display: style.display) }
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
+
+    private func updateStatusVisibility() {
+        let shown = statusVisible && content != nil
+        status.isHidden = !shown
+        status.setAccessibilityElement(shown)
+        status.toolTip = shown ? content?.presentation.toolTip : nil
+        separator.isHidden = !shown
+        let showsAction = shown && content?.presentation.action != nil
+        actionButton.isHidden = !showsAction
+        actionButton.setAccessibilityElement(showsAction)
+        actionButton.toolTip = showsAction ? content?.presentation.action?.title : nil
+        if !showsAction { actionButton.clearHover() }
+        if !shown {
+            wave.isHidden = true
+            wave.stop()
+        }
+    }
+
     func apply(_ next: Content?, style nextStyle: ConversationStyle, compact nextCompact: Bool) {
         let modeChanged = compact != nextCompact || style != nextStyle
         guard next != content || modeChanged else { return }
@@ -107,6 +137,7 @@ final class MicStatusDock: NSView {
         // The panel owns visibility: no content means no session.
         guard let next else {
             wave.stop()
+            updateStatusVisibility()
             return
         }
         if next.presentation != renderedPresentation || modeChanged { applyStatus(next.presentation, display: nextStyle.display) }
@@ -116,12 +147,13 @@ final class MicStatusDock: NSView {
             actionButton.setAction(action, tone: next.presentation.emphasis, iconOnly: !action.showsTitle(compact: nextCompact))
         }
         applyBackground(next, display: nextStyle.display)
+        updateStatusVisibility()
         needsLayout = true
     }
 
     /// One meter tick: only the curve redraws.
     func setLevel(_ level: Float?) {
-        guard content != nil, !isHidden else { wave.stop(); return }
+        guard content != nil, statusVisible, !isHidden else { wave.stop(); return }
         wave.setLevel(level)
     }
 
@@ -130,6 +162,7 @@ final class MicStatusDock: NSView {
     /// Settings preview: a fixed example level that never expires.
     func setPreviewLevel(_ level: Float) {
         wave.isPreview = true
+        guard statusVisible else { wave.stop(); return }
         wave.setLevel(level)
     }
 
@@ -153,9 +186,9 @@ final class MicStatusDock: NSView {
         consequence.stringValue = presentation.consequence ?? ""
         status.setAccessibilityLabel(presentation.accessibilityLabel)
         // The compact or narrow dock drops the consequence; hovering still shows it.
-        status.toolTip = presentation.toolTip
+        status.toolTip = statusVisible ? presentation.toolTip : nil
         wave.setStyle(presentation.wave, color: color)
-        if presentation.wave == .none { wave.stop() }
+        if presentation.wave == .none || !statusVisible { wave.stop() }
     }
 
     private func applyTurn(_ turn: ConversationTimeline.Turn?, style: ConversationStyle) {
@@ -200,10 +233,11 @@ final class MicStatusDock: NSView {
                 barColor = translate
             }
         }
+        let hasVisibleBackground = statusVisible || (content.expanded && content.turn != nil)
         fill.layer?.backgroundColor = fillColor?.cgColor
-        fill.isHidden = fillColor == nil
+        fill.isHidden = fillColor == nil || !hasVisibleBackground
         bar.layer?.backgroundColor = barColor?.cgColor
-        bar.isHidden = barColor == nil
+        bar.isHidden = barColor == nil || !hasVisibleBackground
         separator.layer?.backgroundColor = SubtitleStyle.color(.separator, display: display).cgColor
         draftBar.layer?.backgroundColor = translate.withAlphaComponent(ConversationTextRules.draftBarAlpha).cgColor
     }
@@ -219,8 +253,6 @@ final class MicStatusDock: NSView {
         let width = bounds.width, height = bounds.height
         let padding = Self.horizontalPadding
         let display = style.display
-        fill.frame = bounds
-        bar.frame = NSRect(x: 0, y: 0, width: 3, height: height)
         separator.frame = NSRect(x: 0, y: 0, width: width,
                                  height: CGFloat(SubtitleTokens.separatorWidth(increaseContrast: display.increaseContrast)))
         // The status row keeps its idle height (48, or 28 in a low window) while expanded, so it
@@ -229,6 +261,12 @@ final class MicStatusDock: NSView {
         let bottomPadding = CGFloat(SubtitleTokens.Size.panelBottomPadding)
         let expanded = content.expanded && height > idleRow + bottomPadding
         let rowHeight = min(height, idleRow)
+        // Hiding the controls also hides their tint, while the live-turn tint stays exactly
+        // behind the unchanged text area. No dock, row or turn geometry depends on hovering.
+        let backgroundTop: CGFloat = statusVisible ? 0 : rowHeight
+        let backgroundHeight = max(0, height - backgroundTop)
+        fill.frame = NSRect(x: 0, y: backgroundTop, width: width, height: backgroundHeight)
+        bar.frame = NSRect(x: 0, y: backgroundTop, width: 3, height: backgroundHeight)
 
         // Trailing control: only the fix/details button for risk / unavailable audio (an icon in
         // the compact dock). The keycap lives in the titlebar alone; the curve takes its width.
@@ -238,7 +276,7 @@ final class MicStatusDock: NSView {
             trailing = actionButton
             trailingWidth = actionButton.preferredWidth
         }
-        actionButton.isHidden = trailing !== actionButton
+        actionButton.isHidden = !statusVisible || trailing !== actionButton
         let controlHeight = CGFloat(SubtitleTokens.Size.controlHeight)
         if let trailing {
             trailing.frame = NSRect(x: width - padding - trailingWidth, y: ((rowHeight - controlHeight) / 2).rounded(),
@@ -290,7 +328,7 @@ final class MicStatusDock: NSView {
         let waveHeight = compact ? Self.compactWaveHeight : CGFloat(SubtitleTokens.Size.waveformBandHeight)
         var waveWidth = max(0, limit - x - padding)
         if compact { waveWidth = min(waveWidth, Self.compactWaveMaxWidth) }
-        wave.isHidden = waveWidth < 24 || content.presentation.wave == .none
+        wave.isHidden = !statusVisible || waveWidth < 24 || content.presentation.wave == .none
         wave.frame = NSRect(x: x + padding, y: ((rowHeight - waveHeight) / 2).rounded(), width: waveWidth, height: waveHeight)
 
         // My live turn below the status row, in the timeline's columns, newest lines kept.

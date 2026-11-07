@@ -79,7 +79,8 @@ public struct MicDockPresentation: Sendable, Equatable {
     public static var startHint: String { String(localized: "点按右⌥翻译你的发言") }
 
     // swiftlint:disable:next function_body_length cyclomatic_complexity
-    public static func make(_ voice: VoiceState, scene: SubtitleScene) -> MicDockPresentation {
+    public static func make(_ voice: VoiceState, scene: SubtitleScene,
+                            audio: HUDModel.MeetingAudio? = nil, playing: Bool = false) -> MicDockPresentation {
         let phone = scene == .phone
         var label: String
         var consequence: String?
@@ -102,7 +103,7 @@ public struct MicDockPresentation: Sendable, Equatable {
             label = String(localized: "译音处理中"); consequence = String(localized: "原声已关")
             tone = .translate; wave = .dashed
         case .playingTranslation:
-            label = phone ? String(localized: "译音已送入 Phone") : String(localized: "译音播放中")
+            label = String(localized: "译音播放中")
             consequence = String(localized: "原声已关")
             tone = .translate; wave = .dashed
         case .switching:
@@ -113,11 +114,21 @@ public struct MicDockPresentation: Sendable, Equatable {
             label = String(localized: "未发送"); consequence = String(localized: "对方听不到你"); hint = true
         case .phoneNotConnected:
             // The capsule's own words: the dock reads the same VoiceState.
-            label = String(localized: "未接入 Phone"); consequence = String(localized: "接通后对方才能听到你"); hint = true
+            label = String(localized: "未接入 Phone"); consequence = String(localized: "Phone 尚未接收音频"); hint = true
         case .phoneLocalTrial:
-            label = String(localized: "本机试说"); consequence = String(localized: "Phone 未接收"); wave = .solid
+            // The capsule keeps the local-only mode; the dock names the actual stage.
+            // A generic VoiceState alone does not prove capture or processing.
+            if audio == .draining, !playing {
+                label = String(localized: "本机译音处理中"); wave = .dashed
+            } else if audio == .original || audio == .translating {
+                label = String(localized: "本机收音中"); wave = .solid
+            } else {
+                label = String(localized: "本机试说"); wave = .solid
+            }
+            consequence = String(localized: "Phone 未接收")
         case .phoneLocalOnly:
-            label = String(localized: "译音只在本机播放"); consequence = String(localized: "Phone 没有读取 TalkTalk Mic")
+            // The adjacent issue chip and details already name Phone's missing reader.
+            label = String(localized: "本机译音播放中")
             tone = .warn; wave = .dashed
         case .localPlayback:
             label = String(localized: "译音只在本机播放"); consequence = String(localized: "没有发给任何人")

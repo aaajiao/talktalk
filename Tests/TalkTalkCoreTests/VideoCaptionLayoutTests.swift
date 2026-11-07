@@ -2,6 +2,14 @@ import Testing
 @testable import TalkTalkCore
 
 @Suite struct VideoCaptionLayoutTests {
+    @Test func controlsStayAtReadingWidthAndNeverRunAboveTheWindow() {
+        let normal = VideoCaptionLayout.readingWidth(windowWidth: 960, translationSize: 26, sourceSize: 17)
+        #expect(normal == 552)
+        #expect(VideoCaptionLayout.readingWidth(windowWidth: 1600, translationSize: 26, sourceSize: 17) == normal)
+        #expect(VideoCaptionLayout.readingWidth(windowWidth: 500, translationSize: 26, sourceSize: 17) == 484)
+        #expect(VideoCaptionLayout.controlBarTop(readingTop: 80, height: 28) == 46)
+        #expect(VideoCaptionLayout.controlBarTop(readingTop: 20, height: 28) == 0)
+    }
     @Test func blockWidthsAreFixedByFontSizeAndOnlyNarrowWindowsFollowTheWindow() {
         // 20 × Chinese size and about 46 characters of 0.52 em; a wider window adds margins only.
         #expect(VideoCaptionLayout.translationBlockWidth(windowWidth: 960, translationSize: 26) == 520)

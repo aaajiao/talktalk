@@ -31,8 +31,7 @@ public enum SubtitleScene: String, Sendable, Equatable, CaseIterable {
     /// Every scene ends at once, with no confirmation; the consequence is the button's help.
     public var endTitle: String { self == .video ? titlebarLabel("结束") : titlebarLabel("结束同传") }
 
-    /// The end button's VoiceOver label and tooltip, which also cover its narrow
-    /// `stop.circle` fallback: which session ends.
+    /// The icon-only end button's VoiceOver label and tooltip: which session ends.
     public var endAccessibilityLabel: String {
         switch self {
         case .meeting: String(localized: "结束会议同传")
@@ -42,20 +41,18 @@ public enum SubtitleScene: String, Sendable, Equatable, CaseIterable {
     }
 
     /// The end button's tooltip and VoiceOver help, also the menu item's tooltip: which session
-    /// ends and what the meeting or call receives afterwards. `systemInputSwitched`: TalkTalk
-    /// holds the system default input, so an app following it gets the physical microphone back
-    /// when the input is restored at the end. Whether the app follows it cannot be observed;
-    /// this is the approximate reading (§8.6).
+    /// ends and which local actions TalkTalk performs. Another app's input choice and what the
+    /// remote participant hears cannot be observed, so neither is promised here.
     public func endHelp(systemInputSwitched: Bool) -> String {
         switch self {
         case .meeting:
             systemInputSwitched
-                ? String(localized: "结束会议同传：会议不会结束；系统麦克风还原后，会议会收到你的原声")
-                : String(localized: "结束会议同传：会议不会结束；之后会议听不到你的声音")
+                ? String(localized: "结束会议同传：不会退出会议；TalkTalk 停止收听和译音，并还原系统麦克风")
+                : String(localized: "结束会议同传：不会退出会议；TalkTalk 停止收听和译音")
         case .phone:
             systemInputSwitched
-                ? String(localized: "结束电话同传：通话不会挂断；系统麦克风还原后，对方会听到你的原声")
-                : String(localized: "结束电话同传：通话不会挂断；之后对方听不到你的声音")
+                ? String(localized: "结束电话同传：通话不会挂断；TalkTalk 停止收听和译音，并还原系统麦克风")
+                : String(localized: "结束电话同传：通话不会挂断；TalkTalk 停止收听和译音")
         case .video: String(localized: "结束视频字幕：停止收听和翻译")
         }
     }
@@ -203,15 +200,15 @@ public struct VoiceState: Sendable, Equatable {
             title = titlebarLabel("译音"); compact = titlebarLabel("译音"); symbol = icon.playingTranslation
             appearance = .translateFill
             consequence = phone ? String(localized: "译音正在送入 Phone") : String(localized: "对方听到的是译音")
-            short = phone ? String(localized: "译音已送入 Phone") : String(localized: "对方听到译音")
-            announcement = phone ? String(localized: "译音已送入 Phone") : String(localized: "译音播放中")
+            short = phone ? String(localized: "译音正在送入 Phone") : String(localized: "对方听到译音")
+            announcement = phone ? String(localized: "译音正在送入 Phone") : String(localized: "译音播放中")
         case .switching:
             title = titlebarLabel("松开确认"); compact = titlebarLabel("译音"); symbol = icon.translating
             appearance = .translateStroke
             consequence = String(localized: "原声已关，松开右⌥确认")
             short = String(localized: "松开右⌥确认")
         case .restoring:
-            title = titlebarLabel("原声已关"); compact = titlebarLabel("本机"); symbol = icon.originalOff
+            title = titlebarLabel("原声已关"); compact = titlebarLabel("恢复中"); symbol = icon.originalOff
             appearance = .dimStroke
             consequence = String(localized: "现在什么都没有发出去")
             short = String(localized: "正在恢复原声")
@@ -225,8 +222,8 @@ public struct VoiceState: Sendable, Equatable {
         case .phoneNotConnected:
             title = titlebarLabel("未接入 Phone"); compact = titlebarLabel("本机"); symbol = icon.localOnly
             appearance = .dashed
-            consequence = String(localized: "接通后对方才能听到你")
-            short = String(localized: "接通后对方才能听到你")
+            consequence = String(localized: "Phone 尚未接收音频")
+            short = String(localized: "Phone 尚未接收音频")
             announcement = String(localized: "未接入 Phone")
         case .phoneLocalTrial:
             title = titlebarLabel("本机试说"); compact = titlebarLabel("本机"); symbol = icon.thisMac
@@ -361,7 +358,9 @@ public struct TitlebarKey: Sendable, Equatable {
         default: .idle
         }
         var symbol = presentation.keySymbol
-        if symbol == nil, voice.kind == .phoneLocalTrial { symbol = SubtitleTokens.VoiceIcon.startTranslation }
+        if symbol == nil, voice.kind == .phoneLocalTrial, action == titlebarLabel("本机试说") {
+            symbol = SubtitleTokens.VoiceIcon.startTranslation
+        }
         return TitlebarKey(action: action, symbol: symbol, drawsAction: voice.title != action, style: style)
     }
 }
@@ -378,7 +377,7 @@ public struct SubtitleTitlebarContent: Sendable, Equatable {
     public var phoneEnabled: Bool
     public var showsEnd: Bool
     public var endEnabled: Bool
-    /// TalkTalk holds the system default input: the end help names the raw-voice consequence.
+    /// TalkTalk holds the system default input: the end help names its restoration.
     public var endInputSwitched: Bool
     /// The video hover bar's "⋯" menu (§6), just before the end button.
     public var showsMore: Bool
@@ -399,10 +398,10 @@ public struct SubtitleTitlebarContent: Sendable, Equatable {
 }
 
 /// Narrow-window yield order (§3): source name truncates first (the leading title takes the
-/// remaining width), then key action text → Phone text → end text → chip text → capsule
-/// title. The capsule itself is never hidden.
+/// remaining width), then key action text → Phone text → chip text → capsule title. Ending
+/// the session is always an icon; the capsule itself is never hidden.
 public struct TitlebarCompaction: Sendable, Equatable {
-    public static let maxLevel = 5
+    public static let maxLevel = 4
     public var level: Int
     public var windowWidth: Double
 
@@ -413,9 +412,9 @@ public struct TitlebarCompaction: Sendable, Equatable {
 
     public var showsKeyAction: Bool { level < 1 && windowWidth >= SubtitleTokens.Size.keyActionMinWindowWidth }
     public var showsPhoneText: Bool { level < 2 }
-    public var showsEndText: Bool { level < 3 }
-    public var showsChipText: Bool { level < 4 }
-    public var showsFullCapsule: Bool { level < 5 }
+    public var showsEndText: Bool { false }
+    public var showsChipText: Bool { level < 3 }
+    public var showsFullCapsule: Bool { level < 4 }
 
     /// The least compact level whose trailing group fits beside `reservedLeading` (traffic
     /// lights, scene icon and the scene title without its source).

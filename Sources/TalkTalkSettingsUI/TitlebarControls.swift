@@ -238,8 +238,8 @@ public final class VoiceCapsuleView: TitlebarControl {
 
 /// 右⌥ keycap and its action (§3): keycap 20 pt high, min 30 wide, radius 5, 11 pt SF Mono,
 /// 1 pt white 30% border; translating fills voice.translate; switching shows a pressed key.
-/// Start and end show as a glyph after the key at every width (`TitlebarKey.symbol`);
-/// "松开确认" and "本机试说" stay text and yield below 560 pt.
+/// Start can show its translation glyph. "完成发言" keeps text to distinguish this turn
+/// from the separate end-session control; action text yields below 560 pt.
 @MainActor
 public final class KeycapActionView: TitlebarControl {
     private let keyBox = NSView()
@@ -332,7 +332,7 @@ public final class KeycapActionView: TitlebarControl {
         // The glyph replaces only the drawn text: VoiceOver and the tooltip keep the words.
         let spoken = next.spokenLabel
         setAccessibilityLabel(spoken)
-        setAccessibilityHelp(String(localized: "点按右侧 Option 键开始或结束翻译；点此查看按键说明。"))
+        setAccessibilityHelp(String(localized: "点按右侧 Option 键开始翻译或完成发言；点此查看按键说明。"))
         toolTip = spoken
         needsLayout = true
     }

@@ -142,7 +142,7 @@ public enum SubtitleTokens {
             case .draftToFinal: 0.15
             case .videoPageCrossfade: 0.12
             case .videoTitlebarFadeIn: 0.2
-            case .videoTitlebarHideDelay: 1.5
+            case .videoTitlebarHideDelay: 0.35
             case .chipFadeIn: 0.15
             case .noticeFadeOut: 0.3
             case .longSilenceDim: 0.3

@@ -6,6 +6,8 @@ import TalkTalkCore
 //
 //   TalkTalk                                           the menu bar app (single instance per flavor)
 //   TalkTalk --smoke-ui [--out <file>] [--preview]     dev UI check; preview stays open (no audio)
+//     --preview-scene meeting|phone|video             static scene fixture; requires --preview
+//     --preview-speaking                             live own-text fixture; meeting/phone only
 //   TalkTalk --list-audio-processes [--out <file>]     read-only Core Audio process objects (JSON)
 //   TalkTalk --bench store-key --out <file>            dev build only (§7.7); run it through
 //                                                      `open -W -n -a TalkTalk-Dev.app --args ...`
@@ -53,6 +55,17 @@ case let first? where first.hasPrefix("-psn_"):   // old LaunchServices process 
 
 case "--smoke-ui":
     #if TALKTALK_DEV
+    if arguments.contains("--preview-scene") {
+        guard arguments.contains("--preview"), let scene = argumentValue("--preview-scene"),
+              ["meeting", "phone", "video"].contains(scene) else {
+            fail("--preview-scene requires --preview and one of: meeting, phone, video")
+        }
+    }
+    if arguments.contains("--preview-speaking") {
+        guard arguments.contains("--preview"), argumentValue("--preview-scene") != "video" else {
+            fail("--preview-speaking requires --preview with a meeting or phone scene")
+        }
+    }
     AppDelegate.run(smoke: true, smokeOut: argumentValue("--out"))
     #else
     fail("--smoke-ui exists only in the dev build (TalkTalk-Dev.app)")
@@ -123,5 +136,5 @@ case "--sysinput-guard":   // m2 sysinput: §8.6 layer 2; no NSApplication, no s
     SysInputGuardMain.run(Array(arguments.dropFirst()))
 
 default:
-    fail("usage: TalkTalk | --smoke-ui [--out f] | --list-audio-processes [--out f] | --bench store-key --out f | --version")
+    fail("usage: TalkTalk | --smoke-ui [--out f] [--preview [--preview-scene meeting|phone|video] [--preview-speaking]] | --list-audio-processes [--out f] | --bench store-key --out f | --version")
 }

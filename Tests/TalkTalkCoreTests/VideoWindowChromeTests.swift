@@ -2,17 +2,17 @@ import Testing
 @testable import TalkTalkCore
 
 @Suite struct VideoWindowChromeTests {
-    @Test func hoverBarShowsWhileInsideAndHidesOneAndAHalfSecondsAfterLeaving() {
+    @Test func hoverBarShowsWhileInsideAndHidesAfterAShortExitDelay() {
         var bar = VideoHoverBar()
         #expect(!bar.isShown(at: 0))
         bar.pointer(inside: true, at: 1)
         #expect(bar.isShown(at: 1) && bar.hideDeadline(at: 1) == nil)
         bar.pointer(inside: false, at: 2)
-        #expect(bar.isShown(at: 3.4))
-        #expect(bar.hideDeadline(at: 3) == 3.5)
-        #expect(!bar.isShown(at: 3.5) && bar.hideDeadline(at: 3.5) == nil)
+        #expect(bar.isShown(at: 2.3))
+        #expect(bar.hideDeadline(at: 2.3) == 2.35)
+        #expect(!bar.isShown(at: 2.35) && bar.hideDeadline(at: 2.35) == nil)
         // Coming back before the deadline cancels it.
-        bar.pointer(inside: true, at: 4); bar.pointer(inside: false, at: 4.2); bar.pointer(inside: true, at: 5)
+        bar.pointer(inside: true, at: 4); bar.pointer(inside: false, at: 4.2); bar.pointer(inside: true, at: 4.4)
         #expect(bar.isShown(at: 9))
         #expect(VideoHoverBar.fadeDuration(reduceMotion: false) == 0.2)
         #expect(VideoHoverBar.fadeDuration(reduceMotion: true) == 0)
@@ -43,9 +43,9 @@ import Testing
         bar.setHeld(true, at: 1)
         bar.pointer(inside: false, at: 1.1)
         #expect(bar.isShown(at: 10) && bar.hideDeadline(at: 10) == nil)
-        // Releasing the hold starts the 1.5 s delay from then.
+        // Releasing the hold starts the short exit delay from then.
         bar.setHeld(false, at: 10)
-        #expect(bar.isShown(at: 11.4) && !bar.isShown(at: 11.5))
+        #expect(bar.isShown(at: 10.3) && !bar.isShown(at: 10.35))
         bar.pointer(inside: true, at: 12)
         bar.setLocked(true)
         #expect(!bar.isShown(at: 12))

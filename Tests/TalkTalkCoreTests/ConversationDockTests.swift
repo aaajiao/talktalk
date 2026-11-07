@@ -45,7 +45,7 @@ import Testing
         func dock(_ audio: HUDModel.MeetingAudio?, scene: SubtitleScene = .meeting, confirmed: Bool = false,
                   playing: Bool = false, risk: VoiceState.Risk? = nil) -> MicDockPresentation {
             MicDockPresentation.make(VoiceState.resolve(audio: audio, scene: scene, phoneInputConfirmed: confirmed,
-                                                        playing: playing, risk: risk), scene: scene)
+                                                        playing: playing, risk: risk), scene: scene, audio: audio, playing: playing)
         }
         let original = dock(.original)
         #expect(original.label == "原声" && original.consequence == "对方能听到你")
@@ -80,12 +80,16 @@ import Testing
         // The capsule's own words: the dock reads the same VoiceState.
         #expect(dock(.phoneReady, scene: .phone).label == "未接入 Phone")
         #expect(MicDockPresentation.startHint == "点按右⌥翻译你的发言")
-        #expect(dock(.phoneReady, scene: .phone).consequence == "接通后对方才能听到你")
+        #expect(dock(.phoneReady, scene: .phone).consequence == "Phone 尚未接收音频")
         #expect(dock(.original, scene: .phone, confirmed: true).consequence == "正在送入 Phone")
-        #expect(dock(.original, scene: .phone).label == "本机试说")
-        #expect(dock(.draining, scene: .phone, confirmed: true, playing: true).label == "译音已送入 Phone")
+        #expect(dock(.original, scene: .phone).label == "本机收音中")
+        #expect(dock(.translating, scene: .phone).label == "本机收音中")
+        let localProcessing = dock(.draining, scene: .phone)
+        #expect(localProcessing.label == "本机译音处理中" && localProcessing.wave == .dashed)
+        #expect(localProcessing.consequence == "Phone 未接收")
+        #expect(dock(.draining, scene: .phone, confirmed: true, playing: true).label == "译音播放中")
         let localOnly = dock(.draining, scene: .phone, playing: true)
-        #expect(localOnly.label == "译音只在本机播放" && localOnly.consequence == "Phone 没有读取 TalkTalk Mic")
+        #expect(localOnly.label == "本机译音播放中" && localOnly.consequence == nil)
         #expect(localOnly.tone == .warn)
         #expect(dock(.phoneReconnecting, scene: .phone).label == "当前发言已停止")
         #expect(dock(.phoneReconnecting, scene: .phone).consequence == "等待 Phone")

@@ -7,12 +7,12 @@ public struct SpeechStatusPresentation: Sendable, Equatable {
     public var title: String
     public var symbol: String
     public var shortcut: String?
-    /// The titlebar keycap's action text: 开始翻译 / 结束 / 松开确认 / 本机试说.
+    /// The titlebar keycap's action text: 开始翻译 / 完成发言 / 松开确认 / 本机试说.
     public var keyAction: String?
-    /// The glyph the titlebar keycap shows instead of `keyAction` at every width: start
-    /// (`translate`) or end (`stop.fill`). nil keeps the text: 松开确认 is a transient
-    /// instruction and 本机试说 carries local-only meaning. TitlebarKey.make drops either text
-    /// when the capsule beside it already shows the same words.
+    /// The start glyph (`translate`) can replace `keyAction`. Finishing a turn keeps the
+    /// words 完成发言 so it cannot be confused with the separate end-session stop icon.
+    /// 松开确认 is a transient instruction; 本机试说 carries local-only meaning.
+    /// TitlebarKey.make drops text when the capsule beside it already shows the same words.
     public var keySymbol: String?
     public var detail: String
     public var tone: PhoneSpeechPresentation.Tone
@@ -57,15 +57,14 @@ public struct SpeechStatusPresentation: Sendable, Equatable {
         case .phoneReady, .original, .restoringOriginal, .draining:
             localOnly ? titlebarLabel("本机试说") : titlebarLabel("开始翻译")
         case .switching: titlebarLabel("松开确认")
-        case .translating: titlebarLabel("结束")
+        case .translating: titlebarLabel("完成发言")
         case .preparing, .phoneReconnecting, .unavailable, nil: nil
         }
         keyAction = action
         keySymbol = switch audio {
         case .phoneReady, .original, .restoringOriginal, .draining:
             localOnly ? nil : SubtitleTokens.VoiceIcon.startTranslation
-        case .translating: SubtitleTokens.VoiceIcon.stopTranslation
-        case .switching, .preparing, .phoneReconnecting, .unavailable, nil: nil
+        case .translating, .switching, .preparing, .phoneReconnecting, .unavailable, nil: nil
         }
         shortcut = action.map { String(localized: "右⌥ \($0)") }
     }

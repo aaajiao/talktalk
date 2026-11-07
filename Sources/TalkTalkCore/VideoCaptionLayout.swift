@@ -49,7 +49,9 @@ public enum VideoCaptionArrangement: String, Sendable, CaseIterable {
 /// Video caption geometry (redesign §6 排版). Pure values; the app view measures text.
 public enum VideoCaptionLayout {
     public static let defaultContentWidth: Double = 960
-    public static let defaultContentHeight: Double = 150
+    /// Keep the former 150 pt reading space plus a separate, non-reflowing hover bar.
+    public static let defaultContentHeight: Double = 184
+    public static let controlBarGap: Double = 6
     /// Chinese block width in Chinese characters (one em each).
     public static let translationCharactersPerLine: Double = 20
     /// Source block width in characters of about 0.52 em.
@@ -92,6 +94,18 @@ public enum VideoCaptionLayout {
     /// About 46 characters of the source font.
     public static func sourceBlockWidth(windowWidth: Double, sourceSize: Double) -> Double {
         blockWidth(windowWidth: windowWidth, natural: sourceCharactersPerLine * sourceCharacterEm * sourceSize)
+    }
+
+    /// A stable width shared by the fitted reading background and its controls. Short drafts
+    /// do not make the controls chase individual words across the screen.
+    public static func readingWidth(windowWidth: Double, translationSize: Double, sourceSize: Double) -> Double {
+        min(max(0, windowWidth), max(translationBlockWidth(windowWidth: windowWidth, translationSize: translationSize),
+                                    sourceBlockWidth(windowWidth: windowWidth, sourceSize: sourceSize))
+            + 2 * glassHorizontalPadding)
+    }
+
+    public static func controlBarTop(readingTop: Double, height: Double) -> Double {
+        max(0, readingTop - controlBarGap - height)
     }
 
     private static func blockWidth(windowWidth: Double, natural: Double) -> Double {

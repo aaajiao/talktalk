@@ -189,9 +189,13 @@ public struct HUDModel: Sendable, Equatable {
                            symbol: symbol, settingsDestination: destination)
         }
 
-        /// The chip in `scene`: video has no people and no meeting, so its silence chips name
-        /// the selected app's sound instead (redesign §6).
+        /// Silence names the selected scene: Phone's call audio or the video's app sound,
+        /// without claiming that a call ended just because no sound arrived.
         public func chip(scene: SubtitleScene) -> HUDChip? {
+            if scene == .phone, self == .meetingSeemsOver {
+                return HUDChip(titlebarLabel("长时间无通话音频"), symbol: "waveform.slash", tone: .info,
+                               detail: String(localized: "Phone 已长时间没有通话音频，即将结束电话同传。"))
+            }
             guard scene == .video else { return chip }
             switch self {
             case .meetingSilent:
@@ -360,7 +364,7 @@ public struct HUDModel: Sendable, Equatable {
             case .phoneReady: String(localized: "电话同传已就绪 · 点按右⌥即可开始翻译")
             case .original: String(localized: "原声发送中 · 点按右⌥开始翻译")
             case .switching: String(localized: "正在切换发言方式")
-            case .translating: String(localized: "翻译收音中 · 再按右⌥结束（原声已关闭）")
+            case .translating: String(localized: "翻译收音中 · 再点按右⌥完成发言（原声已关闭）")
             case .draining: String(localized: "译音处理中 · 播完后恢复原声")
             case .restoringOriginal: String(localized: "正在恢复原声")
             case .phoneReconnecting: String(localized: "正在重新连接 Phone · 当前发言已停止")
@@ -374,7 +378,7 @@ public struct HUDModel: Sendable, Equatable {
             case .phoneReady: String(localized: "点按右⌥开始翻译，可在拨号前试说")
             case .original: String(localized: "点按右⌥开始翻译")
             case .switching: String(localized: "松开右⌥确认")
-            case .translating: String(localized: "再按右⌥结束 · 原声已关闭")
+            case .translating: String(localized: "再点按右⌥完成发言 · 原声已关闭")
             case .draining: String(localized: "播完后恢复原声")
             case .restoringOriginal: String(localized: "请稍候")
             case .phoneReconnecting: String(localized: "等待 Phone")
@@ -413,7 +417,7 @@ public struct HUDModel: Sendable, Equatable {
                              symbol: "arrow.left.arrow.right", tone: .progress)
             case .translating:
                 return .init(title: String(localized: "翻译收音中"),
-                             action: String(localized: "再点按右⌥结束发言"),
+                             action: String(localized: "再点按右⌥完成发言"),
                              detail: inputConfirmed
                                 ? String(localized: "Phone 已接入；原声已关闭，正在收音并翻译。")
                                 : String(localized: "本机翻译收音中，原声已关闭；未确认 Phone 接入。"),

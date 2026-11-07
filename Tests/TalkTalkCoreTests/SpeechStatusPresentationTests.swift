@@ -57,7 +57,7 @@ import Testing
         #expect(SpeechStatusPresentation(audio: .original).keyAction == "开始翻译")
         #expect(SpeechStatusPresentation(audio: .restoringOriginal).keyAction == "开始翻译")
         #expect(SpeechStatusPresentation(audio: .draining, playing: true).keyAction == "开始翻译")
-        #expect(SpeechStatusPresentation(audio: .translating).keyAction == "结束")
+        #expect(SpeechStatusPresentation(audio: .translating).keyAction == "完成发言")
         #expect(SpeechStatusPresentation(audio: .switching).keyAction == "松开确认")
         for audio in [HUDModel.MeetingAudio.phoneReady, .original] {
             #expect(SpeechStatusPresentation(audio: audio, phoneInputConfirmed: false).keyAction == "本机试说")
@@ -65,7 +65,7 @@ import Testing
         #expect(SpeechStatusPresentation(audio: .original, phoneInputConfirmed: true).keyAction == "开始翻译")
         #expect(SpeechStatusPresentation(audio: .phoneReconnecting, phoneInputConfirmed: true).keyAction == nil)
         #expect(SpeechStatusPresentation(audio: .unavailable(reason: "x")).keyAction == nil)
-        #expect(SpeechStatusPresentation(audio: .translating).shortcut == "右⌥ 结束")
+        #expect(SpeechStatusPresentation(audio: .translating).shortcut == "右⌥ 完成发言")
     }
 
     @Test func micSlashOnlyMeansOriginalOffOrUnavailable() {
@@ -118,7 +118,7 @@ import Testing
         let capture = SpeechStatusPresentation(audio: .translating, playing: false)
         let captureAndOutput = SpeechStatusPresentation(audio: .translating, playing: true)
         #expect(captureAndOutput == capture)
-        #expect(capture.keyAction == "结束")
+        #expect(capture.keyAction == "完成发言")
     }
 
     @Test func unavailableAudioHasNoRecordingActionAndRetainsTheReason() {
