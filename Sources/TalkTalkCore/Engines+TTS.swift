@@ -162,6 +162,10 @@ public enum TTSSeed {
     /// comparison. They are hash input only, never model prompts. Freeze their bytes; translating,
     /// normalizing or prefixing them would change the accepted voice's sampling sequence.
     public static func make(voice: VoiceHandle, language: Lang) -> UInt32 {
+        // The Ming local audition accepted on 2026-11-07 used this fixed sampling seed
+        // with the human reference and CAMPPlus embedding. Preserve it across clauses;
+        // the existing Qwen per-voice/language seeds below are unchanged.
+        if voice.model.name == "tts-ming3-0.5b-bf16" { return 20_261_107 }
         let anchor: String
         switch language {
         case .en:

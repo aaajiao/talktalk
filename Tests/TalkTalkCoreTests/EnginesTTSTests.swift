@@ -53,6 +53,15 @@ import Testing
         #expect(TTSSeed.make(voice: other, language: .en) != TTSSeed.make(voice: Self.voice, language: .en))
     }
 
+    @Test func mingUsesItsAcceptedLocalAuditionSeedAcrossLanguages() {
+        var ming = Self.voice
+        ming.model = EngineID(name: "tts-ming3-0.5b-bf16", revision: "283b3c342c6f", placement: .engineGPU)
+        for language in [Lang.en, .de, .zh] {
+            #expect(TTSSeed.make(voice: ming, language: language) == 20_261_107)
+        }
+        #expect(TTSSeed.next(TTSSeed.make(voice: ming, language: .en), attempt: 1) != 20_261_107)
+    }
+
     @Test func samplingIdentityPreservesSeedAfterReferenceChanges() throws {
         let oldData = try JSONEncoder().encode(Self.voice)
         let oldJSON = try #require(try JSONSerialization.jsonObject(with: oldData) as? [String: Any])

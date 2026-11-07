@@ -28,6 +28,7 @@ import numpy as np
 SAMPLE_RATE = 24000
 FRAME_HZ = 12.5
 MASK32 = 0xFFFFFFFF
+PROGRESS_INTERVAL_S = 0.15
 
 
 class Policy:
@@ -190,10 +191,16 @@ class Guarded:
                 verdict = None           # None | "runaway" | "short" | "echo"
                 echo_checked = self.ref_cb0 is None
                 last_attempt = attempt >= self.p.max_attempts
+                last_progress_steps = 0
+                last_progress_at = None
                 for item in self._timed(self._inner):
                     frames = st.get("frames", 0)
                     cb0 = st.get("cb0", [])
-                    if frames / FRAME_HZ > self.p.slow_ratio * self.expected_s:
+                    # Ming latents are decoded per text fragment. Its actual decoded PCM
+                    # clock is independent of the latent step count; Qwen keeps its original
+                    # codec-frame checks. Empty CB0 means codec loop/echo checks do not apply.
+                    duration_s = st["audio_samples"] / SAMPLE_RATE if "audio_samples" in st else frames / FRAME_HZ
+                    if duration_s > self.p.slow_ratio * self.expected_s:
                         self.report["slow"] = True
                     if not echo_checked and len(cb0) >= self.p.echo_frames:
                         echo_checked = True
@@ -202,10 +209,22 @@ class Guarded:
                             verdict = "echo"
                             break
                     if item is None:
-                        yield None
+                        # Ming cannot release PCM before a full fragment has decoded. Only
+                        # confirmed, completed latent work may keep its existing wire stall
+                        # timer alive; no wall-clock heartbeat and no Qwen behavior change.
+                        progress_steps = st.get("progress_steps", 0)
+                        now = time.perf_counter()
+                        if (progress_steps > last_progress_steps and
+                                (last_progress_at is None or now - last_progress_at >= PROGRESS_INTERVAL_S)):
+                            last_progress_steps, last_progress_at = progress_steps, now
+                            yield Progress(held_samples / SAMPLE_RATE, attempt)
+                        else:
+                            yield None
                         continue
                     chunk = np.asarray(item, dtype=np.float32)
-                    runaway = frames > self.cap or cb0_loop(cb0, self.p.loop_frames, self.p.loop_max_period)
+                    over_duration = (duration_s > self.p.runaway_factor * self.expected_s + self.p.runaway_extra_s
+                                     if "audio_samples" in st else frames > self.cap)
+                    runaway = over_duration or cb0_loop(cb0, self.p.loop_frames, self.p.loop_max_period)
                     if runaway:
                         verdict = "runaway"
                         if released:

@@ -6,7 +6,7 @@
 
 # Application identity; independent of engine API/recipe and model revisions.
 TT_APP_VERSION="1.0.15"
-TT_APP_BUILD="53"
+TT_APP_BUILD="55"
 
 # Standalone CPython (astral-sh/python-build-standalone). Size and sha256 checked against the
 # GitHub release asset digest on 2026-11-07; dedicated, ordinary (GIL) CPython build.
@@ -24,7 +24,7 @@ TT_BUILD_LOCK_SHA256="b1361fb1b329fa4c6973a983539168c102ef2397cd207ec03b5bfcbf5b
 TT_LOCK_COMPAT="349c6c6ca785f6e2717caba43f4bdf336c42264c9a442468205bcc62e925cdd7"   # lock sha256s the bundled engine code can run on (current, previous)
 TT_RUNTIME_FLAVOURS="main"   # reserved: "alt-tts" (§7.6), not installed in v1
 
-TT_MODELS="tts-qwen3-1.7b-base-8bit tts-qwen3-0.6b-base-8bit asr-qwen3-0.6b-8bit asr-qwen3-1.7b-8bit"   # no MT (§16 decision 12)
+TT_MODELS="tts-qwen3-1.7b-base-8bit tts-qwen3-0.6b-base-8bit tts-ming3-0.5b-bf16 asr-qwen3-0.6b-8bit asr-qwen3-1.7b-8bit"   # no MT (§16 decision 12)
 TT_PROFILE_MAX="tts-qwen3-1.7b-base-8bit asr-qwen3-1.7b-8bit"
 TT_PROFILE_STANDARD="tts-qwen3-1.7b-base-8bit asr-qwen3-0.6b-8bit"
 TT_PROFILE_COMPACT24="tts-qwen3-0.6b-base-8bit asr-qwen3-0.6b-8bit"
@@ -72,6 +72,33 @@ tokenizer_config.json 7344 dc3c31c3bdaedd5016382bb3cbe07323026775ad51f5a4fb56450
 vocab.json 2776833 ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910
 "
 TT_M_TTS_QWEN3_0_6B_BASE_8BIT_COMPAT_REVISIONS=""
+
+# tts-ming3-0.5b-bf16 (MLX snapshot + native CAMPPlus companion, pinned 2026-11-07)
+TT_M_TTS_MING3_0_5B_BF16_REPO="mlx-community/Ming-3.0-tts-0.5B-bf16"
+TT_M_TTS_MING3_0_5B_BF16_REVISION="283b3c342c6fb69a7a87832c97f9799567efe05d"
+TT_M_TTS_MING3_0_5B_BF16_ROLE="tts"; TT_M_TTS_MING3_0_5B_BF16_LICENSE="MIT"
+TT_M_TTS_MING3_0_5B_BF16_FILES="
+LICENSE 1067 2872f1918dfc04fdeb7f5d66d8d1b773594c9375e7c8f7bda39780bb97ad4fba
+README.md 4245 676ba46672b6f6d7f997be010bb84bc2cc38ef8b90ffd7f982c58ae8078b9911
+added_tokens.json 1785 34394b1e16d7da2db16618bd43a0f970902ade0075480bcd812fe62d559ec319
+campplus.safetensors 27699096 a479586bd8f8f96cdb414eaa2fa07c6cd54d6d1636562e2d75a0211cb3b0a6fd
+config.json 5882 6205fe41f5f7591e2f0d666b20464a79a983097f67e91341bfad159edca1d33e
+configuration.json 51 6720b8448f6ad5b4631689a60857bdeb238053a37f6cc6a5936eb50c2a3b9296
+merges.txt 1671853 8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5
+model.safetensors 2959055287 16a7086c992a6eab7d855df90c9c2edbb0f4f3a702b3cd697f6011e198d0c8b4
+model.safetensors.index.json 96296 b229302f1ce86b91adcf5491bfdaee1ff0559a518b0cf3766d8d6f241eb64bf8
+special_tokens_map.json 2726 2c2ec51b9da5db654ac20de8310350d0c9c1a65918ae0181b80dacd2919b4fc3
+tokenizer.json 11431389 87d54ca3b44ea2f822ba39a0a45cb1b61644bd6606d9d3536dea75367bffb06d
+tokenizer_config.json 16260 12d6162c815edef24f8606e65b60d43fe0d92b0a4e150a0db8fa01c523aaf36a
+vocab.json 2776833 ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910
+speaker_encoder/campplus.safetensors 27697145 373f95ba31457cb1c54a94ce350b000c977d24aa9273c4b535e8a2dcadeaf31e
+"
+TT_M_TTS_MING3_0_5B_BF16_COMPAT_REVISIONS=""
+# This is the byte-identical source CAMPPlus encoder converted to native MLX layouts.
+# The root campplus file keeps the original conversion layout; inference uses this companion.
+TT_M_TTS_MING3_0_5B_BF16_FILE_SOURCES="
+speaker_encoder/campplus.safetensors mlx-community/Step-Audio-2-token2wav e21026b660069e6d1b9ac5c9a51e08ed0201f30e campplus.safetensors
+"
 
 # asr-qwen3-0.6b-8bit  (1010772242 bytes, pinned 2026-11-04)
 TT_M_ASR_QWEN3_0_6B_8BIT_REPO="mlx-community/Qwen3-ASR-0.6B-8bit"

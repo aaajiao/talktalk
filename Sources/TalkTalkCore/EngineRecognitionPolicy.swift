@@ -7,6 +7,13 @@ public enum SpeechRecognitionEngine: String, CaseIterable, Sendable, Identifiabl
 }
 
 public enum EngineRecognitionPolicy {
+    /// Recognition compatibility only, not the resource preset displayed in settings.
+    /// Selecting another TTS in a synthesis-only installation must retain its Apple path.
+    public static func compatibilityProfile(activeRoles: [String: String]) -> EngineProfile? {
+        if activeRoles["tts"] != nil && activeRoles["asr"] == nil { return .compact16 }
+        return EngineProfile.matching(activeRoles: activeRoles)
+    }
+
     public static func listening(preferred: SpeechRecognitionEngine,
                                  installedProfile: EngineProfile?) -> SpeechRecognitionEngine {
         installedProfile?.usesAppleRecognition == true ? .apple : preferred

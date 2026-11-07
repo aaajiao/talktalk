@@ -3,11 +3,9 @@ import SwiftUI
 import TalkTalkCore
 import TalkTalkSettingsUI
 
-/// Recognition and translation choices. Synthesis keeps its raw ID for old navigation targets,
-/// which SettingsNavigation redirects to 我的声音; it is no longer a selectable card.
+/// Independent recognition, translation and local synthesis choices.
 enum ModelSettingsStage: String, CaseIterable, Identifiable {
     case recognition, translation, synthesis
-    static var allCases: [Self] { [.recognition, .translation] }
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -43,8 +41,12 @@ enum ModelSettingsStage: String, CaseIterable, Identifiable {
     }
 }
 
-/// Settings › 识别与翻译. The two stage cards sit in the window's fixed band; each stage is its
-/// own Form and starts at the top. Synthesis and its voice choice live under 我的声音.
+extension SettingsAnchor {
+    static let synthesis = "model.synthesis"
+}
+
+/// The three stage cards sit in the window's fixed band. Voice recording stays in 我的声音;
+/// the synthesis card only chooses which local model renders that voice.
 struct ModelSettingsView: View {
     @Bindable var state: AppState
     @Bindable var navigation: SettingsNavigation
@@ -64,7 +66,7 @@ struct ModelSettingsView: View {
                                                                state.requestedScenario = mode
                                                                navigation.open(.meeting)
                                                            })
-                    case .synthesis: EmptyView() // Legacy targets are redirected to 我的声音.
+                    case .synthesis: synthesis
                     }
                 }
                 // A menu problem row lands on the stage's diagram (§8.1).
@@ -108,18 +110,62 @@ struct ModelSettingsView: View {
         .formStyle(.grouped)
     }
 
+    private var synthesis: some View {
+        Form {
+            Section {
+                FlowGrid.synthesis(state, engine: engine, links: links)
+                    .padding(.vertical, 4)
+                    .flowFlash(SettingsAnchor.synthesis, in: navigation.flow)
+                FactRow([FactChip(String(appLocalized: "仅本机 · 不上传"), symbol: Icon.thisMac,
+                                  help: String(appLocalized: "语音合成在这台 Mac 上运行"))])
+            }
+            .id(SettingsAnchor.synthesis)
+            Section {
+                SynthesisModelRows(model: engine)
+            } header: {
+                SectionHeader(String(appLocalized: "语音合成"), symbol: Icon.speech)
+            }
+        }
+        .formStyle(.grouped)
+        .labelStyle(.settingsRow)
+    }
 }
 
-/// The recognition diagram; synthesis is part of 我的声音.
+/// Model-stage diagrams. Voice enrollment remains in 我的声音.
 @MainActor
 extension FlowGrid {
+    static func synthesis(_ state: AppState, engine: EngineComponentsModel, links: ScenarioLinks) -> FlowGrid {
+        typealias Icon = SubtitleTokens.SettingsIcon
+        let problem = SettingsProblem.mostSevere([engine.synthesisProblem,
+                                                  engine.canSelectSynthesis ? nil : engine.problem])
+        let voice = state.voiceProfilePresent
+            ? FlowSatellite(String(appLocalized: "我的声音"), symbol: Icon.myVoice,
+                            help: String(appLocalized: "用我的声音合成译音"),
+                            link: links.node(String(appLocalized: "我的声音"), .voice))
+            : FlowSatellite(String(appLocalized: "系统声音"), symbol: Icon.speech,
+                            help: String(appLocalized: "未录制时用系统声音"), dashed: true,
+                            link: links.node(String(appLocalized: "我的声音"), .voice))
+        return FlowGrid(String(appLocalized: "语音合成路径"), lanes: [
+            FlowLane(String(appLocalized: "译音"), gutter: .symbol(Icon.speech), cells: [
+                .node(FlowNode(String(appLocalized: "译文"), glyph: .symbol(Icon.translation))),
+                .node(FlowNode(String(appLocalized: "合成译音"), glyph: .symbol(Icon.speech),
+                               badge: problem?.status, badgeReason: problem?.text,
+                               link: problem == nil ? nil : links.node(String(appLocalized: "安装与维护 · 语音资源"),
+                                                                       .components, .components(.engine)),
+                               satellite: voice,
+                               help: engine.modelName(role: "tts"))),
+                .node(FlowNode(String(appLocalized: "译音"), glyph: .symbol(Icon.speech))), .empty
+            ])
+        ])
+    }
+
     /// Each lane chooses recognition independently from the local model preset and TTS.
     /// Legacy synthesis-only installations retain their intentional Apple path.
     static func recognition(_ state: AppState, engine: EngineComponentsModel, links: ScenarioLinks) -> FlowGrid {
         typealias Icon = SubtitleTokens.SettingsIcon
         let problem = engine.recognitionProblem(state, speaking: false)
         let appleProfile = engine.usesAppleRecognition
-        let configuredForApple = engine.installedProfile?.usesAppleRecognition == true
+        let configuredForApple = engine.usesAppleRecognition
         let missing = engine.record?.roles["asr"] == nil && !configuredForApple
         let qwen = state.effectiveListenASREngine == .qwen
         let fellBack = state.meetingActive && state.listenASRFallback

@@ -3121,6 +3121,38 @@
         }
       }
     },
+    "下载并使用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download and Use"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载并使用"
+          }
+        }
+      }
+    },
+    "下载并使用 %@？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download and use %@?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载并使用 %@？"
+          }
+        }
+      }
+    },
     "下载并安装": {
       "localizations": {
         "en": {
@@ -5037,6 +5069,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "修复"
+          }
+        }
+      }
+    },
+    "修复 %@？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repair %@?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修复 %@？"
           }
         }
       }
@@ -7953,6 +8001,22 @@
         }
       }
     },
+    "合成模型": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synthesis model"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合成模型"
+          }
+        }
+      }
+    },
     "合成模型未安装": {
       "localizations": {
         "en": {
@@ -10577,18 +10641,18 @@
         }
       }
     },
-    "将停止本地引擎并删除当前使用的合成模型。Qwen 语音合成将不可用，识别模型保留；重新下载并选择档位后可恢复。": {
+    "将停止本地引擎并删除当前使用的合成模型。本地语音合成将不可用，识别模型保留；重新下载并选择合成模型后可恢复。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The local engine will stop and the active speech synthesis model will be deleted. Qwen speech synthesis will be unavailable; the recognition model will remain. Download the model again and select a tier to restore it."
+            "value": "The local engine will stop and the active synthesis model will be deleted. Local speech synthesis will be unavailable. The recognition model is kept; download and select a synthesis model to restore speech."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将停止本地引擎并删除当前使用的合成模型。Qwen 语音合成将不可用，识别模型保留；重新下载并选择档位后可恢复。"
+            "value": "将停止本地引擎并删除当前使用的合成模型。本地语音合成将不可用，识别模型保留；重新下载并选择合成模型后可恢复。"
           }
         }
       }
@@ -12401,6 +12465,22 @@
         }
       }
     },
+    "当前使用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Currently using"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前使用"
+          }
+        }
+      }
+    },
     "当前发言已停止": {
       "localizations": {
         "en": {
@@ -12433,18 +12513,34 @@
         }
       }
     },
-    "当前旧配置仅包含语音合成模型；识别使用系统 Apple Speech。": {
+    "当前操作结束后可切换": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The current legacy configuration includes only a speech synthesis model. Recognition uses Apple Speech."
+            "value": "Available when the current operation ends"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当前旧配置仅包含语音合成模型；识别使用系统 Apple Speech。"
+            "value": "当前操作结束后可切换"
+          }
+        }
+      }
+    },
+    "当前操作结束后可维护": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Available when the current operation ends"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前操作结束后可维护"
           }
         }
       }
@@ -12493,6 +12589,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "当前配置仅包含语音合成模型，识别使用 Apple Speech；如需 Qwen3-ASR，请在“安装与维护”的语音资源中选择本地组合。"
+          }
+        }
+      }
+    },
+    "当前配置仅包含语音合成模型；识别使用系统 Apple Speech。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This setup contains only a speech synthesis model; recognition uses Apple Speech."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前配置仅包含语音合成模型；识别使用系统 Apple Speech。"
           }
         }
       }
@@ -20305,6 +20417,38 @@
         }
       }
     },
+    "约 %@。切换语音合成后，继续使用当前识别模型与声音录音。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About %@. Speech synthesis will switch while keeping the current recognition model and voice recording."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "约 %@。切换语音合成后，继续使用当前识别模型与声音录音。"
+          }
+        }
+      }
+    },
+    "约 %@。继续使用当前识别、合成模型与声音录音。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About %@. The current recognition and synthesis models and voice recording will be kept."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "约 %@。继续使用当前识别、合成模型与声音录音。"
+          }
+        }
+      }
+    },
     "约 10–20 秒": {
       "localizations": {
         "en": {
@@ -20557,6 +20701,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "结束后才能操作引擎"
+          }
+        }
+      }
+    },
+    "结束当前会话、录音或试听后维护引擎": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish the current session, recording or preview before maintaining the engine"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束当前会话、录音或试听后维护引擎"
+          }
+        }
+      }
+    },
+    "结束当前会话、录音或试听后选择合成模型": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish the current session, recording or preview before choosing a synthesis model"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束当前会话、录音或试听后选择合成模型"
           }
         }
       }
@@ -23041,6 +23217,38 @@
         }
       }
     },
+    "语音合成在这台 Mac 上运行": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speech synthesis runs on this Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音合成在这台 Mac 上运行"
+          }
+        }
+      }
+    },
+    "语音合成路径": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speech synthesis path"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音合成路径"
+          }
+        }
+      }
+    },
     "语音引擎": {
       "localizations": {
         "en": {
@@ -23549,6 +23757,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "请自然朗读"
+          }
+        }
+      }
+    },
+    "请选择安装组合并点击“换档”；识别与合成模型将按所选组合配置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose an installation preset and click Switch. Recognition and synthesis models will follow that preset."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择安装组合并点击“换档”；识别与合成模型将按所选组合配置。"
           }
         }
       }
@@ -24397,6 +24621,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "选择会议应用"
+          }
+        }
+      }
+    },
+    "选择已下载的模型后立即切换语音合成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choosing a downloaded model switches speech synthesis immediately"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择已下载的模型后立即切换语音合成"
+          }
+        }
+      }
+    },
+    "选择组合以修复引擎": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a preset to repair the engine"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择组合以修复引擎"
           }
         }
       }

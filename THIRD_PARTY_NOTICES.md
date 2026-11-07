@@ -12,13 +12,15 @@ machine. See [licensing notes](docs/decisions/licensing.md) and the
 
 | Component | Where it comes from | License |
 |---|---|---|
-| CPython 3.12 (python-build-standalone) | github.com/astral-sh/python-build-standalone | PSF-2.0 (+ notices inside the distribution) |
+| CPython 3.14 (python-build-standalone) | github.com/astral-sh/python-build-standalone | PSF-2.0 (+ notices inside the distribution) |
 | mlx, mlx-metal | PyPI | MIT |
 | mlx-audio (pinned commit) | github.com/Neywa-Labs/mlx-audio | MIT |
 | transformers | PyPI | Apache-2.0 |
 | numpy | PyPI | BSD-3-Clause |
 | other locked Python packages | PyPI, see `engine/requirements-engine.lock` | per package (METADATA), checked by `check-licenses.sh` against the installed engine venv |
 | Qwen3-TTS / Qwen3-ASR MLX weights | huggingface.co/mlx-community | Apache-2.0 |
+| Ming-3.0-TTS 0.5B BF16 MLX weights | huggingface.co/mlx-community/Ming-3.0-tts-0.5B-bf16 | MIT (upstream LICENSE included in the downloaded model) |
+| Native CAMPPlus speaker encoder used with Ming | huggingface.co/mlx-community/Step-Audio-2-token2wav | Apache-2.0 |
 | libASPL 3.1.2 (compiled into TalkTalkAudio.driver, which the app bundle carries) | github.com/gavv/libASPL | MIT, full text below |
 | libfvad (VAD, compiled into the app) | github.com/dpirch/libfvad, vendored in `Sources/CAudioCore/third_party/libfvad/` | BSD-3-Clause + WebRTC patent grant |
 

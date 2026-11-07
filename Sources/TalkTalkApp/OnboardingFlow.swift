@@ -1180,7 +1180,7 @@ private struct VoiceStep: View {
 
 @MainActor
 extension FlowGrid {
-    /// Step 4 (§7.17): 声音 → 原文 (Qwen3-ASR) and 译文 → 我的声音 (Qwen3-TTS), the two parts
+    /// Step 4 (§7.17): recognition and the selected local synthesis model, the two parts
     /// the engine runs on this Mac; translation itself is not installed here.
     static func localEngine(_ engine: EngineComponentsModel, state: AppState) -> FlowGrid {
         let recognition = engine.recognitionProblem(state)
@@ -1199,8 +1199,8 @@ extension FlowGrid {
                                help: String(appLocalized: "由 OpenAI 或 Apple 翻译，不在这里安装"))),
                 .node(FlowNode(String(appLocalized: "我的声音"), glyph: .symbol(Icon.myVoice), badge: synthesis?.status,
                                badgeReason: synthesis?.text,
-                               satellite: FlowSatellite("Qwen3-TTS", symbol: Icon.Page.models,
-                                                        help: String(appLocalized: "合成译音")))),
+                               satellite: FlowSatellite(String(appLocalized: "语音合成"), symbol: Icon.Page.models,
+                                                        help: engine.modelName(role: "tts") ?? String(appLocalized: "合成译音")))),
                 .empty, .empty
             ])
         ])

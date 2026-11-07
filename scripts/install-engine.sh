@@ -5,6 +5,7 @@
 #   install-engine.sh [--profile max|standard|compact24|compact16] [--json-progress]   install / update / repair
 #   install-engine.sh --check [--json-progress]                                        verify only, exit 0/1
 #   install-engine.sh --add-model <key> | --remove-model <key> [--json-progress]
+#   install-engine.sh --select-tts <key> [--model-source <verified-local-directory>]
 #   install-engine.sh --remove-model <key> --allow-active-model   caller must stop the engine first
 #   install-engine.sh --uninstall [--json-progress]
 #   install-engine.sh --no-smoke ...    M0 only: skip the smoke run; install.json is then NOT written
@@ -24,12 +25,14 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/models.sh
 . "$here/lib/models.sh"
 
-op="install"; profile=""; model_arg=""; smoke=1; allow_active_model=0
+op="install"; profile=""; model_arg=""; smoke=1; allow_active_model=0; MODEL_SOURCE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --profile) profile="${2:-}"; shift 2 ;;
     --check) op="check"; shift ;;
     --add-model) op="add"; model_arg="${2:-}"; shift 2 ;;
+    --select-tts) op="select-tts"; model_arg="${2:-}"; shift 2 ;;
+    --model-source) MODEL_SOURCE="${2:-}"; [ -n "$MODEL_SOURCE" ] || tt_die "--model-source needs a directory"; shift 2 ;;
     --remove-model) op="remove"; model_arg="${2:-}"; shift 2 ;;
     --allow-active-model) allow_active_model=1; shift ;;
     --uninstall) op="uninstall"; shift ;;
@@ -40,6 +43,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ "$allow_active_model" = "0" ] || [ "$op" = "remove" ] || tt_die "--allow-active-model requires --remove-model"
+[ -z "$MODEL_SOURCE" ] || [ "$op" = "add" ] || [ "$op" = "select-tts" ] || tt_die "--model-source requires --add-model or --select-tts"
+if [ "$op" = "select-tts" ]; then
+  [ -z "$profile" ] || tt_die "--select-tts cannot change the resource profile"
+  [ "$smoke" = "1" ] || tt_die "--select-tts requires a successful smoke check"
+fi
 export TT_JSON_PROGRESS
 
 case "$here" in
@@ -280,6 +288,16 @@ run_smoke() {
   tt_event step step "smoke" "done" 1 count 1
 }
 
+run_tts_selection_smoke() {
+  local tts="$1" asr="$2"
+  [ -f "$ENGINE_SRC/smoke_engine.py" ] || tt_die "smoke_engine.py not found in $ENGINE_SRC"
+  tt_event step step "smoke" "done" 0 count 1
+  "$VENV_DIR/bin/python3" -I -B "$ENGINE_SRC/smoke_engine.py" --engine-home "$ENGINE_HOME" \
+      --engine-src "$ENGINE_SRC" --profile custom --tts "$tts" --asr "$asr" >&2 \
+    || tt_die "TTS smoke check failed; previous model selection retained"
+  tt_event step step "smoke" "done" 1 count 1
+}
+
 role_key() {
   # role_key <profile> <role> -> model key or empty
   local k
@@ -351,6 +369,59 @@ do_add() {
     write_install_json "$prof" --preserve-roles $models
   fi
   tt_event "done" model "$model_arg"
+}
+
+do_select_tts() {
+  check_model_key "$model_arg"
+  [ "$(tt_model_field "$model_arg" ROLE)" = "tts" ] || tt_die "--select-tts requires a TTS model"
+  acquire_lock
+  [ -f "$INSTALL_JSON" ] && [ ! -e "$INSTALL_JSON.prev" ] \
+    || tt_die "finish the engine installation before selecting a TTS model"
+  /usr/bin/jq -e '.version == 1 and (.roles | type == "object") and (.models | type == "array")' "$INSTALL_JSON" >/dev/null \
+    || tt_die "repair the installation record before selecting a TTS model"
+  [ "$(installed_field .engine_api)" = "$TT_ENGINE_API" ] \
+    && tt_in_list "$(installed_field .lock_sha256)" "${TT_LOCK_COMPAT:-$TT_LOCK_SHA256}" \
+    && [ -x "$VENV_DIR/bin/python3" ] && [ -f "$VENV_DIR/.talktalk-venv" ] \
+    && [ -f "$PY_DIR/.talktalk-python" ] \
+    || tt_die "repair the compatible engine runtime before selecting a TTS model"
+  local roles asr role id rev dir stamp selected_rev selected_repo entry prof tmp
+  roles="$(installed_field .roles)"
+  # Other active roles must keep their exact model and revision; do not apply a named preset.
+  while IFS='|' read -r role id rev; do
+    [ -n "$role" ] || continue
+    check_model_key "$id"
+    [ "$(tt_model_field "$id" ROLE)" = "$role" ] || tt_die "invalid installed role: $role"
+    { [ "$rev" = "$(tt_model_field "$id" REVISION)" ] \
+      || tt_in_list "$rev" "$(tt_model_field "$id" COMPAT_REVISIONS)"; } \
+      || tt_die "$id: installed revision is incompatible"
+    dir="$(installed_field ".models[]? | select(.id == \"$id\" and .rev == \"$rev\") | .dir")"
+    case "$dir" in ''|*/*|.|..) tt_die "$id: invalid model directory" ;; esac
+    stamp="$MODELS_DIR/$dir/.talktalk-verified"
+    [ -f "$stamp" ] && [ "$(/usr/bin/head -1 "$stamp")" = "$rev" ] \
+      || tt_die "$id: existing active model is not verified"
+  done < <(printf '%s' "$roles" | /usr/bin/jq -r 'to_entries[] | select(.key != "tts") | [.key,.value.id,.value.rev] | join("|")')
+  check_space "$model_arg"
+  install_model "$model_arg"
+  model_full_verify "$model_arg" || tt_die "$model_arg: model verification failed"
+  asr="$(printf '%s' "$roles" | /usr/bin/jq -r '.asr.id // empty')"
+  make_warmup
+  run_tts_selection_smoke "$model_arg" "$asr"
+  selected_rev="$(tt_model_field "$model_arg" REVISION)"
+  selected_repo="$(tt_model_field "$model_arg" REPO)"
+  entry="$(/usr/bin/jq -nc --arg id "$model_arg" --arg repo "$selected_repo" --arg rev "$selected_rev" \
+    --arg dir "$(tt_model_dirname "$model_arg")" '{id:$id,repo:$repo,rev:$rev,role:"tts",dir:$dir}')"
+  roles="$(printf '%s' "$roles" | /usr/bin/jq -c --arg id "$model_arg" --arg rev "$selected_rev" '.tts={id:$id,rev:$rev}')"
+  prof="$(matching_profile "$roles" "$(installed_field .profile)")"
+  tmp="$INSTALL_JSON.tmp-$$"
+  # The old record remains valid throughout download, smoke, failure and cancellation.
+  # Preserve its runtime metadata and every other model entry. Commit is one atomic rename.
+  /usr/bin/jq --argjson roles "$roles" --arg profile "$prof" --argjson entry "$entry" \
+    --arg at "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '.roles=$roles | .profile=$profile | .models=([.models[] | select(.id != $entry.id)]+[$entry]) | .installed_at=$at' \
+    "$INSTALL_JSON" > "$tmp"
+  /bin/mv -f "$tmp" "$INSTALL_JSON"
+  tt_event "done" profile "$prof" model "$model_arg"
+  tt_log "active TTS: $model_arg; other roles and downloaded models retained"
 }
 
 do_remove() {
@@ -430,6 +501,7 @@ case "$op" in
   install) do_install ;;
   check) do_check ;;
   add) do_add ;;
+  select-tts) do_select_tts ;;
   remove) do_remove ;;
   uninstall) do_uninstall ;;
 esac

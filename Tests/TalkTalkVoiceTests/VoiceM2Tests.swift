@@ -245,7 +245,10 @@ let deText = AuditionCheck.sentences[.de]!
         #expect(a.clip(.de)?.failure == .short)
         #expect(a.clip(.de)?.attempts == AuditionCheck.maxAttempts)
         #expect(await b.seeds[.de]?.count == 2)          // exactly one regeneration
-        #expect(a.summary.failureText?.contains("德文") == true)
+        let failureText = try #require(a.summary.failureText)
+        // The behavior is the failing language and reason, in either supported UI language.
+        #expect(failureText.contains(Lang.de.title))
+        #expect(failureText.contains(AuditionCheck.Failure.short.text))
     }
 
     @Test func badReadBackIsRegenerated() async throws {
@@ -696,6 +699,68 @@ final class Flag: @unchecked Sendable {
         let (life, _) = lifecycle(store, b)
         #expect(await life.voiceReady().conditioningBuilt)
         #expect(try store.loadProfile().conditioningEntries?.map(\.model) == ["qwen3-tts-0.6b-base-8bit"])
+    }
+
+    @Test @MainActor func switchingTTSKeepsTheOtherModelsVoiceAndCalibration() async throws {
+        let store = VoiceStore(root: try tempRoot()), backend = FakeBackend()
+        let original = try await saveProfile(store, engine: services(backend))
+        let qwen = try #require(original.speakEntry)
+        let originalWAV = try Data(contentsOf: store.voiceURL.appendingPathComponent(VoiceStore.referenceName))
+        let originalScript = try Data(contentsOf: store.voiceURL.appendingPathComponent(VoiceStore.scriptName))
+        await backend.set(models: ["tts-ming3-0.5b-bf16"])
+        await backend.set(takes: [.en: [.init(seconds: 4, readback: enText, amplitude: 0.3)],
+                                  .de: [.init(seconds: 4, readback: deText, amplitude: 0.3)]])
+        let (life, routing) = lifecycle(store, backend)
+        let switched = await life.voiceReady()
+        #expect(switched.conditioningBuilt && switched.auditionChecked)
+        let ming = try store.loadProfile()
+        #expect(ming.speakEntry?.model == "tts-ming3-0.5b-bf16")
+        #expect(ming.archivedConditioningEntries == [qwen])
+        #expect(ming.playoutGainDb != original.playoutGainDb)
+        #expect(store.loadConditioning(ming).contains { $0.key == qwen.key })
+
+        await backend.set(models: [qwen.model])
+        let returned = await life.voiceReady()
+        #expect(!returned.conditioningBuilt && !returned.auditionChecked)
+        let restored = try store.loadProfile()
+        #expect(restored.speakEntry == qwen)
+        #expect(restored.playoutGainDb == original.playoutGainDb)
+        #expect(restored.auditionResult == original.auditionResult)
+        #expect(routing.voice?.conditioningKey == qwen.key)
+        #expect(routing.playoutGainDb == original.playoutGainDb)
+        #expect(restored.archivedConditioningEntries?.first?.model == "tts-ming3-0.5b-bf16")
+        #expect(try Data(contentsOf: store.voiceURL.appendingPathComponent(VoiceStore.referenceName)) == originalWAV)
+        #expect(try Data(contentsOf: store.voiceURL.appendingPathComponent(VoiceStore.scriptName)) == originalScript)
+    }
+
+    @Test @MainActor func missingActiveCacheIsRebuiltAndRecheckedEvenWhenItsKeyIsUnchanged() async throws {
+        let store = VoiceStore(root: try tempRoot()), backend = FakeBackend()
+        let original = try await saveProfile(store, engine: services(backend))
+        let key = try #require(original.speakEntry?.key)
+        try FileManager.default.removeItem(at: store.voiceURL.appendingPathComponent("conditioning/\(VoiceStore.safeKey(key)).safetensors"))
+        let (life, _) = lifecycle(store, backend)
+        let out = await life.voiceReady()
+        #expect(out.conditioningBuilt && out.auditionChecked)
+        #expect(try store.loadProfile().speakEntry?.key == key)
+    }
+
+    @Test @MainActor func restoreBeforeReadyAlignmentUsesTheRestoredModelsCalibration() async throws {
+        let store = VoiceStore(root: try tempRoot()), backend = FakeBackend()
+        let original = try await saveProfile(store, engine: services(backend))
+        let qwen = try #require(original.speakEntry)
+        await backend.set(models: ["tts-ming3-0.5b-bf16"])
+        await backend.set(takes: [.en: [.init(seconds: 4, readback: enText, amplitude: 0.3)],
+                                  .de: [.init(seconds: 4, readback: deText, amplitude: 0.3)]])
+        let (life, routing) = lifecycle(store, backend)
+        _ = await life.voiceReady()
+        #expect(try store.loadProfile().playoutGainDb != original.playoutGainDb)
+        await backend.set(models: [qwen.model])
+        await VoiceSync.restore(store: store, engine: services(backend), routing: routing)
+        let restored = try store.loadProfile()
+        #expect(restored.speakEntry == qwen)
+        #expect(restored.playoutGainDb == original.playoutGainDb)
+        #expect(routing.playoutGainDb == original.playoutGainDb)
+        #expect(VoiceSync.alreadyRestored(store: store, routing: routing))
     }
 
     @Test @MainActor func routeUsesTheCurrentBlobLoadedInsteadOfTheFirstProfileEntry() async throws {

@@ -48,7 +48,10 @@ case "\${1:-}" in
       pip) exit 0 ;;
     esac ;;
   -c) exit 0 ;;
-  *smoke_engine.py) exit "\$(/bin/cat "$work/smoke_rc" 2>/dev/null || echo 0)" ;;
+  *smoke_engine.py) printf '%s\\n' "\$@" > "$work/smoke_args"
+                   : > "$work/smoke_active"
+                   [ -f "$work/smoke_sleep" ] && /bin/sleep 2
+                   exit "\$(/bin/cat "$work/smoke_rc" 2>/dev/null || echo 0)" ;;
 esac
 exit 0
 EOF
@@ -68,6 +71,13 @@ mk_model() {  # mk_model <repo> <rev> -> prints the FILES block
 files_t="$(mk_model acme/Fake-TTS "$rev_t")"; files_a="$(mk_model acme/Fake-ASR "$rev_a")"
 rev_large="3333333333333333333333333333333333333333"
 files_large="$(mk_model acme/Fake-ASR-Large "$rev_large")"
+rev_m="4444444444444444444444444444444444444444"
+files_m="$(mk_model acme/Fake-Ming "$rev_m")"
+native="$work/hf/acme/Native-Speaker/resolve/5555555555555555555555555555555555555555/campplus.safetensors"
+/bin/mkdir -p "$(/usr/bin/dirname "$native")"
+printf 'native speaker encoder fixture' > "$native"
+files_m="$files_m
+speaker_encoder/campplus.safetensors $(tt_fsize "$native") $(tt_sha256 "$native")"
 
 /bin/cat > "$tree/scripts/lib/versions.sh" <<EOF
 # shellcheck shell=bash
@@ -79,13 +89,20 @@ TT_ENGINE_RECIPE=1; TT_ENGINE_API=2; TT_MLX_AUDIO_COMMIT="f65753b55f011f4cc8b1db
 TT_LOCK_SHA256="$(tt_sha256 "$tree/engine/requirements-engine.lock")"
 TT_BUILD_LOCK_SHA256="$(tt_sha256 "$tree/engine/requirements-build.lock")"
 TT_LOCK_COMPAT="\$TT_LOCK_SHA256"; TT_RUNTIME_FLAVOURS="main"
-TT_MODELS="fake-tts fake-asr fake-asr-large"
+TT_MODELS="fake-tts fake-ming fake-asr fake-asr-large"
 TT_PROFILE_MAX="fake-tts fake-asr"; TT_PROFILE_STANDARD="fake-tts fake-asr"
 TT_PROFILE_COMPACT24="fake-tts fake-asr"; TT_PROFILE_COMPACT16="fake-tts"
 TT_LICENSE_ALLOW="Apache-2.0 MIT"; TT_MODEL_DENY="tencent/HY-MT"
 TT_M_FAKE_TTS_REPO="acme/Fake-TTS"; TT_M_FAKE_TTS_REVISION="$rev_t"; TT_M_FAKE_TTS_ROLE="tts"; TT_M_FAKE_TTS_LICENSE="MIT"
 TT_M_FAKE_TTS_FILES="
 $files_t
+"
+TT_M_FAKE_MING_REPO="acme/Fake-Ming"; TT_M_FAKE_MING_REVISION="$rev_m"; TT_M_FAKE_MING_ROLE="tts"; TT_M_FAKE_MING_LICENSE="MIT"
+TT_M_FAKE_MING_FILES="
+$files_m
+"
+TT_M_FAKE_MING_FILE_SOURCES="
+speaker_encoder/campplus.safetensors acme/Native-Speaker 5555555555555555555555555555555555555555 campplus.safetensors
 "
 TT_M_FAKE_ASR_REPO="acme/Fake-ASR"; TT_M_FAKE_ASR_REVISION="$rev_a"; TT_M_FAKE_ASR_ROLE="asr"; TT_M_FAKE_ASR_LICENSE="MIT"
 TT_M_FAKE_ASR_FILES="
@@ -165,6 +182,73 @@ app="$work/TalkTalk.app/Contents/Resources/installer"; /bin/mkdir -p "$app"; /bi
 inst --remove-model fake-asr && no "profile model removal refused" || ok "profile model removal refused"
 [ -d "$eng/models/Fake-ASR@222222222222" ] && ok "profile model kept" || no "profile model kept"
 
+# 7a. TTS-only selection preserves the ASR, runtime metadata, and the other TTS download.
+inst --add-model fake-ming \
+  && /usr/bin/cmp -s "$native" "$eng/models/Fake-Ming@444444444444/speaker_encoder/campplus.safetensors" \
+  && ok "auxiliary speaker asset uses its separately pinned source" || no "auxiliary speaker source"
+inst --remove-model fake-ming
+source_m="$work/pre-downloaded-ming"
+/bin/cp -R "$work/hf/acme/Fake-Ming/resolve/$rev_m" "$source_m"
+/bin/mkdir -p "$source_m/speaker_encoder"
+/bin/cp "$native" "$source_m/speaker_encoder/campplus.safetensors"
+# The source may contain Hugging Face cache metadata: import only pinned files.
+/bin/mkdir -p "$source_m/.cache"
+printf 'keep me' > "$source_m/.cache/download-metadata"
+/bin/mv "$work/hf/acme/Fake-Ming" "$work/fake-ming-remote-disabled"
+/usr/bin/jq '.python.version="3.12.14" | .custom_metadata="must-survive"' "$eng/install.json" > "$work/record.json"
+/bin/mv "$work/record.json" "$eng/install.json"
+asr_before="$(/usr/bin/jq -cS .roles.asr "$eng/install.json")"
+runtime_before="$(/usr/bin/jq -cS '{engine_api,runtime,flavour,lock_sha256,build_lock_sha256,recipe,python,mlx_audio_commit,custom_metadata}' "$eng/install.json")"
+record_before="$(tt_sha256 "$eng/install.json")"
+inst --select-tts fake-ming --model-source "$work/missing-source" \
+  && no "missing local source refuses without network fallback" || ok "missing local source refuses without network fallback"
+[ "$(tt_sha256 "$eng/install.json")" = "$record_before" ] && [ ! -e "$eng/install.json.prev" ] \
+  && ok "failed import leaves the active record intact" || no "import rollback"
+inst --select-tts fake-ming --model-source "$source_m" --json-progress \
+  && [ "$(/usr/bin/jq -r .roles.tts.id "$eng/install.json")" = fake-ming ] \
+  && [ "$(/usr/bin/jq -cS .roles.asr "$eng/install.json")" = "$asr_before" ] \
+  && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = custom ] \
+  && ok "local import selects only TTS while remote is unavailable" || no "local TTS selection"
+/usr/bin/grep -q '^fake-ming$' "$work/smoke_args" && /usr/bin/grep -q '^fake-asr$' "$work/smoke_args" \
+  && ok "TTS smoke uses selected TTS and the existing ASR" || no "TTS smoke role arguments"
+[ "$(/usr/bin/jq -cS '{engine_api,runtime,flavour,lock_sha256,build_lock_sha256,recipe,python,mlx_audio_commit,custom_metadata}' "$eng/install.json")" = "$runtime_before" ] \
+  && ok "TTS selection preserves runtime and unknown record metadata" || no "TTS runtime metadata"
+[ -d "$eng/models/Fake-TTS@111111111111" ] && [ -f "$source_m/.cache/download-metadata" ] \
+  && [ ! -e "$eng/models/Fake-Ming@444444444444/.cache" ] \
+  && ok "TTS selection retains Qwen files and imports no foreign cache files" || no "selection preserved files"
+inst --select-tts fake-tts --json-progress \
+  && [ "$(/usr/bin/jq -r .roles.tts.id "$eng/install.json")" = fake-tts ] \
+  && [ "$(/usr/bin/jq -cS .roles.asr "$eng/install.json")" = "$asr_before" ] \
+  && ! /usr/bin/grep -q '"event":"download"' "$work/out" \
+  && ok "switching back reuses installed TTS and keeps ASR" || no "switch back"
+record_before="$(tt_sha256 "$eng/install.json")"
+echo 1 > "$work/smoke_rc"
+inst --select-tts fake-ming && no "TTS smoke failure refuses activation" || ok "TTS smoke failure refuses activation"
+[ "$(tt_sha256 "$eng/install.json")" = "$record_before" ] && [ ! -e "$eng/install.json.prev" ] \
+  && ok "failed TTS smoke retains the previous selection" || no "TTS smoke rollback"
+echo 0 > "$work/smoke_rc"
+/bin/rm -f "$work/smoke_active"
+: > "$work/smoke_sleep"
+inst --select-tts fake-ming --json-progress & selection_runner=$!
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  [ ! -e "$work/smoke_active" ] || break
+  /bin/sleep 0.1
+done
+selection_pid="$(/usr/bin/readlink "$eng/.lock" 2>/dev/null || true)"
+[ -n "$selection_pid" ] && /bin/kill -TERM "$selection_pid"
+selection_rc=0; wait "$selection_runner" || selection_rc=$?
+[ "$selection_rc" = 130 ] && [ "$(tt_sha256 "$eng/install.json")" = "$record_before" ] \
+  && [ ! -e "$eng/install.json.prev" ] && [ ! -e "$eng/.lock" ] \
+  && ok "cancelled TTS selection retains the active record and releases the lock" || no "TTS selection cancellation"
+/bin/rm -f "$work/smoke_sleep"
+inst --select-tts fake-ming --no-smoke && no "TTS selection cannot bypass smoke" || ok "TTS selection cannot bypass smoke"
+inst --select-tts fake-asr && no "TTS selector rejects ASR models" || ok "TTS selector rejects ASR models"
+inst --select-tts fake-ming --profile max && no "TTS selector rejects profile changes" || ok "TTS selector rejects profile changes"
+[ "$(tt_sha256 "$eng/install.json")" = "$record_before" ] \
+  && ok "invalid TTS selection flags leave the record intact" || no "invalid TTS selection changed record"
+/bin/mv "$work/fake-ming-remote-disabled" "$work/hf/acme/Fake-Ming"
+inst --remove-model fake-ming
+
 # 7b. A new app changes Max's composition; old labels must not select the new ASR.
 set_record() {
   /usr/bin/jq "$1" "$eng/install.json" > "$work/record.json"
@@ -208,6 +292,13 @@ inst --profile compact16 && inst --add-model fake-asr-large \
   && [ "$(/usr/bin/jq -r '.roles | has("asr")' "$eng/install.json")" = false ] \
   && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = compact16 ] \
   && ok "Apple recognition preset stays without active ASR after model add" || no "Apple preset add"
+inst --select-tts fake-ming --model-source "$source_m" \
+  && [ "$(/usr/bin/jq -r '.roles | has("asr")' "$eng/install.json")" = false ] \
+  && [ "$(/usr/bin/jq -r .roles.tts.id "$eng/install.json")" = fake-ming ] \
+  && inst --select-tts fake-tts \
+  && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = compact16 ] \
+  && ok "switching TTS preserves intentionally absent ASR and restores its preset on return" || no "TTS Apple recognition preservation"
+inst --remove-model fake-ming
 inst --profile standard
 asr_before="$(/usr/bin/jq -cS .roles.asr "$eng/install.json")"
 inst --remove-model fake-tts --allow-active-model \

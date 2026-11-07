@@ -30,6 +30,30 @@ model_allow_list() {
 
 model_dir() { printf '%s/%s' "$MODELS_DIR" "$(tt_model_dirname "$1")"; }
 
+model_file_url() {
+  # A model may bundle a small auxiliary asset from a separately pinned repository.
+  # FILE_SOURCES rows are: local-path repository revision remote-path.
+  local key="$1" file="$2" path repo rev remote
+  while read -r path repo rev remote; do
+    [ "$path" = "$file" ] || continue
+    printf '%s/%s/resolve/%s/%s' "$HF_BASE" "$repo" "$rev" "$remote"
+    return 0
+  done < <(tt_model_field "$key" FILE_SOURCES)
+  printf '%s/%s/resolve/%s/%s' "$HF_BASE" "$(tt_model_field "$key" REPO)" \
+    "$(tt_model_field "$key" REVISION)" "$file"
+}
+
+verify_model_source() {
+  # An explicit local source is all-or-nothing: never quietly download missing files.
+  local key="$1" source="$2" path bytes sha
+  [ -d "$source" ] || tt_die "model source is not a directory: $source"
+  while read -r path bytes sha; do
+    [ -f "$source/$path" ] && [ "$(tt_fsize "$source/$path")" = "$bytes" ] \
+      && [ "$(tt_sha256 "$source/$path")" = "$sha" ] \
+      || tt_die "$key: local source $path does not match its pin"
+  done < <(tt_model_files "$key")
+}
+
 model_missing_bytes() {
   local key="$1" d path bytes sha have total=0
   d="$(model_dir "$key")"
@@ -78,6 +102,7 @@ install_model() {
     tt_event step step "model" model "$key" "done" "$count" count "$count"
     return 0
   fi
+  if [ -n "${MODEL_SOURCE:-}" ]; then verify_model_source "$key" "$MODEL_SOURCE"; fi
   /bin/mkdir -p "$d"
   allow="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/tt-allow.XXXXXX")"
   model_allow_list "$key" > "$allow"
@@ -92,8 +117,17 @@ install_model() {
   while read -r path bytes sha; do
     n=$((n + 1))
     tt_event step step "model" model "$key" "done" "$((n - 1))" count "$count"
-    url="$HF_BASE/$repo/resolve/$rev/$path"
-    if [ "$CURL_PROTO_OK" = "1" ]; then
+    url="$(model_file_url "$key" "$path")"
+    if [ -n "${MODEL_SOURCE:-}" ]; then
+      /bin/mkdir -p "$(/usr/bin/dirname "$d/$path")"
+      # APFS clones reuse the existing model's disk blocks; other volumes fall back to copy.
+      /bin/cp -c "$MODEL_SOURCE/$path" "$d/$path.part" 2>/dev/null \
+        || /bin/cp "$MODEL_SOURCE/$path" "$d/$path.part"
+      [ "$(tt_fsize "$d/$path.part")" = "$bytes" ] && [ "$(tt_sha256 "$d/$path.part")" = "$sha" ] \
+        || tt_die "$key: imported $path failed verification"
+      /bin/mv -f "$d/$path.part" "$d/$path"
+      tt_event download file "$key/$path" have "$bytes" total "$bytes" verified 1
+    elif [ "$CURL_PROTO_OK" = "1" ]; then
       tt_download "$url" "$d/$path" "$bytes" "$sha" "$key/$path"
     else
       tt_download_test "$url" "$d/$path" "$bytes" "$sha" "$key/$path"

@@ -3,7 +3,7 @@
 
 public enum EnginePins {
     public static let appVersion = "1.0.15"
-    public static let appBuild = "53"
+    public static let appBuild = "55"
     public static let engineAPI = 2
     public static let engineRecipe = 1
     public static let pythonVersion = "3.14.10"
@@ -63,6 +63,22 @@ public enum EnginePins {
             File(path: "speech_tokenizer/preprocessor_config.json", bytes: 234),
             File(path: "tokenizer_config.json", bytes: 7344),
             File(path: "vocab.json", bytes: 2776833),
+        ]),
+        Model(key: "tts-ming3-0.5b-bf16", repo: "mlx-community/Ming-3.0-tts-0.5B-bf16", revision: "283b3c342c6fb69a7a87832c97f9799567efe05d", compatRevisions: [], role: "tts", license: "MIT", bytes: 3030459915, fileCount: 14, files: [
+            File(path: "LICENSE", bytes: 1067),
+            File(path: "README.md", bytes: 4245),
+            File(path: "added_tokens.json", bytes: 1785),
+            File(path: "campplus.safetensors", bytes: 27699096),
+            File(path: "config.json", bytes: 5882),
+            File(path: "configuration.json", bytes: 51),
+            File(path: "merges.txt", bytes: 1671853),
+            File(path: "model.safetensors", bytes: 2959055287),
+            File(path: "model.safetensors.index.json", bytes: 96296),
+            File(path: "special_tokens_map.json", bytes: 2726),
+            File(path: "tokenizer.json", bytes: 11431389),
+            File(path: "tokenizer_config.json", bytes: 16260),
+            File(path: "vocab.json", bytes: 2776833),
+            File(path: "speaker_encoder/campplus.safetensors", bytes: 27697145),
         ]),
         Model(key: "asr-qwen3-0.6b-8bit", repo: "mlx-community/Qwen3-ASR-0.6B-8bit", revision: "89e96d92ba34aca20b3e29fb10cc284097d1219f", compatRevisions: [], role: "asr", license: "Apache-2.0", bytes: 1010772242, fileCount: 10, files: [
             File(path: "README.md", bytes: 1008),

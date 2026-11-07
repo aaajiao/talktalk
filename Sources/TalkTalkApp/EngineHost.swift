@@ -34,6 +34,9 @@ final class EngineHost {
     /// Effective resource profile of the current validated instance. Creating that instance
     /// is lazy: this is available at app launch without starting Python or loading a model.
     var installedProfile: EngineProfile? { processRecord.flatMap { EngineProfile.matching(record: $0) } }
+    var recognitionProfile: EngineProfile? {
+        processRecord.flatMap { EngineRecognitionPolicy.compatibilityProfile(activeRoles: $0.roles.mapValues(\.id)) }
+    }
     @ObservationIgnored private var stoppingTask: Task<Void, Never>?
     /// Installer ownership withdraws all app-facing references until disk has been reread.
     private(set) var maintenanceActive = false

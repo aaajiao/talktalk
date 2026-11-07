@@ -127,7 +127,11 @@ class EngineState:
                 raise RuntimeError(f"TTS model {self.args.tts} not found in {self.args.models_dir}")
             path, rev = found[self.args.tts]
             handshake.progress("tts", 0, n)
-            self.tts = TTSModel(self.args.tts, path, rev).load()
+            if self.args.tts == "tts-ming3-0.5b-bf16":
+                from .ming import MingTTSModel
+                self.tts = MingTTSModel(self.args.tts, path, rev).load()
+            else:
+                self.tts = TTSModel(self.args.tts, path, rev).load()
             self.models["tts"] = {"id": self.args.tts, "rev": rev, "state": "ready"}
             handshake.progress("tts", 1, n)
             self._generic_warmup()
@@ -199,7 +203,13 @@ class EngineState:
         key = f"{RUNTIME}-mlxaudio{self.versions.get('mlx_audio', '?')}-{self.tts.key}@{self.tts.rev[:12]}-icl-{V.audio_fingerprint(pcm24k)[:16]}"
 
         def build():
-            v, ms = self.tts.build_voice(pcm24k, ref_text, key=key)
+            try:
+                v, ms = self.tts.build_voice(pcm24k, ref_text, key=key)
+            except ValueError as e:
+                if getattr(e, "code", None) == "voice_reference_too_long":
+                    from .server import ApiError
+                    raise ApiError(400, e.code, str(e)) from e
+                raise
             return v, ms, V.to_blob(v)
 
         return self.sched.call(build, long_step=True)
@@ -215,6 +225,12 @@ class EngineState:
 
         def load():
             voice = V.from_blob(blob)
+            validate = getattr(self.tts, "validate_voice", None)
+            if validate is not None:
+                try:
+                    validate(voice)
+                except ValueError as e:
+                    raise ApiError(409, getattr(e, "code", "voice_model_mismatch"), str(e)) from e
             if expected_key is not None and voice.key != expected_key:
                 raise ApiError(409, "voice_key_mismatch", "voice blob does not match the requested voice")
             return voice
@@ -301,6 +317,10 @@ class EngineState:
             raise ApiError(400, "bad_request", "invalid context_id")
         if previous_job is not None and (not isinstance(previous_job, str) or not 0 < len(previous_job) <= 128):
             raise ApiError(400, "bad_request", "invalid previous_job")
+        # Continuation codes and CB0 guards are Qwen-specific. A Ming voice has only its
+        # human reference and speaker embedding; never feed earlier synthetic audio back in.
+        if not getattr(self.tts, "supports_continuation", True):
+            context_id = previous_job = None
         with self.voice_lock:
             if self.voice is None:
                 raise ApiError(409, "voice_absent", "no voice loaded")

@@ -206,16 +206,14 @@ final class SettingsNavigation {
 
     /// Opens a model sub-page without a way back (the subtitle window's settings; the menu's
     /// problem rows use `reveal`). Not a flow link, so a pill from an earlier link goes, even
-    /// when 识别与翻译 is already shown. The retained synthesis id opens 我的声音.
+    /// when 识别与翻译 is already shown.
     func openModel(_ stage: ModelSettingsStage) {
         reveal(.translation, .model(stage))
     }
 
-    /// Keep the old model/synthesis route usable without bringing back a third card.
-    /// Synthesis now belongs to 我的声音; an old section anchor must not scroll that page.
+    /// Keep model sub-pages in the existing settings category, including synthesis.
     private static func destination(_ section: SettingsSection, _ subpage: SettingsSubpage?, anchor: String?)
         -> (section: SettingsSection, subpage: SettingsSubpage?, anchor: String?) {
-        if section == .translation, subpage == .model(.synthesis) { return (.voice, nil, nil) }
         return (section, subpage, anchor)
     }
 

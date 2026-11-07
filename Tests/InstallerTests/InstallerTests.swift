@@ -61,6 +61,7 @@ struct InstallerTests {
         #expect(i.launchSpec(for: .install(profile: "compact24")).arguments == [s.path, "--profile", "compact24", "--json-progress"])
         #expect(i.launchSpec(for: .check).arguments == [s.path, "--check", "--json-progress"])
         #expect(i.launchSpec(for: .addModel("k")).arguments == [s.path, "--add-model", "k", "--json-progress"])
+        #expect(i.launchSpec(for: .selectTTS("k")).arguments == [s.path, "--select-tts", "k", "--json-progress"])
         #expect(i.launchSpec(for: .removeModel("k")).arguments == [s.path, "--remove-model", "k", "--json-progress"])
         #expect(i.launchSpec(for: .removeActiveModel("k")).arguments == [s.path, "--remove-model", "k", "--allow-active-model", "--json-progress"])
         #expect(i.launchSpec(for: .uninstall).arguments == [s.path, "--uninstall", "--json-progress"])

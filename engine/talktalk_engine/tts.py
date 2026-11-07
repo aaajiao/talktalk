@@ -65,6 +65,8 @@ def expected_seconds(text, lang):
 
 
 class TTSModel:
+    supports_continuation = True
+
     def __init__(self, key, path, rev):
         self.key = key
         self.path = Path(path)
@@ -151,8 +153,15 @@ class TTSModel:
         mx.eval(spk)
         t3 = time.perf_counter()
         voice = Voice(key=key, ref_text=ref_text, ref_codes=codes, ref_text_ids=ref_ids, speaker_embed=spk,
-                      meta={"ref_s": round(len(ref_pcm) / SAMPLE_RATE, 3), "frames": int(codes.shape[2])})
+                      meta={"ref_s": round(len(ref_pcm) / SAMPLE_RATE, 3), "frames": int(codes.shape[2])},
+                      model_key=self.key)
         return voice, {"encode_ms": (t1 - t0) * 1e3, "text_ids_ms": (t2 - t1) * 1e3, "speaker_embed_ms": (t3 - t2) * 1e3}
+
+    def validate_voice(self, voice):
+        if getattr(voice, "family", None) != "qwen3-icl-v1":
+            raise ValueError("voice conditioning belongs to a different TTS family")
+        if voice.model_key is not None and voice.model_key != self.key:
+            raise ValueError("voice conditioning belongs to a different TTS model")
 
     # ------------------------------------------------------------------ inputs
 

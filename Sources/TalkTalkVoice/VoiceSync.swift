@@ -9,8 +9,8 @@ import TalkTalkCore
 /// 1. No profile → system voice (C8); an existing but unreadable profile stays pending.
 /// 2. Conditioning that is stale for the running engine (other runtime, mlx-audio, model or
 ///    revision) or missing counts as missing: SPEAK goes to "pending", the conditioning is rebuilt,
-///    old blob files go, `conditioning_keys` is rewritten, the audition goes back to
-///    `pending_engine` and the playout gain is cleared (it belongs to the old audition).
+///    stale files for that model go and `conditioning_keys` is rewritten. Other models keep
+///    their cached audition and gain; new or rebuilt conditioning requires a new audition.
 /// 3. `audition == pending_engine` → run it, store the result and the playout gain. An engine
 ///    error leaves it pending (retried at the next READY).
 /// 4. SPEAK goes to "pending" *before* every `loadVoice` (after an engine restart the slot is
@@ -47,15 +47,15 @@ public enum VoiceSync {
                 routing?.useMyVoicePending()
                 blobs = try await build(p, store: store, engine: engine)
                 try Task.checkCancellation()
-                try store.replaceSavedConditioning(blobs, expecting: ident)
-                p.conditioningEntries = blobs.map { .init(key: $0.key, model: $0.model, mode: $0.mode) }
-                p.conditioning = "built"
-                p.audition = "pending_engine"
-                p.auditionResult = nil
-                p.playoutGainDb = nil
-                p.checks.status[CheckID.audition.rawValue] = .pending
-                try store.replaceProfile(p, expecting: ident)
+                let models = Set(blobs.map(\.model))
+                let retained = ((p.conditioningEntries ?? []) + (p.archivedConditioningEntries ?? []))
+                    .filter { !models.contains($0.model) }
+                try store.replaceSavedConditioning(blobs, expecting: ident, retainingKeys: Set(retained.map(\.key)))
                 out.conditioningBuilt = true
+            }
+            if activate(blobs, in: &p, rebuilt: out.conditioningBuilt) {
+                try Task.checkCancellation()
+                try store.replaceProfile(p, expecting: ident)
             }
             if p.audition == "pending_engine" {
                 do {
@@ -102,7 +102,7 @@ public enum VoiceSync {
     /// The engine holds one voice: put the saved profile's back if its conditioning is current
     /// (no rebuild here), else unload. Routes accordingly when `routing` is given.
     public static func restore(store: VoiceStore, engine: any VoiceEngineServices, routing: SpeakVoiceRouting?) async {
-        guard let p = try? store.loadProfile() else {
+        guard var p = try? store.loadProfile() else {
             // Fence new SPEAK work before awaiting the unload: the slot may still contain an
             // unsaved audition, and an unreadable saved profile must not fall back to system.
             if store.hasProfile { routing?.useMyVoicePending() } else { routing?.useSystemVoice() }
@@ -116,6 +116,7 @@ public enum VoiceSync {
         }
         do {
             let epoch = routing?.markPending()
+            if activate(blobs, in: &p) { try store.replaceProfile(p, expecting: p.identity) }
             try await engine.loadVoice(blobs, mode: p.modesByLang[.en] ?? .icl, profileID: p.id)
             try store.checkStill(p.identity)
             if let h = handle(p, loaded: blobs), let epoch { routing?.useMyVoice(h, playoutGainDb: p.playoutGainDb ?? 0, ifEpoch: epoch) }
@@ -145,6 +146,49 @@ public enum VoiceSync {
         p.auditionResult = a.summary
         p.playoutGainDb = a.playoutGainDb
         p.checks.status[CheckID.audition.rawValue] = a.passed ? .pass : .reject
+        rememberSynthesisState(in: &p)
+    }
+
+    /// Move a validated model's blobs to the active slot, retaining other models' caches and
+    /// calibration. A revision change drops that model's stale entries and requires a fresh check.
+    @discardableResult
+    static func activate(_ blobs: [ConditioningBlob], in p: inout VoiceProfile, rebuilt: Bool = false) -> Bool {
+        guard !blobs.isEmpty else { return false }
+        let entries = blobs.map { VoiceProfile.ConditioningEntry(key: $0.key, model: $0.model, mode: $0.mode) }
+        guard entries != p.conditioningEntries || rebuilt else { return false }
+        rememberSynthesisState(in: &p)
+        let activeModels = Set(blobs.map(\.model))
+        var seen = Set<String>()
+        let archived = ((p.conditioningEntries ?? []) + (p.archivedConditioningEntries ?? []))
+            .filter { !activeModels.contains($0.model) && seen.insert($0.key).inserted }
+        p.conditioningEntries = entries
+        p.archivedConditioningEntries = archived.isEmpty ? nil : archived
+        p.conditioning = "built"
+        let keys = Set((entries + archived).map(\.key))
+        p.synthesisStates = p.synthesisStates?.filter { keys.contains($0.key) }
+        if rebuilt {
+            for entry in entries { p.synthesisStates?.removeValue(forKey: entry.key) }
+        }
+        if let key = p.speakEntry?.key, let state = p.synthesisStates?[key] {
+            p.audition = state.audition
+            p.auditionResult = state.result
+            p.playoutGainDb = state.gainDb
+            p.checks.status[CheckID.audition.rawValue] = state.status
+        } else {
+            p.audition = "pending_engine"
+            p.auditionResult = nil
+            p.playoutGainDb = nil
+            p.checks.status[CheckID.audition.rawValue] = .pending
+        }
+        return true
+    }
+
+    private static func rememberSynthesisState(in p: inout VoiceProfile) {
+        guard let key = p.speakEntry?.key else { return }
+        var states = p.synthesisStates ?? [:]
+        states[key] = .init(audition: p.audition, result: p.auditionResult, gainDb: p.playoutGainDb,
+                            status: p.checks.status[CheckID.audition.rawValue])
+        p.synthesisStates = states
     }
 
     static func handle(_ p: VoiceProfile) -> VoiceHandle? {

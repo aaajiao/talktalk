@@ -35,6 +35,15 @@ Qwen3-ASR-1.7B-8bit. The benchmark-only Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit pin
 [tools/bench/bench-pins.sh](../../tools/bench/bench-pins.sh). Model weights are downloaded separately
 and are not relicensed under TalkTalk's MIT license.
 
+The optional Ming-3.0-tts-0.5B-bf16 snapshot is pinned at
+`283b3c342c6fb69a7a87832c97f9799567efe05d`; its
+[upstream LICENSE](https://huggingface.co/mlx-community/Ming-3.0-tts-0.5B-bf16/blob/283b3c342c6fb69a7a87832c97f9799567efe05d/LICENSE)
+is MIT and is installed with the model. Its native CAMPPlus companion is separately pinned
+from Step-Audio-2-token2wav at `e21026b660069e6d1b9ac5c9a51e08ed0201f30e`; that
+[model card](https://huggingface.co/mlx-community/Step-Audio-2-token2wav/blob/e21026b660069e6d1b9ac5c9a51e08ed0201f30e/README.md)
+declares Apache-2.0. Both assets are downloaded to the user's model directory rather than
+bundled in the application.
+
 The license gate accepts the configured Apache-2.0 and MIT model licenses. `tencent/HY-MT*`
 remains excluded by the project's model deny list.
 

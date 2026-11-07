@@ -157,7 +157,7 @@ struct ScenarioFacts {
 /// The recognition and synthesis models' state, shared by the 模型 cards and the flow nodes.
 extension EngineComponentsModel {
     @MainActor func recognitionProblem(_ state: AppState, speaking: Bool? = nil) -> SettingsProblem? {
-        let appleProfile = installedProfile?.usesAppleRecognition == true
+        let appleProfile = usesAppleRecognition
         let qwenRequired = speaking.map { $0 ? state.effectiveSpeakASREngine == .qwen : state.effectiveListenASREngine == .qwen }
             ?? (state.effectiveListenASREngine == .qwen || state.effectiveSpeakASREngine == .qwen)
         return SettingsProblem.mostSevere([

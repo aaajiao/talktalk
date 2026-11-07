@@ -164,11 +164,12 @@ public struct VoiceStore: Sendable {
     }
 
     /// Writes rebuilt conditioning into `voice/conditioning/` for the saved profile `expecting`,
-    /// then removes every other blob file there (stale keys of an older engine, §9.3).
-    public func replaceSavedConditioning(_ blobs: [ConditioningBlob], expecting: VoiceProfile.Identity) throws {
+    /// then removes stale blobs except the explicitly retained caches of other TTS models.
+    public func replaceSavedConditioning(_ blobs: [ConditioningBlob], expecting: VoiceProfile.Identity,
+                                         retainingKeys: Set<String> = []) throws {
         try checkStill(expecting)
         for b in blobs { try writeConditioning(b.data, key: b.key, into: voiceURL) }
-        let keep = Set(blobs.map { Self.safeKey($0.key) + ".safetensors" })
+        let keep = Set((blobs.map(\.key) + Array(retainingKeys)).map { Self.safeKey($0) + ".safetensors" })
         let cond = voiceURL.appendingPathComponent(Self.conditioningName, isDirectory: true)
         for name in (try? FileManager.default.contentsOfDirectory(atPath: cond.path)) ?? []
         where name.hasSuffix(".safetensors") && !keep.contains(name) {
@@ -180,7 +181,7 @@ public struct VoiceStore: Sendable {
     /// Entries whose file is missing are skipped; the engine rebuilds them at warm-up (§9.3).
     public func loadConditioning(_ profile: VoiceProfile) -> [ConditioningBlob] {
         let cond = voiceURL.appendingPathComponent(Self.conditioningName, isDirectory: true)
-        return (profile.conditioningEntries ?? []).compactMap { e in
+        return ((profile.conditioningEntries ?? []) + (profile.archivedConditioningEntries ?? [])).compactMap { e in
             guard let d = try? Data(contentsOf: cond.appendingPathComponent(Self.safeKey(e.key) + ".safetensors")) else { return nil }
             return ConditioningBlob(key: e.key, data: d, model: e.model, mode: e.mode, samplingKey: profile.samplingKey)
         }

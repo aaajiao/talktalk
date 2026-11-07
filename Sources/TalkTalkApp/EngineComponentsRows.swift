@@ -17,7 +17,18 @@ final class EngineComponentsModel {
     private(set) var record: EngineInstallation.Record?
     /// Current pinned files that are ready, including downloads not active in install.json.
     private(set) var readyModelIDs: Set<String> = []
-    var profile: String
+    /// A preset is pending only after an explicit picker action. Custom installed roles are
+    /// shown as custom until the user chooses a preset, never as an implied standard install.
+    private(set) var pendingPresetID: String?
+    var profile: String {
+        get { EnginePresetSelection.pickerID(activeRoles: record?.roles.mapValues(\.id), pendingID: pendingPresetID) }
+        set {
+            guard Self.profiles.contains(newValue) else { return }
+            pendingPresetID = newValue == installedProfile?.rawValue ? nil : newValue
+        }
+    }
+    /// Missing models wait for Download and Use. The installed role stays authoritative.
+    private(set) var pendingSynthesisID: String?
     /// Set by the engine owner; nil: no engine instance. Returns nil on success, else what to show.
     @ObservationIgnored var restart: (() async -> String?)?
     /// Every installer run (install, repair, profile change, models, uninstall) stops the running
@@ -72,7 +83,6 @@ final class EngineComponentsModel {
             EngineInstaller(script: $0, paths: paths, stopEngine: { await hook.begin() },
                             finishMaintenance: { await hook.finished() })
         }
-        profile = EngineProfile.standard.rawValue
         reload()
     }
 
@@ -81,8 +91,9 @@ final class EngineComponentsModel {
         let r = installation.check()
         state = r.state
         record = r.record
+        pendingSynthesisID = nil
+        pendingPresetID = nil
         readyModelIDs = Set(EnginePins.models.filter { installation.isModelReady(id: $0.key) }.map(\.key))
-        if let installedProfile { profile = installedProfile.rawValue }
     }
 
     /// Active roles describe the installed combination; a stale recorded label is not proof
@@ -93,7 +104,7 @@ final class EngineComponentsModel {
     }
 
     var usesAppleRecognition: Bool {
-        installed && installedProfile?.usesAppleRecognition == true
+        installed && record?.roles["tts"] != nil && record?.roles["asr"] == nil
     }
 
     var legacyProfile: EngineProfile? {
@@ -106,6 +117,40 @@ final class EngineComponentsModel {
     /// No engine action can start now: one runs, the engine restarts, 完全卸载 runs, or this
     /// build has no installer.
     var busy: Bool { running || restarting || installer == nil || blocked }
+    /// Every maintenance operation stops the engine, including check and inactive downloads.
+    var maintenanceBlocked: Bool { busy || sessionInProgress }
+
+    var synthesisModels: [EnginePins.Model] { EngineSynthesisSelection.models() }
+    var canSelectSynthesis: Bool {
+        EngineSynthesisSelection.canSelect(state: state, activeRoles: record?.roles.mapValues(\.id) ?? [:])
+    }
+    var synthesisRepairID: String? {
+        guard case .incomplete = state, canSelectSynthesis else { return nil }
+        return record?.roles["tts"]?.id
+    }
+    var synthesisSelectionID: String {
+        EngineSynthesisSelection.pickerID(activeRoles: record?.roles.mapValues(\.id) ?? [:], pendingID: pendingSynthesisID)
+    }
+    func synthesisAction(_ id: String) -> EngineSynthesisSelection.Action {
+        EngineSynthesisSelection.action(for: id, activeRoles: record?.roles.mapValues(\.id) ?? [:],
+                                         readyModelIDs: readyModelIDs, installationReady: canSelectSynthesis,
+                                         busy: busy, sessionActive: sessionInProgress)
+    }
+    func chooseSynthesis(_ id: String) {
+        guard !busy, !sessionInProgress else { return }
+        switch synthesisAction(id) {
+        case .current:
+            pendingSynthesisID = nil
+        case .activate:
+            pendingSynthesisID = id
+            confirmAndRun(.selectTTS(id))
+        case .downloadAndActivate:
+            pendingSynthesisID = id
+            outcome = nil
+        case .unavailable:
+            break
+        }
+    }
 
     func isModelActive(_ id: String) -> Bool {
         record?.roles.values.contains { $0.id == id } ?? false
@@ -116,9 +161,12 @@ final class EngineComponentsModel {
     }
 
     private func canRun(_ op: InstallerOp) -> Bool {
-        guard !busy else { return false }
+        guard !maintenanceBlocked else { return false }
         switch op {
-        case .removeActiveModel: return !sessionInProgress
+        case let .selectTTS(id):
+            let action = synthesisAction(id)
+            return action == .activate || action == .downloadAndActivate
+        case .removeActiveModel: return true
         // A normal-delete confirmation must not acquire permission to remove a role that
         // became active while the modal alert was open.
         case let .removeModel(id): return !isModelActive(id)
@@ -152,7 +200,8 @@ final class EngineComponentsModel {
     }
 
     static func profileMenuTitle(_ profile: String) -> String {
-        "\(profileTitle(profile)) · \(gb(modelBytes(profile)))"
+        EngineProfile(rawValue: profile) == nil ? profileTitle(profile)
+            : "\(profileTitle(profile)) · \(gb(modelBytes(profile)))"
     }
 
     static func profileSummary(_ profile: String) -> String {
@@ -207,13 +256,23 @@ final class EngineComponentsModel {
         case let .addModel(k):
             let b = EnginePins.models.first { $0.key == k }?.bytes ?? 0
             return (String(appLocalized: "下载模型 \(k)？"), String(appLocalized: "约 \(Self.gb(b))。"), String(appLocalized: "下载"))
+        case let .selectTTS(k):
+            guard !readyModelIDs.contains(k), let model = synthesisModels.first(where: { $0.key == k }) else { return nil }
+            if synthesisRepairID == k, case let .incomplete(_, bytes) = state {
+                return (String(appLocalized: "修复 \(EngineSynthesisSelection.title(for: model))？"),
+                        String(appLocalized: "约 \(Self.gb(bytes))。继续使用当前识别、合成模型与声音录音。"),
+                        String(appLocalized: "修复"))
+            }
+            return (String(appLocalized: "下载并使用 \(EngineSynthesisSelection.title(for: model))？"),
+                    String(appLocalized: "约 \(Self.gb(model.bytes))。切换语音合成后，继续使用当前识别模型与声音录音。"),
+                    String(appLocalized: "下载并使用"))
         case let .removeModel(k):
             return (String(appLocalized: "删除模型 \(k)？"), String(appLocalized: "以后要用时需要重新下载。"), String(appLocalized: "删除模型"))
         case let .removeActiveModel(k):
             let isASR = EnginePins.models.first { $0.key == k }?.role == "asr"
             let impact = isASR
                 ? String(appLocalized: "将停止本地引擎并删除当前使用的识别模型。Qwen 识别将不可用，语音合成模型保留；可使用 Apple Speech，或重新下载并选择档位恢复。")
-                : String(appLocalized: "将停止本地引擎并删除当前使用的合成模型。Qwen 语音合成将不可用，识别模型保留；重新下载并选择档位后可恢复。")
+                : String(appLocalized: "将停止本地引擎并删除当前使用的合成模型。本地语音合成将不可用，识别模型保留；重新下载并选择合成模型后可恢复。")
             return (String(appLocalized: "删除正在使用的模型 \(k)？"), impact, String(appLocalized: "删除模型"))
         case .uninstall:
             return (String(appLocalized: "卸载引擎？"),
@@ -228,10 +287,11 @@ final class EngineComponentsModel {
     func dismissResult() { outcome = nil }
 
     func doRestart() {
-        guard let restart, !restarting, !running, !blocked else { return }
+        guard let restart, !maintenanceBlocked else { return }
         restarting = true
         outcome = nil
         Task {
+            guard !sessionInProgress, !running, !blocked else { restarting = false; return }
             let failure = await restart()
             restarting = false
             outcome = failure.map(Outcome.restartFailed) ?? .restarted
@@ -275,7 +335,8 @@ final class EngineComponentsModel {
 
     /// A picker change is a pending install choice, not a change to the installed profile.
     var pendingProfileChange: SettingsProblem? {
-        guard case let .installed(installedProfile, _) = state, installedProfile != profile else { return nil }
+        guard let profile = pendingPresetID, case let .installed(installedProfile, _) = state,
+              installedProfile != profile else { return nil }
         return SettingsProblem(.pending, String(appLocalized: "已安装 \(Self.profileTitle(installedProfile)) · 待切换为 \(Self.profileTitle(profile))"),
                                help: String(appLocalized: "点击“换档”后安装所选档位"))
     }
@@ -292,6 +353,10 @@ final class EngineComponentsModel {
         case .incomplete, .unfinished, .damaged, .incompatible: true
         default: false
         }
+    }
+
+    var customRepairRequiresPreset: Bool {
+        record != nil && installedProfile == nil && needsRepair && synthesisRepairID == nil
     }
 
     /// The install lifecycle's steps (§7.11): 下载 → 安装 → 校验 → 就绪.
@@ -319,7 +384,7 @@ final class EngineComponentsModel {
         case "smoke", "check": return .verify
         default:
             switch op {
-            case .install, .addModel: return .download
+            case .install, .addModel, .selectTTS: return .download
             case .check: return .verify
             case .removeModel, .removeActiveModel, .uninstall: return .install
             }
@@ -360,14 +425,18 @@ struct EngineControlRows: View {
         FlowGrid.engineRequirements(model)
             .padding(.vertical, 4)
         statusRow
-        progressRow
-        resultRow
+        EngineOperationRows(model: model)
     }
 
     private var profileRow: some View {
         LabeledContent {
             HStack(spacing: 8) {
                 Picker(String(appLocalized: "档位"), selection: $model.profile) {
+                    if model.record != nil && model.installedProfile == nil {
+                        Text(verbatim: EngineComponentsModel.profileTitle(EngineProfile.customID))
+                            .tag(EngineProfile.customID)
+                            .disabled(true)
+                    }
                     if let legacy = model.legacyProfile {
                         Text(verbatim: EngineComponentsModel.profileMenuTitle(legacy.rawValue))
                             .tag(legacy.rawValue)
@@ -383,10 +452,10 @@ struct EngineControlRows: View {
                 .pickerStyle(.menu)
                 .fixedSize()
                 .help(EngineComponentsModel.profileSummary(model.profile))
-                .disabled(model.busy)
+                .disabled(model.maintenanceBlocked)
                 primaryButton
                 IconMenuButton(help: String(appLocalized: "维护引擎"), items: maintenance)
-                    .disabled(model.busy)
+                    .disabled(model.maintenanceBlocked)
             }
         } label: {
             Label("档位", systemImage: Icon.engine)
@@ -405,27 +474,32 @@ struct EngineControlRows: View {
                 Label("下载", systemImage: Icon.download).labelStyle(.titleAndIcon)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(model.busy)
+            .disabled(model.maintenanceBlocked)
             .help(model.downloadSummary(model.profile))
         } else {
-            if model.needsRepair && !custom {
+            if let id = model.synthesisRepairID {
+                Button { model.confirmAndRun(.selectTTS(id)) } label: {
+                    Label("修复", systemImage: Icon.repair).labelStyle(.titleAndIcon)
+                }
+                .disabled(model.maintenanceBlocked)
+            } else if model.needsRepair && !custom {
                 Button { model.confirmAndRun(.install(profile: recorded ?? model.profile)) } label: {
                     Label("修复", systemImage: Icon.repair).labelStyle(.titleAndIcon)
                 }
-                .disabled(model.busy)
+                .disabled(model.maintenanceBlocked)
                 .help(String(appLocalized: "重新安装 \(EngineComponentsModel.profileTitle(recorded ?? model.profile))"))
             }
-            if custom || recorded.map({ $0 != model.profile }) == true {
+            if model.pendingPresetID != nil {
                 Button("换档") { model.confirmAndRun(installing) }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.busy)
+                    .disabled(model.maintenanceBlocked)
                     .help(String(appLocalized: "安装 \(EngineComponentsModel.profileTitle(model.profile))"))
             } else if case .outdated = model.state, let recorded {
                 Button { model.confirmAndRun(.install(profile: recorded)) } label: {
                     Label("更新", systemImage: Icon.download).labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.busy)
+                .disabled(model.maintenanceBlocked)
             }
         }
     }
@@ -445,11 +519,29 @@ struct EngineControlRows: View {
 
     @ViewBuilder private var statusRow: some View {
         // The flow's ready badge and profile already describe a healthy installation.
-        if let status = model.pendingProfileChange ?? model.problem {
+        if model.sessionInProgress {
+            StatusLabel(String(appLocalized: "当前操作结束后可维护"), .waiting,
+                        help: String(appLocalized: "结束当前会话、录音或试听后维护引擎"))
+                .padding(.leading, Ladder.rowTextInset)
+        } else if model.customRepairRequiresPreset && model.pendingPresetID == nil {
+            StatusLabel(String(appLocalized: "选择组合以修复引擎"), .warn,
+                        help: String(appLocalized: "请选择安装组合并点击“换档”；识别与合成模型将按所选组合配置。"))
+                .padding(.leading, Ladder.rowTextInset)
+        } else if let status = model.pendingProfileChange ?? model.problem {
             StatusLabel(status.text, status.status, help: status.help)
                 .padding(.leading, Ladder.rowTextInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// Shared installer feedback in resource maintenance and the synthesis model selector.
+struct EngineOperationRows: View {
+    @Bindable var model: EngineComponentsModel
+
+    var body: some View {
+        progressRow
+        resultRow
     }
 
     /// While a run goes: the bar (or a spinner) and "2/5 · 1.2/4.9 GB", and 取消. While 完全卸载
@@ -497,6 +589,56 @@ struct EngineControlRows: View {
     }
 }
 
+/// The model picker changes only TTS. Already downloaded choices apply directly; a missing
+/// model waits for the explicit download action while the current role remains visible.
+struct SynthesisModelRows: View {
+    @Bindable var model: EngineComponentsModel
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                Picker(String(appLocalized: "合成模型"), selection: Binding(
+                    get: { model.synthesisSelectionID }, set: { model.chooseSynthesis($0) }
+                )) {
+                    if model.record?.roles["tts"] == nil {
+                        Text(String(appLocalized: "未选择")).tag("").disabled(true)
+                    }
+                    ForEach(model.synthesisModels, id: \.key) { choice in
+                        Text(verbatim: EngineSynthesisSelection.title(for: choice)).tag(choice.key)
+                            .help("\(choice.repo) · \(EngineComponentsModel.gb(choice.bytes))")
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+                .disabled(model.maintenanceBlocked || !model.canSelectSynthesis)
+                .help(String(appLocalized: "选择已下载的模型后立即切换语音合成"))
+                if model.synthesisAction(model.synthesisSelectionID) == .downloadAndActivate {
+                    Button(model.synthesisRepairID == model.synthesisSelectionID
+                           ? String(appLocalized: "修复") : String(appLocalized: "下载并使用")) {
+                        model.confirmAndRun(.selectTTS(model.synthesisSelectionID))
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+        } label: {
+            Label("合成模型", systemImage: Icon.speech)
+        }
+        if model.pendingSynthesisID != nil, let current = model.modelName(role: "tts") {
+            LabeledContent(String(appLocalized: "当前使用")) {
+                Text(verbatim: current).foregroundStyle(.secondary)
+            }
+        }
+        if model.sessionInProgress {
+            StatusLabel(String(appLocalized: "当前操作结束后可切换"), .waiting,
+                        help: String(appLocalized: "结束当前会话、录音或试听后选择合成模型"))
+        } else if !model.installed, let problem = model.problem {
+            StatusLabel(problem.text, problem.status, help: problem.help)
+        }
+        EngineOperationRows(model: model)
+    }
+}
+
 /// The 模型 section's rows (§7.11): each pinned model with its size and revision, whether it is
 /// installed, and delete or download.
 struct EngineModelRows: View {
@@ -535,7 +677,7 @@ struct EngineModelRows: View {
                         .disabled(!model.installed)
                 }
             }
-            .disabled(model.busy)
+            .disabled(model.maintenanceBlocked)
         } label: {
             Label {
                 Text(verbatim: m.key).monospaced()
@@ -564,22 +706,23 @@ extension FlowGrid {
     /// These are two independent requirements of the selected preset, not pipeline stages.
     static func engineRequirements(_ model: EngineComponentsModel) -> some View {
         let choice = EngineProfile(rawValue: model.profile)
+        let roles = choice?.expectedRoles ?? model.record?.roles.mapValues(\.id) ?? [:]
         let nodes = ["asr", "tts"].compactMap { role -> FlowNode? in
             let title = role == "asr" ? String(appLocalized: "语音识别") : String(appLocalized: "语音合成")
-            if role == "asr", choice?.usesAppleRecognition == true {
+            if role == "asr", roles["asr"] == nil && roles["tts"] != nil {
                 return FlowNode(title, glyph: .symbol(Icon.thisMac), badgeReason: String(appLocalized: "系统识别"),
                                 accessory: .display {
                                     Text(String(appLocalized: "Apple Speech · 系统提供"))
                                         .font(.caption2).foregroundStyle(.secondary)
-                                }, help: String(appLocalized: "当前旧配置仅包含语音合成模型；识别使用系统 Apple Speech。"))
+                                }, help: String(appLocalized: "当前配置仅包含语音合成模型；识别使用系统 Apple Speech。"))
             }
-            guard let id = choice?.expectedRoles[role], let pin = EnginePins.models.first(where: { $0.key == id }) else { return nil }
+            guard let id = roles[role], let pin = EnginePins.models.first(where: { $0.key == id }) else { return nil }
             let ready = model.readyModelIDs.contains(id)
             let availability = ready ? String(appLocalized: "已就绪") : String(appLocalized: "需下载")
             let name = pin.repo.split(separator: "/").last.map(String.init) ?? pin.key
             let parameters = name.split(separator: "-").first { $0.hasSuffix("B") && Double($0.dropLast()) != nil }.map(String.init) ?? ""
-            let family = role == "asr" ? "Qwen3-ASR" : "Qwen3-TTS"
-            let detail = "\(family) \(parameters) · \(EngineComponentsModel.gb(pin.bytes))"
+            let nameAndSize = role == "asr" ? "Qwen3-ASR \(parameters)" : EngineSynthesisSelection.title(for: pin)
+            let detail = "\(nameAndSize) · \(EngineComponentsModel.gb(pin.bytes))"
             return FlowNode(title, glyph: .symbol(ready ? (role == "asr" ? Icon.recognition : Icon.speech) : Icon.download),
                             badge: ready ? .ok : nil, badgeReason: availability,
                             accessory: .display {
@@ -667,7 +810,7 @@ private struct EngineProfileChip: View {
         NodeChip(EngineComponentsModel.profileTitle(model.profile), accessibilityLabel: String(appLocalized: "档位"),
                  help: "\(EngineComponentsModel.profileMenuTitle(model.profile)) · \(EngineComponentsModel.profileSummary(model.profile))",
                  items: items)
-            .disabled(model.busy)
+            .disabled(model.maintenanceBlocked)
     }
 
     private var items: [NodeChipItem] {
@@ -677,6 +820,9 @@ private struct EngineProfileChip: View {
         if let legacy = model.legacyProfile {
             choices.insert(NodeChipItem(EngineComponentsModel.profileMenuTitle(legacy.rawValue),
                                         isOn: model.profile == legacy.rawValue, isEnabled: false) {}, at: 0)
+        } else if model.record != nil && model.installedProfile == nil {
+            choices.insert(NodeChipItem(EngineComponentsModel.profileTitle(EngineProfile.customID),
+                                        isOn: model.profile == EngineProfile.customID, isEnabled: false) {}, at: 0)
         }
         return choices
     }

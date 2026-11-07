@@ -7,6 +7,8 @@ public enum InstallerOp: Sendable, Equatable {
     case install(profile: String?)
     case check
     case addModel(String)
+    /// Install if necessary, then switch only the active TTS role. Other roles and files stay.
+    case selectTTS(String)
     case removeModel(String)
     /// The caller has confirmed removing an active role. run() still stops the engine first.
     case removeActiveModel(String)
@@ -17,6 +19,7 @@ public enum InstallerOp: Sendable, Equatable {
         case .install(let p): p.map { ["--profile", $0] } ?? []
         case .check: ["--check"]
         case .addModel(let k): ["--add-model", k]
+        case .selectTTS(let k): ["--select-tts", k]
         case .removeModel(let k): ["--remove-model", k]
         case .removeActiveModel(let k): ["--remove-model", k, "--allow-active-model"]
         case .uninstall: ["--uninstall"]

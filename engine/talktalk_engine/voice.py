@@ -20,6 +20,8 @@ class Voice:
     ref_text_ids: object       # mx.array [1, L]
     speaker_embed: object      # mx.array [1, D] (x-vector; ICL also uses it)
     meta: dict = field(default_factory=dict)
+    model_key: str | None = None
+    family: str = "qwen3-icl-v1"
 
     @property
     def key8(self):
@@ -38,6 +40,9 @@ def audio_fingerprint(pcm):
 
 def to_blob(voice):
     """Serialises a Voice to safetensors bytes (kind 5 frame payload)."""
+    if getattr(voice, "family", None) == "ming3-reference-v1":
+        from .ming import voice_to_blob
+        return voice_to_blob(voice)
     import mlx.core as mx
 
     arrays = {
@@ -45,15 +50,24 @@ def to_blob(voice):
         "ref_text_ids": voice.ref_text_ids.astype(mx.int32),
         "speaker_embed": voice.speaker_embed.astype(mx.float32),
     }
-    meta = {"key": voice.key, "ref_text": voice.ref_text, "meta": json.dumps(voice.meta)}
+    meta = {"key": voice.key, "ref_text": voice.ref_text, "meta": json.dumps(voice.meta),
+            "family": "qwen3-icl-v1"}
+    if voice.model_key is not None:
+        meta["model_key"] = voice.model_key
     # Encoded in memory (mx.save_safetensors only writes to paths; the engine never writes files).
     return _encode_safetensors({k: np.array(v) for k, v in arrays.items()}, meta)
 
 
 def from_blob(blob):
+    tensors, meta = _decode_safetensors(blob)
+    family = meta.get("family", "qwen3-icl-v1")  # Existing Qwen caches have no family marker.
+    if family == "ming3-reference-v1":
+        from .ming import voice_from_tensors
+        return voice_from_tensors(tensors, meta)
+    if family != "qwen3-icl-v1":
+        raise ValueError("unknown voice conditioning format")
     import mlx.core as mx
 
-    tensors, meta = _decode_safetensors(blob)
     return Voice(
         key=meta["key"],
         ref_text=meta["ref_text"],
@@ -61,6 +75,7 @@ def from_blob(blob):
         ref_text_ids=mx.array(tensors["ref_text_ids"]),
         speaker_embed=mx.array(tensors["speaker_embed"]),
         meta=json.loads(meta.get("meta", "{}")),
+        model_key=meta.get("model_key"),
     )
 
 

@@ -165,7 +165,7 @@ public final class VoiceLifecycle {
         let a = try await queue.run { () async throws -> AuditionResult in
             var p = try store.loadProfile()
             var blobs = try await engine.currentConditioning(p, store: store)
-            if blobs.isEmpty {
+            if blobs.isEmpty || p.speakEntry?.key != blobs.first(where: { $0.mode == (p.modesByLang[.en] ?? .icl) })?.key {
                 _ = await VoiceSync.align(store: store, engine: engine, routing: routing)
                 p = try store.loadProfile()
                 blobs = try await engine.currentConditioning(p, store: store)

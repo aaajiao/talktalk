@@ -28,6 +28,11 @@ public struct VoiceProfile: Codable, Sendable, Equatable {
     /// voice-m2 additions (§9.2 steps 6–7), all optional so M0/M1 profiles still decode.
     /// The conditioning files of this profile: full cache key, model, mode (file = safeKey(key)).
     public var conditioningEntries: [ConditioningEntry]?
+    /// Inactive TTS models keep their own conditioning so selecting another model is reversible.
+    /// The active entries above retain their legacy meaning for older readers and diagnostics.
+    public var archivedConditioningEntries: [ConditioningEntry]?
+    /// Audition calibration belongs to the exact conditioning, never to another TTS model.
+    public var synthesisStates: [String: SynthesisState]?
     /// Optional original identity for reproducible sampling after editing the reference audio.
     /// Loading still uses each conditioning entry's actual key.
     public var samplingKey: String?
@@ -48,6 +53,13 @@ public struct VoiceProfile: Codable, Sendable, Equatable {
             self.model = model
             self.mode = mode
         }
+    }
+
+    public struct SynthesisState: Codable, Sendable, Equatable {
+        public var audition: String
+        public var result: AuditionResult.Summary?
+        public var gainDb: Double?
+        public var status: CheckStatus?
     }
 
     /// Which recording this is. A change of either while an engine call is in flight means the
@@ -87,6 +99,7 @@ public struct VoiceProfile: Codable, Sendable, Equatable {
         case useFor = "use_for", micUIDHash = "mic_uid_hash", speakingRateCharsPerSecond = "speaking_rate_cps"
         case conditioning, audition
         case conditioningEntries = "conditioning_keys", playoutGainDb = "playout_gain_db"
+        case archivedConditioningEntries = "archived_conditioning_keys", synthesisStates = "synthesis_states"
         case samplingKey = "sampling_key"
         case auditionResult = "audition_result", transcriptChecker = "transcript_checker"
     }
