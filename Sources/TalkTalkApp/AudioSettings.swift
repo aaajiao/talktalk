@@ -318,8 +318,22 @@ struct AudioSettingsView: View {
             Toggle("会议或电话同传时将系统默认输入设为 TalkTalk Mic", isOn: $model.switchDefaultInput)
             LabeledContent("在会议应用或 Phone 中选择", value: model.switchDefaultInput
                 ? String(localized: "TalkTalk Mic，或跟随系统默认") : "TalkTalk Mic")
-            if model.loginStronglyRecommended {
-                LaunchAtLoginRow(launch: model.launch, stronglyRecommended: true)
+            // §7.6: only while 登录时启动 is recommended and off; the switch is on 通用.
+            if model.loginStronglyRecommended,
+               let recommended = model.launch.recommendedProblem(stronglyRecommended: true) {
+                LabeledContent {
+                    HStack(spacing: 8) {
+                        StatusLabel(recommended.text, recommended.status, help: recommended.help)
+                        if let navigation {
+                            Button("通用 ›") { navigation.open(.general) }
+                                .buttonStyle(.link)
+                                .help("打开通用设置")
+                        }
+                    }
+                } label: {
+                    Label("登录时启动", systemImage: SubtitleTokens.SettingsIcon.launchAtLogin)
+                }
+                .labelStyle(.settingsRow)
             }
         } header: {
             HStack {

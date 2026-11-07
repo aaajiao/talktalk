@@ -134,6 +134,7 @@ struct ComponentsWiringTests {
         #expect(summary.reason == "通话还在进行：先离开会议，再完全卸载。")
         #expect(summary.done.isEmpty)
         #expect(summary.headline == "没有完全卸载，什么都没删。")
+        #expect(summary.short == "通话还在进行" && !summary.failed)
     }
 
     /// Not this app's record (the switcher says nil): `restoreStale` decides, at the paths given.
@@ -197,9 +198,13 @@ struct ComponentsWiringTests {
                                           report: .init(removed: ["默认输入已还原到 X"]))
         #expect(failed?.headline == "完全卸载停在“卸载虚拟麦克风”，停下之前已经做了下面这些，其余什么都没删。")
         #expect(failed?.reason == "install-driver.sh exited 4")
-        #expect(FullUninstallSummary(phase: .cancelled, report: .init())?.headline == "已取消，什么都没删。")
+        #expect(failed?.short == "停在“卸载虚拟麦克风”" && failed?.failed == true)
+        let cancelled = FullUninstallSummary(phase: .cancelled, report: .init())
+        #expect(cancelled?.headline == "已取消，什么都没删。" && cancelled?.short == "已取消")
         let clean = FullUninstallSummary(phase: .finished(.init(removed: ["虚拟麦克风"])), report: .init())
         #expect(clean?.outcome == .complete && clean?.notRemoved.isEmpty == true)
+        #expect(clean?.short == "已删除 1 项")
+        #expect(FullUninstallSummary(phase: .blocked("先结束会议模式。"), report: .init())?.short == "先结束会议模式")
         for step in FullUninstaller.Step.allCases { #expect(step.title.unicodeScalars.contains { $0.value > 0x2E80 }) }
     }
 
@@ -310,14 +315,12 @@ struct ComponentsWiringTests {
     }
 
     func render(_ m: DriverComponentModel, to url: URL) throws {
-        let root = ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                DriverComponentSection(model: m)
-                Divider()
-                FullUninstallSection(model: m)
-            }
-            .padding(20)
+        // 完全卸载 as Settings › 通用 shows it: its own section of a grouped Form.
+        let root = Form {
+            Section { DriverComponentSection(model: m) }
+            Section { FullUninstallSection(model: m) }
         }
+        .formStyle(.grouped)
         .frame(width: 640, height: 560)
         .background(Color(nsColor: .windowBackgroundColor))
         _ = NSApplication.shared

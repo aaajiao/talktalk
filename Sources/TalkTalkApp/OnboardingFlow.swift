@@ -98,6 +98,14 @@ final class OnboardingFlowModel {
     }
 
     var needsOnboarding: Bool { state.needsOnboarding }
+
+    /// "第 N 步，共 M 步" while onboarding is unfinished (Settings › 通用 › 使用引导…), from
+    /// `OnboardingState.progress`. Reads the mirrored step and path first, so a view showing it
+    /// updates when onboarding moves.
+    var progress: OnboardingProgress? {
+        _ = (step, steps)
+        return state.progress
+    }
     var videoOnly: Bool { state.videoOnly }
 
     /// The header's title for the chosen path.
@@ -720,7 +728,7 @@ struct OnboardingView: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(String(localized: "引导步骤"))
                 .accessibilityValue(model.state.position(of: current).map {
-                    String(localized: "第 \($0) 步，共 \(model.steps.count) 步")
+                    OnboardingProgress(step: $0, count: model.steps.count).text
                 } ?? "")
             }
         }
@@ -890,7 +898,7 @@ private struct PermissionsStep: View {
                         Label("打开“隐私与安全性”", systemImage: SubtitleTokens.VoiceIcon.openPhone)
                     }
                 }
-                SettingsNote("只看视频时不需要麦克风和输入监控；以后要开会或打电话，可从 设置 › 通用 重新运行引导。")
+                SettingsNote("只看视频时不需要麦克风和输入监控；以后要开会或打电话，可从 设置 › 通用 › 使用引导… 打开。")
             } else {
                 OnboardingCard(title: "我说话 · 原声与按键翻译", symbol: "mic") {
                     GrantRow(symbol: "mic", title: "麦克风", note: "会议中持续收音：默认传原声，点按右⌥开始翻译，再点按结束发言。视频字幕不用麦克风。",

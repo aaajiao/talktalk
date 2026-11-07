@@ -2,6 +2,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import TalkTalkCloudUI
 import TalkTalkCore
 import TalkTalkEngineHost
 import TalkTalkSettingsUI
@@ -15,95 +16,198 @@ enum AppGlossary {
 final class GlossarySettingsModel {
     struct Row: Identifiable { let id = UUID(); var entry: GlossaryEntry }
     var rows: [Row] = []
-    var message: String?
-    /// The message reports a failure (read/save error, missing term), not a successful save.
-    private(set) var messageIsError = false
+    /// The last read or save: ok 已保存, warn 需中文 + 至少一种译法, failed 读取失败 / 保存失败
+    /// (the error in help). nil before any. The hero shows `currentResult`.
+    private(set) var result: SettingsProblem?
+    /// A save was refused for a missing term: the fields that still lack it are outlined in red
+    /// until the next successful save or read.
+    private(set) var showsMissing = false
+    /// What the file holds, to tell unsaved edits apart (the 保存 button turns prominent).
+    private var saved: [GlossaryEntry] = []
     private let store: GlossaryStore
     init(store: GlossaryStore = AppGlossary.store) { self.store = store; reload() }
+
+    var hasUnsavedChanges: Bool { rows.map(\.entry) != saved }
+
+    /// `result` while it still holds (§7.13: the save result in the hero's status slot):
+    /// 已保存 only until the rows differ from the file, 需中文 + 至少一种译法 only while some
+    /// term still lacks it (the save rule); a read or save failure stays until the next one.
+    var currentResult: SettingsProblem? {
+        guard let result else { return nil }
+        switch result.status {
+        case .ok: return hasUnsavedChanges ? nil : result
+        case .warn: return rows.contains { $0.entry.lacksChinese || $0.entry.lacksTranslation } ? result : nil
+        default: return result
+        }
+    }
+
     func reload() {
-        do { try store.reload(); rows = store.snapshot().map { Row(entry: $0) }; message = nil }
-        catch { report(String(localized: "术语表读取失败：\(error.localizedDescription)"), error: true) }
+        do {
+            try store.reload()
+            saved = store.snapshot()
+            rows = saved.map { Row(entry: $0) }
+            result = nil
+            showsMissing = false
+        } catch {
+            result = SettingsProblem(.failed, String(localized: "读取失败"), help: error.localizedDescription)
+        }
     }
     func add() { guard rows.count < GlossaryStore.limit else { return }; rows.append(Row(entry: .init(zh: "", en: "", de: ""))) }
     func remove(_ id: UUID) { rows.removeAll { $0.id == id } }
     func save() {
         do {
             try store.save(rows.map(\.entry))
-            report(String(localized: "已保存，下次翻译请求生效。"), error: false)
+            // The store trims; the rows keep their ids (and focus) and take the saved text.
+            saved = store.snapshot()
+            for index in rows.indices where index < saved.count { rows[index].entry = saved[index] }
+            result = SettingsProblem(.ok, String(localized: "已保存"), help: String(localized: "下次翻译请求生效"))
+            showsMissing = false
         } catch GlossaryStore.Failure.missingTerm {
-            report(String(localized: "每条填写中文，以及至少一种外语译法。"), error: true)
+            result = SettingsProblem(.warn, String(localized: "需中文 + 至少一种译法"))
+            showsMissing = true
         } catch {
-            report(String(localized: "术语表保存失败：\(error.localizedDescription)"), error: true)
+            result = SettingsProblem(.failed, String(localized: "保存失败"), help: error.localizedDescription)
         }
-    }
-    private func report(_ text: String, error: Bool) {
-        message = text
-        messageIsError = error
     }
 }
 
+/// Settings › 术语表 (settings visual system §7.13): a grouped Form with the same margins as
+/// the other pages. The hero shows the count of the 30 allowed, whether the terms go to OpenAI,
+/// the last save's result while it holds, and the page's actions: add, and the manual 保存
+/// (§9.6 #6, prominent while there are unsaved edits). One row per term: 中文 / EN / DE / 备注
+/// and its remove button.
 struct GlossarySettingsView: View {
     @Bindable var model: GlossarySettingsModel
+    /// The settings window's translation page, shared with onboarding step 5: its observable
+    /// preferences keep the OpenAI / 仅本机 chip live.
+    let translation: TranslationPage
+
+    private typealias Icon = SubtitleTokens.SettingsIcon
+    private typealias Ladder = SubtitleTokens.SettingsIcon.Size
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ScrollView {
-                if model.rows.isEmpty {
-                    ContentUnavailableView {
-                        Label("还没有术语", systemImage: SubtitleTokens.SettingsIcon.glossary)
-                    } description: {
-                        Text("为产品名、人名和专业词指定译法，也帮助识别中英混说。")
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 220)
-                } else {
-                    VStack(spacing: 12) {
-                        HStack {
-                            Text("中文").frame(maxWidth: .infinity, alignment: .leading)
-                            Text("English").frame(maxWidth: .infinity, alignment: .leading)
-                            Text("Deutsch").frame(maxWidth: .infinity, alignment: .leading)
-                            Color.clear.frame(width: 40, height: 1)
-                        }
-                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12)
-                        ForEach($model.rows) { $row in
-                            GroupBox {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack {
-                                        TextField(String(localized: "中文"), text: $row.entry.zh)
-                                        TextField("English", text: $row.entry.en)
-                                        TextField("Deutsch", text: $row.entry.de)
-                                        Button { model.remove(row.id) } label: {
-                                            Image(systemName: "minus.circle")
-                                                .frame(width: 24, height: 24).contentShape(Rectangle())
-                                        }
-                                            .help("删除这条术语").accessibilityLabel(String(localized: "删除这条术语"))
-                                            .frame(width: 40)
-                                    }
-                                    TextField(String(localized: "备注（可选）"), text: Binding(get: { row.entry.note ?? "" }, set: { row.entry.note = $0.isEmpty ? nil : $0 }))
-                                }
-                                .textFieldStyle(.roundedBorder).padding(4)
-                            }
-                        }
+        Form {
+            Section { hero }
+            if model.rows.isEmpty {
+                Section { empty }
+            } else {
+                Section {
+                    columnHeads
+                    ForEach($model.rows) { $row in
+                        termRow($row)
                     }
                 }
             }
-            Divider()
-            HStack {
-                Button { model.add() } label: {
-                    Image(systemName: SubtitleTokens.SettingsIcon.add)
-                }
-                .buttonStyle(.borderless)
-                .help("添加术语")
-                .accessibilityLabel(String(localized: "添加术语"))
-                .disabled(model.rows.count >= GlossaryStore.limit)
-                Text("\(model.rows.count) / 30").foregroundStyle(.secondary)
-                Spacer()
-                Button("保存") { model.save() }.buttonStyle(.borderedProminent)
-            }
-            if let message = model.message {
-                StatusLabel(message, model.messageIsError ? .warn : .ok)
-            }
-            Text("启用云端翻译时，术语随文字发送给 OpenAI；关闭时不发送。")
-                .font(.caption).foregroundStyle(.secondary)
         }
-        .padding(20)
+        .formStyle(.grouped)
+    }
+
+    /// Some direction translates through OpenAI (consent given and a cloud switch on): the terms
+    /// travel with the text (§5.4, always visible). Every change goes through the shared
+    /// `TranslationSettingsModel` (模型 › 翻译, onboarding step 5), whose preferences this view
+    /// observes; until that model exists in this run nothing has changed the stored ones.
+    private var cloudTranslation: Bool {
+        let prefs = translation.model?.preferences ?? TranslationPreferences.load(.standard)
+        return prefs.cloudConsentGiven && prefs.anyCloud
+    }
+
+    // MARK: Z2
+
+    private var hero: some View {
+        let count = model.rows.count
+        let limit = GlossaryStore.limit
+        return PageHero(String(localized: "术语表"), symbol: Icon.Page.glossary,
+                        help: String(localized: "也帮助识别中英混说")) {
+            Text(verbatim: "\(count) / \(limit)")
+                .font(.body.weight(.semibold))
+                .monospacedDigit()
+                .accessibilityLabel(String(localized: "\(count) 条术语，最多 \(limit) 条"))
+            if let result = model.currentResult {
+                StatusLabel(result.text, result.status, help: result.help)
+            }
+            if cloudTranslation {
+                FactChip.cloud(String(localized: "云端翻译时发给 OpenAI"), help: String(localized: "术语随要翻译的文字一起发出"),
+                               spoken: String(localized: "启用云端翻译时，术语随文字发送给 OpenAI"))
+            } else {
+                FactChip(String(localized: "仅本机"), symbol: Icon.privacyPromise,
+                         help: String(localized: "未启用云端翻译，术语不发出"))
+            }
+        } trailing: {
+            IconButton(Icon.add, help: String(localized: "添加术语")) { model.add() }
+                .disabled(count >= limit)
+            if model.hasUnsavedChanges {
+                Button("保存") { model.save() }.buttonStyle(.borderedProminent)
+            } else {
+                Button("保存") { model.save() }.buttonStyle(.bordered)
+            }
+        }
+    }
+
+    // MARK: Z3
+
+    private var empty: some View {
+        ContentUnavailableView {
+            Label("还没有术语", systemImage: Icon.Page.glossary)
+        } description: {
+            Text("产品名 · 人名 · 专业词")
+        } actions: {
+            Button { model.add() } label: {
+                Label("添加", systemImage: Icon.add)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The column names over the fields, after the 22 pt icon column every row keeps.
+    private var columnHeads: some View {
+        HStack(spacing: 8) {
+            Color.clear.frame(width: Ladder.rowColumn, height: 1)
+            Text("中文").frame(maxWidth: .infinity, alignment: .leading)
+            Text(verbatim: "EN").frame(maxWidth: .infinity, alignment: .leading)
+            Text(verbatim: "DE").frame(maxWidth: .infinity, alignment: .leading)
+            Text("备注").frame(maxWidth: .infinity, alignment: .leading)
+            Color.clear.frame(width: Ladder.hitArea, height: 1)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        // Each field carries its column's name for VoiceOver.
+        .accessibilityHidden(true)
+    }
+
+    private func termRow(_ row: Binding<GlossarySettingsModel.Row>) -> some View {
+        let entry = row.wrappedValue.entry
+        let term = entry.zh.trimmingCharacters(in: .whitespaces)
+        return HStack(spacing: 8) {
+            Color.clear.frame(width: Ladder.rowColumn, height: 1)
+            field(String(localized: "中文"), text: row.entry.zh, missing: model.showsMissing && entry.lacksChinese)
+            field(String(localized: "英语"), text: row.entry.en, missing: model.showsMissing && entry.lacksTranslation)
+            field(String(localized: "德语"), text: row.entry.de, missing: model.showsMissing && entry.lacksTranslation)
+            field(String(localized: "备注"), text: Binding(get: { row.wrappedValue.entry.note ?? "" },
+                                                         set: { row.wrappedValue.entry.note = $0.isEmpty ? nil : $0 }),
+                  prompt: String(localized: "备注"), missing: false)
+            IconButton(Icon.remove, help: String(localized: "删除这条术语"),
+                       accessibilityLabel: term.isEmpty ? String(localized: "删除这条术语") : String(localized: "删除术语“\(term)”")) {
+                model.remove(row.wrappedValue.id)
+            }
+        }
+    }
+
+    /// A Form row's text field shows no title of its own (it would render as a wrapped label
+    /// beside a squeezed field); the column head names it, VoiceOver hears `label`. A field the
+    /// last save found missing gets a red outline.
+    private func field(_ label: String, text: Binding<String>, prompt: String? = nil, missing: Bool) -> some View {
+        TextField(label, text: text, prompt: Text(verbatim: prompt ?? ""))
+            .labelsHidden()
+            .textFieldStyle(.roundedBorder)
+            .frame(minWidth: 40, maxWidth: .infinity)
+            .overlay {
+                if missing {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(Color.red, lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+            }
+            .accessibilityLabel(label)
+            .accessibilityHint(missing ? String(localized: "必填") : "")
     }
 }

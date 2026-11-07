@@ -11,7 +11,8 @@ import TalkTalkEngineHost
 ///     let driver = DriverComponentModel.forCurrentApp(isMeetingModeOn: { switcher.isMeetingModeOn },
 ///                                                     engine: engineInstaller,
 ///                                                     restoreWithSwitcher: SysInputRestore.withSwitcher(switcher))
-///     VStack { DriverComponentSection(model: driver); FullUninstallSection(model: driver) }
+///     DriverComponentSection(model: driver)     // 组件 › 虚拟麦克风
+///     Section { FullUninstallSection(model: driver) }   // 通用, last
 @Observable @MainActor
 public final class DriverComponentModel {
     public enum Confirmation: Sendable, Equatable, Identifiable {

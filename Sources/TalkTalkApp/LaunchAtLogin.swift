@@ -28,7 +28,7 @@ struct MainAppLoginItem: LoginItemService {
     func unregister() throws { try SMAppService.mainApp.unregister() }
 }
 
-/// Settings › 通用 › 登录启动 (ARCHITECTURE.md §11) through SMAppService.mainApp. Registration
+/// Settings › 通用 › 登录时启动 (ARCHITECTURE.md §11) through SMAppService.mainApp. Registration
 /// needs a signed bundle (ad hoc counts as signed; a bare `swift run` binary does not).
 @MainActor
 @Observable
@@ -61,7 +61,8 @@ final class LaunchAtLogin {
             case .none: break
             }
         } catch {
-            lastError = String(localized: "登录启动没有改成：\(error.localizedDescription)")
+            // The row shows failed "未能更改"; the system's reason is its help.
+            lastError = error.localizedDescription
         }
         refresh()
     }

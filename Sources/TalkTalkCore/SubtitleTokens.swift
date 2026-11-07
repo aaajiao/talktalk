@@ -377,6 +377,15 @@ public enum SubtitleTokens {
         /// A feature this build lacks (ContentUnavailableView "此构建不可用").
         public static let unavailable = "xmark.circle"
 
+        // 通用 (§7.5): one row each, the menu's glyph where the menu has the same item.
+        public static let launchAtLogin = "power"
+        public static let notifications = MenuIcon.notifications
+        /// Asks macOS for notification permission ("允许…").
+        public static let allowNotifications = "bell.badge"
+        public static let announcement = MenuIcon.announcement
+        /// 使用引导…, as in the menu.
+        public static let onboarding = MenuIcon.onboarding
+
         // Navigation (§3.1, §3.13): the arrow between the model page's cards and the ReturnPill's
         // leading chevron.
         public static let flowArrow = "arrow.right"
@@ -456,7 +465,7 @@ public enum SubtitleTokens {
         public static let announcement = "megaphone"
         public static let notifications = "bell"
         public static let about = "info.circle"
-        /// The onboarding guide, as Settings › 通用 "重新运行引导…".
+        /// The onboarding guide, as Settings › 通用 "使用引导…".
         public static let onboarding = "arrow.clockwise.circle"
     }
 

@@ -1,3 +1,4 @@
+// l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 
 /// The eight onboarding steps (ARCHITECTURE.md §11 首次引导), in order.
@@ -57,6 +58,21 @@ public enum OnboardingScenario: String, CaseIterable, Codable, Sendable, Compara
 
     /// Only video: no microphone, no virtual microphone and no speaking practice.
     public static func isVideoOnly(_ set: Set<Self>) -> Bool { set == [.video] }
+}
+
+/// How far onboarding is (`OnboardingState.progress`): the current step's 1-based position and
+/// the length of the chosen path.
+public struct OnboardingProgress: Sendable, Equatable {
+    public let step: Int
+    public let count: Int
+
+    public init(step: Int, count: Int) {
+        self.step = step
+        self.count = count
+    }
+
+    /// "第 N 步，共 M 步": the onboarding header's VoiceOver value, the 使用引导… row and the menu.
+    public var text: String { String(localized: "第 \(step) 步，共 \(count) 步") }
 }
 
 /// The afplay probe's verdict (§3.1). nil wherever it appears: the probe has not run.
@@ -213,6 +229,14 @@ public final class OnboardingState {
     /// 1-based position of `step` in the chosen path ("第 2 步，共 3 步").
     public func position(of step: OnboardingStep) -> Int? { steps.firstIndex(of: step).map { $0 + 1 } }
 
+    /// Where unfinished onboarding stands: the current step in the chosen path (step 1 while
+    /// the scenario page is up). nil once finished. The one source of "第 N 步，共 M 步" for
+    /// Settings › 通用 › 使用引导… (and, from settings row 6, the menu).
+    public var progress: OnboardingProgress? {
+        guard !finished, let current, let n = position(of: current) else { return nil }
+        return OnboardingProgress(step: n, count: steps.count)
+    }
+
     private static func steps(_ build: [OnboardingStep], for scenarios: Set<OnboardingScenario>?) -> [OnboardingStep] {
         guard let scenarios else { return build }
         let path = Set(OnboardingStep.path(for: scenarios))
@@ -297,7 +321,7 @@ public final class OnboardingState {
         if i > 0 { current = steps[i - 1] } else if !finished { choosingScenarios = true }
     }
 
-    /// Settings "重新运行引导".
+    /// Settings › 通用 › 使用引导… once onboarding is finished (unfinished, it only continues).
     public func restart() {
         finished = false
         skipped = []

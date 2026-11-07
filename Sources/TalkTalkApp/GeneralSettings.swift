@@ -55,17 +55,11 @@ final class GeneralSettingsModel {
     var autoEndNotificationSetting: MeetingAutoEndNotification.Setting {
         .init(enabled: autoEndNotificationsEnabled, authorization: notificationAuthorization)
     }
-    var notificationPermissionText: String {
-        switch notificationAuthorization {
-        case .checking: String(localized: "正在检查系统通知权限…")
-        case .allowed: String(localized: "系统通知权限：已允许")
-        case .notDetermined: String(localized: "通知尚未生效：需要允许系统通知。")
-        case .denied: String(localized: "通知尚未生效：系统已拒绝，请在系统设置中允许 TalkTalk。")
-        case .unavailable: String(localized: "当前运行方式不支持系统通知。")
-        }
-    }
-    /// "重新运行引导" was pressed: the app shows onboarding from step 1.
-    var onRestartOnboarding: (() -> Void)?
+    /// The onboarding flow, for "第 N 步，共 M 步" on 使用引导… (set by the app delegate).
+    @ObservationIgnored weak var onboarding: OnboardingFlowModel?
+    /// "使用引导…" was pressed: unfinished onboarding continues at its step, finished onboarding
+    /// starts again from the scenario page.
+    var onOpenOnboarding: (() -> Void)?
 
     init(defaults: UserDefaults = .standard, launch: LaunchAtLogin = LaunchAtLogin()) {
         self.defaults = defaults
@@ -121,151 +115,230 @@ final class GeneralSettingsModel {
         let switchOn = defaults.object(forKey: UIPrefKey.switchDefaultInput) as? Bool ?? true
         return switchOn && SystemInputPlan.Config.default.loginStartStronglyRecommended
     }
+
+    /// The notification switch is on but macOS does not deliver yet: what its row ends with, and
+    /// the page hero's words for the same fact (§7.5). Nothing while the switch is off.
+    var notificationProblem: (row: SettingsProblem, page: SettingsProblem)? {
+        guard autoEndNotificationsEnabled, !notificationRequesting else { return nil }
+        switch notificationAuthorization {
+        case .notDetermined:
+            let problem = SettingsProblem(.warn, String(localized: "需允许通知"), help: String(localized: "允许系统通知后才会提醒"))
+            return (problem, problem)
+        case .denied:
+            let help = String(localized: "在系统设置中允许 TalkTalk 通知")
+            return (SettingsProblem(.failed, String(localized: "系统已拒绝"), help: help),
+                    SettingsProblem(.failed, String(localized: "系统已拒绝通知"), help: help))
+        case .checking, .allowed, .unavailable:
+            return nil
+        }
+    }
 }
 
+/// Settings › 通用 (settings visual system §7.5). No flow to draw, so the page opens with its
+/// status tile: the most severe of the rows' facts, or 已就绪. Then 登录时启动, 会议结束通知
+/// and the announcement, each with only what needs the user at its end; 使用引导… (its step
+/// while unfinished) and 关于 TalkTalk with the version; and last the red 完全卸载…. No section
+/// titles, footers or explanation lines: purpose and consequence are in help and VoiceOver.
 struct GeneralSettingsView: View {
     @Bindable var model: GeneralSettingsModel
     let driver: DriverComponentsPage
+    @Bindable var navigation: SettingsNavigation
+
+    private typealias Icon = SubtitleTokens.SettingsIcon
+    private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 
     var body: some View {
-        let appVersion = AppVersion.current
         Form {
+            Section { hero }
             Section {
                 LaunchAtLoginRow(launch: model.launch, stronglyRecommended: model.loginStronglyRecommended)
-            } header: { Text("启动") }
-            Section {
-                speakingFlow
-                Label("需要静音时，请使用会议应用或 Phone 的静音按钮。", systemImage: "mic.slash")
-                    .font(.callout).foregroundStyle(.secondary)
-            } header: {
-                HStack {
-                    Text("会议与电话发言方式")
-                    InfoButton(topic: String(localized: "发言方式"), lines: [Self.speakingHint])
-                }
-            }
-            Section {
-                Toggle(isOn: Binding(
-                    get: { model.autoEndNotificationsEnabled },
-                    set: { model.setAutoEndNotifications($0) })) {
-                    Label("会议自动结束通知", systemImage: "bell")
-                }
-                .disabled(model.notificationRequesting)
-                notificationStatus
-                if model.notificationAuthorization == .notDetermined {
-                    Button { model.authorizeNotifications() } label: {
-                        Label("允许系统通知…", systemImage: "bell.badge")
-                    }
-                    .disabled(model.notificationRequesting)
-                }
-                if model.notificationAuthorization == .denied {
-                    Button { model.openNotificationSettings() } label: {
-                        Label("打开系统通知设置", systemImage: "gearshape")
-                    }
-                }
-            } header: { Text("通知")
-            } footer: {
-                Text("会议似乎已结束时提醒你；关闭通知不影响自动结束。")
-            }
-            Section {
+                notificationRow
                 Toggle(isOn: $model.announcementEnabled) {
-                    Label("第一次按键翻译时播放告知语", systemImage: "megaphone")
+                    Label("首次翻译前播放告知语", systemImage: Icon.announcement)
                 }
-            } header: { Text("告知对方")
-            } footer: {
-                Text("向对方说明你正在使用机器同传和合成声音。")
+                .help("告诉对方你在用机器同传与合成声音")
             }
             Section {
-                Button { model.onRestartOnboarding?() } label: {
-                    Label("重新运行引导…", systemImage: "arrow.clockwise.circle")
-                }
-                .disabled(model.onRestartOnboarding == nil)
-            } header: { Text("首次引导")
-            } footer: {
-                Text("重新检查权限、组件和声音设置，保留已安装的模型与声音档案。")
+                onboardingRow
+                aboutRow
             }
             Section {
-                LabeledContent("版本") {
-                    Text(verbatim: appVersion.displayString).textSelection(.enabled)
+                FullUninstallSection(model: driver.model, unavailable: driver.problem) {
+                    navigation.open(.components, .components(.engine))
                 }
-                Button { NSApp.orderFrontStandardAboutPanel(nil) } label: {
-                    Label("关于 \(appVersion.name)…", systemImage: "info.circle")
-                }
-            } header: { Text("关于") }
-            Section {
-                if let component = driver.model {
-                    FullUninstallSection(model: component)
-                } else if let problem = driver.problem {
-                    Text(problem).font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    ProgressView("正在检查组件…").controlSize(.small)
-                }
-            } header: { Text("应用管理") }
+            }
         }
         .formStyle(.grouped)
+        .labelStyle(.settingsRow)
+        .settingsPageScroll(navigation, subpage: SettingsSection.general)
         .onAppear { driver.load(); model.launch.refresh(); Task { await model.refreshNotifications() } }
     }
 
-    private static let speakingHint = String(localized: "点按一次右⌥开始翻译，原声随即关闭；说中文，可夹英语。再点按结束发言，等剩余译音播完后自动恢复原声。")
+    // MARK: Z2
 
-    /// The subtitle window's own capsule and keycap: 原声 → 右⌥ 开始翻译 → 译音, then press again.
-    private var speakingFlow: some View {
+    private var hero: some View {
+        let problem = SettingsProblem.mostSevere([
+            model.launch.problem(stronglyRecommended: model.loginStronglyRecommended)?.page,
+            model.notificationProblem?.page,
+        ])
+        return PageHero(String(localized: "通用"), symbol: Icon.Page.general, help: String(localized: "启动、通知与应用管理")) {
+            if let problem {
+                StatusLabel(problem.text, problem.status, help: problem.help)
+            } else {
+                StatusLabel(String(localized: "已就绪"), .ok)
+            }
+        }
+    }
+
+    // MARK: rows
+
+    /// The switch, and only while it is on and macOS does not deliver: 需允许通知 with 允许…, or
+    /// 系统已拒绝 with 系统设置…; a spinner while the permission is checked or asked for.
+    private var notificationRow: some View {
+        let unavailable = model.notificationAuthorization == .unavailable
+        let checking = model.notificationRequesting
+            || (model.autoEndNotificationsEnabled && model.notificationAuthorization == .checking)
+        return LabeledContent {
+            HStack(spacing: 8) {
+                if checking {
+                    StatusGlyph(.busy).accessibilityLabel(String(localized: "检查中"))
+                } else if let problem = model.notificationProblem?.row {
+                    StatusLabel(problem.text, problem.status, help: problem.help)
+                    if model.notificationAuthorization == .denied {
+                        Button { model.openNotificationSettings() } label: {
+                            Label("系统设置…", systemImage: Icon.openApp).labelStyle(.titleAndIcon)
+                        }
+                    } else {
+                        Button { model.authorizeNotifications() } label: {
+                            Label("允许…", systemImage: Icon.allowNotifications).labelStyle(.titleAndIcon)
+                        }
+                    }
+                }
+                Toggle(String(localized: "会议结束通知"), isOn: Binding(
+                    get: { model.autoEndNotificationsEnabled },
+                    set: { model.setAutoEndNotifications($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(model.notificationRequesting || unavailable)
+                    .accessibilityHint(String(localized: "会议似乎已结束时提醒你；关闭通知不影响自动结束；电话与视频字幕同样适用"))
+            }
+        } label: {
+            Label("会议结束通知", systemImage: Icon.notifications)
+        }
+        .help(unavailable ? String(localized: "当前运行方式不支持通知") : String(localized: "会议似乎结束时提醒你"))
+    }
+
+    /// Continues unfinished onboarding at its step (shown at the row's end) or runs it again.
+    private var onboardingRow: some View {
+        let progress = model.onboarding?.progress
+        return HStack(spacing: 8) {
+            Button { model.onOpenOnboarding?() } label: {
+                Label("使用引导…", systemImage: Icon.onboarding).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.onOpenOnboarding == nil)
+            .help("保留已装模型与声音档案")
+            .accessibilityValue(progress?.text ?? "")
+            .accessibilityHint(String(localized: "重新检查权限、组件和声音设置，保留已装模型与声音档案"))
+            Spacer(minLength: 8)
+            if let progress {
+                Text(verbatim: progress.text)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    /// The standard About panel; the version stays selectable for copying.
+    private var aboutRow: some View {
         HStack(spacing: 8) {
-            VoiceCapsule(state: VoiceState.resolve(audio: .original, scene: .meeting, phoneInputConfirmed: true))
-            FlowArrow()
-            Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle))
-            FlowArrow()
-            VoiceCapsule(state: VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true))
-            Label("再点按结束", systemImage: SubtitleTokens.VoiceIcon.stopTranslation)
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 4)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.speakingHint)
-    }
-
-    /// Only a mismatch needs a row: the switch is on but system notifications are not allowed
-    /// (or still being checked). On/off itself is the switch.
-    @ViewBuilder private var notificationStatus: some View {
-        if model.notificationRequesting {
-            StatusLabel(String(localized: "正在检查系统通知授权…"), .busy)
-        } else if model.autoEndNotificationsEnabled, !model.autoEndNotificationSetting.isEffective {
-            StatusLabel(model.notificationPermissionText, notificationMismatch)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var notificationMismatch: SettingsStatus {
-        switch model.notificationAuthorization {
-        case .checking: .waiting
-        case .notDetermined, .denied, .unavailable: .warn
-        // Not shown: allowed and switched on is effective, so there is no mismatch row.
-        case .allowed: .ok
+            Button { NSApp.orderFrontStandardAboutPanel(nil) } label: {
+                Label {
+                    Text("关于 TalkTalk")
+                } icon: {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: Ladder.row, height: Ladder.row)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 8)
+            Text(verbatim: AppVersion.current.displayString)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
         }
     }
 }
 
+/// Settings › 通用 › 登录时启动 (§7.5): the switch, and at the row's end only what needs the
+/// user: warn 建议开启 with its ⓘ, waiting 待系统允许 with 登录项…, warn 请移到“应用程序”文件夹,
+/// failed 未能更改. Unsigned builds disable the switch with the reason in help. The switch lives
+/// only here; 音频 has a status-only row with a link to 通用 (§7.6, `recommendedProblem`).
 struct LaunchAtLoginRow: View {
     let launch: LaunchAtLogin
     let stronglyRecommended: Bool
 
+    private typealias Icon = SubtitleTokens.SettingsIcon
+
     var body: some View {
         let p = launch.presentation(stronglyRecommended: stronglyRecommended)
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle("登录时启动 TalkTalk", isOn: Binding(get: { p.isOn }, set: { launch.set($0) }))
-                .disabled(!p.canToggle)
-            if let note = p.note {
-                Text(note).font(.callout)
-                    .foregroundStyle(p.stronglyRecommended ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                    .fixedSize(horizontal: false, vertical: true)
+        let problem = launch.problem(stronglyRecommended: stronglyRecommended)?.row
+        LabeledContent {
+            HStack(spacing: 8) {
+                if let problem { StatusLabel(problem.text, problem.status, help: problem.help) }
+                if launch.lastError == nil, p.notice == .awaitingApproval {
+                    Button { launch.openSystemSettings() } label: {
+                        Label("登录项…", systemImage: Icon.openApp).labelStyle(.titleAndIcon)
+                    }
+                }
+                if launch.lastError == nil, p.notice == .recommended {
+                    InfoButton(topic: String(localized: "登录时启动"), lines: [LaunchAtLoginPolicy.recommendation])
+                }
+                Toggle(String(localized: "登录时启动"), isOn: Binding(get: { p.isOn }, set: { launch.set($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(!p.canToggle)
             }
-            if p.offerSystemSettings {
-                Button("打开登录项设置") { launch.openSystemSettings() }
-            }
-            if let e = launch.lastError {
-                Text(e).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
-            }
+        } label: {
+            Label("登录时启动", systemImage: Icon.launchAtLogin)
         }
+        .help(ifPresent: p.notice == .unsigned ? String(localized: "未签名构建不可用") : nil)
+    }
+}
+
+extension LaunchAtLogin {
+    /// What the 登录时启动 row ends with, and the page hero's words for the same fact (§7.5).
+    /// nil: nothing to do (also for an unsigned build, which only disables the switch).
+    func problem(stronglyRecommended: Bool) -> (row: SettingsProblem, page: SettingsProblem)? {
+        if let lastError {
+            return (SettingsProblem(.failed, String(localized: "未能更改"), help: lastError),
+                    SettingsProblem(.failed, String(localized: "登录时启动未能更改"), help: lastError))
+        }
+        switch presentation(stronglyRecommended: stronglyRecommended).notice {
+        case .recommended?:
+            let help = LaunchAtLoginPolicy.recommendation
+            return (SettingsProblem(.warn, String(localized: "建议开启"), help: help),
+                    SettingsProblem(.warn, String(localized: "建议开启登录时启动"), help: help))
+        case .awaitingApproval?:
+            let problem = SettingsProblem(.waiting, String(localized: "待系统允许"),
+                                          help: String(localized: "在系统设置的登录项中允许 TalkTalk"))
+            return (problem, problem)
+        case .moveToApplications?:
+            let problem = SettingsProblem(.warn, String(localized: "请移到“应用程序”文件夹"),
+                                          help: String(localized: "系统找不到这个 App 的登录项"))
+            return (problem, problem)
+        case .unsigned?, nil:
+            return nil
+        }
+    }
+
+    /// 建议开启 alone, for 音频's status-only row (§7.6): the other notices and the switch are
+    /// 通用's. nil unless the switch is off while it is recommended.
+    func recommendedProblem(stronglyRecommended: Bool) -> SettingsProblem? {
+        guard lastError == nil, presentation(stronglyRecommended: stronglyRecommended).notice == .recommended else { return nil }
+        return problem(stronglyRecommended: stronglyRecommended)?.row
     }
 }
 

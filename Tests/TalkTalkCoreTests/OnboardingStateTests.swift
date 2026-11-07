@@ -198,6 +198,20 @@ private let allGranted = OnboardingFacts(microphone: true, speechRecognition: tr
         #expect(m1.current == .engine)
     }
 
+    /// One source for "第 N 步，共 M 步" (settings › 通用 and the menu): the chosen path, nil once done.
+    @Test func progressCountsTheChosenPath() {
+        let s = DefaultsSuite()
+        let o = s.relaunch()
+        #expect(o.progress == OnboardingProgress(step: 1, count: 8))
+        o.chooseScenarios([.video])
+        o.recordSystemAudioProbe(.granted)
+        #expect(o.complete(.permissions, .init(speechRecognition: true)))
+        #expect(o.progress == OnboardingProgress(step: 2, count: 3))
+        #expect(o.progress?.text == "第 2 步，共 3 步")
+        #expect(o.complete(.speechAssets, .init(speechAssets: true)) && o.complete(.tryIt, .init()))
+        #expect(o.progress == nil)
+    }
+
     @Test func finishingTheLastStep() {
         let s = DefaultsSuite()
         let o = s.relaunch(steps: [.tryIt])

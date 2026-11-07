@@ -4,12 +4,12 @@ import TalkTalkSettingsUI
 /// Settings › 组件 › 虚拟麦克风 (ARCHITECTURE.md §11): status, install / update, self-test,
 /// uninstall, restart the audio service, and who is using TalkTalk Mic. Holds no state of its own.
 /// One self-contained group, shared by the components page and onboarding. Keep lifecycle
-/// modifiers on this container so refresh and confirmation occur only once.
+/// modifiers on this container so refresh and confirmation occur only once. 完全卸载 is
+/// `FullUninstallSection`, on Settings › 通用.
 ///
 ///     VStack(alignment: .leading) {
 ///         // engine rows …
 ///         DriverComponentSection(model: driver)
-///         FullUninstallSection(model: driver)
 ///     }
 public struct DriverComponentSection: View {
     @Bindable var model: DriverComponentModel
@@ -161,96 +161,5 @@ public struct DriverComponentSection: View {
         case .error: .failed
         case .neutral: .pending
         }
-    }
-}
-
-/// The 完全卸载 TalkTalk row (§8.4). Separate so the components page can put it last. After a run
-/// it shows `FullUninstallSummary` as it is: what was not removed one per line, a refusal's or
-/// failure's reason unchanged, and what was already done when a run stopped early.
-public struct FullUninstallSection: View {
-    // No @State: the CLT toolchain has no SwiftUIMacros plugin (§11 工具链); the flag lives in the model.
-    @Bindable var model: DriverComponentModel
-
-    public init(model: DriverComponentModel) { self.model = model }
-
-    static let explanation = """
-        先把系统默认输入还原成原来的麦克风（如果它还是 TalkTalk Mic），再删除：虚拟麦克风（要输入一次\
-        管理员密码，所有 App 的声音中断约 1 秒）、引擎和模型、我的声音、术语表、日志、缓存、TalkTalk 的设置和登录项、\
-        钥匙串里 TalkTalk 存的 OpenAI key，并重置 TalkTalk 的麦克风等权限。正在通话时不能卸载；会议模式开着时，\
-        还原默认输入以后会停在卸载虚拟麦克风这一步，先结束会议模式再点一次。做完后请退出 TalkTalk，把它拖进废纸篓。
-        """
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "trash").font(.title2).foregroundStyle(.secondary).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("完全卸载 TalkTalk").font(.headline)
-                    Text("移除组件及本机的声音档案、设置和数据。").font(.callout).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if let p = model.fullUninstaller?.phase, case .running(let step) = p {
-                    ProgressView().controlSize(.small)
-                    Text(step.title).font(.callout).foregroundStyle(.secondary)
-                } else {
-                    Button("完全卸载…", role: .destructive) { model.requestFullUninstall() }
-                        .disabled(model.fullUninstallBlocked)
-                }
-            }
-            if model.fullUninstaller?.isEngineBusy == true, model.fullUninstaller?.phase.isRunning != true {
-                Text(FullUninstaller.engineBusyText).font(.callout).foregroundStyle(.secondary)
-            }
-            if let summary = model.fullUninstallSummary { FullUninstallResultView(summary: summary) }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .alert("完全卸载 TalkTalk？", isPresented: $model.confirmingFullUninstall) {
-            Button("全部删除", role: .destructive) { Task { await model.confirm(.fullUninstall) } }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text(Self.explanation)
-        }
-    }
-}
-
-/// One run's result, every line selectable (paths can be copied into Finder's 前往文件夹).
-struct FullUninstallResultView: View {
-    let summary: FullUninstallSummary
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(summary.headline).font(.callout)
-                .foregroundStyle(summary.outcome == .complete ? Color.primary : Color.orange)
-            if let reason = summary.reason {
-                Text(reason).font(.callout)
-            }
-            if !summary.notRemoved.isEmpty {
-                Text("没有删除或没有做成的：").font(.callout)
-                ForEach(Array(summary.notRemoved.enumerated()), id: \.offset) { _, line in
-                    Text("• " + line).font(.callout)
-                }
-            }
-            if !summary.done.isEmpty {
-                if summary.outcome == .stopped {
-                    ForEach(Array(summary.done.enumerated()), id: \.offset) { _, line in
-                        Text("✓ " + line).font(.callout).foregroundStyle(.secondary)
-                    }
-                } else {
-                    DisclosureGroup("已删除的（\(summary.done.count) 项）") {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(summary.done.enumerated()), id: \.offset) { _, line in
-                                Text(line).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .font(.callout)
-                }
-            }
-        }
-        .textSelection(.enabled)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
     }
 }

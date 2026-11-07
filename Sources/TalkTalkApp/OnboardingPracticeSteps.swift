@@ -235,7 +235,7 @@ struct DoneStep: View {
                 scenarioRow(.captions,
                             note: String(localized: "只收听应用声音，英语或德语原文与中文字幕成对显示，不使用麦克风。"))
             }
-            SettingsNote("需要重新检查时，可从 设置 › 通用 重新运行引导。")
+            SettingsNote("需要重新检查时，可从 设置 › 通用 › 使用引导… 打开。")
         }
     }
 

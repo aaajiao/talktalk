@@ -44,8 +44,20 @@ public final class GlossaryStore: @unchecked Sendable {
         return try entries.map { entry in
             func trim(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
             let clean = GlossaryEntry(zh: trim(entry.zh), en: trim(entry.en), de: trim(entry.de), note: entry.note.map(trim))
-            guard !clean.zh.isEmpty, !clean.en.isEmpty || !clean.de.isEmpty else { throw Failure.missingTerm }
+            guard !clean.lacksChinese, !clean.lacksTranslation else { throw Failure.missingTerm }
             return clean
         }
+    }
+}
+
+/// What an entry still needs before it can be saved (`Failure.missingTerm`): the editor
+/// outlines those fields in red. Spaces do not count as text.
+extension GlossaryEntry {
+    public var lacksChinese: Bool { Self.blank(zh) }
+    /// Neither the English nor the German rendering is filled in.
+    public var lacksTranslation: Bool { Self.blank(en) && Self.blank(de) }
+
+    private static func blank(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

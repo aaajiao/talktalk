@@ -7,24 +7,24 @@ import Testing
 
     @Test func unsignedBuildCannotRegister() {
         let p = P.present(.notRegistered, bundleSigned: false, stronglyRecommended: true)
-        #expect(!p.canToggle && !p.isOn && p.note != nil)
+        #expect(!p.canToggle && !p.isOn && p.notice == .unsigned)
     }
 
     @Test func statusMapping() {
         #expect(P.present(.enabled, bundleSigned: true, stronglyRecommended: true)
-            == .init(isOn: true, canToggle: true, note: nil, offerSystemSettings: false, stronglyRecommended: false))
+            == .init(isOn: true, canToggle: true, notice: nil))
         let approval = P.present(.requiresApproval, bundleSigned: true, stronglyRecommended: false)
-        #expect(approval.isOn && approval.offerSystemSettings)
+        #expect(approval.isOn && approval.notice == .awaitingApproval)
         let off = P.present(.notRegistered, bundleSigned: true, stronglyRecommended: false)
-        #expect(!off.isOn && off.note == nil && !off.stronglyRecommended)
-        #expect(P.present(.notFound, bundleSigned: true, stronglyRecommended: false).note != nil)
+        #expect(!off.isOn && off.notice == nil)
+        #expect(P.present(.notFound, bundleSigned: true, stronglyRecommended: true).notice == .moveToApplications)
     }
 
     @Test func strongRecommendationWhenTheDriverLayerDoesNotCount() {
         let config = SystemInputPlan.Config()
         #expect(config.loginStartStronglyRecommended)
         let p = P.present(.notRegistered, bundleSigned: true, stronglyRecommended: config.loginStartStronglyRecommended)
-        #expect(p.stronglyRecommended && p.note == P.recommendation)
+        #expect(p.notice == .recommended)
     }
 
     @Test func actions() {

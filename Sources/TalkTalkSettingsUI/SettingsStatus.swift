@@ -211,7 +211,7 @@ public struct SettingsProblem: Sendable, Equatable {
 
 extension View {
     /// `.help` only when there is something to say.
-    @ViewBuilder func help(ifPresent text: String?) -> some View {
+    @ViewBuilder public func help(ifPresent text: String?) -> some View {
         if let text { help(text) } else { self }
     }
 }

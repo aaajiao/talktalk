@@ -77,9 +77,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings?.navigation.componentsTab = .driver
             settings?.show(.components)
         }
-        AppUIModels.shared.general.onRestartOnboarding = { [weak onboarding] in
-            onboarding?.model.restart()
-            onboarding?.show()
+        AppUIModels.shared.general.onboarding = onboardingModel
+        // 使用引导… continues unfinished onboarding at its step (the row shows "第 N 步，共 M 步")
+        // and runs finished onboarding again.
+        AppUIModels.shared.general.onOpenOnboarding = { [weak onboarding] in
+            guard let onboarding else { return }
+            if !onboarding.model.needsOnboarding { onboarding.model.restart() }
+            onboarding.show()
         }
         self.onboarding = onboarding
         let privacy = isSmoke ? nil : PrivacySettings.shared

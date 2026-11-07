@@ -28,4 +28,13 @@ import Testing
         #expect(throws: GlossaryStore.Failure.self) { try store.save([.init(zh: "", en: "x", de: "")]) }
         #expect(store.snapshot() == [entry])
     }
+    /// The editor's red outlines name exactly what the save refuses.
+    @Test func missingFieldsMatchTheSaveRule() {
+        let blankChinese = GlossaryEntry(zh: "  ", en: "term", de: "")
+        #expect(blankChinese.lacksChinese && !blankChinese.lacksTranslation)
+        let noTranslation = GlossaryEntry(zh: "词", en: " ", de: "")
+        #expect(!noTranslation.lacksChinese && noTranslation.lacksTranslation)
+        let germanOnly = GlossaryEntry(zh: "词", en: "", de: "Wort")
+        #expect(!germanOnly.lacksChinese && !germanOnly.lacksTranslation)
+    }
 }

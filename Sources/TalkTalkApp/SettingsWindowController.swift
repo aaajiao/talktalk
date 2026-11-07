@@ -263,7 +263,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let glossary = GlossarySettingsModel()
     /// 字幕's VoiceOver switch shows only while VoiceOver runs (§7.4).
     let subtitles = SubtitleSettingsModel()
-    /// 组件 › 虚拟麦克风 and 通用 › 应用管理 share the same guarded maintenance owner.
+    /// 组件 › 虚拟麦克风 and 通用 › 完全卸载… share the same guarded maintenance owner.
     let driver = DriverComponentsPage(engine: AppUIModels.shared.engine)
     private var window: NSWindow?
     private var foregroundGeneration: UInt64 = 0
@@ -399,13 +399,13 @@ struct SettingsView: View {
         case .translation:
             ModelSettingsView(state: state, navigation: navigation, translation: translation)
         case .general:
-            GeneralSettingsView(model: AppUIModels.shared.general, driver: driver)
+            GeneralSettingsView(model: AppUIModels.shared.general, driver: driver, navigation: navigation)
         case .audio:
             AudioSettingsView(model: AppUIModels.shared.audio, meetingActive: state.meetingActive, navigation: navigation)
         case .components:
             ComponentsSettingsView(navigation: navigation, engine: AppUIModels.shared.engine, driver: driver)
         case .glossary:
-            GlossarySettingsView(model: glossary)
+            GlossarySettingsView(model: glossary, translation: translation)
         case .privacy:
             DiagnosticsView(model: PrivacySettings.shared, navigation: navigation)
         }
