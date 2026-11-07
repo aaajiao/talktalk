@@ -1480,7 +1480,7 @@ final class SubtitlePanel {
 
     // Long-silence dimming.
 
-    /// "长静默时变暗" (default on). Off restores at once.
+    /// Settings › 字幕 "静默变暗" (default on). Off restores at once.
     func setVideoQuietDimEnabled(_ on: Bool) {
         guard quietDim.enabled != on else { return }
         quietDim.enabled = on

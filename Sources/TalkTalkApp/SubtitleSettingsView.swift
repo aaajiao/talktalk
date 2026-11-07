@@ -294,9 +294,11 @@ struct SubtitleSettingsView: View {
                          help: video ? String(localized: "最小化后收听和翻译继续，可从菜单栏恢复")
                                      : String(localized: "最小化后同传继续，可从菜单栏恢复")),
                 FactChip(String(localized: "共享屏幕不可见"), symbol: Icon.windowNotShared,
-                         // Only what sharingType .none is documented to do here (ARCHITECTURE):
-                         // excluded from screen sharing. Recordings are not checked.
-                         help: String(localized: "屏幕共享时对方看不到字幕窗口")),
+                         // Only what NSWindow.SharingType.none is documented to do: Apple calls
+                         // it a legacy constant that can leave content out of certain sharing
+                         // situations and must not be relied on to hide content from capture
+                         // (ARCHITECTURE, LISTEN). The help promises no more than that.
+                         help: String(localized: "部分共享方式下可能不显示，不作保证")),
             ], indented: true)
         } header: {
             SectionHeader(String(localized: "窗口"), symbol: Icon.subtitleWindow,
