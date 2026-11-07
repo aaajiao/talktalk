@@ -305,6 +305,7 @@ public struct EngineSelfTest: Sendable {
 
         if let ref = reference {
             do {
+                let client = try await engine.readyTTSClient()
                 let built = try await client.buildVoice(reference24k: ref.samples, refText: ref.text, model: engine.config.tts)
                 try await client.loadVoice(blob: built.blob, model: engine.config.tts)
                 let ok = await waitFor(client, limits.voiceReadyTimeout) { $0.voice.state == "ready" }

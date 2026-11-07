@@ -136,6 +136,44 @@ class FakeEngineTests(unittest.TestCase):
 
 @unittest.skipUnless(can_bind(), "cannot bind 127.0.0.1 here (Claude Code sandbox); run outside it")
 class FakeEngineLifecycleTests(unittest.TestCase):
+    def test_asr_first_ready_serves_asr_and_eventually_prepares_unchanged_tts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            models = root / "models"
+            for key in ("tts-fake", "asr-fake"):
+                model = models / key
+                model.mkdir(parents=True)
+                (model / ".talktalk-verified").write_text(f"{'0' * 40}\nkey={key}\n")
+            warm = root / "warmup"
+            warm.mkdir()
+            write_wav(warm / "ref-zh.wav", 2.0, 24000)
+            (warm / "ref-zh.txt").write_text("Synthetic reference.")
+            engine = Engine(sys.executable, ENGINE, [models], tts="tts-fake", asr="asr-fake",
+                            warmup_dir=warm, cache_dir=root / "cache", log_path=root / "engine.log",
+                            entry=FAKE_ENTRY, extra_args=["--asr-first"])
+            try:
+                engine.start(timeout=10)
+                self.assertEqual(engine.ready["models"]["asr"]["state"], "ready")
+                # A P2 recognition request can start as soon as the handshake arrives.
+                result = engine.asr(np.zeros(16000, np.float32), hint="en", priority=2)
+                self.assertEqual(result["language"], "en")
+                deadline = time.monotonic() + 5
+                while engine.health()["models"]["tts"]["state"] == "loading":
+                    self.assertLess(time.monotonic(), deadline)
+                    time.sleep(0.01)
+                self.assertEqual(engine.health()["models"]["tts"]["state"], "ready")
+                self.assertEqual(engine.handshake_extra_lines(wait=0.1), b"")
+                self.assertTrue(engine.handshake_closed)
+                stats = engine.json("GET", "/v1/stats")
+                self.assertIn("generic_warmup", stats["steps"])
+                self.assertIn("asr", stats["steps"])
+                _, blob = engine.build_voice(np.zeros(24000, np.float32), "Synthetic reference.")
+                engine.load_voice(blob)
+                _, _, timing = engine.tts({"text": "Thank you for the update.", "lang": "en", "seed": 0})
+                self.assertGreater(timing["audio_s"], 0)
+            finally:
+                self.assertEqual(engine.stop(), 0)
+
     def _spawn(self, env_token):
         r, w = os.pipe()
         env = {"HOME": os.environ.get("HOME", ""), "PATH": "/usr/bin:/bin"}

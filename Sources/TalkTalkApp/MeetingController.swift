@@ -36,6 +36,8 @@ final class MeetingController {
     /// Runs before a user end, while meeting mode is still on: restores the system input (§8.6).
     var beforeUserEnd: (() -> Void)?
     var prepareCloud: (() async -> Bool)?
+    /// Live metadata only, read on the main actor when the session's backend is constructed.
+    var knownCloudKeyPresence: (@MainActor @Sendable () -> Bool?)?
     var canStartMeeting: () -> Bool = { true }
     private let hud: PTTHUD?
     private let privacy: PrivacySettings?
@@ -396,7 +398,8 @@ final class MeetingController {
     /// "备用翻译" badge) + OpenAIMT as the finals' primary when the user set it up (ListenCloud);
     /// without it every final is Apple with that badge (§4.2: the no-key path).
     static func engines(cloud: ListenCloud.Box?,
-                        makeASR: (@MainActor @Sendable (EventLog, UInt64) -> (any StreamingASREngine)?)? = nil) -> MeetingSession.EngineFactory {
+                        makeASR: (@MainActor @Sendable (EventLog, UInt64) -> (any StreamingASREngine)?)? = nil,
+                        knownKeyPresence: (@MainActor @Sendable () -> Bool?)? = nil) -> MeetingSession.EngineFactory {
         { direction, log, configuration in
             // The app validates the generation and obtains the meeting backend in one main-actor
             // turn. A late factory from an ended meeting cannot repopulate the shared cloud box.
@@ -406,7 +409,7 @@ final class MeetingController {
                     guard let chosen = makeASR(log, configuration) else { return nil }
                     asr = chosen
                 } else { asr = AppleSpeechASR() }
-                let primary = cloud?.make(log: log).map { GlossaryMT(base: $0) }
+                let primary = cloud?.make(log: log, knownPresence: knownKeyPresence?()).map { GlossaryMT(base: $0) }
                 return ListenPipeline.Engines(asr: asr, apple: nil, primary: primary)
             }
             guard var engines = prepared else {
@@ -502,6 +505,8 @@ final class MeetingController {
             guard let self, self.subtitleSessionID == sessionID,
                   self.session?.listenConfigurationID == configuration else { return nil }
             return self.makeListenASR(log: log, configuration: configuration, sessionID: sessionID, jobs: jobs)
+        }, knownKeyPresence: { [weak self] in
+            self?.knownCloudKeyPresence?()
         })
         let s = MeetingSession(profile: profile, mode: mode, makeEngines: factory, events: events, jobs: jobs,
             onRemoteAudio: { samples, at in recorder?.appendRemote(samples, host: at) },
@@ -544,7 +549,7 @@ final class MeetingController {
         if mode == .captions, state.effectiveListenASREngine == .qwen, let engine = engineProcess() {
             captionsEngine = engine
             await engine.setMeetingMode(true)
-            captionsWarmup = Task { _ = try? await engine.start() }
+            captionsWarmup = Task { _ = try? await engine.start(prioritizingASR: true) }
         }
         let selection = state.listenLanguages(for: mode)
         let result = await s.start(lang: selection.source, target: selection.target,

@@ -4,6 +4,8 @@ Order: watchdogs + stubs -> HTTP listening on 127.0.0.1:0 -> on the GPU thread: 
 mlx-audio, load TTS, generic warmup with the synthetic `say` reference (en + de) -> READY.
 The user's voice is NOT required for READY (it arrives over HTTP, whose port READY announces).
 ASR loads after READY as a background call; /v1/health reports it.
+With --asr-first, ASR is ready at READY and the identical generic TTS warmup runs as
+cooperative P3 work. TTS-dependent requests wait for its separate health readiness.
 """
 import argparse
 import builtins
@@ -120,6 +122,7 @@ class EngineState:
                          "python": platform.python_version()}
         found = find_models(self.args.models_dir)
         roles = self.args.roles
+        asr_first = getattr(self.args, "asr_first", False) and "asr" in roles
         steps = ["tts", "warmup"] if "tts" in roles else []
         n = len(steps)
         if "tts" in roles:
@@ -132,10 +135,11 @@ class EngineState:
                 self.tts = MingTTSModel(self.args.tts, path, rev).load()
             else:
                 self.tts = TTSModel(self.args.tts, path, rev).load()
-            self.models["tts"] = {"id": self.args.tts, "rev": rev, "state": "ready"}
+            self.models["tts"] = {"id": self.args.tts, "rev": rev, "state": "loading" if asr_first else "ready"}
             handshake.progress("tts", 1, n)
-            self._generic_warmup()
-            handshake.progress("warmup", 2, n)
+            if not asr_first:
+                self._generic_warmup()
+                handshake.progress("warmup", 2, n)
         if "asr" in roles:
             if self.args.asr not in found:
                 raise RuntimeError(f"ASR model {self.args.asr} not found in {self.args.models_dir}")
@@ -150,9 +154,21 @@ class EngineState:
             mx.set_wired_limit(int(wired + (1 << 30)))
         except Exception as e:  # noqa: BLE001
             print(f"engine: set_wired_limit skipped ({type(e).__name__}: {e})", file=sys.stderr)
+        if asr_first:
+            try:
+                self._load_asr_ready()
+            except Exception as e:  # Keep TTS usable and allow the app's Apple ASR fallback.
+                print(f"engine: ASR load failed: {type(e).__name__}: {e}", file=sys.stderr)
+            if self.tts is not None:
+                self._queue_generic_warmup()
 
     def _generic_warmup(self):
         """Compiles kernels with the synthetic reference; the result is discarded (§4.4, §6.3)."""
+        for _ in self._generic_warmup_steps():
+            pass
+
+    def _generic_warmup_steps(self):
+        """Same reference and synthesis as synchronous startup, yielding at scheduler steps."""
         wdir = Path(self.args.warmup_dir) if self.args.warmup_dir else None
         if not wdir or not (wdir / "ref-zh.wav").is_file():
             print("engine: no warmup reference; skipping generic warmup", file=sys.stderr)
@@ -164,40 +180,66 @@ class EngineState:
         text = (wdir / "ref-zh.txt").read_text().strip()
         voice, _ = self.tts.build_voice(pcm, text, key="warmup")
         self.warmup_voice = voice
+        # Reference encoding/compilation is a startup long step; yield before decoder work
+        # so waiting ASR can run immediately after it, without changing synthesis inputs.
+        yield None
         for lang, sentence in (("en", "Thanks, everyone."), ("de", "Danke Ihnen allen.")):
-            for _ in self.tts.stream(sentence, voice, lang, interval=0.16, max_frames=40, seed=0):
+            yield from self.tts.stream(sentence, voice, lang, interval=0.16, max_frames=40, seed=0)
+
+    def _queue_generic_warmup(self):
+        def done(err):
+            self.models["tts"]["state"] = "failed" if err is not None else "ready"
+            if err is not None:
+                print(f"engine: generic TTS warmup failed: {type(err).__name__}", file=sys.stderr)
+
+        # Submitted inside gpu_init, before READY. No deferred handshake writes: its fd
+        # closes at READY; health is the authority for subsequent TTS readiness.
+        self.sched.submit(Job("generic_warmup", P3, self._generic_warmup_steps,
+                              deadline_ms=float("inf"), on_done=done))
+
+    def _load_asr_warm(self):
+        self.asr.load()
+        # warm the encoder with 1 s / 3 s of silence-plus-noise shapes (§6.3 step 3)
+        rng = np.random.default_rng(0)
+        for secs in (1, 3):
+            pcm = (rng.standard_normal(16000 * secs) * 0.003).astype(np.float32)
+            for _ in self.asr.stream(pcm, hint="zh", max_tokens=4):
                 pass
+        return True
+
+    def _load_asr_ready(self):
+        try:
+            if self.asr_sched is not self.sched and self.asr_sched.thread is None:
+                self.asr_sched.start(name="gpu-asr")
+            self.asr_sched.call(self._load_asr_warm, long_step=True)
+            self.asr_state = "ready"
+            self.models["asr"]["state"] = "ready"
+        except Exception:
+            self.asr_state = "failed"
+            self.models["asr"]["state"] = "failed"
+            raise
 
     def load_asr_background(self):
-        def load():
-            self.asr.load()
-            # warm the encoder with 1 s / 3 s of silence-plus-noise shapes (§6.3 step 3)
-            rng = np.random.default_rng(0)
-            for secs in (1, 3):
-                pcm = (rng.standard_normal(16000 * secs) * 0.003).astype(np.float32)
-                for _ in self.asr.stream(pcm, hint="zh", max_tokens=4):
-                    pass
-            return True
-
         def run():
             try:
-                if self.asr_sched is not self.sched and self.asr_sched.thread is None:
-                    self.asr_sched.start(name="gpu-asr")
-                self.asr_sched.call(load, long_step=True)
-                self.asr_state = "ready"
-                self.models["asr"]["state"] = "ready"
+                self._load_asr_ready()
             except Exception as e:  # noqa: BLE001
-                self.asr_state = "failed"
-                self.models["asr"]["state"] = "failed"
                 print(f"engine: ASR load failed: {type(e).__name__}: {e}", file=sys.stderr)
 
         threading.Thread(target=run, name="asr-load", daemon=True).start()
 
     # -------------------------------------------------------------- voice
 
+    def _require_tts_ready(self):
+        model = self.models.get("tts")
+        if model is not None and model["state"] != "ready":
+            from .server import ApiError
+            raise ApiError(409, "tts_not_ready", "TTS model preparation is not ready")
+
     def build_voice(self, pcm24k, ref_text, model=None):
         from . import voice as V
 
+        self._require_tts_ready()
         with self.voice_lock:
             self._clear_context_locked()
         key = f"{RUNTIME}-mlxaudio{self.versions.get('mlx_audio', '?')}-{self.tts.key}@{self.tts.rev[:12]}-icl-{V.audio_fingerprint(pcm24k)[:16]}"
@@ -220,6 +262,7 @@ class EngineState:
         from . import voice as V
         from .server import ApiError
 
+        self._require_tts_ready()
         if model is not None and (self.tts is None or self.tts.key != model):
             raise ApiError(409, "voice_model_mismatch", "voice model does not match the loaded TTS model")
 
@@ -304,6 +347,7 @@ class EngineState:
     # -------------------------------------------------------------- jobs
 
     def tts_job(self, req, out):
+        self._require_tts_ready()
         from .guards import Guarded, Policy, Progress
         from .tts import CONTINUATION_MAX_FRAMES, CONTINUATION_MAX_TEXT, echo_features, expected_seconds
         from .server import ApiError
@@ -459,6 +503,7 @@ class EngineState:
 
     def similarity(self, ref24k, sample24k):
         """/v1/voice/similarity: x-vector cosine of two 24 kHz clips, one P3 step (§6.1 rule 3)."""
+        self._require_tts_ready()
         done = threading.Event()
         box = {}
 
@@ -538,6 +583,8 @@ def parse(argv):
     p.add_argument("--warmup-dir")
     p.add_argument("--horizon-ms", type=float, default=1000.0)   # M2 T2 2026-11-05; the app passes PolicyProfile speak.tts.renderHorizonMs
     p.add_argument("--asr-thread", choices=("shared", "separate"), default="shared")   # M0-T2 topology B only
+    p.add_argument("--asr-first", action="store_true",
+                   help="prepare ASR before READY and finish generic TTS warmup as background steps")
     a = p.parse_args(argv)
     a.roles = [r.strip() for r in a.roles.split(",") if r.strip()]
     return a
@@ -571,7 +618,7 @@ def run(handshake_fd, argv):
     handshake.ready({"port": state.port, "pid": os.getpid(), "api": ENGINE_API, "engine": ENGINE_NAME,
                      "runtime": RUNTIME, "versions": state.versions, "models": state.models,
                      "voice": {"state": state.voice_state}})
-    if state.asr is not None:
+    if state.asr is not None and state.asr_state == "loading":
         state.load_asr_background()
     threading.Event().wait()
     return 0

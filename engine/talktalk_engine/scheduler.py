@@ -9,7 +9,7 @@ non-preemptible step (a TTS frame, an ASR token, a background chunk). Rules (§6
      class: `<kind>.first` for a job's first step (TTS ICL prefill, ASR encode + prefill), `<kind>`
      for the rest; a class with fewer than 5 samples uses a conservative default (DEFAULT_COST_MS)
   3  otherwise earliest deadline first; ties P0 > P1 > P2 > P3
-  -  tts and voice_warmup share one stateful decoder: a started generator owns it until close,
+  -  tts and both warmups share one stateful decoder: a started generator owns it until close,
      even while parked at the render horizon; ASR may still run between its steps
   6  while SPEAK is active (/v1/session speak_active, or any TTS job queued), P2 is paused
   7  P2 past its deadline is dropped, whether paused, not started or running (a running one is
@@ -34,7 +34,7 @@ _seq = itertools.count()
 # (ICL prefill, ASR encode), so they start at the 150 ms non-preemptible bound (rule 4).
 DEFAULT_COST_MS = 20.0
 DEFAULT_FIRST_COST_MS = 150.0
-_TTS_DECODER_JOBS = ("tts", "voice_warmup")
+_TTS_DECODER_JOBS = ("tts", "voice_warmup", "generic_warmup")
 
 
 def step_class(job):
@@ -354,6 +354,9 @@ class GpuScheduler:
                 continue
             t0 = time.perf_counter()
             try:
+                # Only the deferred startup reference build keeps the pre-READY long-step
+                # exemption. Once it yields, ordinary warmup steps remain watchdog-visible.
+                self.in_long_step = job.kind == "generic_warmup" and job.steps == 0
                 if job.gen is None:
                     job.gen = job.factory()
                 item = next(job.gen)
@@ -364,6 +367,8 @@ class GpuScheduler:
                 traceback.print_exc(file=sys.stderr)
                 self._retire(job, err=e)
                 continue
+            finally:
+                self.in_long_step = False
             dt = (time.perf_counter() - t0) * 1e3
             cls = step_class(job)
             job.steps += 1

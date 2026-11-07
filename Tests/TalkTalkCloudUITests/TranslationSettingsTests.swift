@@ -25,13 +25,15 @@ final class MemoryKeyStore: APIKeyStore, @unchecked Sendable {
     private let lock = NSLock()
     private var value: Data?
     private var readCount = 0
+    private var queryCount = 0
     private var queryOnMain = false
     private(set) var writes = 0
     var reads: Int { lock.withLock { readCount } }
+    var queries: Int { lock.withLock { queryCount } }
     var queriedOnMain: Bool { lock.withLock { queryOnMain } }
     init(_ initial: String? = nil) { value = initial.map { Data($0.utf8) } }
     func exists() -> Bool {
-        lock.withLock { queryOnMain = queryOnMain || Thread.isMainThread; return value != nil }
+        lock.withLock { queryCount += 1; queryOnMain = queryOnMain || Thread.isMainThread; return value != nil }
     }
     func read() throws -> Data {
         try lock.withLock {
@@ -245,6 +247,10 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         #expect(m.keyState == .saved(masked: "sk-…•••"))
         #expect(store.reads == 0)
         #expect(!store.queriedOnMain)
+        await m.loadKeyState()
+        await m.loadKeyState()
+        #expect(store.queries == 1) // Session preparation reuses the initial metadata result.
+        #expect(store.reads == 0)
     }
 
     @Test func lateInitialQueryCannotRestoreDeletedKey() async throws {
@@ -258,6 +264,9 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         await m.loadKeyState()
         await deletion.value
         #expect(m.keyState == .none)
+        #expect(m.keyStateKnown && !m.hasKey)
+        await m.loadKeyState()
+        #expect(m.keyStateKnown && !m.hasKey) // A later session must not revive the old query.
         #expect(!store.backing.exists())
         #expect(store.backing.reads == 0)
     }

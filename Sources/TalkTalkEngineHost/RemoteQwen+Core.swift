@@ -132,12 +132,12 @@ extension RemoteQwenTTS: TTSEngine {
 
     public func buildConditioning(_ ref: VoiceReference, model: EngineID, mode: CloneMode) async throws -> Data {
         guard let pcm = Self.samples(ref.pcm24k), !pcm.isEmpty else { throw RemoteEngineError.badReference }
-        let client = try await readyClient(engine)
+        let client = try await engine.readyTTSClient()
         return try await client.buildVoice(reference24k: pcm, refText: ref.text, model: model.name).blob
     }
 
     public func load(_ voice: VoiceHandle, blob: Data) async throws {
-        let client = try await readyClient(engine)
+        let client = try await engine.readyTTSClient()
         try await client.loadVoice(blob: blob, model: voice.model.name, key: voice.conditioningKey)
         let expectedKey8 = SHA256.hash(data: Data(voice.conditioningKey.utf8)).prefix(4)
             .map { String(format: "%02x", $0) }.joined()
@@ -172,6 +172,7 @@ extension RemoteQwenTTS: TTSEngine {
             let ended = Mutex(false)
             let stalled = Mutex(false)
             let gotTail = Mutex(false)
+            let waitingForModel = Mutex(true)
             /// The first of stream end / stall wins; the loser does nothing.
             let end: @Sendable (Error?) -> Bool = { error in
                 let first = ended.withLock { done -> Bool in
@@ -188,7 +189,10 @@ extension RemoteQwenTTS: TTSEngine {
             let task = Task {
                 do {
                     let received = HostClock.now()
-                    let client = try await readyClient(engine)
+                    let client = try await engine.readyTTSClient()
+                    try Task.checkCancellation()
+                    board.hold(id, at: .now)
+                    waitingForModel.withLock { $0 = false }
                     let started = HostClock.now()
                     let stream = client.tts(EngineTTSRequest(text: r.text, lang: r.language.rawValue,
                                                              job: WireJob.tts(r.job), seed: Int(r.seed),
@@ -238,6 +242,8 @@ extension RemoteQwenTTS: TTSEngine {
             let watchdog = Task {
                 while !Task.isCancelled, !ended.withLock({ $0 }) {
                     try? await Task.sleep(for: stall.tick)
+                    // A model preparing after READY is not a stalled /tts request.
+                    if waitingForModel.withLock({ $0 }) { board.hold(id, at: .now); continue }
                     // Only the oldest open stream is judged, and nothing while a stall is unresolved.
                     guard board.isHead(id), board.unresolvedSince == nil, var w = board.window(id) else { continue }
                     // Paused, or parked at the render horizon: nothing drains on purpose (§5.7).

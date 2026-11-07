@@ -15,6 +15,10 @@ public final class RemoteQwenVoiceBackend: VoiceEngineBackend {
     }
 
     private func client() async throws -> EngineClient {
+        try await engine.readyTTSClient()
+    }
+
+    private func asrClient() async throws -> EngineClient {
         _ = try await engine.start()
         guard let c = await engine.client else { throw EngineAPIError.invalidated }
         return c
@@ -24,7 +28,7 @@ public final class RemoteQwenVoiceBackend: VoiceEngineBackend {
     /// of the §9.3 cache key that say which engine a blob was built by). One TTS model per tier:
     /// the max profile keeps no 0.6B hot spare (m0-results, scope change).
     public func identity() async throws -> ConditioningIdentity {
-        let ready = try await engine.start()
+        let ready = try await engine.readyTTSInfo()
         guard let key = await engine.config.tts else { throw VoiceEngineError.noTTSModel }
         let installed = await engine.config.record.roles["tts"]?.rev
         let rev = ready.models["tts"]?.rev ?? installed ?? ""
@@ -100,7 +104,7 @@ public final class RemoteQwenVoiceBackend: VoiceEngineBackend {
     }
 
     public func transcribe(samples16k: [Float], hint: Lang) async throws -> String {
-        try await client().asr(samples16k: samples16k, hint: hint.rawValue, priority: 1, job: EngineJobID.make(prefix: "readback")).text
+        try await asrClient().asr(samples16k: samples16k, hint: hint.rawValue, priority: 1, job: EngineJobID.make(prefix: "readback")).text
     }
 
     /// `/v1/voice/similarity` (the TTS model's own speaker encoder, a P3 step). A clip shorter than

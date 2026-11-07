@@ -246,9 +246,12 @@ public final class MeetingSession: SpeakEchoSink {
         listenConfigurationID &+= 1
         let configuration = listenConfigurationID, session = sessionGeneration
         let previous = listenTask, old = pipeline, lang = requestedListenLanguage, target = requestedListenTarget, log = self.log
+        let resetStarted = HostClock.now()
         previous?.cancel(); pipeline = nil; listenLanguage = nil; listenTarget = nil
         ingest.prepareForRecognizerReplacement()
         onListenReset()
+        log?.event("listen.prepare", ["stage": .tag("reset"), "generation": .int(Int(configuration)),
+            "ms": .int(HostClock.ms(resetStarted, to: HostClock.now()))])
         let task = Task { @MainActor [weak self] in
             _ = await previous?.result
             await old?.stop()
@@ -262,9 +265,15 @@ public final class MeetingSession: SpeakEchoSink {
                   !self.stopping, !Task.isCancelled else { throw CancellationError() }
             guard open else { return }
             guard let lang, let log, self.acceptsListenCallbacks(configuration) else { throw CancellationError() }
+            let factoryStarted = HostClock.now()
             let engines = await self.makeEngines(Direction(source: lang, target: target), log, configuration)
+            log.event("listen.prepare", ["stage": .tag("factory"), "generation": .int(Int(configuration)),
+                "ms": .int(HostClock.ms(factoryStarted, to: HostClock.now()))])
             guard self.acceptsListenCallbacks(configuration), !Task.isCancelled else { throw CancellationError() }
+            let pipelineStarted = HostClock.now()
             let next = self.makePipeline(lang: lang, target: target, engines: engines, log: log, configuration: configuration)
+            log.event("listen.prepare", ["stage": .tag("pipeline"), "generation": .int(Int(configuration)),
+                "ms": .int(HostClock.ms(pipelineStarted, to: HostClock.now()))])
             do { try await next.start() }
             catch { await next.stop(); throw error }
             guard self.acceptsListenCallbacks(configuration), !Task.isCancelled else {

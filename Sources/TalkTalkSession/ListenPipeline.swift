@@ -200,8 +200,18 @@ public actor ListenPipeline {
         startHost = clock()
         lastFinalThrough = nil
         sourceAudioThrough = nil; rejectedEcho = nil; echoObservations.removeAll()
-        async let translationPreparation: Void = engines.prepareTranslation()
+        let prepareTranslation = engines.prepareTranslation, preparationLog = log
+        async let translationPreparation: Void = {
+            let started = HostClock.now()
+            await prepareTranslation()
+            // Completion timing only: the preparation closure may handle its own errors.
+            preparationLog.event("listen.prepare", ["stage": .tag("translation"),
+                "ms": .int(HostClock.ms(started, to: HostClock.now()))])
+        }()
+        let asrStarted = HostClock.now()
         let s = try await engines.asr.open(lang, highPriority: false)
+        log.event("listen.prepare", ["stage": .tag("asr"),
+            "ms": .int(HostClock.ms(asrStarted, to: HostClock.now()))])
         guard epoch == streamEpoch, !Task.isCancelled else {
             await s.cancel(); throw CancellationError()
         }

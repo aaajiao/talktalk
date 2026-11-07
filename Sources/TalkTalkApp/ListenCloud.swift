@@ -49,13 +49,14 @@ final class ListenCloud {
 
         /// A rebuilt LISTEN pipeline keeps the same meeting log. Reuse its backend, including
         /// the nil/disabled choice, so SPEAK, breaker state and warm connections stay together.
-        func make(log: EventLog) -> OpenAIMT? {
+        func make(log: EventLog, knownPresence: Bool? = nil) -> OpenAIMT? {
             lock.withLock {
                 if _sessionLog === log { return _listenEnabled ? _mt : nil }
                 let prefs = TranslationPreferences.load(.standard)
                 var mt: OpenAIMT?
                 if prefs.cloudConsentGiven, prefs.listenCloudEnabled || prefs.speakCloudEnabled {
-                    mt = (try? OpenAIMT.forCurrentApp(model: prefs.model, effort: prefs.effort, log: log)) ?? nil
+                    mt = (try? OpenAIMT.forCurrentApp(model: prefs.model, effort: prefs.effort, log: log,
+                                                    knownPresence: knownPresence)) ?? nil
                 }
                 let profile = try? PolicyProfile.loadDefault()
                 _warmB = prefs.effort == "none" && (

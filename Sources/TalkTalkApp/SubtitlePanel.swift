@@ -164,7 +164,9 @@ final class SubtitlePanel {
     private var hasConversation: Bool { presentation != .video && (subtitlesRequested || localSpeechVisible) }
     private var hasWindowContent: Bool {
         presence.hasContent(subtitles: subtitlesRequested, conversation: hasConversation, status: statusVisible,
-                            sessionActions: sessionActionsActive)
+                            sessionActions: sessionActionsActive, scene: scene,
+                            videoSource: videoBoard.current?.line.source ?? liveSource,
+                            videoTranslation: videoBoard.current?.line.text ?? "")
     }
     var contentWidth: CGFloat {
         let visible = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1440
@@ -270,6 +272,8 @@ final class SubtitlePanel {
                     guard let self else { return }
                     self.panel.didRestoreFromDock()
                     if self.presentation == .video {
+                        self.updateWindowVisibility()
+                        guard self.hasWindowContent else { return }
                         self.renderVideo(at: HostClock.now(), forceLayout: true)
                         self.resetVideoReading()
                     }
@@ -808,6 +812,7 @@ final class SubtitlePanel {
         let hadHint = board.hint != nil
         liveSource = ""; renderedSource = ""; renderedDraft = nil; lastPreviewRenderAt = 0; board.clear()
         videoBoard.clear(); renderedVideoCue = nil; videoDraftTail.reset()
+        if presentation == .video { updateWindowVisibility() }
         videoHiddenSince = isVisible || presentation != .video ? nil : HostClock.now()
         videoCaptions.setCaption(source: NSAttributedString(string: ""), translation: NSAttributedString(string: ""),
                                  sentence: nil, isFinal: false, at: Double(HostClock.now()) / 1_000_000_000)
@@ -903,12 +908,14 @@ final class SubtitlePanel {
             observe("subtitle_discarded", at: now,
                     line: .init(sentence: sentence, text: "", approx: false, numberWarning: false), kind: "pacing_overflow")
         }
+        updateWindowVisibility()
         renderVideo(at: now)
     }
 
-    private func renderVideo(at now: HostTime, forceLayout: Bool = false) {
+    private func renderVideo(at now: HostTime, forceLayout: Bool = false, preparingToShow: Bool = false) {
         // Defer hidden updates so corrections cannot be credited as read while off screen.
-        guard isWindowVisible else {
+        // The first caption is laid out while still hidden, before ordering the window front.
+        guard isWindowVisible || preparingToShow else {
             if forceLayout { layout() }
             return
         }
@@ -928,7 +935,7 @@ final class SubtitlePanel {
                                  sentence: cue?.line.sentence, isFinal: cue?.isFinal ?? false,
                                  fallback: cue?.line.showsFallbackBadge ?? false,
                                  at: Double(now) / 1_000_000_000)
-        if let cue, cue.isFinal { announceFinals([(cue.line.sentence, cue.line.display)]) }
+        if let cue, cue.isFinal, !preparingToShow { announceFinals([(cue.line.sentence, cue.line.display)]) }
         if forceLayout { layout() }
         recordPresentation()
     }
@@ -1109,13 +1116,24 @@ final class SubtitlePanel {
         if hasWindowContent {
             // Minimized is a user-owned presentation state, independent of subtitles being
             // enabled and of audio work. A status transition must never bring it back.
-            guard !isMiniaturized, !panel.userHidden else { return }
+            guard presence.allowsAutomaticDisplay(contentAvailable: true, userHidden: panel.userHidden,
+                                                   minimized: isMiniaturized) else { return }
             if !panel.isVisible {
+                if presentation == .video {
+                    renderVideo(at: HostClock.now(), forceLayout: true, preparingToShow: true)
+                }
                 panel.orderFrontRegardless()
                 windowShownAgain()
                 scheduleFullScreenHintCheck()
+                if presentation == .video {
+                    if let cue = renderedVideoCue, cue.isFinal { announceFinals([(cue.line.sentence, cue.line.display)]) }
+                    recordPresentation()
+                }
             }
         } else {
+            // An empty video reset must not discard the user's existing Dock miniwindow.
+            // Ending the session still removes it below, as for the other scenes.
+            if presentation == .video, presence.sessionOpen, isMiniaturized { return }
             // Ending the last visible work removes its Dock thumbnail without flashing the
             // window on screen. Reusing this retained panel later starts a fresh presentation.
             if panel.isMiniaturized || panel.minimizationPending { panel.dismissMiniaturizedWindow() }

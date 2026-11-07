@@ -162,6 +162,7 @@ public actor EngineProcess {
 
     private struct Running {
         let generation: Int
+        let launchedAt: ContinuousClock.Instant
         let process: LaunchedProcess
         let exit: Task<Int32, Never>
         var stdinOpen = true
@@ -173,9 +174,12 @@ public actor EngineProcess {
     private var crashTimes: [ContinuousClock.Instant] = []
     private var observers: [UUID: AsyncStream<EngineStatus>.Continuation] = [:]
     private var monitorTask: Task<Void, Never>?
+    private var ttsPreparationDeadlineTask: Task<Void, Never>?
     private var idleTask: Task<Void, Never>?
     private var restartTask: Task<Void, Never>?
     private var meetingMode = false
+    /// Chosen only by the owner of a cold launch; crash restarts keep that launch's order.
+    private var prioritizeASROnLaunch = false
     /// Last health answer (meeting mode), for diagnostics.
     public private(set) var lastHealth: EngineHealth?
     /// Launch counter (diagnostics, tests).
@@ -224,15 +228,76 @@ public actor EngineProcess {
 
     /// Starts the engine if needed and waits until it is READY (or has failed).
     @discardableResult
-    public func start() async throws -> ReadyInfo {
+    public func start(prioritizingASR: Bool = false) async throws -> ReadyInfo {
+        try Task.checkCancellation()
         switch status {
         case .ready(let r): return r
         case .stopped, .failed:
+            prioritizeASROnLaunch = prioritizingASR && config.roles.contains("asr")
             launch()
         case .starting, .restarting:
             break
         }
         return try await awaitReady()
+    }
+
+    /// READY can expose ASR while TTS is still warming. TTS callers wait on this process's
+    /// model state; cancellation or a restart must never carry their request to a new client.
+    public func readyTTSClient() async throws -> EngineClient {
+        try await readyTTS().client
+    }
+
+    /// Voice cache identity uses the same readiness barrier and process snapshot as synthesis.
+    public func readyTTSInfo() async throws -> ReadyInfo {
+        try await readyTTS().info
+    }
+
+    private func readyTTS() async throws -> (info: ReadyInfo, client: EngineClient) {
+        let end = ContinuousClock.now + config.timing.readyTimeout
+        let info = try await start()
+        try Task.checkCancellation()
+        guard case .ready = status, info.pid == running?.process.pid, let client else {
+            throw EngineAPIError.invalidated
+        }
+        let launchGeneration = generation
+        guard config.roles.contains("tts"), let model = info.models["tts"] else {
+            throw RemoteEngineError.tts(code: "tts_not_loaded", message: "")
+        }
+        if model.state == "ready" { return (info, client) }
+        while ContinuousClock.now < end {
+            try Task.checkCancellation()
+            guard generation == launchGeneration, self.client === client, case .ready = status else {
+                throw EngineAPIError.invalidated
+            }
+            let health: EngineHealth
+            do {
+                let remaining = (end - ContinuousClock.now).seconds
+                guard remaining > 0 else { break }
+                health = try await client.health(timeout: min(config.timing.healthTimeout.seconds, remaining))
+            } catch {
+                try Task.checkCancellation()
+                guard generation == launchGeneration, self.client === client else { throw EngineAPIError.invalidated }
+                throw error
+            }
+            try Task.checkCancellation()
+            guard generation == launchGeneration, self.client === client, case .ready = status else {
+                throw EngineAPIError.invalidated
+            }
+            observeTTSPreparation(health, generation: launchGeneration, client: client)
+            switch health.models["tts"]?.state {
+            case "ready":
+                let current = ReadyInfo(port: info.port, pid: info.pid, api: info.api, engine: info.engine,
+                    runtime: info.runtime, versions: info.versions,
+                    models: health.models.mapValues { .init(id: $0.id, rev: $0.rev, state: $0.state) },
+                    voice: .init(state: health.voice.state))
+                return (current, client)
+            case "failed": throw RemoteEngineError.tts(code: "tts_warmup_failed", message: "")
+            case nil, "absent": throw RemoteEngineError.tts(code: "tts_not_loaded", message: "")
+            default: break
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        throw RemoteEngineError.tts(code: "tts_not_ready", message: "")
     }
 
     /// The user's "重启引擎": clears the crash count and starts afresh.
@@ -245,6 +310,7 @@ public actor EngineProcess {
 
     /// stdin closed → SIGTERM to the process group → SIGKILL after 2 s (§7.6).
     public func stop() async {
+        cancelTTSPreparationDeadline()
         idleTask?.cancel(); idleTask = nil
         restartTask?.cancel(); restartTask = nil
         monitorTask?.cancel(); monitorTask = nil
@@ -270,9 +336,11 @@ public actor EngineProcess {
     }
 
     private func launch() {
+        cancelTTSPreparationDeadline()
         restartTask?.cancel(); restartTask = nil
         generation += 1
         let gen = generation
+        let launchedAt = ContinuousClock.now
         launches += 1
         setStatus(.starting(nil))
         let paths = config.paths
@@ -285,7 +353,8 @@ public actor EngineProcess {
             ServerLog.rotateIfNeeded(paths.engineLog)
             ServerLog.note(paths.engineLog, "launch #\(launches) flavour \(config.flavour) roles \(config.roles.joined(separator: ","))")
             process = try launcher.launch(LaunchSpec(
-                executable: config.python.path, arguments: config.arguments,
+                executable: config.python.path,
+                arguments: config.arguments + (prioritizeASROnLaunch ? ["--asr-first"] : []),
                 environment: EngineConfig.environment(token: token, paths: paths),
                 logPath: paths.engineLog.path))
         } catch {
@@ -294,7 +363,7 @@ public actor EngineProcess {
         }
         let launcher = self.launcher
         let exit = Task.detached { await launcher.waitForExit(process.pid) }
-        running = Running(generation: gen, process: process, exit: exit)
+        running = Running(generation: gen, launchedAt: launchedAt, process: process, exit: exit)
         Task { [weak self] in
             let st = await exit.value
             await self?.processExited(generation: gen, status: st)
@@ -340,6 +409,9 @@ public actor EngineProcess {
             client = EngineClient(port: info.port, token: token,
                                   controlTimeout: config.timing.healthTimeout.seconds)
             setStatus(.ready(info))
+            if info.models["tts"]?.state == "loading", let client {
+                startTTSPreparationDeadline(generation: gen, client: client, launchedAt: r.launchedAt)
+            }
             if meetingMode { startMonitor() }
         case .fatal(let m):
             r.killReason = "fatal"
@@ -369,6 +441,7 @@ public actor EngineProcess {
 
     /// A deterministic failure: stop this process and do not restart it.
     private func fail(_ f: EngineFailure, killing r: Running) async {
+        cancelTTSPreparationDeadline()
         generation += 1
         running = nil
         monitorTask?.cancel(); monitorTask = nil
@@ -379,6 +452,7 @@ public actor EngineProcess {
 
     private func processExited(generation gen: Int, status st: Int32) {
         guard gen == generation, let r = running, r.generation == gen else { return }
+        cancelTTSPreparationDeadline()
         running = nil
         if r.stdinOpen { close(r.process.stdinFD) }
         monitorTask?.cancel(); monitorTask = nil
@@ -475,6 +549,7 @@ public actor EngineProcess {
 
     private func startMonitor() {
         monitorTask?.cancel()
+        let gen = generation
         let interval = config.timing.healthInterval
         let timeout = config.timing.healthTimeout.seconds
         let maxMisses = config.timing.hangMisses
@@ -486,15 +561,15 @@ public actor EngineProcess {
                 do {
                     let h = try await client.health(timeout: timeout)
                     misses = 0
-                    if let why = await self.recordHealth(h) {
-                        await self.killHung(why)
+                    if let why = await self.recordHealth(h, generation: gen, client: client) {
+                        await self.killHung(why, ifGeneration: gen)
                         return
                     }
                 } catch {
                     if Task.isCancelled { return }
                     misses += 1
                     if misses >= maxMisses {
-                        await self.killHung("\(misses) health polls without an answer within \(timeout) s")
+                        await self.killHung("\(misses) health polls without an answer within \(timeout) s", ifGeneration: gen)
                         return
                     }
                 }
@@ -504,12 +579,52 @@ public actor EngineProcess {
 
     /// Returns a reason when the answer means "hung": pending jobs but no GPU step for > 4 s,
     /// except while the engine declares `in_long_step` (weight materialisation, first shader
-    /// compilation). Polling runs only after READY, so warm-up is never judged. TTS jobs parked at
+    /// compilation). Deferred TTS preparation retains the separate startup deadline. TTS jobs parked at
     /// the render horizon (paused playback, full buffer) do not count: the engine holds them on
     /// purpose (§6.1 rule 0).
-    private func recordHealth(_ h: EngineHealth) -> String? {
+    private func recordHealth(_ h: EngineHealth, generation gen: Int, client: EngineClient) -> String? {
+        guard gen == generation, self.client === client, case .ready = status else { return nil }
         lastHealth = h
+        observeTTSPreparation(h, generation: gen, client: client)
         return Self.hangReason(h.gpu, limitMs: config.timing.stepAgeLimitMs)
+    }
+
+    /// A long startup step may exempt the ordinary step watchdog, but never extends the
+    /// original launch-to-ready allowance. This also runs without meeting-mode polling or TTS callers.
+    private func startTTSPreparationDeadline(generation gen: Int, client: EngineClient,
+                                             launchedAt: ContinuousClock.Instant) {
+        cancelTTSPreparationDeadline()
+        let deadline = launchedAt + config.timing.readyTimeout
+        ttsPreparationDeadlineTask = Task { [weak self] in
+            do { try await Task.sleep(until: deadline, clock: .continuous) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            await self?.ttsPreparationDeadlineReached(generation: gen, client: client)
+        }
+    }
+
+    private func cancelTTSPreparationDeadline() {
+        ttsPreparationDeadlineTask?.cancel()
+        ttsPreparationDeadlineTask = nil
+    }
+
+    private func observeTTSPreparation(_ health: EngineHealth, generation gen: Int, client: EngineClient) {
+        guard gen == generation, self.client === client, ttsPreparationDeadlineTask != nil else { return }
+        if let state = health.models["tts"]?.state, state == "ready" || state == "failed" {
+            cancelTTSPreparationDeadline()
+        }
+    }
+
+    private func ttsPreparationDeadlineReached(generation gen: Int, client: EngineClient) async {
+        guard !Task.isCancelled, ttsPreparationDeadlineTask != nil,
+              gen == generation, self.client === client, case .ready = status else { return }
+        let health = try? await client.health(timeout: config.timing.healthTimeout.seconds)
+        guard !Task.isCancelled, ttsPreparationDeadlineTask != nil,
+              gen == generation, self.client === client, case .ready = status else { return }
+        if let health { observeTTSPreparation(health, generation: gen, client: client) }
+        guard ttsPreparationDeadlineTask != nil else { return }
+        ttsPreparationDeadlineTask = nil
+        await killHung("TTS preparation exceeded the startup deadline", ifGeneration: gen)
     }
 
     public static func hangReason(_ gpu: EngineHealth.GPU, limitMs: Double) -> String? {
@@ -524,12 +639,13 @@ public actor EngineProcess {
         await killHung(why)
     }
 
-    private func killHung(_ why: String) async {
-        guard case .ready = status, var r = running else { return }
+    private func killHung(_ why: String, ifGeneration expected: Int? = nil) async {
+        guard expected == nil || expected == generation, case .ready = status, var r = running else { return }
+        cancelTTSPreparationDeadline()
         ServerLog.note(config.paths.engineLog, "hung: \(why)")
         r.killReason = "hung (\(why))"
         running = r
-        monitorTask = nil
+        monitorTask?.cancel(); monitorTask = nil
         // Same signal sequence as stop(); the exit is then handled as a crash (backoff restart).
         if r.stdinOpen {
             close(r.process.stdinFD)

@@ -75,22 +75,31 @@ private actor TranslationWarmupGate {
     @Test func recognizerAndTranslationPrepareConcurrentlyButBothGateReadiness() async throws {
         let stream = DiscardStream(), asr = DiscardASR([stream], blockFirst: true)
         let warmup = TranslationWarmupGate(), finished = Mutex(false)
+        let log = EventLog(inMemory: HostClock.now)
         let pipeline = ListenPipeline(lang: .en, profile: try Fixture.listen(),
             engines: .init(asr: asr, apple: nil, primary: nil,
                            prepareTranslation: { await warmup.prepare() }),
-            log: EventLog(inMemory: HostClock.now), onUpdate: { _ in })
+            log: log, onUpdate: { _ in })
         let start = Task { try await pipeline.start(); finished.withLock { $0 = true } }
         #expect(await until(500) { @Sendable in
             let open = await asr.opens, translating = await warmup.entered
             return open == 1 && translating
         })
         #expect(!finished.withLock { $0 })
+        #expect(!log.recorded.contains { $0["ev"] as? String == "listen.prepare" })
         await asr.releaseOpen()
-        try await Task.sleep(for: .milliseconds(30))
+        #expect(await until { @Sendable in
+            log.recorded.contains { $0["ev"] as? String == "listen.prepare" && $0["stage"] as? String == "asr" }
+        })
         #expect(!finished.withLock { $0 })
+        #expect(!log.recorded.contains { $0["stage"] as? String == "translation" })
         await warmup.release()
         try await start.value
         #expect(finished.withLock { $0 })
+        let stages = log.recorded.filter { $0["ev"] as? String == "listen.prepare" }
+        #expect(stages.compactMap { $0["stage"] as? String } == ["asr", "translation"])
+        #expect(stages.allSatisfy { ($0["ms"] as? Int ?? -1) >= 0 })
+        #expect(stages.allSatisfy { Set($0.keys) == ["ev", "t", "stage", "ms"] })
         await pipeline.stop()
     }
 

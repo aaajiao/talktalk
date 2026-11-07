@@ -58,7 +58,11 @@ public struct QwenStreamingASR: StreamingASREngine {
                 let client = try await readyClient(engine)
                 while true {
                     try Task.checkCancellation()
-                    if try await client.health(timeout: 1).models["asr"]?.state == "ready" { break }
+                    let state = try await client.health(timeout: 1).models["asr"]?.state
+                    if state == "ready" { break }
+                    if state == "failed" {
+                        throw EngineAPIError.http(status: 409, code: "asr_not_ready", message: "ASR model failed to load")
+                    }
                     try await Task.sleep(for: .milliseconds(100))
                 }
                 continuation.yield(true); continuation.finish()

@@ -168,7 +168,7 @@ public final class TranslationSettingsModel {
     }
 
     /// Initial callers can use the model immediately; actions await the same metadata-only query.
-    func loadKeyState() async {
+    public func loadKeyState() async {
         guard let query = keyStateLoad else { return }
         let revision = keyStateRevision
         let exists = await query.value

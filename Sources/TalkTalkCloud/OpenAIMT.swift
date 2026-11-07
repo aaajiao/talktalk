@@ -66,14 +66,38 @@ public actor OpenAIMT: SpeakCloudMT {
     /// patterns, and the selected model and effort from Settings › 翻译 (`TranslationPreferences`).
     /// Returns nil when there is no key (the caller then uses Apple only, §11).
     public static func forCurrentApp(bundleID: String? = Bundle.main.bundleIdentifier, model: String, effort: String,
-                                     log: EventLog?) throws -> OpenAIMT? {
-        guard let bid = bundleID, let secret = KeychainSecret.openAI(bundleID: bid), secret.exists() else { return nil }
-        let profile = try PolicyProfile.loadDefault()
-        let client = OpenAIClient(cloud: profile.cloud, keyProvider: { String(decoding: try secret.read(), as: UTF8.self) },
-                                  sink: OpenAIMT.eventSink(log))
-        let gate = try? TargetTextGate(config: profile.speak.mt.targetGate, patterns: try GatePatterns.loadDefault())
-        return OpenAIMT(client: client, profile: profile, prompts: try MTPrompts.loadDefault(),
+                                     log: EventLog?, knownPresence: Bool? = nil) throws -> OpenAIMT? {
+        func measured<T>(_ stage: String, _ operation: () throws -> T) rethrows -> T {
+            let started = HostClock.now()
+            defer {
+                log?.event("cloud.prepare", ["stage": .tag(stage),
+                    "ms": .int(HostClock.ms(started, to: HostClock.now()))])
+            }
+            return try operation()
+        }
+        let secret: KeychainSecret? = measured("key_exists") {
+            guard let bid = bundleID, let secret = KeychainSecret.openAI(bundleID: bid),
+                  resolveKeyPresence(knownPresence, query: { secret.exists() }) else { return nil }
+            return secret
+        }
+        guard let secret else { return nil }
+        let profile = try measured("profile") { try PolicyProfile.loadDefault() }
+        let client = measured("client") {
+            OpenAIClient(cloud: profile.cloud, keyProvider: { String(decoding: try secret.read(), as: UTF8.self) },
+                         sink: OpenAIMT.eventSink(log))
+        }
+        let (gate, prompts) = try measured("resources") {
+            let gate = try? TargetTextGate(config: profile.speak.mt.targetGate, patterns: try GatePatterns.loadDefault())
+            return (gate, try MTPrompts.loadDefault())
+        }
+        return OpenAIMT(client: client, profile: profile, prompts: prompts,
                         configuration: Configuration(model: model, effort: effort), gate: gate, log: log)
+    }
+
+    /// Reuse only current presence metadata. Requests still read the live key from Keychain;
+    /// callers without resolved metadata retain the original existence check.
+    static func resolveKeyPresence(_ known: Bool?, query: () -> Bool) -> Bool {
+        known ?? query()
     }
 
     /// CloudEvent → EventLog, codes and timings only.

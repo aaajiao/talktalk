@@ -139,6 +139,7 @@ private final class HeldModelList: URLProtocol, @unchecked Sendable {
         model.deleteKey()
         try await Task.sleep(for: .milliseconds(80))
         #expect(model.keyState == .none && model.listing == .idle)
+        #expect(model.keyStateKnown && !model.hasKey)
         #expect(model.preferences.model == "gpt-6-oldtier")
         #expect(model.notice == nil && model.retirement == nil)
         #expect(!model.prepareForSession())
@@ -161,6 +162,7 @@ private final class HeldModelList: URLProtocol, @unchecked Sendable {
         HeldModelList.complete(1, status: 401, body: rejectedKey)
         await save.value
         #expect(model.keyState == .saved(masked: "sk-…ABCD"))
+        #expect(model.keyStateKnown && model.hasKey)
         #expect(model.preferences.model == "gpt-6-oldtier")
         #expect(model.notice == nil && model.retirement == nil)
         guard case .failed = model.verification else { Issue.record("new key verification must still run"); return }

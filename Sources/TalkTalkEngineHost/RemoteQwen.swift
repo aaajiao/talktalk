@@ -26,7 +26,7 @@ public struct RemoteQwenTTS: Sendable {
     /// otherwise the stream fails with `voice_absent`.
     public func speak(_ text: String, lang: String, job: String = EngineJobID.make(prefix: "tts"),
                       seed: Int? = nil) async throws -> EngineTTSStream {
-        try await readyClient(engine).tts(EngineTTSRequest(text: text, lang: lang, job: job, seed: seed))
+        try await engine.readyTTSClient().tts(EngineTTSRequest(text: text, lang: lang, job: job, seed: seed))
     }
 }
 

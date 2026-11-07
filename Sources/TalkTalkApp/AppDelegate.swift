@@ -126,7 +126,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard prefs.cloudConsentGiven, prefs.listenCloudEnabled || prefs.speakCloudEnabled else { return false }
             settings?.translation.load()
             guard let model = settings?.translation.model else { return false }
+            await model.loadKeyState()
             return model.prepareForSession()
+        }
+        meeting.knownCloudKeyPresence = { [weak settings] in
+            guard let model = settings?.translation.model, model.keyStateKnown else { return nil }
+            return model.hasKey
         }
         let profile = try? PolicyProfile.loadDefault()
         let output = isSmoke ? nil : profile.flatMap { try? SpeakOutput(profile: $0) }

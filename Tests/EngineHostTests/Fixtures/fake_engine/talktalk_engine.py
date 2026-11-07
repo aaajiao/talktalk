@@ -53,6 +53,10 @@ p.add_argument("--long-step", action="store_true")
 p.add_argument("--tts-chunks", type=int, default=5)
 p.add_argument("--tts-chunk-ms", type=float, default=50.0)
 p.add_argument("--require-voice-key", action="store_true")
+p.add_argument("--asr-first", action="store_true")
+p.add_argument("--tts-loading", action="store_true", help="hold TTS until a tts_ready/tts_failed file appears")
+p.add_argument("--asr-loading", action="store_true", help="hold ASR until an asr_ready/asr_failed file appears")
+p.add_argument("--initial-voice-ready", action="store_true")
 a, _ = p.parse_known_args()
 roles = [r for r in a.roles.split(",") if r]
 
@@ -67,6 +71,8 @@ if launch_no == 1:
         json.dump(dict(os.environ), f)
     with open(os.path.join(a.state_dir, "argv.json"), "w") as f:
         json.dump(sys.argv, f)
+with open(os.path.join(a.state_dir, f"argv-{launch_no}.json"), "w") as f:
+    json.dump(sys.argv, f)
 
 token = os.environ.get("TALKTALK_TOKEN", "")
 if len(token) < 32:
@@ -105,6 +111,8 @@ if scenario == "garbage":
 
 state = {"voice": "absent", "voice_key": None, "hang": scenario == "hang-health", "step_age": scenario == "step-age",
          "last_step": time.monotonic()}
+if a.initial_voice_ready:
+    state.update(voice="ready", voice_key="k")
 # The real engine renders TTS jobs one at a time; texts starting with "serial" share this lock.
 serial_lock = threading.Lock()
 # Job numbers as the real engine gives them on HTTP arrival (head frame `seq`).
@@ -125,6 +133,32 @@ def frame(kind, payload):
     if isinstance(payload, (dict, list)):
         payload = json.dumps(payload).encode()
     return struct.pack(">IB", len(payload) + 1, FRAMES[kind]) + payload
+
+
+request_log_lock = threading.Lock()
+
+
+def current_models():
+    result = {role: dict(model) for role, model in models.items()}
+    for role, loading in (("tts", a.tts_loading), ("asr", a.asr_loading)):
+        if loading and role in result:
+            if os.path.exists(os.path.join(a.state_dir, role + "_failed")):
+                result[role]["state"] = "failed"
+            elif os.path.exists(os.path.join(a.state_dir, role + "_ready")):
+                result[role]["state"] = "ready"
+            else:
+                result[role]["state"] = "loading"
+    return result
+
+
+def record_request(method, path, body=None):
+    item = {"method": method, "path": path, "pid": os.getpid(),
+            "tts_state": current_models().get("tts", {}).get("state")}
+    if path == "/v1/tts":
+        item["request"] = json.loads(body or b"{}")
+    with request_log_lock:
+        with open(os.path.join(a.state_dir, "requests.jsonl"), "a") as f:
+            f.write(json.dumps(item) + "\n")
 
 
 class H(BaseHTTPRequestHandler):
@@ -160,8 +194,9 @@ class H(BaseHTTPRequestHandler):
         if not self._ok():
             return
         path = urlparse(self.path).path
+        record_request("GET", path)
         if path == "/v1/health":
-            if state["hang"]:
+            if state["hang"] or os.path.exists(os.path.join(a.state_dir, "health_hang")):
                 time.sleep(3600)
             idle_ms = round((time.monotonic() - state["last_step"]) * 1000, 1)   # grows while idle
             gpu = {"last_step_age_ms": 5000.0 if state["step_age"] else idle_ms, "in_long_step": long_step_now(),
@@ -169,7 +204,7 @@ class H(BaseHTTPRequestHandler):
                    "expired_dropped": 0, "tts_rtf_recent": 0.27,
                    "step_p99": {"tts.first": 88.5, "tts": 41.0}}
             self._send(200, {"status": "ok", "api": a.api, "pid": os.getpid(), "runtime": "python-mlx",
-                             "models": models, "voice": {"state": state["voice"], "key8":
+                             "models": current_models(), "voice": {"state": state["voice"], "key8":
                                  hashlib.sha256(state["voice_key"].encode()).hexdigest()[:8] if state["voice_key"] else None},
                              "gpu": gpu, "mem": {"active": 1, "cache": 0, "peak": 2}})
         elif path == "/v1/stats":
@@ -182,6 +217,11 @@ class H(BaseHTTPRequestHandler):
             return
         url = urlparse(self.path)
         body = self._body()
+        record_request("POST", url.path, body)
+        if (a.tts_loading and url.path in ("/v1/tts", "/v1/voice/build", "/v1/voice/load", "/v1/voice/similarity")
+                and current_models().get("tts", {}).get("state") != "ready"):
+            self._send(409, {"error": {"code": "tts_not_ready", "message": "fake TTS is still warming"}})
+            return
         if url.path == "/v1/cancel":
             with open(os.path.join(a.state_dir, "cancels.txt"), "a") as f:
                 f.write(body.decode() + "\n")
@@ -335,9 +375,9 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 
 models = {}
 if "tts" in roles:
-    models["tts"] = {"id": a.tts, "rev": a.rev_tts, "state": "ready"}
+    models["tts"] = {"id": a.tts, "rev": a.rev_tts, "state": "loading" if a.tts_loading else "ready"}
 if "asr" in roles:
-    models["asr"] = {"id": a.asr, "rev": a.rev_asr, "state": "ready"}
+    models["asr"] = {"id": a.asr, "rev": a.rev_asr, "state": "loading" if a.asr_loading else "ready"}
 
 hs("PROGRESS", {"step": "tts", "done": 0, "count": 2})
 if scenario == "slow-ready":
@@ -351,5 +391,9 @@ hs("READY", {"port": srv.server_address[1], "pid": os.getpid(), "api": a.api if 
 
 if scenario == "crash-after-ready":
     time.sleep(a.crash_after)
+    os._exit(9)
+if scenario == "controlled-crash":
+    while not os.path.exists(os.path.join(a.state_dir, "crash_now")):
+        time.sleep(0.01)
     os._exit(9)
 threading.Event().wait()
