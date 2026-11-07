@@ -18,7 +18,7 @@ import TalkTalkVoice
 // Adding a part: write `func <name>SelfTest() async -> SelfTestReport` in its own file
 // (SelfTestVoice.swift and so on) and add one entry to `selfTestRunners`. Nothing else here changes.
 
-let selfTestParts = ["--engine", "--driver", "--voice", "--loop", "--passthrough", "--corun", "--cloud", "--speak-languages"]
+let selfTestParts = ["--engine", "--driver", "--voice", "--loop", "--passthrough", "--corun", "--cloud", "--speak-languages", "--subtitle-languages"]
 let selfTestRunners: [String: @Sendable () async -> SelfTestReport] = [
     "--engine": engineSelfTest,
     "--driver": driverSelfTest,   // m2 driver
@@ -27,6 +27,7 @@ let selfTestRunners: [String: @Sendable () async -> SelfTestReport] = [
     "--passthrough": passthroughSelfTest,
     "--cloud": cloudSelfTest,
     "--speak-languages": speakLanguagesSelfTest,
+    "--subtitle-languages": subtitleLanguagesSelfTest,
     "--corun": { SelfTestReport(suite: "corun", checks: [.init("corun", ok: nil, detail: "skipped: load testing is disabled by the user's decision")]) },
 ]
 
@@ -42,7 +43,8 @@ func runSelfTest() -> Never {
         fail("--self-test \(missing.sorted().joined(separator: " ")) is not implemented yet "
             + "(implemented: \(selfTestParts.filter(implemented.contains).joined(separator: " ")))")
     }
-    let parts = selfTestParts.filter { flags.isEmpty ? implemented.contains($0) && $0 != "--cloud" && $0 != "--corun" && $0 != "--speak-languages" : flags.contains($0) }
+    let explicitOnly: Set<String> = ["--cloud", "--corun", "--speak-languages", "--subtitle-languages"]
+    let parts = selfTestParts.filter { flags.isEmpty ? implemented.contains($0) && !explicitOnly.contains($0) : flags.contains($0) }
 
     Task.detached {
         var reports: [SelfTestReport] = []

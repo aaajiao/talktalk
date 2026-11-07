@@ -96,6 +96,7 @@ public actor ListenPipeline {
     }
 
     public let lang: Lang
+    public let target: Lang
     public let profile: PolicyProfile.Listen
     public nonisolated let ingest: AudioIngest
     private let engines: Engines
@@ -141,7 +142,7 @@ public actor ListenPipeline {
     private var finalTasks: [UInt64: Task<Void, Never>] = [:]
     private var remoteText: [(host: HostTime, text: String)] = []
 
-    public init(lang: Lang, profile: PolicyProfile.Listen, engines: Engines, log: EventLog,
+    public init(lang: Lang, target: Lang = .zh, profile: PolicyProfile.Listen, engines: Engines, log: EventLog,
                 ingest: AudioIngest = AudioIngest(), tickMs: Int = 50, jobs: JobIDSequence = JobIDSequence(),
                 onTranscript: @escaping @Sendable (String, String, HostTime) -> Void = { _, _, _ in },
                 onAnalysis: (@Sendable (ListenAnalysisEvent) -> Void)? = nil,
@@ -149,6 +150,7 @@ public actor ListenPipeline {
                 clock: @escaping @Sendable () -> HostTime = HostClock.now,
                 onUpdate: @escaping @Sendable (SubtitleUpdate) -> Void,
                 onTranslation: @escaping @Sendable (ListenTranslation) -> Void = { _ in }) {
+        precondition(MTSession.listen(source: lang, target: target) != nil, "Unsupported LISTEN language direction")
         var profile = profile
         let partialInterval = engines.asr.partialUpdateIntervalMs
         if partialInterval > 0 {
@@ -162,7 +164,7 @@ public actor ListenPipeline {
             profile.finalize.stallMs = max(profile.finalize.stallMs, minimumTextPause)
             profile.finalize.stallMsAfter8s = max(profile.finalize.stallMsAfter8s, minimumTextPause)
         }
-        self.lang = lang
+        self.lang = lang; self.target = target
         self.glossary = glossary
         self.onTranscript = onTranscript
         self.onAnalysis = onAnalysis
@@ -179,7 +181,7 @@ public actor ListenPipeline {
         self.echo = EchoFilter(config: .init(profile.echoFilter))
     }
 
-    var session: MTSession { lang == .de ? .listenDeZh : .listenEnZh }
+    var session: MTSession { MTSession.listen(source: lang, target: target)! }
 
     // MARK: - lifecycle
 
@@ -203,7 +205,7 @@ public actor ListenPipeline {
         }
         running = true
         ingest.attach(s)
-        log.event("listen.start", ["lang": .tag(lang.rawValue), "primary": .bool(engines.primary != nil),
+        log.event("listen.start", ["lang": .tag(lang.rawValue), "target": .tag(target.rawValue), "primary": .bool(engines.primary != nil),
                                    "apple": .bool(engines.apple != nil), "second_pass": .bool(profile.secondPassASR)])
         report(engines.primary == nil ? .appleOnly : .openAI)
         observeStream(s)
@@ -470,7 +472,7 @@ public actor ListenPipeline {
         draftJob?.task.cancel()
         draftJob = nil
         log.event("listen.sentence", ["sentence": .int(Int(f.sentence)), "trigger": .tag(f.trigger.rawValue),
-                                      "words": .int(FinalizeTrigger.wordCount(f.text)),
+                                      "words": .int(FinalizeTrigger.wordCount(f.text, lang: lang)),
                                       "final_timeout": .bool(f.finalTimeout),
                                       "trigger_to_final_ms": .int(f.finalAtMs - f.triggerAtMs),
                                       "first_word_to_trigger_ms": .int(f.firstWordAtMs.map { f.triggerAtMs - $0 } ?? -1)])
@@ -618,7 +620,7 @@ public actor ListenPipeline {
             return
         }
         let out = text ?? source
-        let numberWarning = NumberGuard.check(source: out, target: source, targetLang: lang, glossary: glossary()).hardMismatch
+        let numberWarning = NumberGuard.check(source: source, sourceLang: lang, target: out, targetLang: target, glossary: glossary()).hardMismatch
         let historyID = replacement ?? f.sentence
         history.removeAll { $0.sentence == historyID }
         history.append((historyID, MTTurn(source: source, target: out)))

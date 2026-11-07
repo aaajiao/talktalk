@@ -116,7 +116,8 @@ struct SubtitleSettingsView: View {
             scene: scene, fontSize: fontSize.wrappedValue, opacity: opacity.wrappedValue,
             videoStyle: state.videoCaptionStyle, videoArrangement: state.videoCaptionArrangement,
             darkBackdrop: colorScheme == .dark, display: display,
-            speakingLanguages: state.speakLanguages(for: state.requestedScenario)))
+            speakingLanguages: state.speakLanguages(for: state.requestedScenario),
+            listeningLanguages: state.listenLanguages(for: state.requestedScenario)))
             .overlay(alignment: .topLeading) {
                 Text("示例")
                     .font(.caption2)
@@ -274,7 +275,7 @@ struct SubtitleSettingsView: View {
             .init(.sourceFirst, name: String(localized: "原文在上")) {
                 CaptionArrangementThumbnail(arrangement: .sourceFirst)
             },
-            .init(.translationFirst, name: String(localized: "中文在上")) {
+            .init(.translationFirst, name: String(localized: "译文在上")) {
                 CaptionArrangementThumbnail(arrangement: .translationFirst)
             },
         ]

@@ -63,5 +63,8 @@ import Testing
         #expect(FinalizeTrigger.endsWithSentencePunct("Let's go. "))
         #expect(!FinalizeTrigger.endsWithSentencePunct("Let's go,"))
         #expect(FinalizeTrigger.wordCount("  a b\tc ") == 3)
+        #expect(FinalizeTrigger.wordCount("我们明天开会", lang: .zh) == 6)
+        #expect(FinalizeTrigger.wordCount("OpenAI API 延迟 20%", lang: .zh) == 6)
+        #expect(FinalizeTrigger.wordCount("。！？", lang: .zh) == 0)
     }
 }

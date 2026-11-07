@@ -65,5 +65,18 @@ public struct FinalizeTrigger: Sendable, Equatable {
         return x.prefix(n).joined(separator: " ")
     }
 
-    public static func wordCount(_ s: String) -> Int { s.split(whereSeparator: \.isWhitespace).count }
+    /// Source progress units. Chinese has no separating spaces, so every Han character/digit
+    /// advances the clock; embedded Latin names count as runs. en/de keep whitespace words.
+    public static func wordCount(_ s: String, lang: Lang = .en) -> Int {
+        guard lang == .zh else { return s.split(whereSeparator: \.isWhitespace).count }
+        var count = 0, inWord = false
+        for scalar in s.unicodeScalars {
+            if TextScript.isHan(scalar) || scalar.properties.numericType != nil {
+                count += 1; inWord = false
+            } else if scalar.properties.isAlphabetic {
+                if !inWord { count += 1 }; inWord = true
+            } else if scalar != "'" && scalar != "-" && scalar != "’" { inWord = false }
+        }
+        return count
+    }
 }

@@ -33,7 +33,7 @@ import Testing
     @Test func idleMenuIsStartScenesLanguagesAndTheTail() {
         let rows = StatusMenu.rows(StatusMenuFacts())
         #expect(titles(rows) == ["开始会议同传 · 自动", "会议同传…", "电话同传…", "视频字幕…", "—",
-                                 "字幕：英语 → 中文", "我说话：中文 → 英语", "显示字幕", "耳机译音", "—",
+                                 "显示字幕", "耳机译音", "—",
                                  "设置…", "TalkTalk \(EnginePins.appVersion) (\(EnginePins.appBuild))", "退出 TalkTalk"])
         let start = rows[0]
         #expect(start.kind == .action(.quickStart(.meeting)) && start.bold && start.isEnabled)
@@ -48,14 +48,17 @@ import Testing
         #expect(row(rows, "退出 TalkTalk")?.symbol == nil)
     }
 
-    @Test func speakingMenuShowsTheSelectedSourceAndChineseTarget() {
+    @Test func menuHasNoLanguageSelectorsAndQuickStartSummarizesVideoDirection() {
         var facts = StatusMenuFacts()
-        facts.speakSourceLanguage = "英语"
-        facts.speakLanguage = "中文"
-        #expect(row(StatusMenu.rows(facts), "我说话：英语 → 中文")?.kind == .languages(.speak))
-        facts.phase = .running
-        facts.mode = .captions
-        #expect(!StatusMenu.rows(facts).contains { $0.kind == .languages(.speak) })
+        facts.lastScenario = .captions
+        facts.listenLanguage = "中文"
+        facts.listenTargetLanguage = "德语"
+        #expect(StatusMenu.rows(facts).first?.subtitle == "中文 → 德语")
+        for mode in [MeetingMode.meeting, .phone, .captions] {
+            facts.mode = mode
+            facts.phase = .running
+            #expect(!StatusMenu.rows(facts).contains { $0.title.hasPrefix("字幕：") || $0.title.hasPrefix("我说话：") })
+        }
     }
 
     @Test func appIdentityShowsTheVersionAndBuildOnOneLineAndKeepsAbout() {
@@ -119,8 +122,7 @@ import Testing
         for f in states {
             let rows = StatusMenu.rows(f)
             for title in removed { #expect(row(rows, title) == nil, "\(title)") }
-            // Only the two language submenus remain (§8.1).
-            #expect(rows.filter { if case .languages = $0.kind { true } else { false } }.count <= 2)
+            #expect(!rows.contains { $0.title.hasPrefix("字幕：") || $0.title.hasPrefix("我说话：") })
         }
     }
 
@@ -307,7 +309,7 @@ import Testing
         let rows = StatusMenu.rows(f)
         #expect(Array(titles(rows).prefix(11)) == ["开始会议同传 · 自动", "会议同传…", "电话同传…", "视频字幕…", "—",
                                                    "上次的麦克风尚未还原", "还原默认输入", "开始会议同传", "查看音频设置…", "—",
-                                                   "字幕：英语 → 中文"])
+                                                   "显示字幕"])
         #expect(rows[5].tone == .failed && rows[5].symbol == SubtitleTokens.SettingsIcon.talkTalkMic)
         #expect(rows[6].kind == .action(.restoreDefaultInput) && rows[6].indented)
         #expect(rows[7].kind == .action(.resumeFromRecord) && rows[7].subtitle == "恢复输入记录")

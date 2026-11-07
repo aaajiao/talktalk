@@ -96,7 +96,7 @@ final class ConversationTimelineView: NSView {
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
     }
 
-    /// "原文 · 英语" / "译文 · 中文"; phone names the other side "通话对方".
+    /// Generic columns also fit local speech and rows from earlier language selections.
     func setHeader(source: String, translation: String) {
         sourceHeader.stringValue = source
         translationHeader.stringValue = translation

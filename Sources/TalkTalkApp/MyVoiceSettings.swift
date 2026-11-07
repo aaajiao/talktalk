@@ -455,7 +455,7 @@ extension FlowGrid {
         ])
     }
 
-    /// EN/DE translation → synthesis (my voice or system voice) → TalkTalk Mic → other party.
+    /// Translation → synthesis (my voice or system voice) → TalkTalk Mic → other party.
     private static func synthesizedVoiceLane(_ model: MyVoiceModel, driver: DriverComponentsPage?, links: ScenarioLinks?) -> FlowLane {
         typealias Icon = SubtitleTokens.SettingsIcon
         let problem = model.synthesisProblem
@@ -472,7 +472,7 @@ extension FlowGrid {
                                   : links?.node(String(localized: "安装与维护 · 语音资源"), .components, .components(.engine)),
                               satellite: satellite, help: model.synthesisModelName)
         return FlowLane(String(localized: "译音"), gutter: .voice(translating), cells: [
-            .node(FlowNode(String(localized: "EN/DE 译文"), glyph: .symbol(Icon.translation))),
+            .node(FlowNode(String(localized: "译文"), glyph: .symbol(Icon.translation))),
             .node(speech),
             .node(FlowNode("TalkTalk Mic", glyph: .symbol(Icon.talkTalkMic), badge: driverProblem?.status,
                            badgeReason: driverProblem?.text,

@@ -243,7 +243,7 @@ struct DoneStep: View {
                 scenarioRow(.captions,
                             chip: FactChip(String(localized: "不用麦克风"), symbol: Icon.noMicrophone,
                                            help: String(localized: "只收听应用声音")),
-                            note: String(localized: "只收听应用声音，英语或德语原文与中文字幕成对显示，不使用麦克风。"))
+                            note: String(localized: "只收听应用声音，中文、英语和德语可互译，原文与译文成对显示，不使用麦克风。"))
             }
         }
     }
@@ -321,7 +321,7 @@ extension FlowGrid {
                 .node(FlowNode(String(localized: "识别与翻译"), glyph: .symbol(Icon.translation),
                                help: String(localized: "云端不可用时由 Apple 翻译，句末标“备用翻译”"))),
                 .node(FlowNode(String(localized: "双语字幕"), glyph: .symbol(Icon.subtitles), badge: captions?.0,
-                               badgeReason: captions?.1, help: String(localized: "原文与中文在字幕面板成对显示"))),
+                               badgeReason: captions?.1, help: String(localized: "原文与译文在字幕面板成对显示"))),
                 .empty
             ])
         ])
@@ -334,9 +334,9 @@ extension FlowGrid {
         return FlowGrid(String(localized: "试说路径"), lanes: [
             FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
                 .node(FlowNode(String(localized: "我说"), glyph: .symbol(Icon.me), state: state == .listening ? .live : .ready,
-                               accessory: .controls {
+                               accessory: .display {
                                    HStack(spacing: 4) {
-                                       SpeakSourceChip(state: appState, paired: false)
+                                       Text(verbatim: appState.speakSourceLanguage.title).font(.caption2).foregroundStyle(.secondary)
                                        Keycap(key: TitlebarKey(action: String(localized: "开始翻译"), style: .idle), showsAction: false)
                                    }
                                }, help: String(localized: "按选定语言识别；说完再点按右⌥结束"))),
@@ -345,7 +345,9 @@ extension FlowGrid {
                 .node(FlowNode(String(localized: "耳机听译音"), glyph: .symbol(Icon.headphones),
                                badge: state == .played ? .ok : nil,
                                badgeReason: state == .played ? String(localized: "已播放译音") : nil,
-                               accessory: .controls { LanguageChip(state: appState, speak: true, paired: false) },
+                               accessory: .display {
+                                   Text(verbatim: appState.speakLanguage.title).font(.caption2).foregroundStyle(.secondary)
+                               },
                                help: String(localized: "译音在耳机里播放"))),
                 .empty
             ])

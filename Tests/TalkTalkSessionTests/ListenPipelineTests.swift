@@ -159,6 +159,51 @@ enum Fixture {
 
     func events(_ log: EventLog, _ name: String) -> [[String: Any]] { log.recorded.filter { ($0["ev"] as? String) == name } }
 
+    @Test func sixSubtitleDirectionsReachDraftCloudAndAppleFallback() async throws {
+        let examples: [Lang: String] = [.zh: "预算是三十万欧元", .en: "The budget is three hundred thousand euros",
+                                        .de: "Das Budget beträgt dreihunderttausend Euro"]
+        for source in Lang.allCases {
+            for target in Lang.allCases where target != source {
+                for cloudEnabled in [true, false] {
+                    let stream = FakeStream(), sink = Sink()
+                    let translated = examples[target]! + (target == .zh ? "。" : ".")
+                    let apple = FakeMT("apple", placement: .systemService, prefix: "", delayMs: 0, fixed: translated)
+                    let primary = cloudEnabled ? FakeMT("cloud", placement: .network, prefix: "", delayMs: 0, fixed: translated) : nil
+                    let pipeline = ListenPipeline(lang: source, target: target, profile: try Fixture.listen(deadlineMs: 1000),
+                        engines: .init(asr: FakeASR(stream: stream), apple: apple, primary: primary),
+                        log: EventLog(inMemory: HostClock.now), tickMs: 100_000, onUpdate: { sink.add($0) })
+                    try await pipeline.start()
+                    let phrase = examples[source]!
+                    let at = HostClock.now()
+                    await pipeline.onVolatile(phrase, through: at)
+                    await pipeline.onVolatile(phrase, through: at + 1)
+                    #expect(await until { !sink.drafts.isEmpty })
+                    stream.final(phrase + (source == .zh ? "。" : "."))
+                    #expect(await until { sink.finals.count == 1 })
+                    let final = try #require(sink.finals.first)
+                    #expect(final.1 == translated && final.2 == !cloudEnabled && final.3 == false)
+                    let expected = MTSession.listen(source: source, target: target)
+                    #expect(await apple.requests.allSatisfy { $0.session == expected })
+                    if let primary { #expect(await primary.requests.first?.session == expected) }
+                    await pipeline.stop()
+                }
+            }
+        }
+    }
+
+    @Test func germanToEnglishNumberWarningsUseGermanSourceParsing() async throws {
+        let stream = FakeStream(), sink = Sink()
+        let apple = FakeMT("apple", placement: .systemService, prefix: "", delayMs: 0, fixed: "The budget is 30,000 euros.")
+        let pipeline = ListenPipeline(lang: .de, target: .en, profile: try Fixture.listen(),
+            engines: .init(asr: FakeASR(stream: stream), apple: apple, primary: nil),
+            log: EventLog(inMemory: HostClock.now), tickMs: 100_000, onUpdate: { sink.add($0) })
+        try await pipeline.start()
+        stream.final("Das Budget beträgt dreihunderttausend Euro.")
+        #expect(await until { sink.finals.count == 1 })
+        #expect(sink.finals.first?.3 == true)
+        await pipeline.stop()
+    }
+
     @Test func primaryInTimeIsTheFinal() async throws {
         let primary = FakeMT("openai", placement: .network, prefix: "云", delayMs: 30)
         let apple = FakeMT("apple", placement: .systemService, prefix: "苹", delayMs: 10)

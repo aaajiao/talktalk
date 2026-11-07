@@ -22,7 +22,9 @@ func cloudSelfTest() async -> SelfTestReport {
         let gate = try TargetTextGate(config: profile.speak.mt.targetGate, patterns: GatePatterns.loadDefault())
         let cases: [(MTSession, String)] = [(.speakZhEn, "预算是三百欧元。"), (.speakZhDe, "周一开会。"),
                                            (.speakEnZh, "The budget is three hundred euros."), (.speakEnDe, "We meet on Monday."),
-                                           (.listenEnZh, "The budget is three hundred euros."), (.listenDeZh, "Wir treffen uns am Montag.")]
+                                           (.listenEnZh, "The budget is three hundred euros."), (.listenDeZh, "Wir treffen uns am Montag."),
+                                           (.listenZhEn, "预算是三百欧元。"), (.listenZhDe, "预算是三百欧元。"),
+                                           (.listenEnDe, "The budget is three hundred euros."), (.listenDeEn, "Das Budget beträgt dreihundert Euro.")]
         var responseID: String?
         for (index, sample) in (cases + [cases[0]]).enumerated() {
             let leg: Leg = index == cases.count ? .B : .A
@@ -46,7 +48,7 @@ func cloudSelfTest() async -> SelfTestReport {
                          "firstTokenMs": first.map { Double(HostClock.ms(start, to: $0)) } ?? -1,
                          "reasoningTokens": Double(echo?.reasoningTokens ?? -1),
                          "storeEchoMissing": validation?.storeEchoMissing == true ? 1 : 0]))
-            if sample.0.isSpeak {
+            do {
                 let direction = sample.0.direction, text = result.firstLine.text
                 let accepted: Bool
                 if case .pass = gate.check(text, target: direction.target) { accepted = true } else { accepted = false }

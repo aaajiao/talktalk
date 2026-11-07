@@ -51,6 +51,9 @@ final class SubtitlePanel {
     private var hoverBar = VideoHoverBar()
     private var hoverTimer: Timer?
     private var chromeShown: Bool?
+    #if TALKTALK_DEV
+    private var previewPinsChrome = false
+    #endif
     /// The hover bar became visible (PTTHUD shows a deferred popover then).
     var onTitlebarShown: (() -> Void)?
     var titlebarIsShown: Bool { chromeShown == true }
@@ -76,6 +79,7 @@ final class SubtitlePanel {
     var onLockRequest: (() -> Void)?
     /// The persistent dot opens the details popover.
     var onStatusDotClick: ((NSView) -> Void)?
+    var onLanguage: ((NSView) -> Void)?
     private var quietDim = VideoQuietDim()
     /// Shared titlebar controls (redesign §3); PTTHUD supplies voice, issue and key state.
     let titlebar = SubtitleTitlebarView()
@@ -89,6 +93,11 @@ final class SubtitlePanel {
     private var sessionActionsActive = false
     private var sessionActionsEnabled = true
     private var remoteLanguageTitle = String(localized: "英语")
+    private var translationLanguageTitle = String(localized: "中文")
+    private var listeningLanguages = ListenLanguageSelection()
+    private var subtitleReadingRate: Int { Int(VideoCaptionPacing.charactersPerSecond(listeningLanguages.target)) }
+    private var languageTitle: String?
+    private var languageDetail: String?
     private var displayedLines = Array(repeating: "", count: 6)
     private(set) var board = SubtitleBoard(maxCharactersPerSecond: 9, retention: .meeting)
     private(set) var baseFontSize: CGFloat = 22
@@ -231,6 +240,7 @@ final class SubtitlePanel {
         content.onHover = { [weak self] inside in self?.pointerMoved(inside: inside) }
         hoverStrip.onHover = { [weak self] inside in self?.pointerMoved(inside: inside) }
         titlebar.onMore = { [weak self] anchor in self?.showMoreMenu(from: anchor) }
+        titlebar.onLanguage = { [weak self] anchor in self?.onLanguage?(anchor) }
         titlebar.onPhone = { [weak self] in self?.openPhone?() }
         titlebar.onLayoutChange = { [weak self] in self?.updateTitlebarActions() }
         updateWindowTitle()
@@ -330,7 +340,7 @@ final class SubtitlePanel {
         updateTitlebarActions()
         remoteSilent = false
         clear(includingMyTurns: true)
-        board = SubtitleBoard(maxCharactersPerSecond: 9, retention: value == .video ? nil : .meeting)
+        board = SubtitleBoard(maxCharactersPerSecond: subtitleReadingRate, retention: value == .video ? nil : .meeting)
         updateWindowTitle()
         updateRemoteHeadings()
         applyWindowChrome()
@@ -361,7 +371,7 @@ final class SubtitlePanel {
         updateBackground()
     }
 
-    /// "中文在上" swaps the two blocks; bottom anchoring follows the lower one.
+    /// "译文在上" swaps the two blocks; bottom anchoring follows the lower one.
     func setVideoCaptionArrangement(_ arrangement: VideoCaptionArrangement) {
         guard videoCaptionArrangement != arrangement else { return }
         videoCaptionArrangement = arrangement
@@ -412,7 +422,8 @@ final class SubtitlePanel {
                                 phoneEnabled: phoneActionsEnabled && sessionActionsEnabled,
                                 showsEnd: sessionActionsActive, endEnabled: sessionActionsEnabled,
                                 endInputSwitched: endInputSwitched,
-                                showsMore: presentation == .video && sessionActionsActive)
+                                showsMore: presentation == .video && sessionActionsActive,
+                                languageTitle: languageTitle, languageDetail: languageDetail)
     }
 
     /// TalkTalk holds the system default input: 结束's help names the raw-voice consequence.
@@ -452,13 +463,32 @@ final class SubtitlePanel {
         updateRemoteHeadings()
     }
 
-    /// Column header (§4, §5): "原文 · 英语" / "译文 · 中文"; phone names the other side.
+    func setLanguages(listening: ListenLanguageSelection, speaking: SpeakLanguageSelection?) {
+        if listeningLanguages != listening {
+            listeningLanguages = listening
+            // A new direction gets new reading deadlines. The session reset clears remote
+            // rows separately; my speaking timeline and its delivery facts stay intact.
+            board = SubtitleBoard(maxCharactersPerSecond: subtitleReadingRate, retention: presentation == .video ? nil : .meeting)
+        }
+        remoteLanguageTitle = listening.source.title
+        translationLanguageTitle = listening.target.title
+        languageTitle = String(localized: "\(listening.source.title) → \(listening.target.title)")
+        let listen = String(localized: "原文：\(listening.source.title) → 译文：\(listening.target.title)")
+        languageDetail = speaking.map {
+            listen + "\n" + String(localized: "我说：\($0.source.title) → 译音：\($0.target.title)")
+        } ?? listen
+        videoCaptions.setLanguages(source: listening.source, target: listening.target)
+        updateRemoteHeadings()
+        updateTitlebarActions()
+        layoutVideoChrome()
+    }
+
+    /// Conversation columns contain both speakers and may retain earlier directions.
+    /// Only the video pair can be labelled with one current source/target language.
     private func updateRemoteHeadings() {
-        let source = presentation == .phone
-            ? String(localized: "通话对方 · \(remoteLanguageTitle)") : String(localized: "原文 · \(remoteLanguageTitle)")
-        conversation.setHeader(source: source, translation: String(localized: "译文 · 中文"))
+        conversation.setHeader(source: String(localized: "原文"), translation: String(localized: "译文"))
         videoCaptions.setAccessibilityTitles(source: String(localized: "原文 · \(remoteLanguageTitle)"),
-                                             translation: String(localized: "译文 · 中文"))
+                                             translation: String(localized: "译文 · \(translationLanguageTitle)"))
     }
 
     private func updateTitlebarActions() {
@@ -1344,7 +1374,11 @@ final class SubtitlePanel {
         // Captions off: the window is only its bar. VoiceOver: hover-only controls would leave
         // the accessibility tree. A locked window still hides the bar.
         let hasReadingArea = presentation == .video ? subtitlesRequested : hasConversation
-        hoverBar.setPinned(!hasReadingArea || NSWorkspace.shared.isVoiceOverEnabled)
+        var pinned = !hasReadingArea || NSWorkspace.shared.isVoiceOverEnabled
+        #if TALKTALK_DEV
+        pinned = pinned || previewPinsChrome
+        #endif
+        hoverBar.setPinned(pinned)
         if let deadline = hoverBar.hideDeadline(at: now) {
             let timer = Timer(timeInterval: max(0.01, deadline - now), repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateVideoChrome(animated: true) }
@@ -1609,11 +1643,15 @@ final class SubtitlePanel {
     var shownLines: [String] { displayedLines }
     #if TALKTALK_DEV
     func markPreviewForSmoke() {
+        // The explicit fixed-text fixture keeps controls visible for reproducible UI checks.
+        // Normal subtitle windows retain their hover-only chrome.
+        previewPinsChrome = true
         panel.title = String(localized: "TalkTalk · 界面预览（无音频）")
         // Only the explicit, fixed-text development fixture can be captured for visual QA.
         // Normal windows retain .none, including the default smoke's privacy assertion.
         panel.sharingType = .readOnly
         panel.orderFrontRegardless()
+        updateVideoChrome(animated: false)
     }
     #endif
 }

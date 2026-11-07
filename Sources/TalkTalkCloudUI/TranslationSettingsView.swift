@@ -3,17 +3,15 @@ import SwiftUI
 import TalkTalkCore
 import TalkTalkSettingsUI
 
-/// The language chips the app hands to the 文本翻译 diagram (§7.9): 我的译音 on 译文 and 对方语言
-/// on 听到的话. They edit the app's session state, which this module cannot see.
-public struct TranslationLanguageChips {
-    let speak: AnyView
-    let listen: AnyView
-    let source: AnyView
+/// Read-only scene directions. Links open the corresponding scenario flow in Settings.
+public struct TranslationLanguageSummary {
+    let source, speak, listen, listenTarget: String
+    let openSpeak, openListen: () -> Void
 
-    public init<Speak: View, Listen: View, Source: View>(speak: Speak, listen: Listen, source: Source) {
-        self.speak = AnyView(speak)
-        self.listen = AnyView(listen)
-        self.source = AnyView(source)
+    public init(source: String, speak: String, listen: String, listenTarget: String,
+                openSpeak: @escaping () -> Void, openListen: @escaping () -> Void) {
+        self.source = source; self.speak = speak; self.listen = listen; self.listenTarget = listenTarget
+        self.openSpeak = openSpeak; self.openListen = openListen
     }
 }
 
@@ -30,7 +28,7 @@ public struct TranslationLanguageChips {
 public struct TranslationSettingsView: View {
     @Bindable var model: TranslationSettingsModel
     private let session: Date?
-    private let languages: TranslationLanguageChips?
+    private let languages: TranslationLanguageSummary?
     private let flash: FlowInteraction?
 
     /// The diagram section's scroll id.
@@ -39,7 +37,7 @@ public struct TranslationSettingsView: View {
     private typealias Icon = SubtitleTokens.SettingsIcon
     private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 
-    public init(model: TranslationSettingsModel, session: Date? = nil, languages: TranslationLanguageChips? = nil,
+    public init(model: TranslationSettingsModel, session: Date? = nil, languages: TranslationLanguageSummary? = nil,
                 flash: FlowInteraction? = nil) {
         self.model = model
         self.session = session
@@ -84,17 +82,31 @@ public struct TranslationSettingsView: View {
         if let flash { content.flowFlash(Self.flowAnchor, in: flash) } else { content }
     }
 
-    /// 我说的话 → engine → 译文 ‹我的译音›; 听到的话 ‹对方语言› → engine → 中文字幕.
+    /// 我说的话 → engine → 译文; 听到的话 → engine → 字幕译文. Language values are read-only.
     private func flow(_ facts: TranslationFlowFacts) -> FlowGrid {
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
+        let speakLink = languages.map { NodeLink(String(localized: "使用场景"), action: $0.openSpeak) }
+        let listenLink = languages.map { NodeLink(String(localized: "使用场景"), action: $0.openListen) }
         let said = FlowNode(String(localized: "我说的话"), glyph: .symbol(Icon.physicalMic),
-                            accessory: languages.map { chips in NodeAccessory.controls { chips.source } },
+                            link: speakLink,
+                            accessory: languages.map { words in NodeAccessory.display {
+                                Text(verbatim: words.source).font(.caption2).foregroundStyle(.secondary)
+                            } },
                             help: String(localized: "按选定的中文或英语识别"))
         let target = FlowNode(String(localized: "译文"), glyph: .symbol(Icon.translation),
-                              accessory: languages.map { chips in NodeAccessory.controls { chips.speak } })
+                              link: speakLink,
+                              accessory: languages.map { words in NodeAccessory.display {
+                                  Text(verbatim: words.speak).font(.caption2).foregroundStyle(.secondary)
+                              } })
         let heard = FlowNode(String(localized: "听到的话"), glyph: .symbol(Icon.remote),
-                             accessory: languages.map { chips in NodeAccessory.controls { chips.listen } })
-        let captions = FlowNode(String(localized: "中文字幕"), glyph: .symbol(Icon.subtitles))
+                             link: listenLink,
+                             accessory: languages.map { words in NodeAccessory.display {
+                                 Text(verbatim: words.listen).font(.caption2).foregroundStyle(.secondary)
+                             } })
+        let captions = FlowNode(String(localized: "字幕译文"), glyph: .symbol(Icon.subtitles), link: listenLink,
+                                accessory: languages.map { words in NodeAccessory.display {
+                                    Text(verbatim: words.listenTarget).font(.caption2).foregroundStyle(.secondary)
+                                } })
         return FlowGrid(String(localized: "文本翻译路径"), lanes: [
             FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
                 .node(said), .node(engine(.speak, facts)), .node(target), .empty

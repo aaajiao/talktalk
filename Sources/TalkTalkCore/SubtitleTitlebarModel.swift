@@ -368,6 +368,9 @@ public struct TitlebarKey: Sendable, Equatable {
 /// Everything the shared titlebar draws, as static data: the live window and the settings
 /// preview render the same component from this value.
 public struct SubtitleTitlebarContent: Sendable, Equatable {
+    /// The current listening pair; the same button opens both directions in speaking scenes.
+    public var languageTitle: String?
+    public var languageDetail: String?
     public var scene: SubtitleScene
     public var source: String?
     public var voice: VoiceState?
@@ -385,7 +388,8 @@ public struct SubtitleTitlebarContent: Sendable, Equatable {
     public init(scene: SubtitleScene, source: String? = nil, voice: VoiceState? = nil, issue: IssueSlot? = nil,
                 key: TitlebarKey? = nil, showsPhone: Bool = false, phoneEnabled: Bool = true,
                 showsEnd: Bool = false, endEnabled: Bool = true, endInputSwitched: Bool = false,
-                showsMore: Bool = false) {
+                showsMore: Bool = false, languageTitle: String? = nil, languageDetail: String? = nil) {
+        self.languageTitle = languageTitle; self.languageDetail = languageDetail
         self.scene = scene; self.source = source; self.voice = voice; self.issue = issue; self.key = key
         self.showsPhone = showsPhone; self.phoneEnabled = phoneEnabled
         self.showsEnd = showsEnd; self.endEnabled = endEnabled; self.endInputSwitched = endInputSwitched
@@ -394,7 +398,7 @@ public struct SubtitleTitlebarContent: Sendable, Equatable {
 
     /// Phone's source is always Phone itself.
     public var sourceTitle: String? { scene == .phone ? "Phone" : source }
-    public var hasTrailingItems: Bool { voice != nil || issue != nil || key != nil || showsPhone || showsEnd || showsMore }
+    public var hasTrailingItems: Bool { languageTitle != nil || voice != nil || issue != nil || key != nil || showsPhone || showsEnd || showsMore }
 }
 
 /// Narrow-window yield order (§3): source name truncates first (the leading title takes the

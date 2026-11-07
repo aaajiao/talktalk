@@ -8,7 +8,8 @@ import TalkTalkSettingsUI
 
 /// Settings › 使用场景 (settings visual system §7.1–§7.3). The scene cards sit in the window's
 /// fixed band (ScenarioCardHeader); switching cards scrolls back to the top. Each scene opens
-/// with its flow diagram, the one problem line and the safety facts; the bottom bar stays locked
+/// with its flow diagram, including language chips in the relevant nodes, then the problem
+/// line and safety facts; the bottom bar stays locked
 /// to the running session while another scene is browsed (§33), and the running card's dot and
 /// clock say which one runs (no banner).
 struct MeetingSettingsView: View {

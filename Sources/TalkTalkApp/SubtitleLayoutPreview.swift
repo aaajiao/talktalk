@@ -24,6 +24,7 @@ struct SubtitleLayoutPreview: NSViewRepresentable {
         /// Passed in (not read inside) so SwiftUI's accessibility environment refreshes it.
         var display: SubtitleStyle.Display
         var speakingLanguages = SpeakLanguageSelection()
+        var listeningLanguages = ListenLanguageSelection()
     }
 
     let configuration: Configuration
@@ -352,18 +353,20 @@ final class SubtitlePreviewCanvas: NSView {
         let audio = HUDModel.MeetingAudio.original
         let voice = VoiceState.resolve(audio: audio, scene: scene, phoneInputConfirmed: phone)
         let key = TitlebarKey.make(SpeechStatusPresentation(audio: audio, phoneInputConfirmed: phone ? true : nil), voice: voice)
-        layoutTitlebar(SubtitleTitlebarContent(scene: scene, source: phone ? nil : "Zoom", voice: voice, key: key,
-                                               showsPhone: phone, showsEnd: true),
-                       frame: NSRect(x: 0, y: 0, width: width, height: titleHeight), trailingMargin: 16, display: display)
+        var titlebarContent = SubtitleTitlebarContent(scene: scene, source: phone ? nil : "Zoom", voice: voice, key: key,
+                                                     showsPhone: phone, showsEnd: true)
+        titlebarContent.languageTitle = languageTitle(configuration)
+        titlebarContent.languageDetail = languageDetail(configuration)
+        layoutTitlebar(titlebarContent, frame: NSRect(x: 0, y: 0, width: width, height: titleHeight),
+                       trailingMargin: 16, display: display)
 
         let contentHeight = height - titleHeight
         let rules = ConversationLayout(contentWidth: Double(width), contentHeight: Double(contentHeight))
         let style = ConversationStyle(typography: ConversationTypography(base: configuration.fontSize, width: Double(width)),
                                       opacity: opacity, display: display, scene: scene, stacked: rules.stacked)
-        let language = String(localized: "英语")
-        timeline.setHeader(source: phone ? String(localized: "通话对方 · \(language)") : String(localized: "原文 · \(language)"),
-                           translation: String(localized: "译文 · 中文"))
-        timeline.apply(rows: Self.sampleRows(phone: phone, speakingLanguages: configuration.speakingLanguages), style: style,
+        timeline.setHeader(source: String(localized: "原文"), translation: String(localized: "译文"))
+        timeline.apply(rows: Self.sampleRows(phone: phone, speakingLanguages: configuration.speakingLanguages,
+                                            listeningLanguages: configuration.listeningLanguages), style: style,
                        lastRowOnly: rules.lastRowOnly, showsHeader: rules.showsColumnHeader)
         dock.apply(.init(presentation: MicDockPresentation.make(voice, scene: scene), turn: nil,
                          expanded: false, showsStartHint: false), style: style, compact: rules.compactDock)
@@ -386,26 +389,30 @@ final class SubtitlePreviewCanvas: NSView {
     }
 
     /// Two remote pairs (the second still a draft) around one of my turns.
-    private static func sampleRows(phone: Bool, speakingLanguages: SpeakLanguageSelection) -> [ConversationTimeline.Row] {
+    private static func sampleRows(phone: Bool, speakingLanguages: SpeakLanguageSelection,
+                                   listeningLanguages: ListenLanguageSelection) -> [ConversationTimeline.Row] {
         let speaking = SubtitleSpeakingSample(phone: phone, languages: speakingLanguages)
-        if phone {
-            return [
-                row(.remote(1), .remote, source: "Hi, I'm calling to confirm your appointment. Would Tuesday morning work for you?",
-                    translation: String(localized: "您好，我打电话来确认您的预约。周二上午您方便吗？"), order: 1),
-                row(.me(1), .me, source: speaking.source, translation: speaking.translation,
-                    delivery: .phoneSent, order: 2),
-                row(.remote(2), .remote, source: "Of course. We're on Market Street, on the second floor.",
-                    translation: String(localized: "当然。我们在市场街，二楼"), final: false, order: 3),
-            ]
-        }
+        let listening = SubtitleListeningSample(scene: phone ? .phone : .meeting, languages: listeningLanguages).pairs
         return [
-            row(.remote(1), .remote, source: "Let's confirm the plan for next week. Would Tuesday morning work for you?",
-                translation: String(localized: "我们确认一下下周的安排。周二上午你方便吗？"), order: 1),
+            row(.remote(1), .remote, source: listening[0].source, translation: listening[0].translation, order: 1),
             row(.me(1), .me, source: speaking.source, translation: speaking.translation,
-                delivery: .sent, order: 2),
-            row(.remote(2), .remote, source: "Great. I'll send the agenda and the meeting link this afternoon.",
-                translation: String(localized: "好的。我今天下午把议程和"), final: false, order: 3),
+                delivery: phone ? .phoneSent : .sent, order: 2),
+            row(.remote(2), .remote, source: listening[1].source, translation: listening[1].translation,
+                final: false, order: 3),
         ]
+    }
+
+    private func languageTitle(_ configuration: SubtitleLayoutPreview.Configuration) -> String {
+        let languages = configuration.listeningLanguages
+        return String(localized: "\(languages.source.title) → \(languages.target.title)")
+    }
+
+    private func languageDetail(_ configuration: SubtitleLayoutPreview.Configuration) -> String {
+        let listen = configuration.listeningLanguages
+        let detail = String(localized: "原文：\(listen.source.title) → 译文：\(listen.target.title)")
+        guard configuration.scene != .video else { return detail }
+        let speak = configuration.speakingLanguages
+        return detail + "\n" + String(localized: "我说：\(speak.source.lang.title) → 译音：\(speak.target.lang.title)")
     }
 
     // MARK: video
@@ -438,8 +445,13 @@ final class SubtitlePreviewCanvas: NSView {
             reduceTransparency: display.reduceTransparency,
             // A still picture: no page or finalization fades.
             reduceMotion: true, increaseContrast: display.increaseContrast)
-        let translation = String(localized: "最简单的想法，往往始于换一种方式去看待我们身边的世界")
-        let source = VideoSubtitleView.sourceText("The simplest ideas often begin with a different way of looking at the world around us.",
+        let languages = configuration.listeningLanguages
+        videoCaption.setLanguages(source: languages.source, target: languages.target)
+        videoCaption.setAccessibilityTitles(source: String(localized: "原文 · \(languages.source.title)"),
+                                             translation: String(localized: "译文 · \(languages.target.title)"))
+        let sample = SubtitleListeningSample(scene: .video, languages: languages).pairs[0]
+        let translation = sample.translation
+        let source = VideoSubtitleView.sourceText(sample.source,
                                                   font: SubtitleStyle.font(typography.source), display: display)
         // An unfinished tail: the last three characters are still changing.
         let target = VideoSubtitleView.translationText(translation, isFinal: false, stablePrefix: translation.count - 3,
@@ -448,10 +460,12 @@ final class SubtitlePreviewCanvas: NSView {
         videoCaption.layoutSubtreeIfNeeded()
         let barFrame = videoCaption.controlBarFrame(height: barHeight)
         hoverStrip.frame = barFrame
-        layoutTitlebar(SubtitleTitlebarContent(scene: .video, source: "Google Chrome",
-                                               voice: VoiceState.resolve(audio: nil, scene: .video),
-                                               showsEnd: true, showsMore: true),
-                       frame: barFrame, trailingMargin: 0, display: display)
+        var titlebarContent = SubtitleTitlebarContent(scene: .video, source: "Google Chrome",
+                                                     voice: VoiceState.resolve(audio: nil, scene: .video),
+                                                     showsEnd: true, showsMore: true)
+        titlebarContent.languageTitle = languageTitle(configuration)
+        titlebarContent.languageDetail = languageDetail(configuration)
+        layoutTitlebar(titlebarContent, frame: barFrame, trailingMargin: 0, display: display)
     }
 }
 

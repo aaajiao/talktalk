@@ -24,6 +24,7 @@ private actor SwitchASR: StreamingASREngine {
     var updates: [SubtitleUpdate] = []
     var resets = 0
     var transcripts: [(String, String)] = []
+    var prepared: [Direction] = []
     var finals: [String] { updates.compactMap { if case let .final(_, text, _, _, _) = $0 { text } else { nil } } }
     func reset() { updates.removeAll(); resets += 1 }
 }
@@ -32,8 +33,9 @@ private actor SwitchASR: StreamingASREngine {
     private func make(_ asr: SwitchASR, apple: FakeMT? = nil, events: MeetingEvents = MeetingEvents(),
                       ui: SwitchUI) throws -> MeetingSession {
         let profile = try PolicyProfile.load(from: Fixture.repoRoot.appendingPathComponent("Resources/PolicyProfile.default.json"))
-        return MeetingSession(profile: profile, makeEngines: { _, _, _ in
-            .init(asr: asr, apple: apple, primary: nil)
+        return MeetingSession(profile: profile, makeEngines: { direction, _, _ in
+            await MainActor.run { ui.prepared.append(direction) }
+            return .init(asr: asr, apple: apple, primary: nil)
         }, events: events, onTranscript: { source, target, _ in ui.transcripts.append((source, target)) },
         onListenReset: { ui.reset() }, onSubtitle: { ui.updates.append($0) })
     }
@@ -67,6 +69,66 @@ private actor SwitchASR: StreamingASREngine {
         #expect(ui.finals[0].contains("Neue deutsche Wörter"))
         #expect(!ui.transcripts.contains { $0.0.contains("Old English") })
         await session.stop(); _ = subscription
+    }
+
+    @Test func targetOnlySwitchCancelsOldTranslationAndPreparesTheWholeDirection() async throws {
+        let asr = SwitchASR(), ui = SwitchUI()
+        let apple = FakeMT("apple", placement: .systemService, prefix: "translated", delayMs: 80)
+        let session = try make(asr, apple: apple, ui: ui)
+        try await session.startListenForTesting(lang: .en)
+        let old = await asr.opened[0].1
+        old.final("Old English sentence.")
+        #expect(await until { @Sendable in await apple.requests.count == 1 })
+        try await session.switchListenDirection(source: .en, target: .de)
+        #expect(session.listenLanguage == .en && session.listenTarget == .de)
+        #expect(ui.prepared == [.init(source: .en, target: .zh), .init(source: .en, target: .de)])
+        #expect(!(await apple.cancels).isEmpty)
+        let fresh = await asr.opened[1].1
+        fresh.final("New English sentence.")
+        #expect(await until { @Sendable in await MainActor.run { ui.finals.count == 1 } })
+        #expect(await apple.requests.last?.session == .listenEnDe)
+        #expect(ui.transcripts.allSatisfy { !$0.0.contains("Old English") })
+        await #expect(throws: MeetingSession.ListenConfigurationError.self) {
+            try await session.switchListenDirection(source: .en, target: .en)
+        }
+        #expect(session.listenLanguage == .en && session.listenTarget == .de)
+        await session.stop()
+        #expect(session.listenLanguage == nil && session.listenTarget == nil)
+    }
+
+    @Test func cancelledSelectionCannotChangeThePairOrResetSubtitles() async throws {
+        let asr = SwitchASR(), ui = SwitchUI(), session = try make(asr, ui: ui)
+        try await session.startListenForTesting(lang: .en, target: .zh)
+        let configuration = session.listenConfigurationID, resets = ui.resets
+        // This main-actor task cannot start until the current turn yields below.
+        let stale = Task { try await session.switchListenDirection(source: .zh, target: .de) }
+        stale.cancel()
+        await #expect(throws: CancellationError.self) { try await stale.value }
+        #expect(session.listenLanguage == .en && session.listenTarget == .zh)
+        #expect(session.listenConfigurationID == configuration && ui.resets == resets)
+        #expect(ui.prepared == [.init(source: .en, target: .zh)])
+        await session.stop()
+    }
+
+    @Test func targetChangedDuringStartAndSuspensionUsesLatestPair() async throws {
+        let asr = SwitchASR(), ui = SwitchUI(), session = try make(asr, ui: ui)
+        await asr.blockNextOpen()
+        let starting = Task { try await session.startListenForTesting(lang: .zh, target: .en) }
+        #expect(await until { @Sendable in await asr.opened.count == 1 })
+        try await session.switchListenDirection(source: .zh, target: .de)
+        await asr.unblock(); try await starting.value
+        #expect(session.listenLanguage == .zh && session.listenTarget == .de)
+        #expect(ui.prepared.last == .init(source: .zh, target: .de))
+        session.suspendListenForTesting()
+        try await session.switchListenDirection(source: .de, target: .en)
+        #expect(session.listenLanguage == nil && session.listenTarget == nil)
+        try await session.resumeListenForTesting()
+        #expect(session.listenLanguage == .de && session.listenTarget == .en)
+        #expect(ui.prepared.last == .init(source: .de, target: .en))
+        // The legacy source-only entry point keeps this session's chosen subtitle target.
+        try await session.switchListenLanguage(to: .zh)
+        #expect(session.listenLanguage == .zh && session.listenTarget == .en)
+        await session.stop()
     }
 
     @Test func rapidSwitchLastSelectionWinsAndStopCannotResurrectIt() async throws {

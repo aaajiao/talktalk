@@ -498,16 +498,20 @@ struct TranslationPageView: View {
     @Bindable var state: AppState
     /// The window's flash, for the diagram a menu problem row lands on (§8.1).
     var flash: FlowInteraction? = nil
+    let openLanguages: (MeetingMode) -> Void
 
     var body: some View {
         Group {
             if let model = page.model {
                 // The session's start: a switch changed while it runs waits for the next start.
                 TranslationSettingsView(model: model, session: state.meetingActive ? state.meetingStartedAt : nil,
-                                        languages: TranslationLanguageChips(
-                                            speak: LanguageChip(state: state, speak: true, paired: true),
-                                            listen: LanguageChip(state: state, speak: false, paired: true),
-                                            source: SpeakSourceChip(state: state)),
+                                        languages: TranslationLanguageSummary(
+                                            source: state.speakSourceLanguage.title,
+                                            speak: state.speakLanguage.title,
+                                            listen: state.activeListenLanguages.source.title,
+                                            listenTarget: state.activeListenLanguages.target.title,
+                                            openSpeak: { openLanguages(state.speakLanguageMode) },
+                                            openListen: { openLanguages(state.listenLanguageMode) }),
                                         flash: flash)
             } else if let problem = page.problem {
                 // A development binary without a bundle id (§5.2, §7.0): the reason is the help.

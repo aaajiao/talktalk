@@ -165,3 +165,40 @@ struct SpeakStrategyTests {
         #expect(battery.observe(rtf: 0.2, underrunCount: 0, thermalSerious: false, lowPower: true, at: ns(200)) == nil)
     }
 }
+
+@Suite struct SpeakChineseEchoTests {
+    @Test func speakerModeRejectsChineseRemotePhraseButKeepsShortOrUnrelatedSpeech() throws {
+        let gate = SpeakLanguageGate(try TestResources.profile().speak)
+        let remote = ["我们明天讨论合同细节。"]
+        #expect(gate.check("明天讨论合同", speakerMode: true, remoteOverlap: nil, recentRemoteText: remote) == .remoteText)
+        #expect(gate.check("明天讨论合同", speakerMode: false, remoteOverlap: nil, recentRemoteText: remote) == nil)
+        #expect(gate.check("明天我们去公园", speakerMode: true, remoteOverlap: 0, recentRemoteText: remote) == nil)
+        for text in ["好", "好的", "明天见", "好的好的", "哈哈哈哈"] {
+            #expect(gate.check(text, speakerMode: true, remoteOverlap: nil, recentRemoteText: [text]) == nil)
+        }
+        #expect(gate.check("好的", speakerMode: true, remoteOverlap: 0.9, recentRemoteText: []) == .remoteOverlap)
+    }
+
+    @Test func chineseFloorEvidenceDistinguishesRemoteSpeechFromPlayedText() throws {
+        let config = try TestResources.profile().speak.floor
+        var detector = RemoteSpeechDetector(config: config)
+        _ = detector.observe(vadSpeech: false, energyDb: -60, echoScore: nil, volatileText: "", playingText: "", at: 0)
+        _ = detector.observe(vadSpeech: true, energyDb: -40, echoScore: 0,
+            volatileText: "", playingText: "我们明天讨论合同细节", at: 1_000_000_000)
+        let afterMinimum = UInt64(1000 + config.ignoreMs) * 1_000_000
+        #expect(!detector.observe(vadSpeech: true, energyDb: -40, echoScore: 0,
+            volatileText: "明天讨论合同", playingText: "我们明天讨论合同细节", at: afterMinimum).speaking)
+        #expect(detector.observe(vadSpeech: true, energyDb: -40, echoScore: 0,
+            volatileText: "今天需要检查系统", playingText: "我们明天讨论合同细节", at: afterMinimum).speaking)
+        #expect(!detector.observe(vadSpeech: true, energyDb: -40, echoScore: 0.9,
+            volatileText: "今天需要检查系统", playingText: "我们明天讨论合同细节", at: afterMinimum).speaking)
+    }
+
+    @Test func latinRemoteEchoBehaviorIsPreserved() throws {
+        let gate = SpeakLanguageGate(try TestResources.profile().speak)
+        #expect(gate.check("check the deployment pipeline", speakerMode: true, remoteOverlap: 0,
+            recentRemoteText: ["Please check the deployment pipeline."]) == .remoteText)
+        #expect(gate.check("check the deployment pipeline", speakerMode: false, remoteOverlap: 0,
+            recentRemoteText: ["Please check the deployment pipeline."]) == nil)
+    }
+}

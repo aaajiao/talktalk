@@ -911,7 +911,7 @@ private struct PermissionsStep: View {
                                                                       : String(localized: "允许需要的声音与按键访问"))) {
             Section {
                 GrantRow(symbol: Icon.speech, title: String(localized: "应用声音"),
-                         help: String(localized: "收听所选应用，生成原文与中文字幕"),
+                         help: String(localized: "收听所选应用，生成双语字幕"),
                          status: grant(model.systemAudioShown, denied: model.systemAudioShown == false),
                          actionTitle: String(localized: "检查"), action: model.runSystemAudioProbe,
                          busy: model.probeRunning, actionWorksWhenDenied: true,

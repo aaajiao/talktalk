@@ -59,23 +59,32 @@ public struct ListenSegmenter: Sendable {
         self.lcp = LCPCommitter(unit: .for(lang))
     }
 
+    private func joined(_ parts: [String]) -> String {
+        parts.filter { !$0.isEmpty }.reduce("") { left, right in
+            guard !left.isEmpty else { return right }
+            let latinBoundary = left.unicodeScalars.last.map(TextScript.isLatinLetter) == true
+                && right.unicodeScalars.first.map(TextScript.isLatinLetter) == true
+            return left + (lang != .zh || latinBoundary ? " " : "") + right
+        }
+    }
+
     // MARK: - views
 
     /// Stable source text of the current sentence.
     public var stableText: String {
-        ([finals.joined(separator: " "), lcp.committedText].filter { !$0.isEmpty }).joined(separator: " ")
+        joined([joined(finals), lcp.committedText])
     }
 
     /// What the subtitle's source line shows: stable text + the unstable volatile tail.
     public var sourceLine: String {
-        let base = finals.joined(separator: " ")
-        return [base, volatile].filter { !$0.isEmpty }.joined(separator: " ")
+        let base = joined(finals)
+        return joined([base, volatile])
     }
 
     public var awaitingFinal: Bool { pending != nil }
     public var revisions: Int { lcp.revisions }
 
-    private var fullWords: Int { FinalizeTrigger.wordCount(sourceLine) }
+    private var fullWords: Int { FinalizeTrigger.wordCount(sourceLine, lang: lang) }
 
     // MARK: - inputs
 
@@ -96,7 +105,7 @@ public struct ListenSegmenter: Sendable {
     public mutating func final(_ text: String, nowMs: Int) -> [Action] {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let p = pending {
-            return close(text: ([stableFinalsText, t].filter { !$0.isEmpty }).joined(separator: " "),
+            return close(text: joined([stableFinalsText, t]),
                          trigger: p.trigger, triggerAtMs: p.atMs, nowMs: nowMs, timeout: false)
         }
         guard !t.isEmpty else { return [] }
@@ -110,7 +119,7 @@ public struct ListenSegmenter: Sendable {
         if FinalizeTrigger.endsWithSentencePunct(t) {
             _ = trigger.observe(nowMs: nowMs, words: fullWords, stableEndsWithSentencePunct: true,
                                 silenceMs: 0, asrFinal: true)
-            return close(text: finals.joined(separator: " "), trigger: .asrFinal, triggerAtMs: nowMs,
+            return close(text: joined(finals), trigger: .asrFinal, triggerAtMs: nowMs,
                          nowMs: nowMs, timeout: false)
         }
         return draftIfDue(nowMs: nowMs) + observe(nowMs: nowMs, silenceMs: 0, asrFinal: false)
@@ -134,7 +143,7 @@ public struct ListenSegmenter: Sendable {
 
     // MARK: - internals
 
-    private var stableFinalsText: String { finals.joined(separator: " ") }
+    private var stableFinalsText: String { joined(finals) }
 
     private mutating func observe(nowMs: Int, silenceMs: Int, asrFinal: Bool) -> [Action] {
         guard pending == nil else { return [] }
@@ -153,7 +162,7 @@ public struct ListenSegmenter: Sendable {
 
     private mutating func draftIfDue(nowMs: Int) -> [Action] {
         let text = stableText
-        let words = FinalizeTrigger.wordCount(text)
+        let words = FinalizeTrigger.wordCount(text, lang: lang)
         guard words > lastDraftWords else { return [] }
         let minGap = 1000 / max(1, draft.maxUpdatesPerS)
         if let last = lastDraftAtMs, nowMs - last < minGap { return [] }

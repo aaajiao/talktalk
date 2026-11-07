@@ -88,7 +88,7 @@ import Testing
         #expect(strict.contains("Output German only"))
         let listen = try builder.instructions(session: .listenDeZh, mode: .normal, glossary: glossary)
         #expect(listen.contains("newest German sentence into concise Simplified Chinese"))
-        #expect(listen.contains("延迟 = Latenz"))
+        #expect(listen.contains("Latenz = 延迟"))
         // Glossary is capped at 30 entries.
         let many = (0..<40).map { GlossaryEntry(zh: "词\($0)", en: "w\($0)", de: "w\($0)") }
         let capped = try builder.instructions(session: .speakZhEn, mode: .normal, glossary: many)
@@ -117,6 +117,25 @@ import Testing
         #expect(retry.contains("1.5 million, latency"))
         #expect(retry.contains("Output Simplified Chinese only"))
         #expect(!retry.contains("never output Chinese characters"))
+    }
+
+    @Test func allSubtitleDirectionsUseSubtitlePromptsAndTheirOwnGlossary() throws {
+        for source in Lang.allCases {
+            for target in Lang.allCases {
+                let session = MTSession.listen(source: source, target: target)
+                if source == target { #expect(session == nil); continue }
+                let selected = try #require(session)
+                #expect(!selected.isSpeak && selected.direction == Direction(source: source, target: target))
+                let prompt = try builder.instructions(session: selected, mode: .normal, glossary: glossary)
+                #expect(prompt.hasPrefix("You write live subtitles"))
+                let term = glossary[0]
+                #expect(prompt.contains("\(term.rendering(for: source)) = \(term.rendering(for: target))"))
+                let targetName = builder.prompts.languageNames[target.rawValue]!
+                #expect(prompt.contains(targetName))
+            }
+        }
+        #expect(MTSession.speak(source: .de, target: .en) == nil)
+        #expect(MTSession.speak(source: .de, target: .zh) == nil)
     }
 
     @Test func chunkIsEscapedAndMarked() {

@@ -22,6 +22,9 @@ public struct LCPCommitter: Sendable, Equatable {
     /// Hypotheses (as tokens) that disagreed with an already committed token.
     public private(set) var revisions = 0
     private var history: [[String]] = []
+    /// Whitespace is ignored for character agreement, but retained in the emitted surface
+    /// so Chinese speech containing "OpenAI GPT" keeps the original term boundary.
+    private var characterSurface = ""
 
     public init(unit: Unit, agreement: Int = 2) {
         precondition(agreement >= 1)
@@ -29,7 +32,7 @@ public struct LCPCommitter: Sendable, Equatable {
         self.agreement = agreement
     }
 
-    public var committedText: String { join(committed) }
+    public var committedText: String { unit == .character ? characterSurface : join(committed) }
 
     public func tokens(_ s: String) -> [String] {
         switch unit {
@@ -60,7 +63,7 @@ public struct LCPCommitter: Sendable, Equatable {
             n = i
             break
         }
-        return extend(with: Array(toks.prefix(n)))
+        return extend(with: Array(toks.prefix(n)), surface: hypothesis)
     }
 
     /// The recognizer's final for the sentence: everything in it is committed.
@@ -68,19 +71,31 @@ public struct LCPCommitter: Sendable, Equatable {
     public mutating func commitFinal(_ text: String) -> [String] {
         let toks = tokens(text)
         if committed.count > 0, !Self.hasPrefix(toks, committed.map(Self.key)) { revisions += 1 }
-        return extend(with: toks)
+        return extend(with: toks, surface: text)
     }
 
     /// Next sentence (keeps the revision count for the session).
     public mutating func reset() {
         committed = []
-        history = []
+        history = []; characterSurface = ""
     }
 
-    private mutating func extend(with stable: [String]) -> [String] {
+    private mutating func extend(with stable: [String], surface: String) -> [String] {
         guard stable.count > committed.count,
               Self.hasPrefix(stable, committed.map(Self.key)) else { return [] }
         let new = Array(stable[committed.count...])
+        if unit == .character {
+            // Only append the newly stable range. Later formatting/revisions cannot rewrite
+            // a prefix already shown. Stop at its final character to avoid duplicating spaces.
+            var seen = 0
+            for character in surface {
+                if !character.isWhitespace { seen += 1 }
+                if seen > committed.count || (seen == committed.count && seen > 0 && character.isWhitespace) {
+                    characterSurface.append(character)
+                }
+                if seen == stable.count { break }
+            }
+        }
         committed.append(contentsOf: new)
         return new
     }

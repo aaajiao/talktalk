@@ -25,9 +25,16 @@ public struct SpeakLanguageGate: Sendable {
         else { return .unsupportedText }
         guard speakerMode else { return nil }
         if let remoteOverlap, remoteOverlap >= config.speakerMode.remoteOverlapMax { return .remoteOverlap }
-        let latin = EchoFilter.tokens(text).filter { $0.unicodeScalars.contains(where: TextScript.isLatinLetter) }
+        let tokens = EchoFilter.tokens(text)
+        let latin = tokens.filter { $0.unicodeScalars.contains(where: TextScript.isLatinLetter) }
         if !latin.isEmpty, recentRemoteText.contains(where: {
             EchoFilter.overlap(segment: latin, played: EchoFilter.tokens($0)) >= 0.6
+        }) { return .remoteText }
+        let han = tokens.filter { $0.unicodeScalars.allSatisfy(TextScript.isHan) }
+        if !han.isEmpty, recentRemoteText.contains(where: {
+            let remote = EchoFilter.tokens($0)
+            return EchoFilter.overlap(segment: han, played: remote) >= 0.6
+                && EchoFilter.hasTextEvidence(segment: han, played: remote)
         }) { return .remoteText }
         return nil
     }

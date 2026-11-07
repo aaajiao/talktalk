@@ -76,7 +76,7 @@ public struct OpenAIRequestBuilder: Sendable {
                 case .speakZhDe: parts.append(prompts.speak.zhDe)
                 case .speakEnZh: parts.append(prompts.speak.enZh)
                 case .speakEnDe: parts.append(prompts.speak.enDe)
-                case .listenEnZh, .listenDeZh: preconditionFailure("LISTEN prompt in SPEAK branch")
+                case .listenEnZh, .listenDeZh, .listenZhEn, .listenZhDe, .listenEnDe, .listenDeEn: preconditionFailure("LISTEN prompt in SPEAK branch")
                 }
                 if mode == .concise { parts.append(prompts.speak.concise) }
             }
@@ -87,10 +87,9 @@ public struct OpenAIRequestBuilder: Sendable {
         let entries = glossary.sorted { ($0.zh, $0.en, $0.de) < ($1.zh, $1.en, $1.de) }.prefix(Self.maxGlossaryEntries)
         if !entries.isEmpty {
             let lines = entries.map { e -> String in
-                // Existing Chinese-source and LISTEN prompts retain their stable rendering;
-                // English-source SPEAK needs the English term, including for English → German.
-                let source = session.isSpeak ? e.rendering(for: d.source) : e.zh
-                let target = session.isSpeak ? e.rendering(for: d.target) : e.rendering(for: d.source)
+                // Both subtitle and speech prompts carry the actual source → target terms.
+                let source = e.rendering(for: d.source)
+                let target = e.rendering(for: d.target)
                 return prompts.glossary.line.replacingOccurrences(of: "{zh}", with: source)
                     .replacingOccurrences(of: "{target}", with: target)
             }

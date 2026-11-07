@@ -33,12 +33,12 @@ public enum AppleStartupCheck {
     }
 
     public static let locales: [Lang] = [.zh, .en, .de]
-    static let pairs: [(MTSession, String)] = [(.listenEnZh, "en-zh"), (.listenDeZh, "de-zh"), (.speakZhEn, "zh-en"), (.speakZhDe, "zh-de"), (.speakEnDe, "en-de")]
+    static let pairs: [(MTSession, String)] = [(.listenEnZh, "en-zh"), (.listenDeZh, "de-zh"), (.speakZhEn, "zh-en"), (.speakZhDe, "zh-de"), (.speakEnDe, "en-de"), (.listenDeEn, "de-en")]
 
     public static func evaluate(_ r: Report) -> Verdict {
         guard r.transcriberAvailable else { return .unavailable(["这台 Mac 不支持系统语音识别（SpeechTranscriber）"]) }
         var problems: [String] = []
-        let en = r.speech["en-US"] == "installed", de = r.speech["de-DE"] == "installed"
+        let hasSpeech = locales.contains { r.speech[AppleSpeechASR.localeIdentifier($0)] == "installed" }
         for l in locales {
             let id = AppleSpeechASR.localeIdentifier(l)
             switch r.speech[id] {
@@ -51,7 +51,7 @@ public enum AppleStartupCheck {
         for (_, key) in pairs where r.translation[key] != "installed" {
             problems.append("\(key) 翻译语言包\(r.translation[key] == "supported" ? "未下载" : "不可用")（系统设置 › 通用 › 语言与地区 › 翻译语言）")
         }
-        if !en && !de { return .unavailable(["en-US 和 de-DE 的语音资源都没有：没法生成字幕"] + problems) }
+        if !hasSpeech { return .unavailable(["中文、英语和德语的语音资源都没有：没法生成字幕"] + problems) }
         return problems.isEmpty ? .ok : .degraded(problems)
     }
 

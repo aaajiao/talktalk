@@ -10,26 +10,26 @@ import TalkTalkVoice
 @MainActor
 @Observable
 final class AppState {
-    /// The remote side's language, chosen per meeting and remembered (§11 菜单 "对方语言").
+    /// Compatibility wrapper for the active scene's source; all scenes support Chinese, English and German.
     enum RemoteLanguage: String, CaseIterable, Identifiable {
-        case en, de
+        case zh, en, de
         var id: String { rawValue }
-        var title: String { self == .en ? String(localized: "英语") : String(localized: "德语") }
+        var title: String { lang.title }
         /// BCP-47 locale for SpeechAnalyzer / Translation.
         var localeIdentifier: String { AppleSpeechASR.localeIdentifier(lang) }
         /// The engines' language (TalkTalkCore).
         var lang: Lang {
             switch self {
+            case .zh: .zh
             case .en: .en
             case .de: .de
             }
         }
-        /// nil for zh: Chinese is never the remote side (§1).
         init?(_ lang: Lang) {
             switch lang {
             case .en: self = .en
             case .de: self = .de
-            case .zh: return nil
+            case .zh: self = .zh
             }
         }
     }
@@ -37,7 +37,6 @@ final class AppState {
     typealias ListenASREngine = SpeechRecognitionEngine
 
     private enum Key {
-        static let remoteLanguage = "listen.remoteLanguage"
         static let listenASREngine = "listen.asrEngine"
         static let speakASREngine = "speak.asrEngine"
         static let subtitlesVisible = "ui.subtitlesVisible"
@@ -58,11 +57,40 @@ final class AppState {
     private let defaults: UserDefaults
     let voiceStore: VoiceStore
 
+    private var meetingListenLanguages: ListenLanguageSelection
+    private var phoneListenLanguages: ListenLanguageSelection
+    private var videoListenLanguages: ListenLanguageSelection
+    var listenLanguageMode: MeetingMode {
+        meetingActive || meetingStarting || meetingStopping ? meetingMode : requestedScenario
+    }
+    var activeListenLanguages: ListenLanguageSelection { listenLanguages(for: listenLanguageMode) }
     var remoteLanguage: RemoteLanguage {
-        didSet {
-            defaults.set(remoteLanguage.rawValue, forKey: Key.remoteLanguage)
-            if remoteLanguage != oldValue { onListenConfigurationChange?() }
+        get { RemoteLanguage(activeListenLanguages.source)! }
+        set { setListenLanguages(activeListenLanguages.selectingSource(newValue.lang), for: listenLanguageMode) }
+    }
+    func listenLanguages(for mode: MeetingMode) -> ListenLanguageSelection {
+        switch mode {
+        case .meeting: meetingListenLanguages
+        case .phone: phoneListenLanguages
+        case .captions: videoListenLanguages
         }
+    }
+    func setListenLanguages(_ languages: ListenLanguageSelection, for mode: MeetingMode) {
+        let scope: ListenLanguagePreferences.Scope = switch mode {
+        case .meeting: .meeting
+        case .phone: .phone
+        case .captions: .video
+        }
+        let next = ListenLanguagePreferences.normalized(languages, for: scope)
+        guard next != listenLanguages(for: mode) else { return }
+        switch mode {
+        case .meeting: meetingListenLanguages = next
+        case .phone: phoneListenLanguages = next
+        case .captions: videoListenLanguages = next
+        }
+        ListenLanguagePreferences.save(next, for: scope, defaults: defaults)
+        onLanguagePresentationChange?()
+        if mode == listenLanguageMode { onListenConfigurationChange?() }
     }
     var listenASREngine: ListenASREngine {
         didSet {
@@ -98,6 +126,7 @@ final class AppState {
     /// failed), with its sentence: the menu's 字幕识别出错 line. Cleared when recognition is rebuilt.
     var listenASRFailure: String?
     @ObservationIgnored var onListenConfigurationChange: (() -> Void)?
+    @ObservationIgnored var onLanguagePresentationChange: (() -> Void)?
 
     var subtitlesVisible: Bool {
         didSet {
@@ -160,7 +189,7 @@ final class AppState {
             onSubtitleAppearanceChange?()
         }
     }
-    /// "中文在上" (§6 排版); the source sits above Chinese by default.
+    /// "译文在上" (§6 排版); source above translation by default.
     var videoCaptionArrangement: VideoCaptionArrangement {
         didSet {
             guard videoCaptionArrangement != oldValue else { return }
@@ -233,13 +262,19 @@ final class AppState {
     }
     func setSpeakSource(_ source: SpeakSourceLanguage, for mode: MeetingMode) {
         guard mode.supportsSpeaking else { return }
+        guard source != speakLanguages(for: mode).source else { return }
         if mode == .phone { phoneSpeakLanguages = phoneSpeakLanguages.selectingSource(source) }
         else { meetingSpeakLanguages = meetingSpeakLanguages.selectingSource(source) }
+        onLanguagePresentationChange?()
     }
     func setSpeakTarget(_ target: SpeakTargetLanguage, for mode: MeetingMode) {
         guard mode.supportsSpeaking else { return }
-        if mode == .phone { phoneSpeakLanguages = phoneSpeakLanguages.selectingTarget(target) }
-        else { meetingSpeakLanguages = meetingSpeakLanguages.selectingTarget(target) }
+        let previous = speakLanguages(for: mode)
+        let next = previous.selectingTarget(target)
+        guard next != previous else { return }
+        if mode == .phone { phoneSpeakLanguages = next }
+        else { meetingSpeakLanguages = next }
+        onLanguagePresentationChange?()
     }
 
     /// Meeting mode (LISTEN) can be started from the menu.
@@ -345,7 +380,9 @@ final class AppState {
         lastScenario = ScenarioPreferences.last(defaults: defaults)
         meetingSourceID = ListeningSourcePreferences.source(for: .meeting, defaults: defaults) ?? ""
         videoSourceID = ListeningSourcePreferences.source(for: .captions, defaults: defaults) ?? ""
-        remoteLanguage = RemoteLanguage(rawValue: defaults.string(forKey: Key.remoteLanguage) ?? "") ?? .en
+        meetingListenLanguages = ListenLanguagePreferences.load(.meeting, defaults: defaults)
+        phoneListenLanguages = ListenLanguagePreferences.load(.phone, defaults: defaults)
+        videoListenLanguages = ListenLanguagePreferences.load(.video, defaults: defaults)
         listenASREngine = ListenASREngine(rawValue: defaults.string(forKey: Key.listenASREngine) ?? "") ?? .qwen
         speakASREngine = SpeechRecognitionEngine(rawValue: defaults.string(forKey: Key.speakASREngine) ?? "") ?? .qwen
         meetingSpeakLanguages = SpeakLanguagePreferences.load(.meeting, defaults: defaults)

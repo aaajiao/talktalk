@@ -23,6 +23,30 @@ import Testing
         #expect(VideoCaptionLayout.minimumContentHeight(translationLineHeight: 34, sourceLineHeight: 22) == 114)
     }
 
+    @Test func eachBlockUsesItsLanguageMetricsForAllSixDirections() {
+        for source in Lang.allCases {
+            for target in Lang.allCases where target != source {
+                let sourceWidth = VideoCaptionLayout.sourceBlockWidth(windowWidth: 960, sourceSize: 17, language: source)
+                let translationWidth = VideoCaptionLayout.translationBlockWidth(windowWidth: 960, translationSize: 26, language: target)
+                let sourceExpected = source == .zh ? 20.0 * 17 : 46 * 0.52 * 17
+                let translationExpected = target == .zh ? 20.0 * 26 : 46 * 0.52 * 26
+                #expect(abs(sourceWidth - sourceExpected) < 1e-9)
+                #expect(abs(translationWidth - translationExpected) < 1e-9)
+                let reading = VideoCaptionLayout.readingWidth(windowWidth: 960, translationSize: 26, sourceSize: 17,
+                                                              sourceLanguage: source, targetLanguage: target)
+                #expect(abs(reading - max(sourceExpected, translationExpected) - 32) < 1e-9)
+                #expect(VideoCaptionLayout.readingWidth(windowWidth: 500, translationSize: 26, sourceSize: 17,
+                                                       sourceLanguage: source, targetLanguage: target) == 484)
+            }
+        }
+        // Moving Chinese to the source preserves its character width; English translation
+        // receives the same width that English source would have at the same point size.
+        #expect(VideoCaptionLayout.sourceBlockWidth(windowWidth: 960, sourceSize: 26, language: .zh)
+                == VideoCaptionLayout.translationBlockWidth(windowWidth: 960, translationSize: 26, language: .zh))
+        #expect(VideoCaptionLayout.sourceBlockWidth(windowWidth: 960, sourceSize: 26, language: .en)
+                == VideoCaptionLayout.translationBlockWidth(windowWidth: 960, translationSize: 26, language: .en))
+    }
+
     @Test func metaAlphasStrengthenWithIncreaseContrast() {
         let pairs: [(Bool) -> Double] = [
             VideoCaptionLayout.pageDotOtherAlpha, VideoCaptionLayout.pageDotCurrentAlpha,

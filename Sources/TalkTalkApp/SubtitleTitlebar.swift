@@ -14,6 +14,7 @@ final class SubtitleTitlebarView: NSView {
     var onKey: ((NSView) -> Void)?
     var onPhone: (() -> Void)?
     var onEnd: ((NSView) -> Void)?
+    var onLanguage: ((NSView) -> Void)?
     /// The video hover bar's "⋯" menu (§6).
     var onMore: ((NSView) -> Void)?
     /// The video window's status dot (drawn by the panel below the titlebar) is clicked here.
@@ -24,6 +25,7 @@ final class SubtitleTitlebarView: NSView {
     let cloud = CloudPrivacyView()
     let keycap = KeycapActionView()
     let phone = NSButton()
+    let language = NSButton()
     let more = MoreMenuButton()
     /// Invisible click target over the status dot, inside `trailingInset`; the titlebar sits
     /// above the content, so the dot itself could not receive clicks while the bar is shown.
@@ -61,6 +63,12 @@ final class SubtitleTitlebarView: NSView {
         statusDotTarget.onClick = { [weak self] in guard let self else { return }; onStatusDot?(statusDotTarget) }
         statusDotTarget.isHidden = true
         addSubview(statusDotTarget)
+        language.bezelStyle = .accessoryBarAction
+        language.controlSize = .small
+        language.font = SubtitleStyle.controlFont(ControlTypography.capsule, weight: .medium)
+        language.image = SubtitleStyle.symbol("character.bubble", size: 11, weight: .medium)
+        language.target = self
+        language.action = #selector(languagePressed)
         phone.bezelStyle = .accessoryBarAction
         phone.controlSize = .small
         phone.font = SubtitleStyle.controlFont(ControlTypography.capsule, weight: .medium)
@@ -75,7 +83,7 @@ final class SubtitleTitlebarView: NSView {
         divider.wantsLayer = true
         divider.layer?.backgroundColor = SubtitleStyle.color(.divider).cgColor
         divider.setAccessibilityElement(false)
-        for view in [capsule, chip, cloud, keycap, phone, more, divider, end] as [NSView] {
+        for view in [language, capsule, chip, cloud, keycap, phone, more, divider, end] as [NSView] {
             view.isHidden = true
             addSubview(view)
         }
@@ -84,10 +92,18 @@ final class SubtitleTitlebarView: NSView {
     required init?(coder: NSCoder) { nil }
 
     @objc private func phonePressed() { onPhone?() }
+    @objc private func languagePressed() { onLanguage?(language) }
+
+    private func languageWidth(_ content: SubtitleTitlebarContent, _ compaction: TitlebarCompaction) -> CGFloat {
+        guard let title = content.languageTitle else { return 0 }
+        guard compaction.level < 2 else { return 28 }
+        return ceil((title as NSString).size(withAttributes: [.font: language.font!]).width) + 22
+    }
 
     /// Width the trailing group needs for `content` at `compaction`.
     func measure(_ content: SubtitleTitlebarContent, _ compaction: TitlebarCompaction) -> CGFloat {
         var widths: [CGFloat] = []
+        if content.languageTitle != nil { widths.append(languageWidth(content, compaction)) }
         if let voice = content.voice {
             widths.append(VoiceCapsuleView.width(for: voice, full: compaction.showsFullCapsule, large: false))
         }
@@ -116,6 +132,12 @@ final class SubtitleTitlebarView: NSView {
         content = next
         compaction = nextCompaction
         display = nextDisplay
+        language.isHidden = next.languageTitle == nil
+        language.title = next.languageTitle ?? ""
+        language.imagePosition = nextCompaction.level < 2 ? .noImage : .imageOnly
+        language.toolTip = next.languageDetail ?? next.languageTitle
+        language.setAccessibilityLabel(String(localized: "语言设置"))
+        language.setAccessibilityValue(next.languageDetail ?? next.languageTitle)
         if let voice = next.voice { capsule.apply(voice, full: nextCompaction.showsFullCapsule, display: nextDisplay) }
         capsule.isHidden = next.voice == nil
         let nextChip = next.issue?.chip
@@ -205,13 +227,14 @@ final class SubtitleTitlebarView: NSView {
 
     private func relayout() {
         var shown: [NSView] = []
-        for view in [capsule, chip, cloud, keycap, phone, more] as [NSView] where !view.isHidden { shown.append(view) }
+        for view in [language, capsule, chip, cloud, keycap, phone, more] as [NSView] where !view.isHidden { shown.append(view) }
         let height = rowHeight
         let control = SubtitleTokens.Size.controlHeight
         let y = (height - control) / 2
         var x: CGFloat = 0
         for view in shown {
             let width: CGFloat = switch view {
+            case language: languageWidth(content, compaction)
             case capsule: content.voice.map { VoiceCapsuleView.width(for: $0, full: compaction.showsFullCapsule, large: false) } ?? 0
             case chip: content.issue?.chip.map { IssueChipView.width(for: $0, showsText: compaction.showsChipText) }
                 ?? chip.frame.width

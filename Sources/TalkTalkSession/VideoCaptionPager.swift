@@ -1,3 +1,5 @@
+import TalkTalkCore
+
 /// Video caption paging (redesign §6 分页). Pure: the view supplies each character's advance
 /// width, so tests can use fixed widths. Ranges are character (grapheme) offsets.
 ///
@@ -211,16 +213,21 @@ public enum VideoCaptionPager {
     }
 }
 
-/// Video reading time (§6 分页): about 18 source characters or 9 Chinese characters per
-/// second, whichever is longer, within 1–6 s. With pending cues each page gets 0.7 of its
+/// Video reading time (§6 分页): 9 Chinese or 18 English/German characters per second
+/// on either side, whichever needs longer, within 1–6 s. With pending cues each page gets 0.7 of its
 /// time (at least 1 s) to catch up before older pending cues are dropped.
 public enum VideoCaptionPacing {
     public static let catchUpFactor = 0.7
     public static let minimumSeconds = 1.0
     public static let maximumSeconds = 6.0
 
-    public static func readingTime(sourceCharacters: Int, translationCharacters: Int) -> Double {
-        min(maximumSeconds, max(minimumSeconds, max(Double(sourceCharacters) / 18, Double(translationCharacters) / 9)))
+    public static func charactersPerSecond(_ language: Lang) -> Double { language == .zh ? 9 : 18 }
+
+    public static func readingTime(sourceCharacters: Int, translationCharacters: Int,
+                                   sourceLanguage: Lang = .en, targetLanguage: Lang = .zh) -> Double {
+        let sourceSeconds = Double(max(0, sourceCharacters)) / charactersPerSecond(sourceLanguage)
+        let targetSeconds = Double(max(0, translationCharacters)) / charactersPerSecond(targetLanguage)
+        return min(maximumSeconds, max(minimumSeconds, max(sourceSeconds, targetSeconds)))
     }
 
     /// The page budget actually waited; never longer than the normal budget.

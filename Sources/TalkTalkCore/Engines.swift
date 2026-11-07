@@ -45,7 +45,8 @@ public struct StageTiming: Codable, Sendable {
 // MT ───────────────────────────────────────────────
 
 public enum MTSession: String, Codable, Sendable, CaseIterable {
-    case speakZhEn, speakZhDe, speakEnZh, speakEnDe, listenEnZh, listenDeZh
+    case speakZhEn, speakZhDe, speakEnZh, speakEnDe
+    case listenEnZh, listenDeZh, listenZhEn, listenZhDe, listenEnDe, listenDeEn
 
     public var direction: Direction {
         switch self {
@@ -55,13 +56,30 @@ public enum MTSession: String, Codable, Sendable, CaseIterable {
         case .speakEnDe: Direction(source: .en, target: .de)
         case .listenEnZh: Direction(source: .en, target: .zh)
         case .listenDeZh: Direction(source: .de, target: .zh)
+        case .listenZhEn: Direction(source: .zh, target: .en)
+        case .listenZhDe: Direction(source: .zh, target: .de)
+        case .listenEnDe: Direction(source: .en, target: .de)
+        case .listenDeEn: Direction(source: .de, target: .en)
         }
     }
 
     public var isSpeak: Bool {
         switch self {
         case .speakZhEn, .speakZhDe, .speakEnZh, .speakEnDe: true
-        case .listenEnZh, .listenDeZh: false
+        case .listenEnZh, .listenDeZh, .listenZhEn, .listenZhDe, .listenEnDe, .listenDeEn: false
+        }
+    }
+
+    /// Subtitles support every non-identical pair among Chinese, English and German.
+    public static func listen(source: Lang, target: Lang) -> MTSession? {
+        switch (source, target) {
+        case (.zh, .en): .listenZhEn
+        case (.zh, .de): .listenZhDe
+        case (.en, .zh): .listenEnZh
+        case (.en, .de): .listenEnDe
+        case (.de, .zh): .listenDeZh
+        case (.de, .en): .listenDeEn
+        default: nil
         }
     }
 

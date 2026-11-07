@@ -67,7 +67,7 @@ public struct EchoFilter: Sendable {
         if !seg.isEmpty {
             for p in played where startMs - p.endMs <= windowMs {
                 let o = Self.overlap(segment: seg, played: p.tokens)
-                guard o >= config.overlap else { continue }
+                guard o >= config.overlap, Self.hasTextEvidence(segment: seg, played: p.tokens) else { continue }
                 let duringPlay = startMs >= p.startMs && startMs <= p.endMs + afterMs
                 if acoustic || duringPlay { return .drop(reason: .ttsEcho, overlap: o) }
             }
@@ -84,22 +84,45 @@ public struct EchoFilter: Sendable {
         passthrough.removeAll { nowMs - $0.endMs > keep }
     }
 
-    /// Lower-cased letter/digit runs; digits inside numbers are kept together ("300,000" → "300000").
+    /// Latin letter/digit runs keep the existing behavior, including whole numbers. Han
+    /// runs use adjacent two-character tokens so a partial Chinese echo can match a clause.
     public static func tokens(_ s: String) -> [String] {
-        var out: [String] = [], cur = ""
+        var out: [String] = [], cur = "", han: [Character] = []
         var prev: Character?
+        func flushWord() { if !cur.isEmpty { out.append(cur); cur = "" } }
+        func flushHan() {
+            if han.count == 1 { out.append(String(han[0])) }
+            else if han.count > 1 {
+                out += zip(han, han.dropFirst()).map { String($0.0) + String($0.1) }
+            }
+            han.removeAll(keepingCapacity: true)
+        }
         for ch in s.lowercased() {
-            if ch.isLetter || ch.isNumber {
-                cur.append(ch)
-            } else if (ch == "," || ch == "." || ch == "'"), let p = prev, p.isNumber {
-                // thousands separators / decimals stay inside the number
-            } else if !cur.isEmpty {
-                out.append(cur); cur = ""
+            if ch.unicodeScalars.allSatisfy(TextScript.isHan) {
+                flushWord(); han.append(ch)
+            } else {
+                flushHan()
+                if ch.isLetter || ch.isNumber {
+                    cur.append(ch)
+                } else if (ch == "," || ch == "." || ch == "'"), let p = prev, p.isNumber {
+                    // thousands separators / decimals stay inside the number
+                } else { flushWord() }
             }
             prev = ch
         }
-        if !cur.isEmpty { out.append(cur) }
+        flushWord(); flushHan()
         return out
+    }
+
+    /// A common short Chinese reply or repeated character is too little evidence by itself.
+    /// Require three distinct matching Han pairs (normally at least four Han characters),
+    /// or three distinct matching Latin words in mixed text. Pure Latin behavior is unchanged.
+    public static func hasTextEvidence(segment: [String], played: [String]) -> Bool {
+        guard segment.contains(where: { $0.unicodeScalars.contains(where: TextScript.isHan) }) else { return true }
+        let common = Set(segment).intersection(played)
+        let hanPairs = common.filter { $0.count == 2 && $0.unicodeScalars.allSatisfy(TextScript.isHan) }
+        if hanPairs.count >= 3 { return true }
+        return common.filter { $0.unicodeScalars.contains(where: TextScript.isLatinLetter) }.count >= 3
     }
 
     /// Share of the segment's tokens (multiset) found in the played clause.

@@ -1,5 +1,5 @@
 {"listen":{"draft":{"minNewWords":2,"maxIntervalMs":1000,"maxUpdatesPerS":2},
-  "finalize":{"punctPauseMs":400,"silenceMs":{"en":800,"de":1000},
+  "finalize":{"punctPauseMs":400,"silenceMs":{"zh":800,"en":800,"de":1000},
     "force":{"minWords":10,"pauseMs":300,"pauseMsAfter8s":150},"stallMs":1200,"stallMsAfter8s":600,"hardCapS":20},
   "finalMT":{"deadlineMs":2000,"deadlineFrom":"finalizeTrigger","secondPassBudgetMs":300,"maxOutputTokens":256,"contextTokensSoft":150,"contextTokensHard":400,"retries":0,"hedge":{"enabled":false,"afterMs":0}},
   "secondPassASR":false,"deLookback":{"enabled":true,"windowMs":3000},

@@ -96,6 +96,20 @@ import Testing
         #expect(c.committedText == "我们明天")
     }
 
+    @Test func characterAgreementPreservesTermSpacesAndNeverRewritesCommittedSurface() {
+        var c = LCPCommitter(unit: .character)
+        c.update(hypothesis: "我们用 OpenAI GPT")
+        c.update(hypothesis: "我们用 OpenAI GPT 模型")
+        #expect(c.committedText == "我们用 OpenAI GPT")
+        c.update(hypothesis: "我们用 OpenAI GPT 模型翻译")
+        #expect(c.committedText == "我们用 OpenAI GPT 模型")
+        c.update(hypothesis: "我们用 OpenAI XYZ 模型翻译")
+        #expect(c.committedText == "我们用 OpenAI GPT 模型")
+        c.reset()
+        c.commitFinal("API key 已更新")
+        #expect(c.committedText == "API key 已更新")
+    }
+
     @Test func finalCommitsEverything() {
         var c = LCPCommitter(unit: .word)
         c.update(hypothesis: "see you")
@@ -225,6 +239,48 @@ import Testing
         #expect(d == ["okay"])
     }
 
+    @Test func chineseDraftsContinueGrowingWithoutWhitespaceOrFalseStalls() throws {
+        var s = try seg(.zh)
+        let chars = Array("我们明天上午一起讨论预算安排")
+        var translated: [String] = []
+        for count in 2...chars.count {
+            let time = (count - 2) * 200
+            let actions = s.volatile(String(chars.prefix(count)), nowMs: time)
+            translated += drafts(actions)
+            #expect(!actions.contains { if case .finalize = $0 { true } else { false } })
+            let tickActions = s.tick(nowMs: time + 199, silenceMs: 0)
+            translated += drafts(tickActions)
+            #expect(!tickActions.contains { if case .finalize = $0 { true } else { false } })
+        }
+        #expect(translated.count >= 3)
+        #expect(translated.first == "我们")
+        #expect(translated.last!.count > translated.first!.count)
+    }
+
+    @Test func chineseFinalSpansJoinWithoutInsertedSpaces() throws {
+        var s = try seg(.zh)
+        _ = s.final("我们明天", nowMs: 0)
+        _ = s.volatile("讨论预算", nowMs: 100)
+        #expect(s.sourceLine == "我们明天讨论预算")
+        let output = finals(s.final("讨论预算。", nowMs: 200))
+        #expect(output.first?.text == "我们明天讨论预算。")
+    }
+
+    @Test func chineseDraftGrowthKeepsEnglishTermBoundaries() throws {
+        var s = try seg(.zh), output: [String] = []
+        for (index, phrase) in ["我们用 OpenAI GPT", "我们用 OpenAI GPT 模型", "我们用 OpenAI GPT 模型翻译",
+                                 "我们用 OpenAI GPT 模型翻译视频"].enumerated() {
+            output += drafts(s.volatile(phrase, nowMs: index * 500))
+        }
+        #expect(output.count >= 2)
+        #expect(output.allSatisfy { $0.contains("OpenAI GPT") && !$0.contains("OpenAIGPT") })
+        #expect(s.stableText == "我们用 OpenAI GPT 模型翻译")
+        var spans = try seg(.zh)
+        _ = spans.final("我们使用 OpenAI", nowMs: 0)
+        let result = finals(spans.final("GPT 模型。", nowMs: 200))
+        #expect(result.first?.text == "我们使用 OpenAI GPT 模型。")
+    }
+
     @Test func germanWaitsLongerForSilence() throws {
         var s = try seg(.de)
         _ = s.volatile("wir müssen", nowMs: 0)
@@ -274,6 +330,27 @@ import Testing
         f.recordPassthrough(startMs: 0, endMs: 4000)
         #expect(f.decide(text: "anything", startMs: 5000, echoScore: 0.6) == .drop(reason: .passthroughEcho, overlap: 0))
         #expect(f.decide(text: "anything", startMs: 5000, echoScore: 0.2) == .keep)
+    }
+
+    @Test func chinesePartialEchoNeedsSubstantiveTextAndPlaybackOrAcousticEvidence() {
+        var filter = EchoFilter()
+        filter.recordPlayed(text: "我们明天讨论合同细节。", startMs: 1000, endMs: 3000)
+        let partial = "明天讨论合同"
+        #expect(filter.decide(text: partial, startMs: 2000, echoScore: nil) != .keep)
+        #expect(filter.decide(text: partial, startMs: 10_000, echoScore: 0.9) != .keep)
+        #expect(filter.decide(text: partial, startMs: 10_000, echoScore: 0.1) == .keep)
+        #expect(filter.decide(text: "明天我们去公园", startMs: 2000, echoScore: 0.9) == .keep)
+    }
+
+    @Test func commonShortChineseRepliesDoNotBecomeTextEchoEvidence() {
+        for text in ["好", "好的", "明天见", "好的好的", "哈哈哈哈", "好，好，好"] {
+            var filter = EchoFilter()
+            filter.recordPlayed(text: text, startMs: 1000, endMs: 3000)
+            #expect(filter.decide(text: text, startMs: 2000, echoScore: nil) == .keep)
+            #expect(filter.decide(text: text, startMs: 2000, echoScore: 0.9) == .keep)
+        }
+        #expect(EchoFilter.tokens("明天讨论合同") == ["明天", "天讨", "讨论", "论合", "合同"])
+        #expect(EchoFilter.tokens("中文 API 300,000") == ["中文", "api", "300000"])
     }
 
     @Test func numbersStayWholeTokens() {

@@ -41,6 +41,8 @@ final class VideoSubtitleView: NSView {
     private var source = NSAttributedString(string: "")
     private var translation = NSAttributedString(string: "")
     private var fallback = false
+    private(set) var sourceLanguage: Lang = .en
+    private(set) var targetLanguage: Lang = .zh
     /// Glass, or the text blocks plus the glass padding: the only area that drags the window.
     private(set) var textBlockRect = NSRect.null
     /// Reserved even while controls are hidden, so a two-line page never collides with them.
@@ -51,7 +53,8 @@ final class VideoSubtitleView: NSView {
 
     func controlBarFrame(height: CGFloat) -> NSRect {
         let width = CGFloat(VideoCaptionLayout.readingWidth(windowWidth: Double(bounds.width),
-            translationSize: Double(translationFont.pointSize), sourceSize: Double(sourceFont.pointSize)))
+            translationSize: Double(translationFont.pointSize), sourceSize: Double(sourceFont.pointSize),
+            sourceLanguage: sourceLanguage, targetLanguage: targetLanguage))
         let top = textBlockRect.isNull ? 0
             : CGFloat(VideoCaptionLayout.controlBarTop(readingTop: Double(textBlockRect.minY), height: Double(height)))
         return NSRect(x: (bounds.width - width) / 2, y: top, width: width, height: height)
@@ -192,13 +195,22 @@ final class VideoSubtitleView: NSView {
 
     static func lineHeight(_ font: NSFont) -> CGFloat { ceil(font.pointSize * 1.30) }
 
-    /// Two Chinese lines, one source line and 24 pt (§6 窗口).
+    /// Two translation lines, one source line and 24 pt (§6 窗口).
     static func minimumReadingHeight(sourceFont: NSFont, translationFont: NSFont) -> CGFloat {
         CGFloat(VideoCaptionLayout.minimumContentHeight(translationLineHeight: Double(lineHeight(translationFont)),
                                                         sourceLineHeight: Double(lineHeight(sourceFont))))
     }
 
     // MARK: input
+
+    /// A direction change gives both sides their own script metrics and starts a fresh page.
+    /// The panel clears the old caption board before installing the new session direction.
+    func setLanguages(source: Lang, target: Lang) {
+        guard source != sourceLanguage || target != targetLanguage else { return }
+        sourceLanguage = source; targetLanguage = target
+        sourceCorrectionAnchor = nil; translationCorrectionAnchor = nil
+        resetPage = true; textNeedsLayout = true; needsLayout = true
+    }
 
     func setCaption(source: NSAttributedString, translation: NSAttributedString,
                     sentence: UInt64?, isFinal: Bool, fallback: Bool = false, at now: Double) {
@@ -325,7 +337,8 @@ final class VideoSubtitleView: NSView {
         pageShownAt = now
         pageReadyAt = now + (hasCaption && layoutReady
             ? VideoCaptionPacing.readingTime(sourceCharacters: displayedSource.count,
-                                             translationCharacters: displayedTranslation.count) : 0)
+                                             translationCharacters: displayedTranslation.count,
+                                             sourceLanguage: sourceLanguage, targetLanguage: targetLanguage) : 0)
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -343,9 +356,9 @@ final class VideoSubtitleView: NSView {
         captionLayer.frame = bounds
         let width = Double(bounds.width)
         let translationWidth = CGFloat(VideoCaptionLayout.translationBlockWidth(
-            windowWidth: width, translationSize: Double(translationFont.pointSize)))
+            windowWidth: width, translationSize: Double(translationFont.pointSize), language: targetLanguage))
         let sourceWidth = CGFloat(VideoCaptionLayout.sourceBlockWidth(windowWidth: width,
-                                                                      sourceSize: Double(sourceFont.pointSize)))
+                                                                      sourceSize: Double(sourceFont.pointSize), language: sourceLanguage))
         let key = LayoutKey(translationWidth: translationWidth, sourceWidth: sourceWidth,
                             sourceLines: sourceLineBudget, appearance: appearanceSettings)
         guard textNeedsLayout || key != lastLayoutKey else { applyVisual(); return }
@@ -378,7 +391,7 @@ final class VideoSubtitleView: NSView {
         showPage(at: lastTime, newPage: startsNewPage, newSentence: startsNewPage, animated: startsNewPage && !resized)
     }
 
-    /// Two source lines when the height allows them with two Chinese lines; otherwise one.
+    /// Two source lines when the height allows them with two translation lines; otherwise one.
     private var sourceLineBudget: Int {
         let translationLine = Self.lineHeight(translationFont), sourceLine = Self.lineHeight(sourceFont)
         let needed = CGFloat(VideoCaptionLayout.glassVerticalPadding) + 2 * sourceLine
@@ -455,12 +468,14 @@ final class VideoSubtitleView: NSView {
             // has already been read and must not consume another page's reading budget.
             pageShownAt = now
             pageReadyAt = now + VideoCaptionPacing.readingTime(sourceCharacters: pageSourceCharacters,
-                                                               translationCharacters: pageTargetCharacters)
+                                                               translationCharacters: pageTargetCharacters,
+                                                               sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)
         } else if changedSource > 0 || changedTarget > 0 {
             // A same-sentence final or partial does not charge the already visible prefix
             // again, and a color/font-only update never restarts its reading clock.
             pageReadyAt = max(pageReadyAt, now + VideoCaptionPacing.readingTime(sourceCharacters: changedSource,
-                                                                               translationCharacters: changedTarget))
+                                                                               translationCharacters: changedTarget,
+                                                                               sourceLanguage: sourceLanguage, targetLanguage: targetLanguage))
         }
         if textChanged || newPage { onDisplayedTextChange?() }
     }
@@ -612,7 +627,8 @@ final class VideoSubtitleView: NSView {
                             dy: -CGFloat(VideoCaptionLayout.glassVerticalPadding)).integral
         if !padded.isNull {
             let readingWidth = CGFloat(VideoCaptionLayout.readingWidth(windowWidth: Double(bounds.width),
-                translationSize: Double(translationFont.pointSize), sourceSize: Double(sourceFont.pointSize)))
+                translationSize: Double(translationFont.pointSize), sourceSize: Double(sourceFont.pointSize),
+                sourceLanguage: sourceLanguage, targetLanguage: targetLanguage))
             padded.origin.x = (bounds.width - readingWidth) / 2
             padded.size.width = readingWidth
         }
@@ -629,8 +645,8 @@ final class VideoSubtitleView: NSView {
     private func place(_ view: VideoCaptionTextView, top: CGFloat, lines: Int, font: NSFont) {
         // A little slack keeps TextKit from re-wrapping lines the pager already broke.
         let blockWidth = view === sourceView
-            ? CGFloat(VideoCaptionLayout.sourceBlockWidth(windowWidth: Double(bounds.width), sourceSize: Double(font.pointSize)))
-            : CGFloat(VideoCaptionLayout.translationBlockWidth(windowWidth: Double(bounds.width), translationSize: Double(font.pointSize)))
+            ? CGFloat(VideoCaptionLayout.sourceBlockWidth(windowWidth: Double(bounds.width), sourceSize: Double(font.pointSize), language: sourceLanguage))
+            : CGFloat(VideoCaptionLayout.translationBlockWidth(windowWidth: Double(bounds.width), translationSize: Double(font.pointSize), language: targetLanguage))
         let width = min(bounds.width, max(blockWidth, view.naturalWidth) + 4 * font.pointSize)
         view.frame = NSRect(x: (bounds.width - width) / 2, y: top, width: width,
                             height: CGFloat(lines) * Self.lineHeight(font))

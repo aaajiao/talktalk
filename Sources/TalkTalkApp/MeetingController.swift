@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import TalkTalkApple
 import TalkTalkAudio
 import TalkTalkCore
@@ -24,6 +25,7 @@ final class MeetingController {
     /// The concrete process used by this session's Qwen factory, including a failed start.
     private var listenEngine: EngineProcess?
     private var phoneReadinessDetail: String?
+    private let languagePopover = NSPopover()
     private let engineProcess: @Sendable () -> EngineProcess?
     private let defaults: UserDefaults
     var onActiveChange: ((Bool) -> Void)?
@@ -51,6 +53,7 @@ final class MeetingController {
         self.privacy = privacy
         self.engineProcess = engineProcess
         state.onListenConfigurationChange = { [weak self] in self?.listenConfigurationChanged() }
+        state.onLanguagePresentationChange = { [weak self] in self?.applyLanguagePresentation() }
         state.onSubtitleAppearanceChange = { [weak self] in self?.applySubtitleAppearance() }
         panel.onPresentationChange = { [weak self] in self?.applySubtitleAppearance() }
         state.onSubtitleVisibilityChange = { [weak self] on in self?.setSubtitlesVisible(on) }
@@ -58,12 +61,16 @@ final class MeetingController {
         state.onRefreshSources = { [weak self] in self?.refreshSourceOptions() }
         panel.openPhone = { [weak self] in self?.openPhone() }
         panel.onLockRequest = { [weak self] in self?.state.videoSubtitleLocked = true }
+        panel.onLanguage = { [weak self] anchor in self?.showLanguageEditor(from: anchor) }
+        languagePopover.behavior = .transient
+        languagePopover.animates = false
         applySubtitleAppearance()
         panel.analysisRecorder = privacy?.subtitleAnalysis
         ui = events.subscribe { [weak self] e in
             switch e {
             case let .state(st): self?.sessionState(st)
             case .stopping:
+                self?.languagePopover.close()
                 // Every end reason: the window leaves as the stop begins (redesign §9.2.2); the menu shows
                 // 正在结束… until the session reaches idle.
                 self?.state.meetingStopping = true
@@ -129,7 +136,7 @@ final class MeetingController {
     }
 
     private func applySubtitleAppearance() {
-        panel.setRemoteLanguageTitle(state.remoteLanguage.title)
+        applyLanguagePresentation()
         panel.setSourceName(state.meetingMode == .phone ? "Phone" : state.meetingApp)
         panel.announcesNewTranslations = state.announceNewTranslations
         // Only the video window uses these; the panel ignores them in other scenes.
@@ -148,6 +155,28 @@ final class MeetingController {
             panel.setFontSize(state.phoneSubtitleFontSize)
             panel.setBackgroundOpacity(state.phoneSubtitleBackgroundOpacity)
         }
+    }
+
+    private var subtitleMode: MeetingMode {
+        switch panel.presentation { case .meeting: .meeting; case .phone: .phone; case .video: .captions }
+    }
+
+    private func applyLanguagePresentation() {
+        let mode = subtitleMode
+        panel.setLanguages(listening: state.listenLanguages(for: mode),
+                           speaking: mode.supportsSpeaking ? state.speakLanguages(for: mode) : nil)
+    }
+
+    private func showLanguageEditor(from anchor: NSView) {
+        if languagePopover.isShown { languagePopover.performClose(anchor); return }
+        let content = SceneLanguageEditor(state: state, mode: subtitleMode).padding(16).frame(width: 360)
+        let controller = NSHostingController(rootView: content)
+        let size = controller.view.fittingSize
+        controller.preferredContentSize = size
+        controller.view.frame = NSRect(origin: .zero, size: size)
+        languagePopover.contentViewController = controller
+        languagePopover.contentSize = size
+        languagePopover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
     }
 
     /// Ends at once, with no confirmation: the window leaves in this turn, before the input
@@ -266,24 +295,31 @@ final class MeetingController {
     }
 
     private func listenConfigurationChanged() {
-        panel.setRemoteLanguageTitle(state.remoteLanguage.title)
+        applyLanguagePresentation()
         listenConfigurationTask?.cancel()
         let requestID = UUID(); listenRequestID = requestID
         guard let session, !state.meetingStopping else { return }
-        let language = state.remoteLanguage.lang
+        switch session.state {
+        case .starting, .running, .suspended: break
+        case .idle, .ended: return
+        }
+        let selection = state.listenLanguages(for: session.mode)
+        let language = selection.source
         // Fence delivery immediately, before the async session method gets its actor turn.
         awaitingListenReset = true
         panel.clear(); state.listenTranslation = nil
         state.listenASRStatus = String(localized: "正在切换字幕识别…")
         state.listenASRFailure = nil
         listenConfigurationTask = Task { [weak self, weak session] in
-            guard let self, let session else { return }
+            guard let self, let session, self.session === session,
+                  listenRequestID == requestID, !Task.isCancelled else { return }
             do {
                 // Same-language changes rebuild the ASR too. The session owns cancellation and
                 // coalesces changes during startup/suspension without touching SPEAK or input.
-                try await session.switchListenLanguage(to: language, forceRebuild: true)
+                try await session.switchListenDirection(source: language, target: selection.target, forceRebuild: true)
                 guard self.session === session, listenRequestID == requestID, !Task.isCancelled else { return }
-                if state.effectiveListenASREngine == .apple, session.listenLanguage == language, case .running = session.state {
+                if state.effectiveListenASREngine == .apple, session.listenLanguage == language,
+                   session.listenTarget == selection.target, case .running = session.state {
                     state.listenASRStatus = "Apple Speech"
                 }
             } catch {
@@ -328,9 +364,15 @@ final class MeetingController {
         hud?.showCloudReminder(useApple: { [weak self] in
             Task { await self?.session?.useAppleForThisMeeting() }
         }, copyNotice: { [weak self] in
-            let text = self?.state.remoteLanguage.lang == .de
-                ? "Ich nutze maschinelle Live-Übersetzung und eine synthetische Stimme. Gesprochene Inhalte werden als Text zur Übersetzung an OpenAI gesendet."
-                : "I'm using live machine interpretation and a synthesized voice. Spoken content is sent as text to OpenAI for translation."
+            let text: String
+            switch self?.state.remoteLanguage.lang ?? .en {
+            case .zh:
+                text = "我正在使用机器实时翻译和合成声音。说话内容会以文本形式发送给 OpenAI 进行翻译。"
+            case .de:
+                text = "Ich nutze maschinelle Live-Übersetzung und eine synthetische Stimme. Gesprochene Inhalte werden als Text zur Übersetzung an OpenAI gesendet."
+            case .en:
+                text = "I'm using live machine interpretation and a synthesized voice. Spoken content is sent as text to OpenAI for translation."
+            }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
         })
@@ -341,7 +383,7 @@ final class MeetingController {
     /// without it every final is Apple with that badge (§4.2: the no-key path).
     static func engines(cloud: ListenCloud.Box?,
                         makeASR: (@MainActor @Sendable (EventLog, UInt64) -> (any StreamingASREngine)?)? = nil) -> MeetingSession.EngineFactory {
-        { lang, log, configuration in
+        { direction, log, configuration in
             // The app validates the generation and obtains the meeting backend in one main-actor
             // turn. A late factory from an ended meeting cannot repopulate the shared cloud box.
             let prepared = await MainActor.run { () -> ListenPipeline.Engines? in
@@ -359,10 +401,10 @@ final class MeetingController {
             if #available(macOS 26.4, *) {
                 let mt = AppleTranslationMT()
                 engines.apple = mt
-                let direction: MTSession = lang == .de ? .listenDeZh : .listenEnZh
+                let session = MTSession.listen(source: direction.source, target: direction.target)!
                 // Independent preparation overlaps ASR.open; the pipeline still awaits both
                 // before reporting ready, and permission checks remain ahead of either one.
-                engines.prepareTranslation = { try? await mt.prepare(direction) }
+                engines.prepareTranslation = { try? await mt.prepare(session) }
             }
             return engines
         }
@@ -370,7 +412,7 @@ final class MeetingController {
 
     /// The onboarding demo (app-ui's ListenDemo, step 8): Apple only, no cloud, no key.
     static func engines(_ lang: Lang) async -> ListenPipeline.Engines {
-        await engines(cloud: nil)(lang, EventLog(inMemory: HostClock.now), 0)
+        await engines(cloud: nil)(Direction(source: lang, target: .zh), EventLog(inMemory: HostClock.now), 0)
     }
 
     /// Whether the latest `start` reached `.started` (the quick start opens settings otherwise).
@@ -490,8 +532,9 @@ final class MeetingController {
             await engine.setMeetingMode(true)
             captionsWarmup = Task { _ = try? await engine.start() }
         }
-        let lang = state.remoteLanguage.lang
-        let result = await s.start(lang: lang, choice: selectedSource, preferred: nil, requestedAt: requestedAt)
+        let selection = state.listenLanguages(for: mode)
+        let result = await s.start(lang: selection.source, target: selection.target,
+                                   choice: selectedSource, preferred: nil, requestedAt: requestedAt)
         guard session === s else { return }
         if case .started = result { } else {
             if mode == .captions { releaseCaptionsEngine() }
@@ -503,7 +546,8 @@ final class MeetingController {
         case .started:
             lastStartSucceeded = true
             state.lastScenario = mode
-            if s.listenLanguage != state.remoteLanguage.lang { listenConfigurationChanged() }
+            let latest = state.listenLanguages(for: mode)
+            if s.listenLanguage != latest.source || s.listenTarget != latest.target { listenConfigurationChanged() }
             else if state.effectiveListenASREngine == .apple { state.listenASRStatus = "Apple Speech" }
             cloudReminder()
             if retiredModel { hud?.post(.modelRetired) }
@@ -536,7 +580,7 @@ final class MeetingController {
             }
         case let .speechAssetsMissing(l):
             session = nil
-            let name = l == .de ? "Deutsch" : "English"
+            let name = l.title
             if confirm("需要下载 \(name) 语音识别资源",
                        "字幕要用 macOS 的语音识别。\(name) 资源约 140 MB，由 macOS 下载和管理。现在下载吗？",
                        ok: "下载") {

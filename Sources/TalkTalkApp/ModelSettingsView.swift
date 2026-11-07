@@ -50,7 +50,11 @@ struct ModelSettingsView: View {
                 Group {
                     switch navigation.modelStage {
                     case .recognition: recognition
-                    case .translation: TranslationPageView(page: translation, state: state, flash: navigation.flow)
+                    case .translation: TranslationPageView(page: translation, state: state, flash: navigation.flow,
+                                                           openLanguages: { mode in
+                                                               state.requestedScenario = mode
+                                                               navigation.open(.meeting)
+                                                           })
                     case .synthesis: EmptyView() // Legacy targets are redirected to 我的声音.
                     }
                 }
@@ -68,7 +72,12 @@ struct ModelSettingsView: View {
 
     /// A node link: ReturnPill on the target page leads back to this stage.
     private var links: ScenarioLinks {
-        ScenarioLinks { section, subpage, anchor in navigation.open(section, subpage, anchor: anchor) }
+        ScenarioLinks { section, subpage, anchor in
+            if section == .meeting {
+                state.requestedScenario = state.speakLanguageMode
+            }
+            navigation.open(section, subpage, anchor: anchor)
+        }
     }
 
     private var recognition: some View {
@@ -137,7 +146,10 @@ extension FlowGrid {
             ]),
             FlowLane(String(localized: "我说话 · 译音"), gutter: .voice(translating), cells: [
                 .node(FlowNode(String(localized: "我说"), glyph: .symbol(Icon.me),
-                               accessory: .controls { SpeakSourceChip(state: state, paired: false) },
+                               link: links.node(String(localized: "使用场景"), .meeting),
+                               accessory: .display {
+                                   Text(verbatim: state.speakSourceLanguage.title).font(.caption2).foregroundStyle(.secondary)
+                               },
                                help: String(localized: "按选定语言识别；点按右⌥开始或结束翻译"))),
                 .node(speak), .node(source), .empty
             ])

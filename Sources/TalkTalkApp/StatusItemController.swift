@@ -169,10 +169,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .captions: MenuQuickStart.sourceName(state.videoSourceID)
         case .phone: nil
         }
-        f.listenLanguage = languageName(state.remoteLanguage)
-        let speaking = state.speakLanguages(for: menuSpeakMode)
-        f.speakLanguage = speaking.target.title
-        f.speakSourceLanguage = speaking.source.title
+        let listening = state.listenLanguages(for: state.lastScenario ?? .meeting)
+        f.listenLanguage = listening.source.title
+        f.listenTargetLanguage = listening.target.title
         f.meetingApp = state.meetingApp
         f.elapsed = state.meetingStartedAt.map { Date().timeIntervalSince($0) }
         f.voice = actions.voiceState()
@@ -244,7 +243,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         mi.target = self
         if let command = row.command { bind(mi, command) }
         if case let .toggle(_, on) = row.kind { mi.state = on ? .on : .off }
-        if case let .languages(role) = row.kind { mi.submenu = languages(role) }
         mi.isEnabled = row.isEnabled && row.kind != .status
         mi.subtitle = row.subtitle
         mi.toolTip = row.help
@@ -292,57 +290,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .warn?: .systemOrange
         case .pending?, .voice?, .recording?, nil: nil
         }
-    }
-
-    /// The idle menu configures the scene its quick-start item will open.
-    private var menuSpeakMode: MeetingMode {
-        let mode = state.meetingActive || state.meetingStarting || state.meetingStopping
-            ? state.meetingMode : state.lastScenario ?? .meeting
-        return mode == .phone ? .phone : .meeting
-    }
-
-    private func languages(_ role: StatusMenuLanguage) -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        if role == .speak {
-            let selected = state.speakLanguages(for: menuSpeakMode)
-            let sourceHeading = NSMenuItem(title: String(localized: "我说"), action: nil, keyEquivalent: "")
-            sourceHeading.isEnabled = false
-            menu.addItem(sourceHeading)
-            for language in SpeakSourceLanguage.allCases {
-                let choice = NSMenuItem(title: language.title, action: #selector(chooseSpeakSourceLanguage(_:)), keyEquivalent: "")
-                choice.target = self
-                choice.representedObject = language.rawValue
-                choice.state = selected.source == language ? .on : .off
-                menu.addItem(choice)
-            }
-            menu.addItem(.separator())
-            let targetHeading = NSMenuItem(title: String(localized: "译音"), action: nil, keyEquivalent: "")
-            targetHeading.isEnabled = false
-            menu.addItem(targetHeading)
-            for language in selected.source.targets {
-                let choice = NSMenuItem(title: language.title, action: #selector(chooseSpeakLanguage(_:)), keyEquivalent: "")
-                choice.target = self
-                choice.representedObject = language.rawValue
-                choice.state = selected.target == language ? .on : .off
-                menu.addItem(choice)
-            }
-            return menu
-        }
-        for language in AppState.RemoteLanguage.allCases {
-            let choice = NSMenuItem(title: language.title,
-                                    action: #selector(chooseLanguage(_:)),
-                                    keyEquivalent: "")
-            choice.target = self
-            choice.representedObject = language.rawValue
-            choice.state = state.remoteLanguage == language ? .on : .off
-            menu.addItem(choice)
-        }
-        return menu
-    }
-
-    private func languageName(_ language: AppState.RemoteLanguage) -> String {
-        language == .en ? String(localized: "英语") : String(localized: "德语")
     }
 
     /// The session title's clock, the voice row and Phone's delivery follow the titlebar while
@@ -420,21 +367,4 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    @objc private func chooseLanguage(_ sender: NSMenuItem) {
-        if let raw = sender.representedObject as? String, let lang = AppState.RemoteLanguage(rawValue: raw) {
-            state.remoteLanguage = lang
-        }
-    }
-
-    @objc private func chooseSpeakLanguage(_ sender: NSMenuItem) {
-        if let raw = sender.representedObject as? String, let lang = SpeakTargetLanguage(rawValue: raw) {
-            state.setSpeakTarget(lang, for: menuSpeakMode)
-        }
-    }
-
-    @objc private func chooseSpeakSourceLanguage(_ sender: NSMenuItem) {
-        if let raw = sender.representedObject as? String, let lang = SpeakSourceLanguage(rawValue: raw) {
-            state.setSpeakSource(lang, for: menuSpeakMode)
-        }
-    }
 }

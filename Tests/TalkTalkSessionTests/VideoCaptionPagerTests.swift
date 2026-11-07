@@ -1,4 +1,5 @@
 import Testing
+import TalkTalkCore
 @testable import TalkTalkSession
 
 @Suite struct VideoCaptionPagerTests {
@@ -63,6 +64,33 @@ import Testing
         #expect(result[0].joined(separator: " ") == "We need to decide, before Friday,")
         // A single-line budget still pages without splitting words.
         #expect(pages(text, width: 12, maxLines: 1).allSatisfy { $0.count == 1 })
+    }
+
+    @Test func readingBudgetFollowsEachLanguageWhenDirectionsSwap() {
+        #expect(VideoCaptionPacing.readingTime(sourceCharacters: 27, translationCharacters: 18,
+                                               sourceLanguage: .zh, targetLanguage: .en) == 3)
+        #expect(VideoCaptionPacing.readingTime(sourceCharacters: 18, translationCharacters: 27,
+                                               sourceLanguage: .de, targetLanguage: .zh) == 3)
+        #expect(VideoCaptionPacing.readingTime(sourceCharacters: 18, translationCharacters: 54,
+                                               sourceLanguage: .en, targetLanguage: .de) == 3)
+        #expect(VideoCaptionPacing.readingTime(sourceCharacters: 18, translationCharacters: 54,
+                                               sourceLanguage: .de, targetLanguage: .en) == 3)
+        for source in Lang.allCases {
+            for target in Lang.allCases where target != source {
+                let time = VideoCaptionPacing.readingTime(sourceCharacters: 27, translationCharacters: 45,
+                                                          sourceLanguage: source, targetLanguage: target)
+                let reversed = VideoCaptionPacing.readingTime(sourceCharacters: 45, translationCharacters: 27,
+                                                              sourceLanguage: target, targetLanguage: source)
+                #expect(time == reversed)
+                #expect(time >= 1 && time <= 6)
+                let sample = SubtitleListeningSample(scene: .video, languages: .init(source: source, target: target)).pairs[0]
+                for (text, language) in [(sample.source, source), (sample.translation, target)] {
+                    let width = VideoCaptionLayout.textBlockWidth(windowWidth: 960, fontSize: 1, language: language)
+                    let output = pages(text, width: width).flatMap { $0 }.joined()
+                    #expect(output.filter { !$0.isWhitespace } == text.filter { !$0.isWhitespace })
+                }
+            }
+        }
     }
 
     @Test func pacingCatchUpAndDraftTail() {

@@ -47,12 +47,13 @@ public final class MeetingSession: SpeakEchoSink {
     }
 
     /// Builds the meeting's engines; gets the meeting's EventLog (the cloud MT logs into it).
-    public typealias EngineFactory = @Sendable (Lang, EventLog, UInt64) async -> ListenPipeline.Engines
+    public typealias EngineFactory = @Sendable (Direction, EventLog, UInt64) async -> ListenPipeline.Engines
 
     public private(set) var state: State = .idle
     public private(set) var app: MeetingApp?
     public private(set) var startedAt: Date?
     public private(set) var listenLanguage: Lang?
+    public private(set) var listenTarget: Lang?
     /// Factory callbacks must carry this value; it changes before old work is cancelled.
     public private(set) var listenConfigurationID: UInt64 = 0
     public let mode: MeetingMode
@@ -78,6 +79,7 @@ public final class MeetingSession: SpeakEchoSink {
     private var pipeline: ListenPipeline?
     private var ingest = AudioIngest()
     private var requestedListenLanguage: Lang?
+    private var requestedListenTarget: Lang = .zh
     private var listenTask: Task<Void, Error>?
     private var listenTaskConfigurationID: UInt64?
     private var sessionGeneration: UInt64 = 0
@@ -164,13 +166,22 @@ public final class MeetingSession: SpeakEchoSink {
         echoRecords.removeAll { now >= $0.end && now - $0.end > window }
     }
 
-    /// Changes only LISTEN. A same-language ASR choice uses forceRebuild. No meeting lifecycle
-    /// event is emitted; pending starts and suspended sessions remember the latest selection.
+    public enum ListenConfigurationError: Error, Sendable { case unsupportedDirection }
+
+    /// Compatibility entry point for callers that only change the source.
     public func switchListenLanguage(to lang: Lang, forceRebuild: Bool = false) async throws {
+        try await switchListenDirection(source: lang, target: requestedListenTarget, forceRebuild: forceRebuild)
+    }
+
+    /// Changes only LISTEN. No meeting lifecycle event is emitted. Pending starts and
+    /// suspended sessions remember the complete pair; target-only changes also cancel old work.
+    public func switchListenDirection(source lang: Lang, target: Lang, forceRebuild: Bool = false) async throws {
+        try Task.checkCancellation()
+        guard MTSession.listen(source: lang, target: target) != nil else { throw ListenConfigurationError.unsupportedDirection }
         guard !stopping else { throw CancellationError() }
         switch state { case .starting, .running, .suspended: break; default: throw CancellationError() }
-        if requestedListenLanguage == lang, !forceRebuild, pipeline != nil || listenTask != nil { return }
-        requestedListenLanguage = lang
+        if requestedListenLanguage == lang, requestedListenTarget == target, !forceRebuild, pipeline != nil || listenTask != nil { return }
+        requestedListenLanguage = lang; requestedListenTarget = target
         switch state {
         case .starting:
             // startFresh's loop follows the newest configuration after its current await.
@@ -190,7 +201,7 @@ public final class MeetingSession: SpeakEchoSink {
 
     /// All UI callbacks make exactly one MainActor hop, checked after the hop, so an already
     /// queued old-language subtitle cannot arrive after the board was reset.
-    private func makePipeline(lang: Lang, engines: ListenPipeline.Engines, log: EventLog,
+    private func makePipeline(lang: Lang, target: Lang, engines: ListenPipeline.Engines, log: EventLog,
                               configuration: UInt64) -> ListenPipeline {
         let analysis: (@Sendable (ListenAnalysisEvent) -> Void)?
         if let callback = onAnalysis {
@@ -201,7 +212,7 @@ public final class MeetingSession: SpeakEchoSink {
                 }
             }
         } else { analysis = nil }
-        return ListenPipeline(lang: lang, profile: profile.listen, engines: engines, log: log, ingest: ingest,
+        return ListenPipeline(lang: lang, target: target, profile: profile.listen, engines: engines, log: log, ingest: ingest,
             jobs: jobs, onTranscript: { [weak self] source, target, at in
                 Task { @MainActor in
                     guard let self, self.acceptsListenCallbacks(configuration) else { return }
@@ -223,8 +234,8 @@ public final class MeetingSession: SpeakEchoSink {
     private func replaceListenPipeline(open: Bool) -> Task<Void, Error> {
         listenConfigurationID &+= 1
         let configuration = listenConfigurationID, session = sessionGeneration
-        let previous = listenTask, old = pipeline, lang = requestedListenLanguage, log = self.log
-        previous?.cancel(); pipeline = nil; listenLanguage = nil
+        let previous = listenTask, old = pipeline, lang = requestedListenLanguage, target = requestedListenTarget, log = self.log
+        previous?.cancel(); pipeline = nil; listenLanguage = nil; listenTarget = nil
         ingest.prepareForRecognizerReplacement()
         onListenReset()
         let task = Task { @MainActor [weak self] in
@@ -240,22 +251,22 @@ public final class MeetingSession: SpeakEchoSink {
                   !self.stopping, !Task.isCancelled else { throw CancellationError() }
             guard open else { return }
             guard let lang, let log, self.acceptsListenCallbacks(configuration) else { throw CancellationError() }
-            let engines = await self.makeEngines(lang, log, configuration)
+            let engines = await self.makeEngines(Direction(source: lang, target: target), log, configuration)
             guard self.acceptsListenCallbacks(configuration), !Task.isCancelled else { throw CancellationError() }
-            let next = self.makePipeline(lang: lang, engines: engines, log: log, configuration: configuration)
+            let next = self.makePipeline(lang: lang, target: target, engines: engines, log: log, configuration: configuration)
             do { try await next.start() }
             catch { await next.stop(); throw error }
             guard self.acceptsListenCallbacks(configuration), !Task.isCancelled else {
                 await next.stop(); throw CancellationError()
             }
-            self.pipeline = next; self.listenLanguage = lang
+            self.pipeline = next; self.listenLanguage = lang; self.listenTarget = target
             await next.setDraftsPaused(self.draftsPaused)
             if self.appleForThisMeeting { await next.useAppleForThisMeeting() }
             self.pruneEchoRecords()
             let records = self.echoRecords
             for record in records { await record.replay(to: next) }
             guard self.acceptsListenCallbacks(configuration), !Task.isCancelled else { throw CancellationError() }
-            log.event("listen.configuration", ["lang": .tag(lang.rawValue), "generation": .int(Int(configuration))])
+            log.event("listen.configuration", ["lang": .tag(lang.rawValue), "target": .tag(target.rawValue), "generation": .int(Int(configuration))])
         }
         listenTask = task; listenTaskConfigurationID = configuration
         return task
@@ -369,16 +380,17 @@ public final class MeetingSession: SpeakEchoSink {
     // MARK: - start / stop
 
     /// `choice`: the bundle id the user picked; `preferred`: the last choice (remembered).
-    public func start(lang: Lang, choice: String? = nil, preferred: String? = nil,
+    public func start(lang: Lang, target: Lang = .zh, choice: String? = nil, preferred: String? = nil,
                       requestedAt: HostTime? = nil) async -> StartResult {
         switch state {
         case .idle, .ended: break
         default: return .failed("already running")
         }
-        return await startFresh(lang: lang, choice: choice, preferred: preferred, requestedAt: requestedAt ?? HostClock.now())
+        guard MTSession.listen(source: lang, target: target) != nil else { return .failed("unsupported subtitle direction") }
+        return await startFresh(lang: lang, target: target, choice: choice, preferred: preferred, requestedAt: requestedAt ?? HostClock.now())
     }
 
-    private func startFresh(lang: Lang, choice: String?, preferred: String?, requestedAt: HostTime) async -> StartResult {
+    private func startFresh(lang: Lang, target: Lang, choice: String?, preferred: String?, requestedAt: HostTime) async -> StartResult {
         let candidates = mode.sourceCandidates(in: (try? resolver.currentCandidates()) ?? [])
         let picked = mode.source(in: candidates, choice: choice, preferred: preferred)
         guard let source = picked else {
@@ -387,7 +399,7 @@ public final class MeetingSession: SpeakEchoSink {
         }
         sessionGeneration &+= 1
         let session = sessionGeneration
-        stopping = false; requestedListenLanguage = lang
+        stopping = false; requestedListenLanguage = lang; requestedListenTarget = target
         listenConfigurationID &+= 1; listenTaskConfigurationID = nil
         set(.starting)
         startHost = HostClock.now()
@@ -428,14 +440,14 @@ public final class MeetingSession: SpeakEchoSink {
         app = source.app
         do { try buildTap() } catch {
             await p.stop()
-            pipeline = nil; listenLanguage = nil
+            pipeline = nil; listenLanguage = nil; listenTarget = nil
             listenTask = nil; listenTaskConfigurationID = nil
             log.close(); self.log = nil
             set(.idle)
             return .failed("\(error)")
         }
         log.event("meeting.start", ["app": .tag(source.app.id), "mode": .tag(mode.rawValue), "processes": .int(processes.count),
-                                    "lang": .tag((listenLanguage ?? lang).rawValue),
+                                    "lang": .tag((listenLanguage ?? lang).rawValue), "target": .tag((listenTarget ?? target).rawValue),
                                     "startup_ms": .int(HostClock.ms(requestedAt, to: HostClock.now()))])
         watchdog.reset()
         autoEnd = MeetingAutoEnd()
@@ -499,7 +511,7 @@ public final class MeetingSession: SpeakEchoSink {
         tap?.stop(); tap = nil
         log?.event("meeting.capture_stopped", ["elapsed_ms": .int(HostClock.ms(stopStartedAt, to: HostClock.now()))])
         let p = pipeline, pending = listenTask
-        pipeline = nil; listenTask = nil; listenTaskConfigurationID = nil; listenLanguage = nil
+        pipeline = nil; listenTask = nil; listenTaskConfigurationID = nil; listenLanguage = nil; listenTarget = nil
         if let p { await p.stop() }
         _ = await pending?.result
         ingest.reset(); echoRecords.removeAll()
@@ -529,13 +541,15 @@ public final class MeetingSession: SpeakEchoSink {
         self.ingest = pipeline.ingest
         self.log = EventLog(inMemory: HostClock.now)
         requestedListenLanguage = pipeline.lang; listenLanguage = pipeline.lang
+        requestedListenTarget = pipeline.target; listenTarget = pipeline.target
         stopping = false; sessionGeneration &+= 1
         startHost = HostClock.now()
         set(.running(app: app))
     }
     /// Uses the real replacement coordinator with fake ASR engines, without Core Audio or TCC.
-    func startListenForTesting(app: String = "Test meeting", lang: Lang) async throws {
-        sessionGeneration &+= 1; stopping = false; requestedListenLanguage = lang
+    func startListenForTesting(app: String = "Test meeting", lang: Lang, target: Lang = .zh) async throws {
+        guard MTSession.listen(source: lang, target: target) != nil else { throw ListenConfigurationError.unsupportedDirection }
+        sessionGeneration &+= 1; stopping = false; requestedListenLanguage = lang; requestedListenTarget = target
         listenConfigurationID &+= 1
         log = EventLog(inMemory: HostClock.now); startHost = HostClock.now()
         set(.starting)

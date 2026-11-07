@@ -61,17 +61,12 @@ public enum StatusMenuCommand: Sendable, Equatable {
     case quit
 }
 
-/// The two language submenus (对方语言 and 我的译音, §5.5).
-public enum StatusMenuLanguage: Sendable, Equatable { case listen, speak }
-
 /// One row of the menu bar menu.
 public struct StatusMenuRow: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         case action(StatusMenuCommand)
         /// A check item (✓ while on).
         case toggle(StatusMenuCommand, on: Bool)
-        /// A submenu of the languages.
-        case languages(StatusMenuLanguage)
         /// Not clickable: the session title, a problem line or an information line.
         case status
         case separator
@@ -115,7 +110,7 @@ public struct StatusMenuRow: Sendable, Equatable {
     public var command: StatusMenuCommand? {
         switch kind {
         case let .action(command), let .toggle(command, _): command
-        case .languages, .status, .separator: nil
+        case .status, .separator: nil
         }
     }
 }
@@ -145,10 +140,9 @@ public struct StatusMenuFacts: Sendable, Equatable {
     public var lastScenario: MeetingMode?
     /// The quick start scene's remembered source; nil: automatic selection.
     public var quickStartSource: String?
-    /// 对方语言 and 我的译音 by name ("英语").
+    /// The quick-start scene's saved caption direction, displayed only as a summary.
     public var listenLanguage = String(localized: "英语")
-    public var speakLanguage = String(localized: "英语")
-    public var speakSourceLanguage = String(localized: "中文")
+    public var listenTargetLanguage = String(localized: "中文")
     public var meetingApp: String?
     public var elapsed: TimeInterval?
     /// The titlebar's voice capsule.
@@ -257,7 +251,7 @@ public enum StatusMenu {
             rows.append(progress(f.mode, ending: false))
         } else {
             let quick = MenuQuickStart.make(last: f.lastScenario, sourceName: f.quickStartSource,
-                                            remoteLanguage: f.listenLanguage)
+                                            remoteLanguage: f.listenLanguage, targetLanguage: f.listenTargetLanguage)
             rows.append(StatusMenuRow(.action(.quickStart(quick.mode)), quick.title, subtitle: quick.subtitle,
                                       symbol: MenuQuickStart.symbol, help: startBlocked(f), bold: true,
                                       isEnabled: f.meetingAvailable && !f.onboardingNeeded))
@@ -270,7 +264,7 @@ public enum StatusMenu {
         rows.append(.separator)
         let block = recordingRows(f) + issues
         if !block.isEmpty { rows += block + [.separator] }
-        return rows + languages(f) + toggles(f)
+        return rows + toggles(f)
     }
 
     /// Why the scene's start waits (§8.2); nil when it can start.
@@ -305,7 +299,7 @@ public enum StatusMenu {
         rows += [.separator,
                  StatusMenuRow(.action(.openScene(f.mode)), String(localized: "查看当前场景…"),
                                symbol: SubtitleTokens.SettingsIcon.Page.scenarios)]
-        rows += languages(f) + toggles(f)
+        rows += toggles(f)
         if f.canPlayAnnouncement, f.mode.supportsSpeaking, f.phase == .running {
             rows.append(StatusMenuRow(.action(.playAnnouncement), String(localized: "播放告知语"),
                                       symbol: SubtitleTokens.MenuIcon.announcement))
@@ -386,16 +380,6 @@ public enum StatusMenu {
     private static var restoreWindow: StatusMenuRow {
         StatusMenuRow(.action(.restoreSubtitleWindow), String(localized: "恢复字幕窗口"),
                       symbol: SubtitleTokens.MenuIcon.restoreWindow)
-    }
-
-    private static func languages(_ f: StatusMenuFacts) -> [StatusMenuRow] {
-        var rows = [StatusMenuRow(.languages(.listen), String(localized: "字幕：\(f.listenLanguage) → 中文"),
-                                  symbol: SubtitleTokens.MenuIcon.subtitles)]
-        if !f.videoBusy {
-            rows.append(StatusMenuRow(.languages(.speak), String(localized: "我说话：\(f.speakSourceLanguage) → \(f.speakLanguage)"),
-                                      symbol: SubtitleTokens.SettingsIcon.me))
-        }
-        return rows
     }
 
     private static func toggles(_ f: StatusMenuFacts) -> [StatusMenuRow] {

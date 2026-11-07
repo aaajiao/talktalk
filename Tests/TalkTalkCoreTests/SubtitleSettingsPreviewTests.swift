@@ -27,6 +27,46 @@ import Testing
         #expect(SubtitlePreviewLayout.contentHeight(for: .video) == 184)
     }
 
+    @Test func videoExamplesFollowAllSixSourceAndTranslationChoices() {
+        func matches(_ text: String, _ language: Lang) -> Bool {
+            switch language {
+            case .zh: text.contains("最简单的想法")
+            case .en: text.contains("The simplest ideas")
+            case .de: text.contains("Die einfachsten Ideen")
+            }
+        }
+        for source in Lang.allCases {
+            for target in Lang.allCases where target != source {
+                let sample = SubtitleListeningSample(scene: .video, languages: .init(source: source, target: target))
+                #expect(sample.pairs.count == 1)
+                #expect(matches(sample.pairs[0].source, source))
+                #expect(matches(sample.pairs[0].translation, target))
+                let reverse = SubtitleListeningSample(scene: .video, languages: .init(source: target, target: source))
+                #expect(reverse.pairs[0].source == sample.pairs[0].translation)
+                #expect(reverse.pairs[0].translation == sample.pairs[0].source)
+            }
+        }
+    }
+
+    @Test func meetingAndPhoneExamplesUseSelectedRemoteLanguageWithoutChangingMyDirection() {
+        for scene in [SubtitleScene.meeting, .phone] {
+            let english = SubtitleListeningSample(scene: scene, languages: .init(source: .en, target: .zh)).pairs
+            let german = SubtitleListeningSample(scene: scene, languages: .init(source: .de, target: .zh)).pairs
+            #expect(english.count == 2 && german.count == 2)
+            #expect(english.map(\.translation) == german.map(\.translation))
+            #expect(english[0].source != german[0].source && english[1].source != german[1].source)
+            #expect(german[0].source.contains("Dienstagvormittag"))
+            for source in SpeakSourceLanguage.allCases {
+                for target in source.targets {
+                    let speaking = SubtitleSpeakingSample(phone: scene == .phone,
+                                                           languages: .init(source: source, target: target))
+                    #expect(!speaking.source.isEmpty && !speaking.translation.isEmpty)
+                    #expect(speaking.source != speaking.translation)
+                }
+            }
+        }
+    }
+
     @Test func opacitySliderIsGreyedForStrokeAndUnderReduceTransparency() {
         #expect(SubtitleOpacityControl.make(scene: .video, videoStyle: .fittedGlass, reduceTransparency: false)
             == .init(enabled: true, note: nil))

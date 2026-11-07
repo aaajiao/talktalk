@@ -119,3 +119,47 @@ public struct SubtitleSpeakingSample: Equatable, Sendable {
         }
     }
 }
+
+/// Paired, non-private examples for the selected caption direction. Both sides come from
+/// the same sentence; a Chinese source never gets an English-only placeholder.
+public struct SubtitleListeningSample: Equatable, Sendable {
+    public struct Pair: Equatable, Sendable {
+        public let source: String
+        public let translation: String
+    }
+    public let pairs: [Pair]
+
+    public init(scene: SubtitleScene, languages: ListenLanguageSelection) {
+        let sentences: [(zh: String, en: String, de: String)]
+        switch scene {
+        case .meeting:
+            sentences = [
+                (String(localized: "我们确认一下下周的安排。周二上午你方便吗？"),
+                 "Let's confirm the plan for next week. Would Tuesday morning work for you?",
+                 "Lassen Sie uns den Plan für nächste Woche bestätigen. Passt Ihnen Dienstagvormittag?"),
+                (String(localized: "好的。我今天下午把议程和会议链接发给你。"),
+                 "Great. I'll send the agenda and the meeting link this afternoon.",
+                 "Gut. Ich schicke Ihnen heute Nachmittag die Tagesordnung und den Link zur Besprechung.")
+            ]
+        case .phone:
+            sentences = [
+                (String(localized: "您好，我打电话来确认您的预约。周二上午您方便吗？"),
+                 "Hi, I'm calling to confirm your appointment. Would Tuesday morning work for you?",
+                 "Guten Tag, ich rufe an, um Ihren Termin zu bestätigen. Passt Ihnen Dienstagvormittag?"),
+                (String(localized: "当然。我们在市场街，二楼。"),
+                 "Of course. We're on Market Street, on the second floor.",
+                 "Natürlich. Wir sind in der Marktstraße, im zweiten Stock.")
+            ]
+        case .video:
+            sentences = [
+                (String(localized: "最简单的想法，往往始于换一种方式去看待我们身边的世界。"),
+                 "The simplest ideas often begin with a different way of looking at the world around us.",
+                 "Die einfachsten Ideen beginnen oft damit, die Welt um uns herum auf eine andere Weise zu betrachten.")
+            ]
+        }
+        func text(_ sentence: (zh: String, en: String, de: String), for language: Lang) -> String {
+            switch language { case .zh: sentence.zh; case .en: sentence.en; case .de: sentence.de }
+        }
+        pairs = sentences.map { Pair(source: text($0, for: languages.source), translation: text($0, for: languages.target)) }
+    }
+}

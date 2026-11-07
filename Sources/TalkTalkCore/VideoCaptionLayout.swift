@@ -37,10 +37,10 @@ public enum VideoCaptionStyle: String, Sendable, CaseIterable {
     }
 }
 
-/// Vertical order of the two caption blocks. The source sits above Chinese by default.
+/// Vertical order of the two caption blocks. The source sits above the translation by default.
 public enum VideoCaptionArrangement: String, Sendable, CaseIterable {
     case sourceFirst
-    /// "中文在上".
+    /// "译文在上".
     case translationFirst
 
     public static let `default`: VideoCaptionArrangement = .sourceFirst
@@ -52,11 +52,10 @@ public enum VideoCaptionLayout {
     /// Keep the former 150 pt reading space plus a separate, non-reflowing hover bar.
     public static let defaultContentHeight: Double = 184
     public static let controlBarGap: Double = 6
-    /// Chinese block width in Chinese characters (one em each).
-    public static let translationCharactersPerLine: Double = 20
-    /// Source block width in characters of about 0.52 em.
-    public static let sourceCharactersPerLine: Double = 46
-    public static let sourceCharacterEm: Double = 0.52
+    /// Script-aware natural width, independent of which side owns the language.
+    public static let chineseCharactersPerLine: Double = 20
+    public static let latinCharactersPerLine: Double = 46
+    public static let latinCharacterEm: Double = 0.52
     public static let maxLinesPerPage = 2
     /// Below this width text blocks span the window minus `narrowMargin` on each side.
     public static let narrowWidth: Double = 640
@@ -86,21 +85,31 @@ public enum VideoCaptionLayout {
     public static let placeholderSymbolSize: Double = 13
     public static func placeholderAlpha(increaseContrast: Bool) -> Double { increaseContrast ? 0.8 : 0.6 }
 
-    /// 20 × Chinese size, never wider than the window minus 48; narrow windows use window − 48.
-    public static func translationBlockWidth(windowWidth: Double, translationSize: Double) -> Double {
-        blockWidth(windowWidth: windowWidth, natural: translationCharactersPerLine * translationSize)
+    /// Chinese uses one em per character; English/German use the Latin reading width.
+    public static func textBlockWidth(windowWidth: Double, fontSize: Double, language: Lang) -> Double {
+        let natural = language == .zh ? chineseCharactersPerLine * fontSize
+            : latinCharactersPerLine * latinCharacterEm * fontSize
+        return blockWidth(windowWidth: windowWidth, natural: natural)
     }
 
-    /// About 46 characters of the source font.
-    public static func sourceBlockWidth(windowWidth: Double, sourceSize: Double) -> Double {
-        blockWidth(windowWidth: windowWidth, natural: sourceCharactersPerLine * sourceCharacterEm * sourceSize)
+    public static func translationBlockWidth(windowWidth: Double, translationSize: Double,
+                                             language: Lang = .zh) -> Double {
+        textBlockWidth(windowWidth: windowWidth, fontSize: translationSize, language: language)
+    }
+
+    public static func sourceBlockWidth(windowWidth: Double, sourceSize: Double,
+                                        language: Lang = .en) -> Double {
+        textBlockWidth(windowWidth: windowWidth, fontSize: sourceSize, language: language)
     }
 
     /// A stable width shared by the fitted reading background and its controls. Short drafts
     /// do not make the controls chase individual words across the screen.
-    public static func readingWidth(windowWidth: Double, translationSize: Double, sourceSize: Double) -> Double {
-        min(max(0, windowWidth), max(translationBlockWidth(windowWidth: windowWidth, translationSize: translationSize),
-                                    sourceBlockWidth(windowWidth: windowWidth, sourceSize: sourceSize))
+    public static func readingWidth(windowWidth: Double, translationSize: Double, sourceSize: Double,
+                                    sourceLanguage: Lang = .en, targetLanguage: Lang = .zh) -> Double {
+        min(max(0, windowWidth), max(translationBlockWidth(windowWidth: windowWidth,
+                                                         translationSize: translationSize, language: targetLanguage),
+                                    sourceBlockWidth(windowWidth: windowWidth,
+                                                     sourceSize: sourceSize, language: sourceLanguage))
             + 2 * glassHorizontalPadding)
     }
 
@@ -114,7 +123,7 @@ public enum VideoCaptionLayout {
         return width < narrowWidth ? available : min(available, natural)
     }
 
-    /// Two Chinese lines, one source line and 24 pt (§6 窗口).
+    /// Two translation lines, one source line and 24 pt (§6 窗口).
     public static func minimumContentHeight(translationLineHeight: Double, sourceLineHeight: Double) -> Double {
         2 * translationLineHeight + sourceLineHeight + 24
     }

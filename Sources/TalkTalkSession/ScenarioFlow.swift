@@ -65,7 +65,8 @@ public struct MenuQuickStart: Sendable, Equatable {
     public static let symbol = "play.fill"
 
     /// `sourceName`: the remembered source's display name; nil means automatic selection.
-    public static func make(last: MeetingMode?, sourceName: String?, remoteLanguage: String) -> MenuQuickStart {
+    public static func make(last: MeetingMode?, sourceName: String?, remoteLanguage: String,
+                            targetLanguage: String = String(localized: "中文")) -> MenuQuickStart {
         let mode = last ?? .meeting
         let source = sourceName ?? String(localized: "自动")
         let title: String = switch mode {
@@ -73,7 +74,7 @@ public struct MenuQuickStart: Sendable, Equatable {
         case .phone: String(localized: "准备电话同传")
         case .captions: String(localized: "开始视频字幕 · \(source)")
         }
-        return MenuQuickStart(mode: mode, title: title, subtitle: String(localized: "\(remoteLanguage) → 中文"))
+        return MenuQuickStart(mode: mode, title: title, subtitle: String(localized: "\(remoteLanguage) → \(targetLanguage)"))
     }
 
     /// The display name of a remembered source id; nil for automatic selection.
