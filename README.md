@@ -1,77 +1,79 @@
 # TalkTalk
 
-![TalkTalk 字幕设置与会议同传双语对话预览](docs/images/talktalk-subtitles.png)
+**English** | [简体中文](README.zh-CN.md)
 
-**在会议、电话和视频中使用中文、英语、德语字幕与语音翻译。**
+![TalkTalk subtitle settings and bilingual meeting conversation preview](docs/images/talktalk-subtitles.png)
 
-TalkTalk 是一个原生 macOS 菜单栏应用。语音识别和语音合成在本机运行，文字翻译可选 OpenAI 或 Apple。可使用自己的声音生成译音，也可选择 macOS 系统声音。
+**Subtitles and voice translation in Chinese, English, and German for meetings, phone calls, and videos.**
 
-## 三种使用场景
+TalkTalk is a native macOS menu bar app. Speech recognition and synthesis run locally, with OpenAI or Apple available for text translation. Speak with your own cloned voice or choose a macOS system voice.
 
-| 场景 | 用途与操作 |
+## Three ways to use TalkTalk
+
+| Mode | How it works |
 |---|---|
-| 会议同传 | 收听所选会议应用，显示原文与译文；通过 **TalkTalk Mic** 发送原声或翻译后的声音。 |
-| 电话同传 | 固定连接 macOS **Phone**。先在 TalkTalk 准备，再到 Phone 拨号或接听；TalkTalk 结束同传不会挂断电话。 |
-| 视频字幕 | 收听所选视频或浏览器应用，显示双语字幕；不启用麦克风，也不生成译音。浏览器来源覆盖该应用的音频，不是单独一个标签页。 |
+| Meeting interpretation | Listen to a selected meeting app and see the original speech alongside its translation. Send your original or translated voice through **TalkTalk Mic**. |
+| Phone interpretation | Connect to the macOS **Phone** app. Prepare interpretation in TalkTalk, then make or answer a call in Phone. Ending interpretation in TalkTalk does not hang up the call. |
+| Video subtitles | Listen to a selected video or browser app and display bilingual subtitles, without enabling the microphone or generating translated speech. Browser capture includes audio from the whole app, not just one tab. |
 
-- **收听字幕**支持中文、英语、德语之间六方向互译。三个场景分别记住声音来源与语言方向；电话来源固定为 Phone。
-- **翻译发言**支持中文 → 英语／德语，以及英语 → 中文／德语。会议和电话各自选择发言语言，默认发送原声；点按 **右 ⌥** 开始翻译发言，再点按结束，剩余译音播完后恢复原声。
-- **双语字幕**在会议和电话中按对话时间线显示；视频按句对显示并分页，草稿就地更新为定稿。有实际原文或译文后才显示视频字幕窗口。窗口可移动、缩放、隐藏或最小化；隐藏窗口不停止会话，新字幕不会擅自恢复用户收起的窗口。
-- **本地声音克隆**复用录制的声音档案，可在 Qwen 与 Ming 之间切换；各模型分别保存声音缓存与试听音量校准。
+- **Listening subtitles** support all six translation directions between Chinese, English, and German. Each mode remembers its own audio source and language direction; Phone mode always uses the Phone app.
+- **Translated speech** supports Chinese → English/German and English → Chinese/German. Meeting and Phone modes each have their own speaking language setting and send your original voice by default. Tap **right ⌥ (Option)** to start speaking for translation, then tap again to finish. Your original voice resumes after the remaining translated audio finishes playing.
+- **Bilingual subtitles** appear as a conversation timeline in Meeting and Phone modes. Video mode shows paginated sentence pairs, with drafts updated in place as final translations arrive. The video subtitle window appears only once original or translated text is available. Windows can be moved, resized, hidden, or minimized. Hiding a window keeps the session running, and new subtitles do not reopen a window you have hidden or minimized.
+- **Local voice cloning** reuses your recorded voice profile across Qwen and Ming. Each model keeps its own voice cache and preview volume calibration.
 
-界面支持中文和 English，可在 **设置 › 通用 › 界面语言** 中立即切换。界面语言与字幕、发言的语言设置相互独立。
+The interface supports English and Chinese. Switch instantly in **Settings › General › Interface language**. The interface language is independent of your subtitle and speaking language settings.
 
-## 开始使用
+## Get started
 
-需要 **Apple Silicon Mac、macOS 26.4 或更新版本**。会议和电话同传请使用耳机。
+Requires an **Apple Silicon Mac running macOS 26.4 or later**. Use headphones for meeting and phone interpretation.
 
-**[下载 TalkTalk 1.0.15（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.15/TalkTalk-1.0.15-macOS-arm64.zip)** · [1.0.15 版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.15)
+**[Download TalkTalk 1.0.15 (macOS arm64 ZIP)](https://github.com/aaajiao/talktalk/releases/download/v1.0.15/TalkTalk-1.0.15-macOS-arm64.zip)** · [1.0.15 release notes](https://github.com/aaajiao/talktalk/releases/tag/v1.0.15)
 
-解压后将 `TalkTalk.app` 拖入“应用程序”，从 Finder 打开。该包使用 **ad-hoc 本地签名，尚无 Developer ID 签名及 Apple 公证**；首次打开时 macOS 可能显示安全提示或阻止启动，请确认下载来源后按系统提示处理。
+Unzip the download, drag `TalkTalk.app` into Applications, and open it from Finder. The app is **ad-hoc signed, without a Developer ID signature or Apple notarization**. macOS may display a security warning or block the first launch; verify the download source and follow the system prompts.
 
-首次设置：
+First-time setup:
 
-1. 按首次引导授权，配置需要的语音资源。会议和电话还需要安装 **TalkTalk Mic** 虚拟麦克风；只看视频可走仅收听引导。
-2. App 按需安装私有 Python 环境和本地模型，**无需自行安装系统 Python 或 Homebrew**。默认模型文件约 **4.1 GB**，另需运行环境空间；后续升级会复用兼容的运行时和已下载模型。
-3. 在 **设置 › 使用场景** 选择会议、电话或视频，设置对应的应用与语言。会议／电话应用的输入需选择 **TalkTalk Mic**，或按引导跟随由 TalkTalk 管理的系统默认输入。
-4. 如需云端文字翻译，填写自己的 OpenAI API key；使用 Apple 本地翻译前，需安装相应语言资源。
-5. 如需用自己的声音，在 **我的声音** 中录制并试听。模型下载和删除在 **安装与维护**，已安装的合成模型在 **识别与翻译 › 语音合成** 中切换。
+1. Follow onboarding to grant permissions and configure the speech resources you need. Meeting and phone interpretation also require the **TalkTalk Mic** virtual microphone. For video subtitles only, choose the listening-only setup.
+2. The app installs its private Python runtime and local models as needed. **You do not need to install system Python or Homebrew.** The default model files take about **4.1 GB**, plus space for the runtime. Later upgrades reuse compatible runtimes and downloaded models.
+3. In **Settings › Scenarios**, choose Meeting, Phone, or Video and configure the app and languages. In your meeting or phone app, select **TalkTalk Mic** as the input, or follow onboarding to use the system default input managed by TalkTalk.
+4. For cloud text translation, enter your own OpenAI API key. For local Apple translation, install the required language resources first.
+5. To use your own voice, record and preview it in **My voice**. Download or delete models in **Components**, and switch between installed synthesis models in **Models › Synthesis**.
 
-视频默认只收听所选应用；显式开启全局备用后会收听所有应用声音。会议中的静音仍由会议软件控制。停止同传或退出 TalkTalk 时，会还原它管理的系统输入。
+Video mode listens only to the selected app by default. Explicitly enabling the global capture fallback captures audio from all apps. Your meeting app still controls muting. When you stop interpretation or quit TalkTalk, it restores the system input it managed.
 
-## 本地模型与声音
+## Local models and voices
 
-默认仍使用 Qwen。语音资源提供三种安装组合，以下为模型文件体积，不含运行时或运行内存：
+Qwen remains the default. Three speech resource presets are available. Sizes below cover model files only, excluding the runtime and memory usage:
 
-| 档位 | 语音合成 | 语音识别 | 文件体积 |
+| Preset | Speech synthesis | Speech recognition | File size |
 |---|---|---|---:|
 | Max | Qwen3-TTS 1.7B | Qwen3-ASR 1.7B | 5.6 GB |
-| 标准（默认） | Qwen3-TTS 1.7B | Qwen3-ASR 0.6B | 4.1 GB |
-| 轻量 | Qwen3-TTS 0.6B | Qwen3-ASR 0.6B | 3.0 GB |
+| Standard (default) | Qwen3-TTS 1.7B | Qwen3-ASR 0.6B | 4.1 GB |
+| Lightweight | Qwen3-TTS 0.6B | Qwen3-ASR 0.6B | 3.0 GB |
 
-Qwen 使用固定的本地 8bit 模型。合成也可独立选择 **Ming-3.0-TTS 0.5B（BF16，约 3.0 GB）**，无需 Ming API。切换只更换语音合成模型，保留当前识别模型、翻译设置、字幕和播放流程，以及已下载的 Qwen 文件。
+Qwen uses pinned local 8-bit models. You can independently choose **Ming-3.0-TTS 0.5B (BF16, about 3.0 GB)** for synthesis, with no Ming API required. Switching changes only the synthesis model, preserving your recognition model, translation settings, subtitle and playback behavior, and downloaded Qwen files.
 
-合成下拉菜单只列出本机已安装可用的模型；未安装的模型先在 **安装与维护** 下载，当前模型缺文件时可修复。切换需等当前会话、录音或试听结束；第一次使用另一模型时，会用已有录音建立该模型的声音缓存。
+The synthesis menu lists only models installed and available on your Mac. Download other models in **Components** first; repair is available if the current model has missing files. Wait for any active session, recording, or preview to finish before switching. The first time you use another model, TalkTalk builds its voice cache from your existing recording.
 
-Apple Speech 在 **识别与翻译** 中独立选择，“听对方”和“我说话”分别保存选择，也可作为 Qwen 识别不可用时的备用。选择 Apple 不调用模型安装器、不更换合成模型；旧的仅语音合成安装保持兼容。
+Apple Speech can be selected independently in **Models › Recognition**, with separate choices for **Listen to others** and **My speech**. It can also serve as a fallback when Qwen recognition is unavailable. Selecting Apple does not run the model installer or change the synthesis model. Older synthesis-only installations remain compatible.
 
-运行环境与模型位于 `~/Library/Application Support/TalkTalk/engine`。已下载的兼容模型会直接复用；删除模型需在安装与维护中确认，删除当前使用的模型不会自动切换到另一个已下载模型。
+The runtime and models live in `~/Library/Application Support/TalkTalk/engine`. Compatible downloaded models are reused. Deleting a model requires confirmation in Components; deleting the active model does not automatically switch to another downloaded model.
 
-## 数据与隐私
+## Data and privacy
 
-| 环节 | 使用的模型或服务 |
+| Step | Model or service |
 |---|---|
-| 声音 → 原文 | 本地 Qwen3-ASR，或 Apple Speech |
-| 原文 → 译文 | OpenAI（需自己的 key），或 Apple Translation |
-| 译文 → 声音 | 本地 Qwen3-TTS／Ming-3.0-TTS，或 macOS 系统声音 |
+| Audio → original text | Local Qwen3-ASR or Apple Speech |
+| Original text → translation | OpenAI (with your own key) or Apple Translation |
+| Translation → speech | Local Qwen3-TTS/Ming-3.0-TTS or a macOS system voice |
 
-音频和声音档案在本机处理。启用 OpenAI 时，会发送原文、翻译上下文及术语表；API key 保存在 macOS 钥匙串。默认不保存会议录音或转写，转写记录、字幕分析和诊断录音需主动开启。
+Audio and voice profiles are processed locally. When OpenAI is enabled, original text, translation context, and glossary entries are sent to OpenAI. Your API key is stored in macOS Keychain. Meeting recordings and transcripts are not saved by default; transcript logging, subtitle analysis, and diagnostic recording must be explicitly enabled.
 
-系统声音与第三方组件受各自许可约束，详见[许可说明](docs/decisions/licensing.md)。
+System voices and third-party components are subject to their own licenses. See the [licensing notes](docs/decisions/licensing.md) (in Chinese).
 
-## 从源码构建
+## Build from source
 
-需要 Xcode Command Line Tools（Swift 6.2+）：
+Requires Xcode Command Line Tools with Swift 6.2 or later:
 
 ```bash
 git clone https://github.com/aaajiao/talktalk.git
@@ -81,21 +83,23 @@ scripts/check.sh --skip-stress
 scripts/build-app.sh release
 ```
 
-正式应用生成在 `build/TalkTalk.app`。打包脚本会自动递增构建号，正式发布版本号单独维护；本地构建不等于已发布的 GitHub Release。
+The release app is generated at `build/TalkTalk.app`. The packaging script automatically increments the build number; the release version is maintained separately. A local build does not create a published GitHub Release.
 
-当前私有运行时使用 **CPython 3.14.10**。App 包含引擎代码与安装器，解释器和依赖由 App 安装到专用目录，虚拟环境不读取系统 Python 包。开发环境使用仓库内 `.venv`，解释器固定在 `.build/dev-python`，与 App 共用模型 pins 和依赖锁文件；检查与打包前请先运行 setup。
+The private runtime currently uses **CPython 3.14.10**. The app bundles the engine code and installer, then installs the interpreter and dependencies into a dedicated directory. Its virtual environment does not load system Python packages. Development uses the repository's `.venv`, with the interpreter pinned in `.build/dev-python`, sharing model pins and dependency lockfiles with the app. Run the setup script before checks or packaging.
 
-`scripts/check.sh` 为每次检查创建独立临时目录并自动清理。Swift 文件夹具使用 `@Suite(.temporaryFiles)` 与 `TestTemporaryDirectory.make(prefix:)`，Python 使用 `TemporaryDirectory`；清理仅针对测试创建的文件。常规检查不替代真实麦克风、驱动、云端和通话验收。
+`scripts/check.sh` creates an isolated temporary directory for each run and cleans it up automatically. Swift file fixtures use `@Suite(.temporaryFiles)` and `TestTemporaryDirectory.make(prefix:)`; Python uses `TemporaryDirectory`. Cleanup applies only to files created by tests. Routine checks do not replace validation with real microphones, the driver, cloud services, and calls.
 
-## 开发与验证状态
+## Development and validation status
 
-本机声音录制、试听、Qwen／Ming 切换已有真实验证。长会议、电话远端听音、跨应用与跨设备兼容性仍按场景验收，不以本机合成或自动测试代替完整通话验证。
+Local voice recording, previews, and Qwen/Ming switching have been verified in actual use. Long meetings, audio heard by the person on the other end of a phone call, and compatibility across apps and devices still require scenario-specific validation. Local synthesis and automated tests do not substitute for complete call testing.
 
-- [架构与开发约束](docs/ARCHITECTURE.md)
-- [验收状态与剩余工作](docs/remaining-work.md)
-- [历史验证记录](docs/validation-history.md)
-- [维护、诊断与卸载](docs/maintenance.md)
+Further documentation (in Chinese):
 
-## 许可证
+- [Architecture and development constraints](docs/ARCHITECTURE.md)
+- [Validation status and remaining work](docs/remaining-work.md)
+- [Validation history](docs/validation-history.md)
+- [Maintenance, diagnostics, and uninstalling](docs/maintenance.md)
 
-项目代码采用 [MIT License](LICENSE)。第三方代码、模型和系统服务遵循各自许可证，见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md)。
+## License
+
+Project code is licensed under the [MIT License](LICENSE). Third-party code, models, and system services retain their own licenses; see [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md).
