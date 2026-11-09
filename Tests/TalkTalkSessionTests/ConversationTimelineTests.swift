@@ -29,7 +29,7 @@ import TalkTalkCore
         timeline.syncRemote(finals: [line(1, "我们开始吧。", "Let's start.", approx: true)], draft: nil, liveSource: "", at: 12 * Self.s)
         // The final keeps its utterance's arrival, so it stays above my later turn.
         #expect(timeline.rows.map(\.id) == [.remote(1), .me(7)])
-        #expect(timeline.rows[0].translationIsFinal && timeline.rows[0].fallback && timeline.rows[0].isSettled)
+        #expect(timeline.rows[0].translationIsFinal && timeline.rows[0].isSettled)
         #expect(timeline.rows[1].delivery == .sent)
 
         // Remote speech after my turn arrives below it.

@@ -219,8 +219,7 @@ final class MicStatusDock: NSView {
         text.appendSource(turn.source, live: !turn.isFinal, speaker: .me, to: source)
         text.appendUnsent(turn.unsentSource, to: source)
         let translation = NSMutableAttributedString()
-        text.appendTranslation(turn.translation, role: style.typography.myTranslation, isFinal: turn.isFinal,
-                               fallback: false, to: translation)
+        text.appendTranslation(turn.translation, role: style.typography.myTranslation, isFinal: turn.isFinal, to: translation)
         sourceLabel.attributedStringValue = source
         translationLabel.attributedStringValue = translation
         let spokenSource = ConversationText.accessibilityText(source)

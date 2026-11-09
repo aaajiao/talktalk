@@ -23,6 +23,8 @@ public enum TCCProbe {
         public var processObjectMs: Int?
         public var chunks: Int
         public var nonZero: Bool
+        /// Set when real samples ended the probe before afplay finished.
+        public var firstAudioMs: Int? = nil
     }
 
     /// - Parameters: toneSeconds 0.3 and −40 dBFS per §3.1.
@@ -68,8 +70,15 @@ public enum TCCProbe {
         }
         result.tapStartMs = HostClock.ms(t0, to: HostClock.now())
         let tapUpWhilePlaying = p.isRunning
+        // afplay lingers well past its short file. A non-zero sample already proves the grant,
+        // so only a denied or unclear run has to wait for the whole playback.
+        let heardAudio = waitForAudio(isRunning: { p.isRunning }, hasAudio: { counter.nonZero }, pause: { usleep(5_000) })
+        if heardAudio {
+            result.firstAudioMs = HostClock.ms(t0, to: HostClock.now())
+            p.terminate()
+        }
         p.waitUntilExit()
-        usleep(60_000)   // let the worker drain the last callbacks
+        if !heardAudio { usleep(60_000) }   // let the worker drain the last callbacks
         tap.stop()
         result.chunks = counter.chunks
         result.nonZero = counter.nonZero
@@ -83,6 +92,15 @@ public enum TCCProbe {
             result.reason = tapUpWhilePlaying ? "tap delivered no callbacks" : "tap came up after afplay finished"
         }
         return result
+    }
+
+    /// True as soon as audio is seen; false once playback ends without any.
+    static func waitForAudio(isRunning: () -> Bool, hasAudio: () -> Bool, pause: () -> Void) -> Bool {
+        while isRunning() {
+            if hasAudio() { return true }
+            pause()
+        }
+        return false
     }
 
     /// 16-bit mono 48 kHz WAV: `leadSilence` s of zeros, then a sine at `dbfs` with 10 ms fades.

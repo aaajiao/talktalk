@@ -26,6 +26,7 @@ final class MeetingController {
     private var captionsEngineCleanup: Task<Void, Never>?
     /// The concrete process used by this session's Qwen factory, including a failed start.
     private var listenEngine: EngineProcess?
+    private var earlyEngine: EngineProcess?
     private var phoneReadinessDetail: String?
     private let languagePopover = NSPopover()
     private let engineProcess: @Sendable () -> EngineProcess?
@@ -350,7 +351,7 @@ final class MeetingController {
     }
 
     private func makeListenASR(log: EventLog, configuration: UInt64, sessionID: UUID,
-                               jobs: JobIDSequence) -> any StreamingASREngine {
+                               jobs: JobIDSequence, mode: MeetingMode) -> any StreamingASREngine {
         state.listenASRFallback = false
         state.listenASRFailure = nil
         if state.effectiveListenASREngine == .apple {
@@ -361,7 +362,9 @@ final class MeetingController {
         let requestID = listenRequestID
         let process = engineProcess()
         listenEngine = process
+        // Video generates no speech, so the GPU is free to read the recognizer twice as often.
         return QwenStreamingASR(engine: process, fallback: AppleSpeechASR(), jobs: jobs, log: log,
+            cadenceMs: mode == .captions ? 500 : 1000,
             onEngine: { [weak self] engine in
                 Task { @MainActor in
                     guard let self, self.subtitleSessionID == sessionID, self.listenRequestID == requestID,
@@ -394,9 +397,9 @@ final class MeetingController {
         })
     }
 
-    /// Selected local ASR + Apple Translation (drafts, and the fallback for finals, shown with a
-    /// "备用翻译" badge) + OpenAIMT as the finals' primary when the user set it up (ListenCloud);
-    /// without it every final is Apple with that badge (§4.2: the no-key path).
+    /// Selected local ASR + Apple Translation (drafts, and the fallback for finals) + OpenAIMT as
+    /// the finals' primary when the user set it up (ListenCloud); without it every final is
+    /// Apple (§4.2: the no-key path).
     static func engines(cloud: ListenCloud.Box?,
                         makeASR: (@MainActor @Sendable (EventLog, UInt64) -> (any StreamingASREngine)?)? = nil,
                         knownKeyPresence: (@MainActor @Sendable () -> Bool?)? = nil) -> MeetingSession.EngineFactory {
@@ -464,6 +467,8 @@ final class MeetingController {
             state.phoneProblem = nil; phoneReadinessDetail = nil
             state.phoneReadyToDial = false; state.phoneAudioActive = false
             refreshPhoneContext()
+            await captionsEngineCleanup?.value
+            startEngineEarly(for: mode)
             do {
                 try await NativePhone.open(activates: false)
                 // The app creates its Core Audio object shortly after launch. No recording or
@@ -474,6 +479,7 @@ final class MeetingController {
                 }
             } catch {
                 state.phoneProblem = String(appLocalized: "无法打开系统 Phone 应用，请确认它已安装并可正常启动。")
+                releaseEarlyEngine()
                 return
             }
         }
@@ -487,10 +493,12 @@ final class MeetingController {
                 return
             }
         }
+        startEngineEarly(for: mode)
         try? AppGlossary.store.reload()
         let profile: PolicyProfile
         do { profile = try PolicyProfile.loadDefault() } catch {
             alert(String(appLocalized: "无法开始收听"), String(appLocalized: "找不到策略文件（PolicyProfile.default.json）：\(String(describing: error))"))
+            releaseEarlyEngine()
             return
         }
         let retiredModel = await prepareCloud?() ?? false
@@ -504,7 +512,7 @@ final class MeetingController {
         let factory = Self.engines(cloud: cloud.box, makeASR: { [weak self] log, configuration in
             guard let self, self.subtitleSessionID == sessionID,
                   self.session?.listenConfigurationID == configuration else { return nil }
-            return self.makeListenASR(log: log, configuration: configuration, sessionID: sessionID, jobs: jobs)
+            return self.makeListenASR(log: log, configuration: configuration, sessionID: sessionID, jobs: jobs, mode: mode)
         }, knownKeyPresence: { [weak self] in
             self?.knownCloudKeyPresence?()
         })
@@ -554,9 +562,15 @@ final class MeetingController {
         let selection = state.listenLanguages(for: mode)
         let result = await s.start(lang: selection.source, target: selection.target,
                                    choice: selectedSource, preferred: nil, requestedAt: requestedAt)
-        guard session === s else { return }
-        if case .started = result { } else {
+        guard session === s else {
+            if session == nil { releaseEarlyEngine() }
+            return
+        }
+        if case .started = result {
+            earlyEngine = nil   // SPEAK owns the engine's meeting mode from here
+        } else {
             if mode == .captions { releaseCaptionsEngine() }
+            else if earlyEngine != nil { releaseEarlyEngine() }
             else if let engine = listenEngine { scheduleEngineIdle(engine) }
             listenEngine = nil
             privacy?.subtitleAnalysis.stop(reason: "session_ended")
@@ -635,6 +649,22 @@ final class MeetingController {
     private func releaseCaptionsEngine() {
         guard let engine = captionsEngine else { return }
         captionsEngine = nil; captionsWarmup?.cancel(); captionsWarmup = nil
+        scheduleEngineIdle(engine)
+    }
+
+    /// Meeting and phone use the engine as soon as SPEAK begins, so model loading can overlap the
+    /// permission probe and Phone's launch instead of following them. This keeps the engine's
+    /// original load order and does not enter meeting mode; every exit before `.started` must
+    /// return it to its normal idle shutdown with `releaseEarlyEngine()`.
+    private func startEngineEarly(for mode: MeetingMode) {
+        guard mode.supportsSpeaking, earlyEngine == nil, let engine = engineProcess() else { return }
+        earlyEngine = engine
+        Task { _ = try? await engine.start() }
+    }
+
+    private func releaseEarlyEngine() {
+        guard let engine = earlyEngine else { return }
+        earlyEngine = nil
         scheduleEngineIdle(engine)
     }
 

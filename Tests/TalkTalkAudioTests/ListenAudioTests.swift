@@ -213,6 +213,22 @@ import Testing
     }
 }
 
+@Suite struct TCCProbeWaitTests {
+    @Test func stopsWaitingAtTheFirstAudioWhilePlaybackContinues() {
+        var polls = 0, pauses = 0
+        let heard = TCCProbe.waitForAudio(isRunning: { true }, hasAudio: { polls += 1; return polls == 3 }, pause: { pauses += 1 })
+        #expect(heard)
+        #expect(pauses == 2)
+    }
+
+    @Test func aSilentRunWaitsForPlaybackToEnd() {
+        var running = 4, pauses = 0
+        let heard = TCCProbe.waitForAudio(isRunning: { running -= 1; return running > 0 }, hasAudio: { false }, pause: { pauses += 1 })
+        #expect(!heard)
+        #expect(pauses == 3)
+    }
+}
+
 @Suite struct TCCProbeToneTests {
     @Test func toneIsQuietAndHasALeadIn() {
         let wav = TCCProbe.toneWAV(seconds: 0.3, leadSilence: 0.25, dbfs: -40, frequency: 880)

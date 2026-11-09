@@ -566,10 +566,9 @@ enum Fixture {
         #expect(b.finals.map(\.display) == ["二", "三"])
         #expect(b.finals.last?.numberWarning == true)
         b.apply(.final(sentence: 4, text: "四", approx: true, numberWarning: false))
-        // The Apple fallback is a badge in the view, never a "≈" prefix in the text.
+        // The Apple fallback stays metadata and never marks the subtitle text.
         #expect(b.finals.last?.display == "四")
-        #expect(b.finals.last?.showsFallbackBadge == true)
-        #expect(b.finals.first?.showsFallbackBadge == false)
+        #expect(b.finals.last?.approx == true)
     }
 
     @Test func bilingualFinalsStayPairedAcrossDraftsPacingAndCorrections() {

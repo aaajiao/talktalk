@@ -920,10 +920,11 @@ final class SubtitlePanel {
             return
         }
         let cue = videoBoard.current
-        let newSentence = cue?.line.sentence != renderedVideoCue?.line.sentence
-        let finalChanged = cue?.isFinal == true && cue != renderedVideoCue
+        // Draft updates are already rate-limited upstream, so a changed cue never waits for the
+        // preview clock; that clock only limits source-only placeholder text.
+        let cueChanged = cue != renderedVideoCue
         let previewDue = now >= lastPreviewRenderAt && now - lastPreviewRenderAt >= Self.previewInterval
-        guard forceLayout || newSentence || finalChanged || previewDue else { return }
+        guard forceLayout || cueChanged || previewDue else { return }
         let source = cue?.line.source ?? liveSource
         let sourceText = VideoSubtitleView.sourceText(source, font: videoSourceFont, display: .current)
         let targetText = videoTranslationText(cue)
@@ -933,7 +934,6 @@ final class SubtitlePanel {
         lastPreviewRenderAt = now
         videoCaptions.setCaption(source: sourceText, translation: targetText,
                                  sentence: cue?.line.sentence, isFinal: cue?.isFinal ?? false,
-                                 fallback: cue?.line.showsFallbackBadge ?? false,
                                  at: Double(now) / 1_000_000_000)
         if let cue, cue.isFinal, !preparingToShow { announceFinals([(cue.line.sentence, cue.line.display)]) }
         if forceLayout { layout() }

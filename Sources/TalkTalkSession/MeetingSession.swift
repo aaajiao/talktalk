@@ -435,7 +435,7 @@ public final class MeetingSession: SpeakEchoSink {
         if probe.verdict == .inconclusive { probe = await Task.detached { TCCProbe.run() }.value }
         guard session == sessionGeneration, !stopping else { return .failed("cancelled") }
         log.event("tcc.probe", ["verdict": .tag(probe.verdict.rawValue), "tap_start_ms": .int(probe.tapStartMs ?? -1),
-                                "chunks": .int(probe.chunks),
+                                "chunks": .int(probe.chunks), "first_audio_ms": .int(probe.firstAudioMs ?? -1),
                                 "elapsed_ms": .int(HostClock.ms(probeStartedAt, to: HostClock.now()))])
         if probe.verdict == .denied {
             log.close()

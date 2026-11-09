@@ -18,6 +18,10 @@ public struct LCPCommitter: Sendable, Equatable {
 
     public let unit: Unit
     public let agreement: Int
+    /// When the latest hypotheses agree on a longer prefix that contradicts the commit, take that
+    /// prefix instead of waiting for the sentence to end. LISTEN re-translates its whole source
+    /// on each draft, so a stale commit would otherwise stop its drafts from growing.
+    public let adoptsRevisedPrefix: Bool
     public private(set) var committed: [String] = []
     /// Hypotheses (as tokens) that disagreed with an already committed token.
     public private(set) var revisions = 0
@@ -26,10 +30,11 @@ public struct LCPCommitter: Sendable, Equatable {
     /// so Chinese speech containing "OpenAI GPT" keeps the original term boundary.
     private var characterSurface = ""
 
-    public init(unit: Unit, agreement: Int = 2) {
+    public init(unit: Unit, agreement: Int = 2, adoptsRevisedPrefix: Bool = false) {
         precondition(agreement >= 1)
         self.unit = unit
         self.agreement = agreement
+        self.adoptsRevisedPrefix = adoptsRevisedPrefix
     }
 
     public var committedText: String { unit == .character ? characterSurface : join(committed) }
@@ -63,7 +68,12 @@ public struct LCPCommitter: Sendable, Equatable {
             n = i
             break
         }
-        return extend(with: Array(toks.prefix(n)), surface: hypothesis)
+        let stable = Array(toks.prefix(n))
+        if adoptsRevisedPrefix, stable.count > committed.count, !Self.hasPrefix(stable, committed.map(Self.key)) {
+            committed = []
+            characterSurface = ""
+        }
+        return extend(with: stable, surface: hypothesis)
     }
 
     /// The recognizer's final for the sentence: everything in it is committed.

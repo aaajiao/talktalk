@@ -89,6 +89,28 @@ import Testing
         #expect(c.committedText == "the bass is")
     }
 
+    @Test func listenAdoptsALongerAgreedPrefixAfterARevision() {
+        var c = LCPCommitter(unit: .word, adoptsRevisedPrefix: true)
+        c.update(hypothesis: "I want to wreck")
+        c.update(hypothesis: "I want to wreck a")
+        #expect(c.committedText == "I want to wreck")
+        c.update(hypothesis: "I want to recognize speech")
+        #expect(c.committedText == "I want to wreck")   // a shorter agreement keeps the commit
+        c.update(hypothesis: "I want to recognize speech now")
+        #expect(c.committedText == "I want to recognize speech")
+        #expect(c.revisions == 2)
+    }
+
+    @Test func listenContinuesAfterAChinesePausePunctuationIsRevised() {
+        var c = LCPCommitter(unit: .character, adoptsRevisedPrefix: true)
+        c.update(hypothesis: "我们用 GPT。")
+        c.update(hypothesis: "我们用 GPT。")
+        #expect(c.committedText == "我们用 GPT。")
+        c.update(hypothesis: "我们用 GPT 模型")
+        c.update(hypothesis: "我们用 GPT 模型翻译")
+        #expect(c.committedText == "我们用 GPT 模型")
+    }
+
     @Test func chineseCommitsByCharacter() {
         var c = LCPCommitter(unit: .for(.zh))
         c.update(hypothesis: "我们明天")

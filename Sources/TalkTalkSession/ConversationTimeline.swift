@@ -77,8 +77,6 @@ public struct ConversationTimeline: Sendable, Equatable {
         public var translation: String
         /// false: a draft (text.draft, "…", draft bar).
         public var translationIsFinal: Bool
-        /// Apple fallback final: "备用翻译" badge.
-        public var fallback: Bool
         /// My preview-only tail that was never submitted ("未发送" badge).
         public var unsentSource: String
         public var delivery: Delivery?
@@ -91,10 +89,10 @@ public struct ConversationTimeline: Sendable, Equatable {
         public var order: UInt64
 
         public init(id: RowID, speaker: Speaker, source: String, sourceIsLive: Bool, translation: String,
-                    translationIsFinal: Bool, fallback: Bool, unsentSource: String, delivery: Delivery?,
+                    translationIsFinal: Bool, unsentSource: String, delivery: Delivery?,
                     arrivedAt: HostTime, settledAt: HostTime?, order: UInt64) {
             self.id = id; self.speaker = speaker; self.source = source; self.sourceIsLive = sourceIsLive
-            self.translation = translation; self.translationIsFinal = translationIsFinal; self.fallback = fallback
+            self.translation = translation; self.translationIsFinal = translationIsFinal
             self.unsentSource = unsentSource; self.delivery = delivery
             self.arrivedAt = arrivedAt; self.settledAt = settledAt; self.order = order
         }
@@ -215,7 +213,7 @@ public struct ConversationTimeline: Sendable, Equatable {
             let id = RowID.remote(line.sentence)
             let old = rows.first { $0.id == id }
             next.append(Row(id: id, speaker: .remote, source: line.source, sourceIsLive: false,
-                            translation: line.display, translationIsFinal: true, fallback: line.showsFallbackBadge,
+                            translation: line.display, translationIsFinal: true,
                             unsentSource: "", delivery: nil,
                             arrivedAt: old?.arrivedAt ?? arrival(sentence: line.sentence) ?? now,
                             settledAt: old?.settledAt ?? now, order: order(for: id)))
@@ -228,7 +226,7 @@ public struct ConversationTimeline: Sendable, Equatable {
             let old = rows.first { $0.id == id }
             let source = sameEpoch && !liveSource.isEmpty ? liveSource : draft.source
             next.append(Row(id: id, speaker: .remote, source: source, sourceIsLive: sameEpoch,
-                            translation: draft.text, translationIsFinal: false, fallback: false,
+                            translation: draft.text, translationIsFinal: false,
                             unsentSource: "", delivery: nil,
                             arrivedAt: old?.arrivedAt ?? arrival(sentence: draft.sentence) ?? now,
                             settledAt: nil, order: order(for: id)))
@@ -240,7 +238,7 @@ public struct ConversationTimeline: Sendable, Equatable {
             let old = rows.first { $0.id == id }
             let arrived = old?.arrivedAt ?? utterances.first { $0.epoch == epoch }?.arrival ?? now
             next.append(Row(id: id, speaker: .remote, source: liveSource, sourceIsLive: true,
-                            translation: "", translationIsFinal: false, fallback: false,
+                            translation: "", translationIsFinal: false,
                             unsentSource: "", delivery: nil, arrivedAt: arrived, settledAt: nil,
                             order: order(for: id)))
         }
@@ -255,7 +253,7 @@ public struct ConversationTimeline: Sendable, Equatable {
         let old = rows.first { $0.id == id }
         var next = rows.filter { $0.id != id }
         next.append(Row(id: id, speaker: .me, source: turn.source, sourceIsLive: false,
-                        translation: turn.translation, translationIsFinal: turn.isFinal, fallback: false,
+                        translation: turn.translation, translationIsFinal: turn.isFinal,
                         unsentSource: turn.unsentSource, delivery: turn.delivery,
                         arrivedAt: old?.arrivedAt ?? turn.startedAt, settledAt: old?.settledAt ?? now,
                         order: order(for: id)))
@@ -269,7 +267,7 @@ public struct ConversationTimeline: Sendable, Equatable {
               !rows.contains(where: { $0.id == .me(live.press) }) else { return rows }
         var result = rows
         result.append(Row(id: .me(live.press), speaker: .me, source: live.source, sourceIsLive: !live.isFinal,
-                          translation: live.translation, translationIsFinal: live.isFinal, fallback: false,
+                          translation: live.translation, translationIsFinal: live.isFinal,
                           unsentSource: live.unsentSource, delivery: nil, arrivedAt: live.startedAt,
                           settledAt: nil, order: nextOrder + 1))
         return Self.sorted(result)

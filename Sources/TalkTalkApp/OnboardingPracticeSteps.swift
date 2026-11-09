@@ -319,7 +319,7 @@ extension FlowGrid {
                                state: demo.phase == .playing ? .live : .ready,
                                help: String(appLocalized: "从当前扬声器或耳机播放"))),
                 .node(FlowNode(String(appLocalized: "识别与翻译"), glyph: .symbol(Icon.translation),
-                               help: String(appLocalized: "云端不可用时由 Apple 翻译，句末标“备用翻译”"))),
+                               help: String(appLocalized: "云端不可用时由 Apple 翻译"))),
                 .node(FlowNode(String(appLocalized: "双语字幕"), glyph: .symbol(Icon.subtitles), badge: captions?.0,
                                badgeReason: captions?.1, help: String(appLocalized: "原文与译文在字幕面板成对显示"))),
                 .empty

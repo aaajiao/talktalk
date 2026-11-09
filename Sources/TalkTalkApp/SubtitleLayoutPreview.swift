@@ -393,7 +393,7 @@ final class SubtitlePreviewCanvas: NSView {
                             translation: String, final: Bool = true, delivery: ConversationTimeline.Delivery? = nil,
                             order: UInt64) -> ConversationTimeline.Row {
         .init(id: id, speaker: speaker, source: source, sourceIsLive: false, translation: translation, translationIsFinal: final,
-              fallback: false, unsentSource: "", delivery: delivery, arrivedAt: HostTime(order),
+              unsentSource: "", delivery: delivery, arrivedAt: HostTime(order),
               settledAt: final ? HostTime(order) : nil, order: order)
     }
 

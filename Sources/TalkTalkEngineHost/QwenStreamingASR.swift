@@ -12,15 +12,17 @@ public struct QwenStreamingASR: StreamingASREngine {
     private let onEngine: @Sendable (EngineID) -> Void
     private let configuration: QwenStreamConfiguration
     public var id: EngineID { primary?.id ?? fallback.id }
-    public var partialUpdateIntervalMs: Int { configuration.cadenceFrames / 16 }
+    /// LISTEN's sentence-pause rules allow for this gap between text updates. A faster cadence
+    /// only shows words sooner: a short batch can be wordless mid-speech, so it keeps 1 s here.
+    public var partialUpdateIntervalMs: Int { max(1000, configuration.cadenceFrames / 16) }
 
     public init(engine: EngineProcess?, fallback: any StreamingASREngine,
-                jobs: JobIDSequence = .init(), log: EventLog? = nil,
+                jobs: JobIDSequence = .init(), log: EventLog? = nil, cadenceMs: Int = 1000,
                 onEngine: @escaping @Sendable (EngineID) -> Void = { _ in }) {
         self.engine = engine
         primary = engine.flatMap { $0.config.roles.contains("asr") ? RemoteQwenASR(engine: $0) : nil }
         self.fallback = fallback; self.jobs = jobs; self.log = log; self.onEngine = onEngine
-        configuration = .init()
+        configuration = .init(cadenceFrames: cadenceMs * 16)
     }
 
     // Fake clip backends exercise the adapter without launching an engine or accessing audio.
@@ -88,6 +90,7 @@ struct QwenStreamConfiguration: Sendable {
     var bufferFrames = 16 * 16_000
     var requestNs: UInt64 = 900_000_000
     var finalizeNs: UInt64 = 1_000_000_000    // LISTEN waits 1500 ms; old results cannot outlive this cut
+    var maxExpiredInARow = 3                  // a restarted window is short, so repeats mean real overload
 }
 
 private final class QwenASRStream: ASRStream, @unchecked Sendable {
@@ -115,6 +118,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
     private var hypothesis: (text: String, through: HostTime)?
     private var finalThrough: HostTime?
     private var finalTimer: Task<Void, Never>?
+    private var expiredInARow = 0
     private var active: (request: Request, task: Task<Void, Never>)?
     private var switching = false
     private var fallbackTask: Task<Void, Never>?
@@ -215,25 +219,38 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
                     try Task.checkCancellation()
                     self?.completed(request, text: result.text, failed: false, cancelled: false)
                 } catch {
-                    self?.completed(request, text: nil, failed: true, cancelled: Task.isCancelled)
+                    self?.completed(request, text: nil, failed: true, cancelled: Task.isCancelled,
+                                    expired: Self.isExpired(error))
                 }
             }
             active = (request, task)
         }
     }
 
-    private func completed(_ request: Request, text: String?, failed: Bool, cancelled: Bool) {
+    private static func isExpired(_ error: any Error) -> Bool {
+        if case .http(status: 409, code: "expired", message: _)? = error as? EngineAPIError { return true }
+        return false
+    }
+
+    private func completed(_ request: Request, text: String?, failed: Bool, cancelled: Bool, expired: Bool = false) {
         var useFallback = false
         lock.withLock {
             guard active?.request.job == request.job else { return }
             active = nil
             guard !closed, generation == request.generation else { return }
             if cancelled { return }
+            if expired, expiredInARow + 1 < configuration.maxExpiredInARow {
+                expiredInARow += 1
+                log?.event("asr.expired", ["final": .bool(request.final), "in_a_row": .int(expiredInARow)])
+                restartWindowAfterExpiryLocked()
+                return
+            }
             if failed {
                 if let cut = finalThrough { emitFinalLocked(hypothesisTextLocked(through: cut), through: cut) }
                 switching = true; useFallback = true
                 return
             }
+            expiredInARow = 0
             let clean = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if request.final {
                 emitFinalLocked(clean, through: request.clip.end)
@@ -244,6 +261,18 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
         }
         if useFallback { startFallback() }
         else { schedule() }
+    }
+
+    /// The engine drops a listen decode that runs past its deadline, which happens as a
+    /// cumulative window nears the segment cap. That says this window is too long, not that
+    /// Qwen is unusable: commit what the last decode read and restart the window after it, so
+    /// the next decode is short and the audio it did not reach is still recognized.
+    private func restartWindowAfterExpiryLocked() {
+        if let hypothesis, !hypothesis.text.isEmpty, hypothesis.through > finalizedThrough {
+            emitFinalLocked(hypothesis.text, through: hypothesis.through)
+        } else if let cut = finalThrough {
+            emitFinalLocked("", through: cut)
+        }
     }
 
     private func finalTimedOut(generation token: UInt64) {

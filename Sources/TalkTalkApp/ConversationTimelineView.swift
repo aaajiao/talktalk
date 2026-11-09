@@ -291,7 +291,7 @@ final class ConversationTimelineView: NSView {
 @MainActor
 final class TimelineRowView: NSView, HoverClearing {
     private(set) var row = ConversationTimeline.Row(id: .remoteLive(0), speaker: .remote, source: "", sourceIsLive: false,
-                                                    translation: "", translationIsFinal: true, fallback: false,
+                                                    translation: "", translationIsFinal: true,
                                                     unsentSource: "", delivery: nil, arrivedAt: 0, settledAt: nil, order: 0)
     private var style: ConversationStyle?
     private(set) var expanded = false
@@ -358,7 +358,7 @@ final class TimelineRowView: NSView, HoverClearing {
         let finalized = row.id == next.id && !row.translationIsFinal && next.translationIsFinal && !next.translation.isEmpty
         let textChanged = row.source != next.source || row.sourceIsLive != next.sourceIsLive
             || row.translation != next.translation || row.translationIsFinal != next.translationIsFinal
-            || row.fallback != next.fallback || row.unsentSource != next.unsentSource || row.delivery != next.delivery
+            || row.unsentSource != next.unsentSource || row.delivery != next.delivery
             || row.speaker != next.speaker || style != nextStyle || measuredWidth < 0
         let expansionChanged = expanded != nextExpanded
         row = next
@@ -388,8 +388,7 @@ final class TimelineRowView: NSView, HoverClearing {
         text.appendUnsent(row.unsentSource, to: source)
         let translation = NSMutableAttributedString()
         let role = row.speaker == .remote ? style.typography.remoteTranslation : style.typography.myTranslation
-        text.appendTranslation(row.translation, role: role, isFinal: row.translationIsFinal, fallback: row.fallback,
-                               to: translation)
+        text.appendTranslation(row.translation, role: role, isFinal: row.translationIsFinal, to: translation)
         if let delivery = row.delivery { text.appendDelivery(delivery, role: role, to: translation) }
         sourceText = source
         translationText = translation
@@ -556,8 +555,7 @@ final class TimelineRowView: NSView, HoverClearing {
         return manager.boundingRect(forGlyphRange: glyphs, in: container)
     }
 
-    /// Tooltips of the inline badges in both columns ("备用翻译" → "云端不可用，本句由 Apple 翻译",
-    /// "未发送" and the delivery labels → their explanation).
+    /// Tooltips of the inline badges in both columns ("未发送" and the delivery labels → their explanation).
     private func addBadgeToolTips() {
         removeAllToolTips()
         badgeToolTipOwners = ConversationText.addBadgeToolTips(for: sourceLabel, frame: sourceFrame, to: self)

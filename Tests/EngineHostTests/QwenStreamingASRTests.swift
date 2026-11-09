@@ -12,8 +12,9 @@ private actor StreamingClipFake: ClipASREngine {
     var active = 0, peak = 0
     let failFrom: Int?
     let lateAfterFirst: Duration?
-    init(failFrom: Int? = nil, lateAfterFirst: Duration? = nil) {
-        self.failFrom = failFrom; self.lateAfterFirst = lateAfterFirst
+    let expiring: Set<Int>
+    init(failFrom: Int? = nil, lateAfterFirst: Duration? = nil, expiring: Set<Int> = []) {
+        self.failFrom = failFrom; self.lateAfterFirst = lateAfterFirst; self.expiring = expiring
     }
     enum Failure: Error { case unavailable }
     func transcribe(_ clip: PCMClip16k, hint: Lang, context: String?, job: JobID,
@@ -23,6 +24,7 @@ private actor StreamingClipFake: ClipASREngine {
         active += 1; peak = max(peak, active)
         defer { active -= 1 }
         if let failFrom, number >= failFrom { throw Failure.unavailable }
+        if expiring.contains(number) { throw EngineAPIError.http(status: 409, code: "expired", message: "missed deadline") }
         if number > 1, let delay = lateAfterFirst {
             // Deliberately ignores the caller's cancellation and deadline, to exercise the
             // adapter's final fence rather than RemoteQwenASR's already-tested deadline.
@@ -81,6 +83,14 @@ struct QwenStreamingASRTests {
             try? await Task.sleep(for: .milliseconds(5))
         }
         return await predicate()
+    }
+
+    @Test func fasterCadenceKeepsTheOneSecondSentencePauseAllowance() {
+        let fast = QwenStreamingASR(primary: StreamingClipFake(failFrom: 1), fallback: StreamingFallbackFake(),
+                                    configuration: .init(cadenceFrames: 8_000))
+        #expect(fast.partialUpdateIntervalMs == 1000)
+        let standard = QwenStreamingASR(engine: nil, fallback: StreamingFallbackFake())
+        #expect(standard.partialUpdateIntervalMs == 1000)
     }
 
     @Test func discardForwardsCancellationAndConcurrentCallersWaitForRelease() async throws {
@@ -189,5 +199,62 @@ struct QwenStreamingASRTests {
         #expect(await until { finals.withLock { $0.count == 2 } })
         await stream.close(); for reader in readers { await reader.value }
         #expect(fallback.closes.withLock { $0 } == 1)
+    }
+
+    private func finalLog(_ events: borrowing Mutex<[ASREvent]>) -> [(text: String, through: HostTime)] {
+        events.withLock { $0.compactMap { if case .final(let text, let range) = $0 { (text, range.upperBound) } else { nil } } }
+    }
+
+    @Test func expiredDecodeKeepsQwenAndResumesAfterWhatItAlreadyRead() async throws {
+        let primary = StreamingClipFake(expiring: [2, 3, 5]), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: config).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([]), volatile = Mutex<[ASREvent]>([])
+        let readers = [Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } },
+                       Task { for await event in stream.volatileEvents { volatile.withLock { $0.append(event) } } }]
+        feed(stream, at: 3_000_000_000)
+        #expect(await until { volatile.withLock { $0.count == 1 } })
+        feed(stream, at: 3_100_000_000)   // 2 expires and commits 1; 3 retries the tail and expires too
+        #expect(await until { await primary.calls.count == 3 })
+        #expect(await until { finalLog(finals).count == 1 })
+        feed(stream, at: 3_200_000_000)   // 4 succeeds, which clears the run of expiries
+        #expect(await until { volatile.withLock { $0.count == 2 } })
+        feed(stream, at: 3_300_000_000)   // 5 expires; two more in a row would still be tolerated
+        #expect(await until { finalLog(finals).count == 2 })
+        let starts = await primary.calls.map(\.clip.start)
+        #expect(Array(starts[2...4]) == [3_100_000_000, 3_100_000_000, 3_100_000_000])
+        #expect(finalLog(finals).map(\.text) == ["words 1", "words 4"])
+        #expect(finalLog(finals).map(\.through) == [3_100_000_000, 3_300_000_000])
+        #expect(fallback.opens.withLock { $0 } == 0)
+        await stream.close(); for reader in readers { await reader.value }
+    }
+
+    @Test func expiredFinalKeepsTheAudioTheLastDecodeDidNotReach() async throws {
+        let primary = StreamingClipFake(expiring: [2]), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: config).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([]), volatile = Mutex<[ASREvent]>([])
+        let readers = [Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } },
+                       Task { for await event in stream.volatileEvents { volatile.withLock { $0.append(event) } } }]
+        feed(stream, at: 3_000_000_000)
+        #expect(await until { volatile.withLock { $0.count == 1 } })
+        feed(stream, at: 3_100_000_000, count: 800)
+        await stream.finalize(through: 3_150_000_000)
+        #expect(await until { finalLog(finals).count == 1 })
+        #expect(finalLog(finals)[0].text == "words 1" && finalLog(finals)[0].through == 3_100_000_000)
+        feed(stream, at: 3_150_000_000, count: 800)
+        #expect(await until { await primary.calls.count == 3 })
+        #expect(await primary.calls[2].clip.start == 3_100_000_000)
+        #expect(fallback.opens.withLock { $0 } == 0)
+        await stream.close(); for reader in readers { await reader.value }
+    }
+
+    @Test func repeatedExpiriesStillSwitchToApple() async throws {
+        let primary = StreamingClipFake(expiring: [1, 2, 3]), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: config).open(.en, highPriority: false)
+        for index in 0..<3 {
+            feed(stream, at: 3_000_000_000 + UInt64(index) * 100_000_000)
+            #expect(await until { await primary.calls.count == index + 1 })
+        }
+        #expect(await until { fallback.opens.withLock { $0 } == 1 })
+        await stream.close()
     }
 }

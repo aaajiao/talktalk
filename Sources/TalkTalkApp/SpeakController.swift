@@ -38,6 +38,7 @@ final class SpeakController {
     private let privacy: PrivacySettings?
     private var transcript: TranscriptWriter?
     private var sessionLog: EventLog?
+    private var speakReadyLogged = false
     private let profile: PolicyProfile
     private let selfTestRunning: () -> Bool
     private var subscription: MeetingSubscription?
@@ -240,6 +241,7 @@ final class SpeakController {
             ?? (try? EventLog(sessionID: "demo-" + UUID().uuidString.lowercased()))
             ?? EventLog(inMemory: HostClock.now)
         sessionLog = log
+        speakReadyLogged = false
         if demo { log.event("demo.start") }
         let echo: any SpeakEchoSink = session.map { $0 as any SpeakEchoSink } ?? DemoEcho()
         let jobs = session?.jobs ?? JobIDSequence()
@@ -659,7 +661,12 @@ final class SpeakController {
         // its translation tail. The old optional pre-roll setting cannot close this microphone.
         let phoneAllowsSpeech = owner.mode != .phone || !phoneBoundary.resetPending
         mic.setHot(running && facts.pushToTalkAvailable && output.isFeedAttached && feedConfirmed && phoneAllowsSpeech)
-        hud.setPushToTalkAvailable(facts.pushToTalkAvailable && output.isFeedAttached && feedConfirmed && phoneAllowsSpeech)
+        let speakReady = facts.pushToTalkAvailable && output.isFeedAttached && feedConfirmed && phoneAllowsSpeech
+        hud.setPushToTalkAvailable(speakReady)
+        if speakReady, !speakReadyLogged {
+            speakReadyLogged = true
+            sessionLog?.event("speak.ready", ["voice_pending": .bool(pendingVoice)])
+        }
         let waitingForPhone = owner.mode == .phone && state.phoneReadyToDial
             && systemInput.micGuard.state.verdict == .noReader
         if speaker != false && !waitingForPhone { hud.post(.speakerMode) } else { hud.clear(.speakerMode) }

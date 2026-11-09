@@ -40,7 +40,6 @@ final class VideoSubtitleView: NSView {
     private let noticeView = VideoCaptionTextView()
     private var source = NSAttributedString(string: "")
     private var translation = NSAttributedString(string: "")
-    private var fallback = false
     private(set) var sourceLanguage: Lang = .en
     private(set) var targetLanguage: Lang = .zh
     /// Glass, or the text blocks plus the glass padding: the only area that drags the window.
@@ -213,11 +212,10 @@ final class VideoSubtitleView: NSView {
     }
 
     func setCaption(source: NSAttributedString, translation: NSAttributedString,
-                    sentence: UInt64?, isFinal: Bool, fallback: Bool = false, at now: Double) {
+                    sentence: UInt64?, isFinal: Bool, at now: Double) {
         lastTime = now
         let newSentence = !hasCaption || displayedSentence != sentence
         let changed = !self.source.isEqual(to: source) || !self.translation.isEqual(to: translation)
-            || self.fallback != fallback
         let metadataChanged = displayedSentence != sentence || isDisplayingFinal != isFinal
         if newSentence {
             sourceCorrectionAnchor = nil; translationCorrectionAnchor = nil
@@ -240,7 +238,6 @@ final class VideoSubtitleView: NSView {
         guard changed || newSentence || metadataChanged else { finalizing = false; return }
         self.source = NSAttributedString(attributedString: source)
         self.translation = NSAttributedString(attributedString: translation)
-        self.fallback = fallback
         resetPage = resetPage || newSentence
         textNeedsLayout = true
         needsLayout = true
@@ -249,7 +246,7 @@ final class VideoSubtitleView: NSView {
         if metadataChanged, !changed { onDisplayedTextChange?() }
     }
 
-    /// Redraw badges and accessibility metadata using the current pages and deadlines.
+    /// Redraw notices and accessibility metadata using the current pages and deadlines.
     func refreshAppLanguage() { applyVisual() }
 
     static func skippedText(count: Int) -> String { String(appLocalized: "已跳过 \(count) 句") }
@@ -532,7 +529,6 @@ final class VideoSubtitleView: NSView {
         let sourcePageValue = layoutReady ? page(in: sourcePages, at: sourcePageIndex) : nil
         let targetPageValue = layoutReady ? page(in: translationPages, at: translationPageIndex) : nil
         let hasNextPage = layoutReady && currentPageIndex + 1 < pageCount
-        let isLastTranslationPage = translationPageIndex + 1 >= translationPages.count
 
         // Source slot: the skipped notice, the page, or the empty-state placeholder.
         var sourceVisual = sourcePageValue.map { visual(for: $0, in: source) } ?? NSAttributedString(string: "")
@@ -548,13 +544,8 @@ final class VideoSubtitleView: NSView {
             noticeText = placeholder
         }
         if notice != nil { sourceVisual = NSAttributedString(string: "") }
-        let translationVisual = NSMutableAttributedString(attributedString:
-            targetPageValue.map { visual(for: $0, in: translation) } ?? NSAttributedString(string: ""))
         // More pages are shown by the page dots alone (no "›" on the line as well).
-        if translationVisual.length > 0, fallback, isDisplayingFinal, isLastTranslationPage {
-            let attributes = translationVisual.attributes(at: translationVisual.length - 1, effectiveRange: nil)
-            translationVisual.append(ConversationText.fallbackBadge(baseFont: translationFont, attributes: attributes))
-        }
+        let translationVisual = targetPageValue.map { visual(for: $0, in: translation) } ?? NSAttributedString(string: "")
 
         let plateAlpha = plateBaseAlpha
         for view in [sourceView, translationView, noticeView] {
@@ -574,11 +565,6 @@ final class VideoSubtitleView: NSView {
             : displayedTranslation)
         // The source block is hidden while a notice holds its slot; the notice is read instead.
         noticeView.setAccessibilityValue(noticeText)
-        if fallback, isDisplayingFinal {
-            translationView.setAccessibilityHelp(ConversationText.fallbackHelp)
-        } else {
-            translationView.setAccessibilityHelp(nil)
-        }
 
         // Bottom anchoring: the bottom block's last baseline sits 12 pt above the content edge.
         let height = bounds.height

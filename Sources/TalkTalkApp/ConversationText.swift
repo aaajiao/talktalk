@@ -62,7 +62,7 @@ struct ConversationText {
 
     /// Final translation (text.primary) or draft (text.draft, "…", draft bar). Draft and final
     /// share size and weight, so finalization only changes colour.
-    func appendTranslation(_ text: String, role: ConversationTypography.Role, isFinal: Bool, fallback: Bool,
+    func appendTranslation(_ text: String, role: ConversationTypography.Role, isFinal: Bool,
                            to output: NSMutableAttributedString) {
         let value = isFinal ? text : ConversationTextRules.draftDisplay(text)
         guard !value.isEmpty else { return }
@@ -70,7 +70,6 @@ struct ConversationText {
         var attributes = attributes(role, color: isFinal ? .textPrimary : .textDraft)
         if !isFinal { attributes[.talkTalkDraft] = true }
         output.append(NSAttributedString(string: value, attributes: attributes))
-        if isFinal, fallback { output.append(fallbackBadge(role: role, attributes: attributes)) }
     }
 
     /// "未发送" badge at the source size, followed by the preview-only tail (§4 送达标签).
@@ -141,26 +140,6 @@ struct ConversationText {
         result.append(NSAttributedString(string: "\u{FFFC}", attributes: caretAttributes))
         return result
     }
-
-    /// The 10 pt "备用翻译" badge after an Apple-fallback final.
-    private func fallbackBadge(role: ConversationTypography.Role, attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
-        Self.fallbackBadge(baseFont: SubtitleStyle.font(role), attributes: attributes, display: display)
-    }
-
-    /// Increase Contrast raises the badge to white 92% on white 22%.
-    static func fallbackBadge(baseFont: NSFont, attributes: [NSAttributedString.Key: Any],
-                              display: SubtitleStyle.Display = .current) -> NSAttributedString {
-        let ic = display.increaseContrast
-        return badge(String(appLocalized: "备用翻译"), symbol: nil,
-                     font: .systemFont(ofSize: ControlTypography.fallbackBadge, weight: .medium),
-                     text: SubtitleStyle.white(ic ? ConversationTextRules.fallbackBadgeTextAlphaIncreasedContrast
-                                                  : ConversationTextRules.fallbackBadgeTextAlpha),
-                     fill: SubtitleStyle.white(ic ? ConversationTextRules.fallbackBadgeFillAlphaIncreasedContrast
-                                                  : ConversationTextRules.fallbackBadgeFillAlpha),
-                     help: fallbackHelp, baseFont: baseFont, attributes: attributes, leadingSpace: true)
-    }
-
-    static var fallbackHelp: String { String(appLocalized: "云端不可用，本句由 Apple 翻译") }
 
     /// An inline capsule drawn as an image attachment, vertically centred on the text.
     static func badge(_ title: String, symbol: String?, font: NSFont, text: NSColor, fill: NSColor, help: String,

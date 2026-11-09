@@ -3617,34 +3617,18 @@
         }
       }
     },
-    "云端不可用时由 Apple 翻译，句末标“备用翻译”": {
+    "云端不可用时由 Apple 翻译": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When the cloud is unavailable, Apple translates and marks the sentence “Fallback translation”"
+            "value": "When the cloud is unavailable, Apple translates"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端不可用时由 Apple 翻译，句末标“备用翻译”"
-          }
-        }
-      }
-    },
-    "云端不可用，本句由 Apple 翻译": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud unavailable; this sentence was translated by Apple"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "云端不可用，本句由 Apple 翻译"
+            "value": "云端不可用时由 Apple 翻译"
           }
         }
       }
@@ -9165,22 +9149,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "备用模型"
-          }
-        }
-      }
-    },
-    "备用翻译": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fallback translation"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "备用翻译"
           }
         }
       }

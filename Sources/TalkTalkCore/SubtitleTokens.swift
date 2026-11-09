@@ -633,7 +633,6 @@ public enum ControlTypography {
     public static let keycap: Double = 11
     public static let columnHeader: Double = 11
     public static let placeholder: Double = 13
-    public static let fallbackBadge: Double = 10
     public static let titleScene: Double = 13
     /// The video hover bar's source name, shown after the scene icon instead of "视频字幕 · ".
     public static let titleVideoSource: Double = 12

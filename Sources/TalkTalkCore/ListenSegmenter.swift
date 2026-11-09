@@ -56,7 +56,7 @@ public struct ListenSegmenter: Sendable {
         self.draft = profile.draft
         self.finalWaitMs = finalWaitMs
         self.trigger = FinalizeTrigger(config: profile.finalize, lang: lang)
-        self.lcp = LCPCommitter(unit: .for(lang))
+        self.lcp = LCPCommitter(unit: .for(lang), adoptsRevisedPrefix: true)
     }
 
     private func joined(_ parts: [String]) -> String {
