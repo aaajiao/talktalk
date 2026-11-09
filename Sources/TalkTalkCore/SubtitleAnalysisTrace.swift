@@ -5,6 +5,7 @@ import Foundation
 public final class SubtitleAnalysisTrace: @unchecked Sendable {
     public static let maxBytes = 8 * 1_024 * 1_024
     public static let maxRecords = 10_000
+    public static let directoryPrefix = "subtitle-analysis-"
     public enum AppendResult: Sendable, Equatable { case ignored, written, limitReached }
 
     private let lock = NSLock()
@@ -29,7 +30,7 @@ public final class SubtitleAnalysisTrace: @unchecked Sendable {
             try handle?.close(); handle = nil
             try FileSystem.ensurePrivateDirectory(root)
             let date = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-            let directory = root.appendingPathComponent("subtitle-analysis-\(date)-\(UUID().uuidString)", isDirectory: true)
+            let directory = root.appendingPathComponent("\(Self.directoryPrefix)\(date)-\(UUID().uuidString)", isDirectory: true)
             try FileSystem.ensurePrivateDirectory(directory)
             let url = directory.appendingPathComponent("trace.jsonl")
             handle = try FileSystem.openForAppending(url)

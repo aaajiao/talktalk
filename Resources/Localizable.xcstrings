@@ -609,6 +609,22 @@
         }
       }
     },
+    "%@ 项": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Items: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 项"
+          }
+        }
+      }
+    },
     "%@。%@": {
       "localizations": {
         "en": {
@@ -5169,22 +5185,6 @@
         }
       }
     },
-    "停止并删除本场诊断录音": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stop and delete this session’s diagnostic recording"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止并删除本场诊断录音"
-          }
-        }
-      }
-    },
     "停止录对方的声音": {
       "localizations": {
         "en": {
@@ -5197,22 +5197,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "停止录对方的声音"
-          }
-        }
-      }
-    },
-    "停止本场诊断录音，并从这台 Mac 删除本场已录的诊断音频。此操作无法撤销。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stop this session’s diagnostic recording and delete all diagnostic audio recorded for this session from this Mac. This cannot be undone."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止本场诊断录音，并从这台 Mac 删除本场已录的诊断音频。此操作无法撤销。"
           }
         }
       }
@@ -5645,6 +5629,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "全选"
+          }
+        }
+      }
+    },
+    "全部删除": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete All"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部删除"
           }
         }
       }
@@ -6321,6 +6321,22 @@
         }
       }
     },
+    "删除已保存的诊断数据": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete saved diagnostic data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除已保存的诊断数据"
+          }
+        }
+      }
+    },
     "删除数据文件": {
       "localizations": {
         "en": {
@@ -6333,38 +6349,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "删除数据文件"
-          }
-        }
-      }
-    },
-    "删除本场诊断录音": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete session diagnostic recording"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删除本场诊断录音"
-          }
-        }
-      }
-    },
-    "删除本场诊断录音？": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete session diagnostic recording?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删除本场诊断录音？"
           }
         }
       }
@@ -6465,6 +6449,22 @@
         }
       }
     },
+    "删除诊断数据？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete diagnostic data?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除诊断数据？"
+          }
+        }
+      }
+    },
     "删除运行时和全部模型；我的声音、术语表和设置保留。": {
       "localizations": {
         "en": {
@@ -6477,6 +6477,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "删除运行时和全部模型；我的声音、术语表和设置保留。"
+          }
+        }
+      }
+    },
+    "删除这台 Mac 上已保存的诊断录音和字幕分析": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete the diagnostic recordings and subtitle analyses saved on this Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除这台 Mac 上已保存的诊断录音和字幕分析"
           }
         }
       }
@@ -7473,6 +7489,22 @@
         }
       }
     },
+    "只删本场录音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete This Session Only"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只删本场录音"
+          }
+        }
+      }
+    },
     "只删除按现有保留规则已过期或超出数量、容量限制的诊断录音、字幕分析、文字记录和延迟事件；不会清空全部数据，删除后无法撤销。": {
       "localizations": {
         "en": {
@@ -7757,6 +7789,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "可以先保存录音，引擎就绪后再准备声音和试听"
+          }
+        }
+      }
+    },
+    "可以在 Finder 中手动删除，或稍后再试。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can delete it manually in Finder, or try again later."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可以在 Finder 中手动删除，或稍后再试。"
           }
         }
       }
@@ -8641,18 +8689,18 @@
         }
       }
     },
-    "在 Finder 中显示诊断录音": {
+    "在 Finder 中显示诊断数据": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show diagnostic recordings in Finder"
+            "value": "Show diagnostic data in Finder"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 Finder 中显示诊断录音"
+            "value": "在 Finder 中显示诊断数据"
           }
         }
       }
@@ -10893,6 +10941,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "已保存"
+          }
+        }
+      }
+    },
+    "已保存的诊断数据": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved diagnostic data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存的诊断数据"
           }
         }
       }
@@ -15729,6 +15793,22 @@
         }
       }
     },
+    "有些诊断数据没能删除": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some diagnostic data could not be deleted"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有些诊断数据没能删除"
+          }
+        }
+      }
+    },
     "有几个字和稿子不一样，请再读一遍": {
       "localizations": {
         "en": {
@@ -16541,22 +16621,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "本场累计欠载 %@"
-          }
-        }
-      }
-    },
-    "本场诊断录音": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Session diagnostic recording"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本场诊断录音"
           }
         }
       }
@@ -22557,6 +22621,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "诊断录音"
+          }
+        }
+      }
+    },
+    "诊断录音 %@ 场 · 字幕分析 %@ 份": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostic recordings: %@ · Subtitle analyses: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "诊断录音 %@ 场 · 字幕分析 %@ 份"
+          }
+        }
+      }
+    },
+    "诊断录音 %@ 场，字幕分析 %@ 份。正在录制的会先停止，删除后无法撤销。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostic recordings: %@. Subtitle analyses: %@. Anything recording now stops first. This cannot be undone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "诊断录音 %@ 场，字幕分析 %@ 份。正在录制的会先停止，删除后无法撤销。"
           }
         }
       }

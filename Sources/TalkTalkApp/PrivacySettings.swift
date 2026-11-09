@@ -57,8 +57,15 @@ final class PrivacySettings {
     private var exportOutcome: ExportOutcome?
     var exportResult: SettingsProblem? { exportOutcome?.presentation }
     var showRemoteRefused = false
-    /// The "停止并删除本场录音…" confirmation dialog.
+    /// The delete confirmation for saved diagnostics.
     var confirmDiscardRecording = false
+    /// What diagnostics/ holds; the delete control follows this, not the current meeting.
+    private(set) var storedDiagnostics = DiagnosticsStore.Inventory()
+    /// Entries a delete could not remove. The warning ends when they are gone, whatever else
+    /// has been recorded since.
+    private var undeletedDiagnostics: Set<String> = []
+    var diagnosticsDeleteFailed: Bool { !undeletedDiagnostics.isEmpty }
+    private let diagnosticsStore: DiagnosticsStore
     /// Manual cleanup only; automatic retention continues without a dialog.
     var confirmSweep = false
 
@@ -69,6 +76,7 @@ final class PrivacySettings {
         self.defaults = defaults
         self.recorder = DiagnosticRecorder(root: paths.home.appendingPathComponent("diagnostics", isDirectory: true))
         self.subtitleAnalysis = SubtitleAnalysisRecorder(root: paths.home.appendingPathComponent("diagnostics", isDirectory: true))
+        self.diagnosticsStore = DiagnosticsStore(root: paths.home.appendingPathComponent("diagnostics", isDirectory: true))
         self.saveTranscripts = defaults.bool(forKey: Key.saveTranscripts)
         if startRetention { self.startRetention() }
     }
@@ -107,9 +115,32 @@ final class PrivacySettings {
     private func sweepDone(_ n: Int) {
         lastSweep = Date()
         lastSweepRemoved = n
+        refreshStoredDiagnostics()
     }
 
     // MARK: - diagnostic recording
+
+    func refreshStoredDiagnostics() {
+        storedDiagnostics = diagnosticsStore.inventory()
+        undeletedDiagnostics.formIntersection(diagnosticsStore.visibleEntryNames())
+    }
+
+    /// This meeting's recording only; everything else stays.
+    func discardCurrentRecording() {
+        recorder.discardCurrent()
+        refreshStoredDiagnostics()
+    }
+
+    /// Everything under diagnostics/, once anything still writing there has stopped. The
+    /// recorder stops in the same main-actor step as the removal, so no track can open between.
+    func deleteAllDiagnostics() {
+        subtitleAnalysis.discard { [weak self] in
+            guard let self else { return }
+            recorder.stopForDeletion()
+            undeletedDiagnostics = diagnosticsStore.removeAll()
+            storedDiagnostics = diagnosticsStore.inventory()
+        }
+    }
 
     func startSubtitleAnalysis() {
         guard recorder.meetingRunning else { return }

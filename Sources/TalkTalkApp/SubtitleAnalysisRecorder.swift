@@ -66,6 +66,14 @@ final class SubtitleAnalysisRecorder {
         queue.async { [writer] in writer.stop() }
     }
 
+    /// Ends any run and forgets its file. `done` runs after the writer queue has drained, so a
+    /// delete made there cannot be undone by a start or append still in flight.
+    func discard(then done: @escaping @MainActor @Sendable () -> Void) {
+        stop(reason: "deleted")
+        fileURL = nil; recordCount = 0; reservedBytes = 0; outcome = .off
+        queue.async { Task { @MainActor in done() } }
+    }
+
     func record(_ event: ListenAnalysisEvent, configuration: UInt64, asrStatus: String? = nil) {
         guard isRecording, event.at >= enabledAt else { return }
         let name: String

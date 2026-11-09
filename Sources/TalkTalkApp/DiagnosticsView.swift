@@ -85,16 +85,26 @@ struct DiagnosticsView: View {
         .settingsPageScroll(navigation, subpage: navigation.diagnosticsTab)
         .onAppear {
             model.diagnosticsStatus.refresh()
+            model.refreshStoredDiagnostics()
             voice.reload()
             translation.load()
             translation.model?.trackSession(session)
         }
         .onChange(of: session) { _, start in translation.model?.trackSession(start) }
-        .alert(String(appLocalized: "删除本场诊断录音？"), isPresented: $model.confirmDiscardRecording) {
+        .onChange(of: model.recorder.sessionDirectory) { _, _ in model.refreshStoredDiagnostics() }
+        .onChange(of: model.subtitleAnalysis.outcome) { _, _ in model.refreshStoredDiagnostics() }
+        // The folder can change in Finder while this page remains mounted.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.refreshStoredDiagnostics()
+        }
+        .alert(String(appLocalized: "删除诊断数据？"), isPresented: $model.confirmDiscardRecording) {
             Button(String(appLocalized: "取消"), role: .cancel) {}
-            Button(String(appLocalized: "删除本场诊断录音")) { model.recorder.discardCurrent() }
+            if model.recorder.sessionDirectory != nil, model.storedDiagnostics.total > 1 {
+                Button(String(appLocalized: "只删本场录音")) { model.discardCurrentRecording() }
+            }
+            Button(String(appLocalized: "全部删除"), role: .destructive) { model.deleteAllDiagnostics() }
         } message: {
-            Text(String(appLocalized: "停止本场诊断录音，并从这台 Mac 删除本场已录的诊断音频。此操作无法撤销。"))
+            Text(String(appLocalized: "诊断录音 \(model.storedDiagnostics.recordings) 场，字幕分析 \(model.storedDiagnostics.analyses) 份。正在录制的会先停止，删除后无法撤销。"))
         }
         .alert(String(appLocalized: "清理过期数据？"), isPresented: $model.confirmSweep) {
             Button(String(appLocalized: "取消"), role: .cancel) {}
@@ -541,16 +551,30 @@ struct DiagnosticsView: View {
             }
         }
         HStack(spacing: 8) {
-            Label("本场诊断录音", systemImage: Icon.delete)
+            let stored = model.storedDiagnostics
+            let breakdown = String(appLocalized: "诊断录音 \(stored.recordings) 场 · 字幕分析 \(stored.analyses) 份")
+            Label("已保存的诊断数据", systemImage: Icon.delete)
             Spacer(minLength: 8)
-            SettingsDestructiveButton(String(appLocalized: "删除…"), help: String(appLocalized: "停止并删除本场诊断录音"),
-                                      accessibilityLabel: String(appLocalized: "删除本场诊断录音")) {
-                model.confirmDiscardRecording = true
+            Text(String(appLocalized: "\(stored.total) 项"))
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .help(breakdown)
+                .accessibilityLabel(breakdown)
+            SettingsDestructiveButton(String(appLocalized: "删除…"), help: String(appLocalized: "删除这台 Mac 上已保存的诊断录音和字幕分析"),
+                                      accessibilityLabel: String(appLocalized: "删除已保存的诊断数据")) {
+                model.refreshStoredDiagnostics()
+                model.confirmDiscardRecording = model.storedDiagnostics.total > 0
             }
-            .disabled(r.sessionDirectory == nil)
+            .disabled(stored.total == 0)
             IconButton(Icon.finder, help: String(appLocalized: "在 Finder 中显示"),
-                       accessibilityLabel: String(appLocalized: "在 Finder 中显示诊断录音")) { model.revealDiagnostics() }
+                       accessibilityLabel: String(appLocalized: "在 Finder 中显示诊断数据")) { model.revealDiagnostics() }
                 .disabled(!model.hasDiagnostics)
+        }
+        if model.diagnosticsDeleteFailed {
+            StatusLabel(String(appLocalized: "有些诊断数据没能删除"), .failed,
+                        help: String(appLocalized: "可以在 Finder 中手动删除，或稍后再试。"))
+                .padding(.leading, Ladder.rowTextInset)
         }
         FactRow(retentionChips(String(appLocalized: "24 小时"), String(appLocalized: "24 小时后自动删除"),
                                bundleHelp: String(appLocalized: "诊断包不含诊断录音")), indented: true)

@@ -81,8 +81,16 @@ final class DiagnosticRecorder {
 
     /// Stops recording and deletes this meeting's directory.
     func discardCurrent() {
+        let directory = sessionDirectory
+        stopForDeletion()
+        if let directory { try? FileManager.default.removeItem(at: directory) }
+    }
+
+    /// Closes every track and lets go of this meeting's directory, leaving the files to the
+    /// caller. A running meeting's choice ends too; one armed for the next meeting stands.
+    func stopForDeletion() {
+        if meetingRunning { micAndTTSArmed = false }
         close(Set(Track.allCases))
-        if let d = sessionDirectory { try? FileManager.default.removeItem(at: d) }
         sessionDirectory = nil
     }
 
