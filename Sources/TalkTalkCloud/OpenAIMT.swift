@@ -51,6 +51,7 @@ public actor OpenAIMT: SpeakCloudMT {
     private var pressWarm: (id: UUID, task: Task<Void, Never>)?
     private let keyCache: MeetingKeyCache?
     private var fastModeOn: Bool
+    private var listenOpeningEndsMs: Int?
 
     /// - Parameters:
     ///   - client: the app's OpenAIClient (two `.ephemeral` sessions A/B, key from the Keychain).
@@ -276,6 +277,7 @@ public actor OpenAIMT: SpeakCloudMT {
         }
 
         var policy = r.session.isSpeak ? profile.speakHedgePolicy : profile.listenHedgePolicy
+        if !r.session.isSpeak, isListenOpening() { policy.hedge.enabled = true }
         if config.effort != "none" { policy.hedge.enabled = false }   // yellow path: SPEAK hedging off (§11)
         let deadlineMs: Int
         if let d = r.deadline {
@@ -292,7 +294,8 @@ public actor OpenAIMT: SpeakCloudMT {
         var acceptedDeadline = r.deadline
         var keptFirstAfterRetry = false
         var outputStarted = received
-        var outcome = try await run(r, policy: policy, deadlineMs: deadlineMs, kind: .normal, speak: speak)
+        var outcome = try await run(r, policy: policy, deadlineMs: deadlineMs,
+                                    replyByMs: r.replyBy.map { HostClock.ms(received, to: $0) }, kind: .normal, speak: speak)
         var text = outcome.text?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // SPEAK checks (§5.4): TargetTextGate, then NumberGuard. One retry, double-sent.
@@ -354,10 +357,12 @@ public actor OpenAIMT: SpeakCloudMT {
 
         let finished = HostClock.now()
         guard outcome.decision.outcome.winner != .apple, let out = text else {
+            let noReply = outcome.decision.fallback == .noReply
             let reason = outcome.decision.pauseReason.map { "paused:" + $0 }
-                ?? outcome.decision.fallback.map { $0.rawValue } ?? "noResult"
-            if outcome.decision.fallback == .deadline {
-                log?.event("mt.late", ["job": .int(tag), "session": .tag(r.session.rawValue), "deadline_ms": .int(deadlineMs)])
+                ?? (noReply ? FallbackReason.deadline.rawValue : outcome.decision.fallback?.rawValue) ?? "noResult"
+            if outcome.decision.fallback == .deadline || noReply {
+                log?.event("mt.late", ["job": .int(tag), "session": .tag(r.session.rawValue), "deadline_ms": .int(deadlineMs),
+                                       "no_reply": .bool(noReply)])
             }
             throw MTError.cloudUnavailable(reason)
         }
@@ -376,7 +381,7 @@ public actor OpenAIMT: SpeakCloudMT {
     }
 
     /// One HedgedRequest, cancellable through `cancel(job)` and through task cancellation.
-    private func run(_ r: MTRequest, policy: HedgePolicy, deadlineMs: Int, kind: HedgeRun.Kind,
+    private func run(_ r: MTRequest, policy: HedgePolicy, deadlineMs: Int, replyByMs: Int? = nil, kind: HedgeRun.Kind,
                      speak: SpeakCloudContext?) async throws -> HedgedRequest.Outcome {
         try Task.checkCancellation()
         if cancelledJobs.contains(r.job) { throw CancellationError() }
@@ -402,7 +407,7 @@ public actor OpenAIMT: SpeakCloudMT {
         let appleLate = speak?.appleLate ?? false
         let task = Task<HedgedRequest.Outcome, Never> {
             await hedged.run(body: body, sentEffort: effort, sentTier: tier, kind: kind, deadlineMs: deadlineMs,
-                             hedgingPaused: paused, appleLate: appleLate, onStartApple: startApple)
+                             replyByMs: replyByMs, hedgingPaused: paused, appleLate: appleLate, onStartApple: startApple)
         }
         inFlight[r.job] = task
         let outcome = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
@@ -426,26 +431,46 @@ public actor OpenAIMT: SpeakCloudMT {
             log?.event("cloud.breaker", ["state": .tag(line)])
         }
         // Connection health (§6.4): a hedge that wins while the loser never got headers, or a
-        // LISTEN request whose headers come late, rebuilds that connection.
+        // LISTEN request whose headers come late, rebuilds that connection. A LISTEN double-send
+        // that got any answer says nothing about either: the legs start together and the stalls
+        // are not connections. Neither does one request cut for not answering yet.
         let d = outcome.decision.outcome
-        if d.fired, d.winner != .apple {
+        let doubleSent = !r.session.isSpeak && d.fired
+            && (d.winner != .apple || outcome.legs.values.contains { $0.headersMs != nil })
+        let cutAlone = outcome.decision.fallback == .noReply && !d.fired
+        if d.fired, d.winner != .apple, !doubleSent {
             let loser: Leg = d.winner == .A ? .B : .A
             apply(resets.recordHedgeWin(winner: d.winner == .A ? .A : .B, loserHadHeaders: outcome.legs[loser]?.headersMs != nil))
         }
-        if !r.session.isSpeak, let a = outcome.legs[.A], a.sentMs != nil {
-            apply(resets.recordListenRequest(headersAfterMs: a.headersMs.flatMap { h in a.sentMs.map { h - $0 } }))
+        if !r.session.isSpeak, !cutAlone, let a = outcome.legs[.A], a.sentMs != nil {
+            let headersAfter = a.headersMs.flatMap { h in a.sentMs.map { h - $0 } }
+            // An answered double-send can only clear the streak: a prompt A is still proof it works.
+            if !doubleSent || (headersAfter ?? .max) <= resets.config.listenNoHeadersMs {
+                apply(resets.recordListenRequest(headersAfterMs: headersAfter))
+            }
         }
-        if let kw = keepWarm {
+        // An unanswered request is not activity: keep-warm's idle probe is what finds a dead connection.
+        if !cutAlone, let kw = keepWarm {
             for leg in Leg.allCases where outcome.legs[leg]?.sentMs != nil { await kw.noteActivity(leg, reused: nil) }
         }
         return outcome
+    }
+
+    /// LISTEN requests stall far more often in a session's opening; the first one starts the clock.
+    private func isListenOpening() -> Bool {
+        let seconds = profile.listen.finalMT.openingDoubleSendS
+        guard seconds > 0 else { return false }
+        let now = nowMs(), end = listenOpeningEndsMs ?? now + seconds * 1000
+        listenOpeningEndsMs = end
+        return now < end
     }
 
     /// If this account or model cannot use Fast mode, that costs one sentence, not the meeting:
     /// the rest of the meeting uses the standard tier and the refusal never reaches the breaker
     /// or the sticky pause.
     private func fastModeRefused(tier: String, outcome: HedgedRequest.Outcome) -> Bool {
-        guard tier == Self.fastTier else { return false }
+        // A leg that won on this tier is proof the account can use it.
+        guard tier == Self.fastTier, outcome.decision.outcome.winner == .apple else { return false }
         let status = outcome.legs.values.compactMap { $0.headers?.status }.first { (400..<500).contains($0) && $0 != 429 && $0 != 401 }
         let badEcho = outcome.legs.values.contains { $0.validation?.rejectReason?.hasPrefix("serviceTier:") == true }
         guard status != nil || badEcho else { return false }

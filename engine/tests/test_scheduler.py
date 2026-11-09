@@ -278,7 +278,44 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(s.call(lambda: threading.get_ident()), s.thread_ident)
         self.assertIn("bg", s.stats())
 
-    def test_expired_p2_finishes_with_expired_and_closes(self):
+    def test_p2_running_past_its_deadline_finishes_expired(self):
+        s = GpuScheduler()
+        s.start()
+        done, errs = threading.Event(), []
+
+        def gen():
+            while True:
+                yield None
+
+        def on_done(e):
+            errs.append(e)
+            done.set()
+
+        s.submit(Job("asr", P2, gen, deadline_ms=_now_ms() + 30, on_done=on_done))
+        self.assertTrue(done.wait(2))
+        self.assertEqual(errs, ["expired"])
+
+    def test_p2_held_by_speak_for_part_of_its_time_finishes_parked(self):
+        s = GpuScheduler()
+        s.set_session(True)
+        s.start()
+        done, errs = threading.Event(), []
+
+        def gen():
+            while True:
+                yield None
+
+        def on_done(e):
+            errs.append(e)
+            done.set()
+
+        s.submit(Job("asr", P2, gen, deadline_ms=_now_ms() + 120, on_done=on_done))
+        time.sleep(0.05)
+        s.set_session(False)              # released in time to run, then overruns
+        self.assertTrue(done.wait(2))
+        self.assertEqual(errs, ["parked"])
+
+    def test_p2_held_by_speak_past_its_deadline_finishes_parked_and_closes(self):
         s = GpuScheduler()
         s.set_session(True)               # paused, so it can only leave by expiring
         s.start()
@@ -297,7 +334,7 @@ class LoopTests(unittest.TestCase):
 
         s.submit(Job("asr", P2, gen, deadline_ms=_now_ms() + 30, on_done=on_done))
         self.assertTrue(done.wait(2))
-        self.assertEqual(errs, ["expired"])
+        self.assertEqual(errs, ["parked"])
         self.assertEqual(s.health()["expired_dropped"], 1)
 
     def test_health_reports_p99_per_step_class(self):

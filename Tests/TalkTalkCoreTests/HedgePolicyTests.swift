@@ -13,9 +13,10 @@ import Testing
 
     /// Runs a scripted event list; ticks every 10 ms in between so time-based rules fire.
     func run(_ events: [HedgeEvent], deadline: Int = 2500, kind: HedgeRun.Kind = .normal, until end: Int = 6000,
-             policy p: HedgePolicy? = nil, paused: Bool = false, appleLate: Bool = false) -> (HedgeRun, [(Int, HedgeAction)]) {
+             policy p: HedgePolicy? = nil, paused: Bool = false, appleLate: Bool = false,
+             replyBy: Int? = nil) -> (HedgeRun, [(Int, HedgeAction)]) {
         let p = p ?? policy
-        let (start, first) = p.begin(kind: kind, deadlineMs: deadline, hedgingPaused: paused, appleLate: appleLate)
+        let (start, first) = p.begin(kind: kind, deadlineMs: deadline, replyByMs: replyBy, hedgingPaused: paused, appleLate: appleLate)
         var r = start
         var log: [(Int, HedgeAction)] = first.map { (0, $0) }
         var queue = events.sorted { $0.now < $1.now }
@@ -147,6 +148,48 @@ import Testing
         let (r, log) = run([.finished(.B, 1100, .failed(.rateLimited(retryAfterS: 45))), .delta(.A, 1400), .finished(.A, 1500, .valid)])
         #expect(log.contains { $0 == (1100, .pauseHedging(seconds: 45)) })
         #expect(decision(r).outcome.winner == .A)
+    }
+
+    private var doubleSend: HedgePolicy {
+        var p = profile.listenHedgePolicy
+        p.hedge.enabled = true
+        return p
+    }
+
+    @Test func aRateLimitOnTheFirstLegOfADoubleSendPausesIt() {
+        let (r, log) = run([.finished(.A, 100, .failed(.rateLimited(retryAfterS: 20))), .delta(.B, 300), .finished(.B, 400, .valid)],
+                           policy: doubleSend)
+        #expect(log.contains { $0 == (100, .pauseHedging(seconds: max(doubleSend.hedge.pauseAfter429S, 20))) })
+        #expect(decision(r).outcome.winner == .B)
+    }
+
+    @Test func aRateLimitOnALateFirstLegLeavesSpeakHedgingOn() {
+        let (r, log) = run([.finished(.A, 1100, .failed(.rateLimited(retryAfterS: 20))), .delta(.B, 1300), .finished(.B, 1400, .valid)])
+        #expect(!log.contains { if case .pauseHedging = $0.1 { true } else { false } })
+        #expect(decision(r).outcome.winner == .B)
+    }
+
+    @Test func aRequestNothingHasAnsweredStopsAtTheReplyTimeAndIsNotATimeout() {
+        let listen = profile.listenHedgePolicy
+        let (begun, _) = listen.begin(deadlineMs: 3000, replyByMs: 2000)
+        #expect(listen.nextWakeup(begun) == 2000)
+        let (r, log) = run([], deadline: 3000, policy: listen, replyBy: 2000)
+        #expect(decision(r).fallback == .noReply && decision(r).outcome.ms == 2000)
+        #expect(!decision(r).timedOut && !decision(r).breakerFailure)
+        #expect(log.contains { $0.1 == .cancel(.A) })
+    }
+
+    @Test func aRequestThatHasStartedToAnswerGetsTheFullDeadline() {
+        let listen = profile.listenHedgePolicy
+        let (won, _) = run([.headers(.A, 900), .delta(.A, 2400), .finished(.A, 2600, .valid)], deadline: 3000, policy: listen, replyBy: 2000)
+        #expect(decision(won).outcome == HedgeOutcome(fired: false, winner: .A, reason: nil, ms: 2600))
+        let (late, _) = run([.headers(.A, 900)], deadline: 3000, policy: listen, replyBy: 2000)
+        #expect(decision(late).fallback == .deadline && decision(late).outcome.ms == 3000 && decision(late).timedOut)
+    }
+
+    @Test func onlyALegStillRunningCountsAsAnswering() {
+        let (r, _) = run([.headers(.A, 900), .finished(.A, 2200, .failed(.http5xx(500)))], deadline: 3000, policy: doubleSend, replyBy: 2000)
+        #expect(decision(r).fallback == .noReply && decision(r).outcome.ms == 2200)
     }
 
     @Test func lateResultAfterCancelIsIgnored() {

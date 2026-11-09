@@ -15,6 +15,7 @@ public struct QwenStreamingASR: StreamingASREngine {
     /// LISTEN's sentence-pause rules allow for this gap between text updates. A faster cadence
     /// only shows words sooner: a short batch can be wordless mid-speech, so it keeps 1 s here.
     public var partialUpdateIntervalMs: Int { max(1000, configuration.cadenceFrames / 16) }
+    public var releasesEarlySentences: Bool { primary != nil && configuration.earlySentences }
 
     public init(engine: EngineProcess?, fallback: any StreamingASREngine,
                 jobs: JobIDSequence = .init(), log: EventLog? = nil, cadenceMs: Int = 1000,
@@ -95,6 +96,7 @@ struct QwenStreamConfiguration: Sendable {
     var maxExpiredInARow = 3                  // a restarted window is short, so repeats mean real overload
     var earlySentences = false                // release sentences from inside the window (RollingSentenceCommitter)
     var longRunWords = 30                     // with earlySentences: a run this long with no release cuts the window
+    var expiryHeadFrames = 8 * 16_000         // with earlySentences: how much of an unread window to read after an expiry
 }
 
 private final class QwenASRStream: ASRStream, @unchecked Sendable {
@@ -158,7 +160,9 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
             blocks.append(Block(samples: Array(frames.dropFirst(skip)), at: at + UInt64(skip) * 62_500))
             count += frames.count - skip
             if count > configuration.bufferFrames {
-                let dropped = count - configuration.bufferFrames
+                // Keep the newest segment. Trimming only to the limit overflows again on the next
+                // chunk, and each overflow cancels the read that would drain the buffer.
+                let dropped = count - configuration.segmentFrames
                 let cut = boundaryLocked(after: dropped)
                 log?.event("asr.buffer_overflow", ["frames": .int(dropped)])
                 advanceLocked(through: cut)
@@ -231,25 +235,39 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
                     self?.completed(request, text: result.text, failed: false, cancelled: false)
                 } catch {
                     self?.completed(request, text: nil, failed: true, cancelled: Task.isCancelled,
-                                    expired: Self.isExpired(error))
+                                    expired: Self.isExpired(error), parked: Self.isParked(error))
                 }
             }
             active = (request, task)
         }
     }
 
+    /// The engine dropped this read for lateness, or it outlasted `requestNs` before the engine could.
     private static func isExpired(_ error: any Error) -> Bool {
         if case .http(status: 409, code: "expired", message: _)? = error as? EngineAPIError { return true }
+        if case .deadlineExceeded? = error as? RemoteEngineError { return true }
         return false
     }
 
-    private func completed(_ request: Request, text: String?, failed: Bool, cancelled: Bool, expired: Bool = false) {
+    /// The engine set this read aside because SPEAK holds the GPU. It says nothing about Qwen.
+    private static func isParked(_ error: any Error) -> Bool {
+        if case .http(status: 409, code: "parked", message: _)? = error as? EngineAPIError { return true }
+        return false
+    }
+
+    private func completed(_ request: Request, text: String?, failed: Bool, cancelled: Bool, expired: Bool = false,
+                           parked: Bool = false) {
         var useFallback = false
         lock.withLock {
             guard active?.request.job == request.job else { return }
             active = nil
             guard !closed, generation == request.generation else { return }
             if cancelled { return }
+            if parked {     // the next read runs at the usual cadence
+                log?.event("asr.parked", ["final": .bool(request.final)])
+                if request.final { answerParkedFinalLocked() }
+                return
+            }
             if expired, expiredInARow + 1 < configuration.maxExpiredInARow {
                 expiredInARow += 1
                 log?.event("asr.expired", ["final": .bool(request.final), "in_a_row": .int(expiredInARow)])
@@ -278,6 +296,23 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
         else { schedule() }
     }
 
+    /// SPEAK holds the GPU, so audio past the last reading cannot be read yet. LISTEN's cut gets
+    /// what was read; everything else stays in the window. Waiting for the final timer instead
+    /// would drop the unread audio up to the cut.
+    private func answerParkedFinalLocked() {
+        if let hypothesis, !hypothesis.text.isEmpty, hypothesis.through > finalizedThrough {
+            cutIsForced = true   // the reading stopped mid-speech, so its last period is not real
+            emitFinalLocked(hypothesis.text, through: hypothesis.through)
+        } else {
+            clearFinalCutLocked()
+        }
+    }
+
+    private func clearFinalCutLocked() {
+        finalThrough = nil
+        finalTimer?.cancel(); finalTimer = nil
+    }
+
     /// The engine drops a listen decode that runs past its deadline, which happens as a
     /// cumulative window nears the segment cap. That says this window is too long, not that
     /// Qwen is unusable: commit what the last decode read and restart the window after it, so
@@ -285,6 +320,11 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
     private func restartWindowAfterExpiryLocked() {
         if let hypothesis, !hypothesis.text.isEmpty, hypothesis.through > finalizedThrough {
             emitFinalLocked(hypothesis.text, through: hypothesis.through)
+        } else if sentences != nil, hypothesis?.text.isEmpty != false, count > configuration.expiryHeadFrames {
+            // Nothing read and too much to read at once, as after a long SPEAK. Restarting would
+            // not shorten this window, so read a head of it first.
+            clearFinalCutLocked()
+            requestFinalLocked(through: boundaryLocked(after: configuration.expiryHeadFrames), forced: true)
         } else if let cut = finalThrough {
             emitFinalLocked("", through: cut)
         } else if sentences != nil, let hypothesis, hypothesis.through > finalizedThrough {

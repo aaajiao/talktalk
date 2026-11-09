@@ -131,7 +131,7 @@ public actor ListenPipeline {
     private var sourceAudioThrough: HostTime?
     /// Evidence belongs to one sentence, including its late final after the raw gate closes.
     private var rejectedEcho: (sentence: UInt64, decision: EchoFilter.Decision)?
-    private var previousFinal: (id: UInt64, source: String, at: HostTime, revised: Bool)?
+    private var previousFinal: (id: UInt64, source: String, at: HostTime, revised: Bool, endedOnText: Bool)?
     private var startHost: HostTime = 0
     private let jobs: JobIDSequence
     private struct DraftWork: Sendable {
@@ -500,11 +500,22 @@ public actor ListenPipeline {
                                       "final_timeout": .bool(f.finalTimeout),
                                       "trigger_to_final_ms": .int(f.finalAtMs - f.triggerAtMs),
                                       "first_word_to_trigger_ms": .int(f.firstWordAtMs.map { f.triggerAtMs - $0 } ?? -1)])
+        // A text-pause guard can fire seconds after the words stopped. Judge that sentence where
+        // they stopped, or an echo on a line that never goes silent falls outside the echo window.
+        var heardThrough = sourceAudioThrough
+        if let lastWord = f.lastWordAtMs, heardThrough.map({ ms($0) > lastWord }) ?? true {
+            heardThrough = host(lastWord)
+        }
         let decision = rejectedEcho?.sentence == f.sentence ? rejectedEcho!.decision
-            : echo.decide(text: f.text, startMs: sourceAudioThrough.map(ms) ?? f.firstWordAtMs ?? f.triggerAtMs,
-                          echoScore: echoScore(forAudioThrough: sourceAudioThrough, at: clock()))
-        if rejectedEcho?.sentence == f.sentence { rejectedEcho = nil }
-        sourceAudioThrough = nil
+            : echo.decide(text: f.text, startMs: heardThrough.map(ms) ?? f.firstWordAtMs ?? f.triggerAtMs,
+                          echoScore: echoScore(forAudioThrough: heardThrough, at: clock()))
+        if f.trigger == .longSentence {
+            // The rest of this sentence follows as the next one, with the same audio and verdict.
+            if rejectedEcho?.sentence == f.sentence { rejectedEcho?.sentence = f.sentence + 1 }
+        } else {
+            if rejectedEcho?.sentence == f.sentence { rejectedEcho = nil }
+            sourceAudioThrough = nil
+        }
         if case let .drop(reason, overlap) = decision {
             if let candidateDraft { cancelDraft(candidateDraft) }
             log.event("listen.echo_drop", ["sentence": .int(Int(f.sentence)), "reason": .tag(reason.rawValue), "overlap": .double(overlap)])
@@ -520,6 +531,8 @@ public actor ListenPipeline {
         var correctionDeadline: HostTime?
         if lang == .de, profile.deLookback.enabled, let previous = previousFinal,
            !previous.revised, previous.id + 1 == f.sentence,
+           // A sentence the long window confirmed from its text is not a pause cut to repair.
+           profile.finalize.captions == nil || !previous.endedOnText,
            clock() >= previous.at, clock() - previous.at <= UInt64(profile.deLookback.windowMs) * 1_000_000,
            Self.startsGermanContinuation(f.text) {
             work.text = previous.source.trimmingCharacters(in: CharacterSet(charactersIn: ".!? ")) + " " + f.text
@@ -554,7 +567,9 @@ public actor ListenPipeline {
                              correctionDeadline: HostTime? = nil, original: ListenSegmenter.SentenceFinal? = nil,
                              draft: DraftWork? = nil, after head: Task<Void, Never>? = nil) async {
         guard running, !Task.isCancelled else { return }
-        let deadlineMs = f.triggerAtMs + profile.finalMT.deadlineMs
+        let replyByMs = f.triggerAtMs + profile.finalMT.deadlineMs
+        let grace = profile.finalMT.respondingGraceMs
+        let deadlineMs = replyByMs + grace
         var source = f.text
 
         // Second pass (off by default): must land within secondPassBudgetMs of the trigger.
@@ -615,7 +630,8 @@ public actor ListenPipeline {
         if !appleForThisMeeting, let primary = engines.primary {
             let job = jobs.next()
             let req = MTRequest(job: job, session: session, text: source, isFinalChunk: true, priority: .p2Listen,
-                                deadline: host(deadlineMs), maxOutputTokens: profile.finalMT.maxOutputTokens,
+                                deadline: host(deadlineMs), replyBy: grace > 0 ? host(replyByMs) : nil,
+                                maxOutputTokens: profile.finalMT.maxOutputTokens,
                                 history: history.suffix(2).map(\.turn))
             let call = Task { try await primary.translate(req) }
             let remaining = max(0, deadlineMs - nowMs)
@@ -652,7 +668,7 @@ public actor ListenPipeline {
                 case .timeout:
                     call.cancel()
                     await primary.cancel(job)
-                    log.event("mt.late", ["sentence": .int(Int(f.sentence)), "deadline_ms": .int(profile.finalMT.deadlineMs)])
+                    log.event("mt.late", ["sentence": .int(Int(f.sentence)), "deadline_ms": .int(deadlineMs - f.triggerAtMs)])
                     report(.appleFallback(reason: "deadline"))
                 }
             }
@@ -698,7 +714,7 @@ public actor ListenPipeline {
             onUpdate(.final(sentence: replacement, text: out, source: source, approx: approx, numberWarning: numberWarning))
         } else {
             if previousFinal == nil || f.sentence > previousFinal!.id {
-                previousFinal = (f.sentence, source, completedAt, false)
+                previousFinal = (f.sentence, source, completedAt, false, f.trigger == .asrFinal || f.trigger == .longSentence)
             }
             onUpdate(.final(sentence: f.sentence, text: out, source: source, approx: approx, numberWarning: numberWarning))
         }

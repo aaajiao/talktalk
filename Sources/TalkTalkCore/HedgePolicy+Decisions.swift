@@ -67,6 +67,9 @@ public enum FallbackReason: String, Codable, Sendable {
     case allFailed
     /// A failed after its first delta, too close to the deadline to send B.
     case failAfterDeltaNoTime
+    /// No live leg had started to answer by the caller's reply time. Not a timeout: requests
+    /// stall in bursts at a session's opening, and those must not open the timeout breaker.
+    case noReply
 }
 
 public struct HedgeDecision: Sendable, Equatable {
@@ -126,6 +129,8 @@ public struct HedgeRun: Sendable, Equatable {
     var hedgeAllowed: Bool
     var appleAtHedge: Bool
     var appleLate: Bool
+    /// Give up here unless a live leg has response headers; `deadlineMs` bounds one that does.
+    var replyByMs: Int?
     var appleStarted = false
     var reason: HedgeReason?
     var bRateLimited: Int? = nil
@@ -135,6 +140,11 @@ public struct HedgeRun: Sendable, Equatable {
     public var hedgeFired: Bool { b.sentAt != nil }
     /// Whether that leg had response headers before the decision (for SessionResetPolicy).
     public func hadHeaders(_ leg: Leg) -> Bool { (leg == .A ? a : b).headersAt != nil }
+    /// Something is still in flight and none of it has started to answer.
+    var waitingForReply: Bool {
+        let live = [a, b].filter(\.inFlight)
+        return !live.isEmpty && live.allSatisfy { $0.headersAt == nil }
+    }
 
     subscript(leg: Leg) -> LegState {
         get { leg == .A ? a : b }
@@ -186,12 +196,12 @@ extension HedgePolicy {
 
     /// Starts a sentence at t = 0. `hedgingPaused`: a recent 429 on B (pauseAfter429S).
     /// `appleLate`: GPU step 3, Apple starts only at the deadline.
-    public func begin(kind: HedgeRun.Kind = .normal, deadlineMs: Int, hedgingPaused: Bool = false,
+    public func begin(kind: HedgeRun.Kind = .normal, deadlineMs: Int, replyByMs: Int? = nil, hedgingPaused: Bool = false,
                       appleLate: Bool = false) -> (HedgeRun, [HedgeAction]) {
         let allowed = hedge.enabled && !hedgingPaused && hedge.maxInFlight >= 2
         var run = HedgeRun(kind: kind, deadlineMs: deadlineMs, hedgeAllowed: allowed,
                            appleAtHedge: hedge.startAppleAtHedge && !appleLate && kind == .normal,
-                           appleLate: appleLate)
+                           appleLate: appleLate, replyByMs: replyByMs)
         var actions: [HedgeAction] = []
         run.a.sentAt = 0
         actions.append(.send(.A, nil))
@@ -237,7 +247,8 @@ extension HedgePolicy {
         case .finished(let leg, _, let result):
             guard run[leg].inFlight else { return [] }   // late result after cancel: ignored
             run[leg].result = result
-            if case .failed(.rateLimited(let ra)) = result, leg == .B {
+            // A double-send's legs are identical, so a 429 on either one means the same thing.
+            if case .failed(.rateLimited(let ra)) = result, leg == .B || (hedge.afterMs == 0 && run.b.sentAt != nil) {
                 run.bRateLimited = max(hedge.pauseAfter429S, ra ?? 0)
             }
         }
@@ -253,6 +264,7 @@ extension HedgePolicy {
     public func nextWakeup(_ run: HedgeRun) -> Int? {
         guard !run.isDone else { return nil }
         var t = run.deadlineMs
+        if let replyBy = run.replyByMs, run.waitingForReply { t = min(t, replyBy) }
         if run.hedgeAllowed, run.b.sentAt == nil, run.a.inFlight {
             if run.a.firstDeltaAt == nil {
                 t = min(t, hedge.afterMs)
@@ -286,10 +298,13 @@ extension HedgePolicy {
             return out
         }
 
-        // 2. Deadline: cancel everything in flight, fall back.
-        if now >= run.deadlineMs {
+        // 2. Deadline, or nothing has started to answer by the reply time: cancel everything
+        // in flight, fall back.
+        let noReply = run.replyByMs.map { now >= $0 && run.waitingForReply } ?? false
+        if now >= run.deadlineMs || noReply {
+            let reason: FallbackReason = now >= run.deadlineMs ? .deadline : .noReply
             for leg in Leg.allCases where run[leg].inFlight { run[leg].cancelled = true; out.append(.cancel(leg)) }
-            return out + finishApple(&run, .deadline, now: now)
+            return out + finishApple(&run, reason, now: now)
         }
 
         // 3. Sending B.

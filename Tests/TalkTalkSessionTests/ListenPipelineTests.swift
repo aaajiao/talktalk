@@ -142,6 +142,43 @@ enum Fixture {
         await pipeline.stop()
     }
 
+    @Test func videoAsksForAReplyAtTheOldDeadlineAndWaitsLongerForOneThatIsAnswering() async throws {
+        let primary = FakeMT("cloud", placement: .network, prefix: "cloud", delayMs: 1)
+        let pipeline = ListenPipeline(lang: .en, profile: try Fixture.listen(deadlineMs: 2000).forVideoCaptions,
+                                      engines: .init(asr: FakeASR(stream: FakeStream()), apple: nil, primary: primary),
+                                      log: EventLog(inMemory: HostClock.now), tickMs: 100_000, onUpdate: { _ in })
+        try await pipeline.start()
+        let cut = HostClock.now()
+        await pipeline.onFinal("This one goes out now.", range: cut...cut)
+        #expect(await until { !(await primary.requests).isEmpty })
+        let request = try #require(await primary.requests.first)
+        #expect(try #require(request.deadline) - (try #require(request.replyBy)) == 1_000_000_000)
+        await pipeline.stop()
+    }
+
+    @Test func aTextPauseCloseRemembersWhenTheWordsStopped() throws {
+        var segmenter = ListenSegmenter(lang: .en, profile: try Fixture.listen().forRollingSentences)
+        _ = segmenter.volatile("the budget was approved by finance", nowMs: 1000)
+        _ = segmenter.volatile("the budget was approved by finance last week", nowMs: 2000)
+        _ = segmenter.tick(nowMs: 5000, silenceMs: 0)
+        #expect(segmenter.awaitingFinal)
+        let closed = segmenter.final("The budget was approved by finance last week", nowMs: 5100)
+        guard case let .sentenceFinal(final)? = closed.first else { Issue.record("no final"); return }
+        #expect(final.lastWordAtMs == 2000 && final.triggerAtMs == 5000)
+    }
+
+    @Test func bothPiecesOfATextPauseCloseKeepWhenTheWordsStopped() throws {
+        var segmenter = ListenSegmenter(lang: .en, profile: try Fixture.listen().forRollingSentences)
+        let head = (1...14).map { "w\($0)" }.joined(separator: " "), rest = (1...16).map { "r\($0)" }.joined(separator: " ")
+        _ = segmenter.volatile("\(head) \(rest)", nowMs: 2000)
+        _ = segmenter.tick(nowMs: 5000, silenceMs: 0)
+        #expect(segmenter.awaitingFinal)
+        let finals = segmenter.final("\(head), \(rest)", nowMs: 5100).compactMap { action -> ListenSegmenter.SentenceFinal? in
+            if case let .sentenceFinal(final) = action { final } else { nil }
+        }
+        #expect(finals.count == 2 && finals.allSatisfy { $0.lastWordAtMs == 2000 })
+    }
+
     @Test func volatileDeliveredAfterItsFinalCannotRepopulateTheNextSentence() async throws {
         let (pipeline, _, sink, _) = try make(primary: nil, apple: nil)
         try await pipeline.start()
@@ -749,6 +786,35 @@ final class Statuses: @unchecked Sendable {
     private var _items: [ListenTranslation] = []
     func add(_ t: ListenTranslation) { lock.withLock { _items.append(t) } }
     var items: [ListenTranslation] { lock.withLock { _items } }
+}
+
+private struct RulesRecognizer: StreamingASREngine {
+    var releasesEarlySentences: Bool
+    var id: EngineID { .init(name: "rules", revision: "1", placement: .engineGPU) }
+    func open(_ lang: Lang, highPriority: Bool) async throws -> any ASRStream { throw CancellationError() }
+}
+
+@MainActor @Suite struct ListenRulesTests {
+    @Test(arguments: [MeetingMode.meeting, .phone])
+    func qwenInACallUsesTheLongWindowRulesAndKeepsGermanLookback(mode: MeetingMode) throws {
+        let rules = MeetingSession.listenRules(try Fixture.listen(), mode: mode, asr: RulesRecognizer(releasesEarlySentences: true))
+        #expect(rules.finalize.punctPauseMs == .max && rules.finalize.captions != nil)
+        #expect(rules.finalize.stallMs == 3000 && rules.deLookback.enabled)
+    }
+
+    @Test(arguments: [MeetingMode.meeting, .phone])
+    func appleSpeechInACallKeepsTheOrdinaryRules(mode: MeetingMode) throws {
+        let base = try Fixture.listen()
+        #expect(MeetingSession.listenRules(base, mode: mode, asr: RulesRecognizer(releasesEarlySentences: false)) == base)
+    }
+
+    @Test(arguments: [true, false])
+    func videoKeepsItsOwnRulesOnEitherRecognizer(early: Bool) throws {
+        let base = try Fixture.listen()
+        let rules = MeetingSession.listenRules(base, mode: .captions, asr: RulesRecognizer(releasesEarlySentences: early))
+        #expect(rules == base.forVideoCaptions && !rules.deLookback.enabled)
+        #expect(rules.finalMT.respondingGraceMs == 1000 && base.forRollingSentences.finalMT.respondingGraceMs == 0)
+    }
 }
 
 @Suite struct MeetingLifecycleTests {

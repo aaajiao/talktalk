@@ -54,6 +54,20 @@ private actor ReopeningASR: StreamingASREngine {
         await p.stop()
     }
 
+    @Test func germanLookbackLeavesASentenceTheLongWindowConfirmed() async throws {
+        let sink = Sink(), stream = FakeStream()
+        var profile = try Fixture.listen().forRollingSentences; profile.deLookback.enabled = true
+        let p = ListenPipeline(lang: .de, profile: profile, engines: .init(asr: FakeASR(stream: stream), apple: nil, primary: nil),
+                               log: EventLog(inMemory: HostClock.now), tickMs: 100_000, onUpdate: sink.add)
+        try await p.start()
+        await p.onFinal("Wir fangen morgen.", range: 1...2)
+        #expect(await until { sink.finals.count == 1 })
+        await p.onFinal("an.", range: 3...4)
+        #expect(await until { sink.finals.count == 2 })
+        #expect(sink.finals[1].0 == 2)
+        await p.stop()
+    }
+
     @Test func choosingAppleCancelsOnlyThisListenRequestAndUsesReadyFallback() async throws {
         let sink = Sink(), stream = FakeStream()
         let cloud = FakeMT("cloud", placement: .network, prefix: "cloud", delayMs: 1000)

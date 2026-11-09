@@ -62,7 +62,7 @@ final class ListenCloud {
                 let profile = try? PolicyProfile.loadDefault()
                 _warmB = prefs.effort == "none" && (
                     (prefs.speakCloudEnabled && profile?.speakHedgePolicy.hedge.enabled == true)
-                    || (prefs.listenCloudEnabled && profile?.listenHedgePolicy.hedge.enabled == true))
+                    || (prefs.listenCloudEnabled && profile?.listenUsesLegB == true))
                 _sessionLog = log; _mt = mt
                 _listenEnabled = prefs.listenCloudEnabled; _speakEnabled = prefs.speakCloudEnabled
                 return _listenEnabled ? mt : nil

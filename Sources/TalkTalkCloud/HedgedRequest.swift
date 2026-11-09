@@ -61,7 +61,7 @@ public struct HedgedRequest: Sendable {
     /// at most once, when the policy wants the Apple fallback started (hedge time or the end).
     /// `sentTier` must be the service tier in `body` when it is not the profile's.
     public func run(body: Data, sentEffort: String, sentTier: String? = nil, kind: HedgeRun.Kind = .normal, deadlineMs: Int,
-                    hedgingPaused: Bool = false, appleLate: Bool = false,
+                    replyByMs: Int? = nil, hedgingPaused: Bool = false, appleLate: Bool = false,
                     onStartApple: @escaping @Sendable () -> Void = {}) async -> Outcome {
         let (inputs, cont) = AsyncStream<Input>.makeStream()
         let t0 = ContinuousClock.now
@@ -95,7 +95,8 @@ public struct HedgedRequest: Sendable {
             pumps[leg]?.cancel()
         }
 
-        var (state, actions) = policy.begin(kind: kind, deadlineMs: deadlineMs, hedgingPaused: hedgingPaused, appleLate: appleLate)
+        var (state, actions) = policy.begin(kind: kind, deadlineMs: deadlineMs, replyByMs: replyByMs,
+                                            hedgingPaused: hedgingPaused, appleLate: appleLate)
 
         func perform(_ list: [HedgeAction]) {
             for a in list {

@@ -41,11 +41,15 @@ public protocol StreamingASREngine: Sendable {                      // AppleSpee
     /// Expected spacing of cumulative partial updates. Zero keeps the ordinary streaming
     /// policy; a batched recognizer must not have its normal cadence mistaken for a word pause.
     var partialUpdateIntervalMs: Int { get }
+    /// True when this engine is set up to release sentences from inside a long window, so LISTEN
+    /// stops cutting on text pauses. Fixed for the engine: a mid-session fallback does not change it.
+    var releasesEarlySentences: Bool { get }
     func open(_ lang: Lang, highPriority: Bool) async throws -> any ASRStream
 }
 
 public extension StreamingASREngine {
     var partialUpdateIntervalMs: Int { 0 }
+    var releasesEarlySentences: Bool { false }
 }
 
 public struct ASRFinal: Sendable {

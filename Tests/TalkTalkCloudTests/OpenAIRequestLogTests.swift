@@ -14,6 +14,86 @@ extension FakeServerCloudTests {
                         configuration: .init(model: "gpt-6-luna", effort: "none", fastMode: true), log: log)
     }
 
+    private func openingEngine(_ log: TalkTalkCore.EventLog, seconds: Int) -> OpenAIMT {
+        var p = profile
+        p.listen.finalMT.openingDoubleSendS = seconds
+        let c = OpenAIClient(cloud: p.cloud, keyProvider: { fakeKey },
+                             protocolClasses: [.A: [FakeA.self], .B: [FakeB.self]], sink: OpenAIMT.eventSink(log))
+        return OpenAIMT(client: c, profile: p, prompts: try! CloudTestResources.prompts(),
+                        configuration: .init(model: "gpt-6-luna", effort: "none"), log: log)
+    }
+
+    @Test func theOpeningSendsOnBothLegsAndAStalledLegDoesNotRebuild() async throws {
+        FakeServer.enqueue(.A, .hang(headersAtMs: nil), .hang(headersAtMs: nil), .hang(headersAtMs: nil))
+        FakeServer.enqueue(.B, FakeServer.good("一。"), FakeServer.good("二。"), FakeServer.good("三。"))
+        let log = TalkTalkCore.EventLog(inMemory: HostClock.now)
+        let engine = openingEngine(log, seconds: 45)
+        for (job, text) in ["一。", "二。", "三。"].enumerated() {
+            #expect(try await engine.translate(listenRequest(JobID(job + 1))).text == text)
+        }
+        #expect(FakeServer.requests(.B).count == 3)
+        #expect(requestRows(log).filter { $0["leg"] as? String == "B" && $0["won"] as? Bool == true }.count == 3)
+        #expect(!names(log).contains("cloud.session_reset"))
+    }
+
+    @Test func afterTheOpeningOnlyTheFirstLegIsUsed() async throws {
+        FakeServer.enqueue(.A, FakeServer.good("一。"), FakeServer.good("二。"))
+        FakeServer.enqueue(.B, .hang(headersAtMs: nil))
+        let engine = openingEngine(TalkTalkCore.EventLog(inMemory: HostClock.now), seconds: 1)
+        _ = try await engine.translate(listenRequest(1))
+        #expect(FakeServer.requests(.B).count == 1)
+        try await Task.sleep(for: .milliseconds(1100))
+        _ = try await engine.translate(listenRequest(2))
+        #expect(FakeServer.requests(.B).count == 1 && FakeServer.requests(.A).count == 2)
+    }
+
+    @Test func twoOpeningSentencesWithNoHeadersOnEitherLegStillRebuild() async throws {
+        FakeServer.enqueue(.A, .hang(headersAtMs: nil), .hang(headersAtMs: nil))
+        FakeServer.enqueue(.B, .hang(headersAtMs: nil), .hang(headersAtMs: nil))
+        let log = TalkTalkCore.EventLog(inMemory: HostClock.now)
+        let engine = openingEngine(log, seconds: 45)
+        for job in 1...2 {
+            await #expect(throws: MTError.cloudUnavailable("deadline")) {
+                try await engine.translate(listenRequest(JobID(job), deadlineMs: 60))
+            }
+        }
+        #expect(names(log).contains("cloud.session_reset"))
+    }
+
+    @Test func anOpeningSentenceAnsweredPromptlyBreaksTheNoHeadersStreak() async throws {
+        FakeServer.enqueue(.A, .hang(headersAtMs: nil), FakeServer.good("中。"), .hang(headersAtMs: nil))
+        FakeServer.enqueue(.B, .hang(headersAtMs: nil), .hang(headersAtMs: nil), .hang(headersAtMs: nil))
+        let log = TalkTalkCore.EventLog(inMemory: HostClock.now)
+        let engine = openingEngine(log, seconds: 45)
+        await #expect(throws: MTError.cloudUnavailable("deadline")) { try await engine.translate(listenRequest(1, deadlineMs: 60)) }
+        #expect(try await engine.translate(listenRequest(2, deadlineMs: 1500)).text == "中。")
+        await #expect(throws: MTError.cloudUnavailable("deadline")) { try await engine.translate(listenRequest(3, deadlineMs: 60)) }
+        #expect(!names(log).contains("cloud.session_reset"))
+    }
+
+    private func replyRequest(_ job: Int, replyInMs: Int) -> MTRequest {
+        var request = listenRequest(JobID(job), deadlineMs: 2000)
+        request.replyBy = HostClock.now() + UInt64(replyInMs) * 1_000_000
+        return request
+    }
+
+    @Test func requestsNobodyAnswersStopAtTheReplyTimeAndAreNotBookedAsTimeouts() async throws {
+        for _ in 1...6 { FakeServer.enqueue(.A, .hang(headersAtMs: nil)) }
+        let log = TalkTalkCore.EventLog(inMemory: HostClock.now)
+        let engine = mt(client(), log: log)
+        for job in 1...6 {
+            await #expect(throws: MTError.cloudUnavailable("deadline")) { try await engine.translate(replyRequest(job, replyInMs: 30)) }
+        }
+        #expect(!names(log).contains("cloud.breaker") && !names(log).contains("cloud.session_reset"))
+    }
+
+    @Test func aRequestThatIsAnsweringOutlivesTheReplyTime() async throws {
+        FakeServer.enqueue(.A, .sse([(5, FakeServer.created(tier: "default")), (150, FakeServer.delta("等等就到。")),
+                                     (170, FakeServer.completed(tier: "default"))]))
+        let engine = mt(client(), log: TalkTalkCore.EventLog(inMemory: HostClock.now))
+        #expect(try await engine.translate(replyRequest(1, replyInMs: 60)).text == "等等就到。")
+    }
+
     private func requestRows(_ log: TalkTalkCore.EventLog) -> [[String: Any]] {
         log.recorded.filter { $0["ev"] as? String == "mt.request" }
     }

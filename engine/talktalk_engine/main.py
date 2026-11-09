@@ -546,6 +546,8 @@ class EngineState:
         done.wait()
         if box.get("err") is not None:
             from .server import ApiError
+            if box["err"] == "parked":        # §6.1 rules 6-7: SPEAK held it; the app reads again later
+                raise ApiError(409, "parked", "listen decode set aside while speaking")
             if box["err"] == "expired":       # §6.1 rule 7: P2 past its deadline; the app uses Apple final
                 raise ApiError(409, "expired", "second-pass ASR missed its deadline")
             raise ApiError(409 if box["err"] == "cancelled" else 500, "asr_failed", str(box["err"]))

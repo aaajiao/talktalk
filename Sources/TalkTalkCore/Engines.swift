@@ -118,16 +118,19 @@ public struct MTRequest: Codable, Sendable {
     public var job: JobID; public var session: MTSession; public var text: String
     public var isFinalChunk: Bool; public var mode: MTMode; public var priority: Priority
     public var deadline: HostTime?; public var maxOutputTokens: Int
+    /// Give up at this time if the backend has not started to answer; `deadline` still bounds
+    /// one that has. Nil applies `deadline` alone.
+    public var replyBy: HostTime?
     public var history: [MTTurn]
     public var replaces: JobID?
     public var strictTerms: [String]
     public var merges: [JobID]
 
     public init(job: JobID, session: MTSession, text: String, isFinalChunk: Bool, mode: MTMode = .normal,
-                priority: Priority, deadline: HostTime? = nil, maxOutputTokens: Int, history: [MTTurn] = [],
+                priority: Priority, deadline: HostTime? = nil, replyBy: HostTime? = nil, maxOutputTokens: Int, history: [MTTurn] = [],
                 replaces: JobID? = nil, strictTerms: [String] = [], merges: [JobID] = []) {
         self.job = job; self.session = session; self.text = text; self.isFinalChunk = isFinalChunk
-        self.mode = mode; self.priority = priority; self.deadline = deadline
+        self.mode = mode; self.priority = priority; self.deadline = deadline; self.replyBy = replyBy
         self.maxOutputTokens = maxOutputTokens; self.history = history; self.replaces = replaces
         self.strictTerms = strictTerms; self.merges = merges
     }

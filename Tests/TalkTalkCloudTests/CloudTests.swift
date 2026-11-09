@@ -68,7 +68,9 @@ final class Counter: @unchecked Sendable {
 
     init() throws {
         FakeServer.reset()
-        profile = try CloudTestResources.profile()
+        var loaded = try CloudTestResources.profile()
+        loaded.listen.finalMT.openingDoubleSendS = 0   // its own tests turn it on
+        profile = loaded
         // The §5.3 numbers scaled down so a run takes well under a second.
         var p = profile.speakHedgePolicy
         p.hedge.afterMs = 150

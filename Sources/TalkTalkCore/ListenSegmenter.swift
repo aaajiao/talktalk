@@ -35,6 +35,9 @@ public struct ListenSegmenter: Sendable {
         /// True when no ASR final arrived within `finalWaitMs` and the hypothesis was used.
         public var finalTimeout: Bool
         public var firstWordAtMs: Int?
+        /// On a text-pause close and its pieces: when the word count last changed, well before
+        /// the close itself.
+        public var lastWordAtMs: Int?
     }
 
     public let lang: Lang
@@ -198,15 +201,16 @@ public struct ListenSegmenter: Sendable {
 
     private mutating func close(text: String, trigger kind: FinalizeTrigger.Kind, triggerAtMs: Int,
                                 nowMs: Int, timeout: Bool) -> [Action] {
+        let lastWord = kind == .force || kind == .stall ? trigger.lastWordChangeMs : nil
         guard let (head, rest) = cutLong(text) else {
-            return closeOne(text: text, trigger: kind, triggerAtMs: triggerAtMs, nowMs: nowMs, timeout: timeout)
+            return closeOne(text: text, trigger: kind, triggerAtMs: triggerAtMs, nowMs: nowMs, timeout: timeout, lastWord: lastWord)
         }
-        return closeOne(text: head, trigger: .longSentence, triggerAtMs: triggerAtMs, nowMs: nowMs, timeout: timeout)
-            + closeOne(text: rest, trigger: kind, triggerAtMs: triggerAtMs, nowMs: nowMs, timeout: timeout)
+        return closeOne(text: head, trigger: .longSentence, triggerAtMs: triggerAtMs, nowMs: nowMs, timeout: timeout, lastWord: lastWord)
+            + closeOne(text: rest, trigger: kind, triggerAtMs: triggerAtMs, nowMs: nowMs, timeout: timeout, lastWord: lastWord)
     }
 
     private mutating func closeOne(text: String, trigger kind: FinalizeTrigger.Kind, triggerAtMs: Int,
-                                   nowMs: Int, timeout: Bool) -> [Action] {
+                                   nowMs: Int, timeout: Bool, lastWord: Int? = nil) -> [Action] {
         let id = sentence
         let first = firstWordAtMs
         sentence += 1
@@ -222,7 +226,8 @@ public struct ListenSegmenter: Sendable {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !clean.isEmpty {
             out.append(.sentenceFinal(SentenceFinal(sentence: id, text: clean, trigger: kind, triggerAtMs: triggerAtMs,
-                                                    finalAtMs: nowMs, finalTimeout: timeout, firstWordAtMs: first)))
+                                                    finalAtMs: nowMs, finalTimeout: timeout, firstWordAtMs: first,
+                                                    lastWordAtMs: lastWord)))
         }
         return out
     }

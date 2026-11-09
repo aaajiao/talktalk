@@ -14,9 +14,19 @@ private actor StreamingClipFake: ClipASREngine {
     let failFrom: Int?
     let lateAfterFirst: Duration?
     let expiring: Set<Int>
+    let parking: Set<Int>
+    let timingOut: Set<Int>
     let readings: [String]
-    init(failFrom: Int? = nil, lateAfterFirst: Duration? = nil, expiring: Set<Int> = [], readings: [String] = []) {
-        self.failFrom = failFrom; self.lateAfterFirst = lateAfterFirst; self.expiring = expiring; self.readings = readings
+    private var speaking = false
+    private var slowRead: Duration?
+    private var expiresPastFrames: Int?
+    func simulate(speaking: Bool, slowRead: Duration? = nil, expiresPastFrames: Int? = nil) {
+        self.speaking = speaking; self.slowRead = slowRead; self.expiresPastFrames = expiresPastFrames
+    }
+    init(failFrom: Int? = nil, lateAfterFirst: Duration? = nil, expiring: Set<Int> = [], parking: Set<Int> = [],
+         timingOut: Set<Int> = [], readings: [String] = []) {
+        self.failFrom = failFrom; self.lateAfterFirst = lateAfterFirst; self.expiring = expiring
+        self.parking = parking; self.timingOut = timingOut; self.readings = readings
     }
     enum Failure: Error { case unavailable }
     func transcribe(_ clip: PCMClip16k, hint: Lang, context: String?, pinnedText: String?, job: JobID,
@@ -32,6 +42,13 @@ private actor StreamingClipFake: ClipASREngine {
         defer { active -= 1 }
         if let failFrom, number >= failFrom { throw Failure.unavailable }
         if expiring.contains(number) { throw EngineAPIError.http(status: 409, code: "expired", message: "missed deadline") }
+        if parking.contains(number) { throw EngineAPIError.http(status: 409, code: "parked", message: "set aside") }
+        if timingOut.contains(number) { throw RemoteEngineError.deadlineExceeded }
+        if speaking { throw EngineAPIError.http(status: 409, code: "parked", message: "set aside") }
+        if let slowRead { try await Task.sleep(for: slowRead) }
+        if let limit = expiresPastFrames, clip.samples.count > limit {
+            throw EngineAPIError.http(status: 409, code: "expired", message: "missed deadline")
+        }
         if number > 1, let delay = lateAfterFirst {
             // Deliberately ignores the caller's cancellation and deadline, to exercise the
             // adapter's final fence rather than RemoteQwenASR's already-tested deadline.
@@ -235,6 +252,130 @@ struct QwenStreamingASRTests {
         await stream.close(); for reader in readers { await reader.value }
     }
 
+    @Test func readsParkedForSpeakingNeitherFallBackNorMoveTheWindow() async throws {
+        let primary = StreamingClipFake(parking: [2, 3, 4, 5]), fallback = StreamingFallbackFake()
+        var roomy = config; roomy.segmentFrames = 16_000; roomy.bufferFrames = 32_000
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: roomy).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([]), volatile = Mutex<[ASREvent]>([])
+        let readers = [Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } },
+                       Task { for await event in stream.volatileEvents { volatile.withLock { $0.append(event) } } }]
+        feed(stream, at: 3_000_000_000)
+        #expect(await until { volatile.withLock { $0.count == 1 } })
+        for step in 1...4 {
+            feed(stream, at: 3_000_000_000 + UInt64(step) * 100_000_000)
+            #expect(await until { await primary.calls.count == step + 1 })
+        }
+        feed(stream, at: 3_500_000_000)   // speaking ended: the same window reads on
+        #expect(await until { volatile.withLock { $0.count == 2 } })
+        #expect(await primary.calls.map(\.clip.start).allSatisfy { $0 == 3_000_000_000 })
+        #expect(finalLog(finals).isEmpty && fallback.opens.withLock { $0 } == 0)
+        await stream.close(); for reader in readers { await reader.value }
+    }
+
+    @Test func aParkedFinalGivesOnlyWhatWasReadAndKeepsTheRest() async throws {
+        let primary = StreamingClipFake(parking: [2]), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: config).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([]), volatile = Mutex<[ASREvent]>([])
+        let readers = [Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } },
+                       Task { for await event in stream.volatileEvents { volatile.withLock { $0.append(event) } } }]
+        feed(stream, at: 3_000_000_000)
+        #expect(await until { volatile.withLock { $0.count == 1 } })
+        feed(stream, at: 3_100_000_000, count: 800)
+        await stream.finalize(through: 3_150_000_000)
+        #expect(await until { finalLog(finals).count == 1 })
+        #expect(finalLog(finals)[0].text == "words 1" && finalLog(finals)[0].through == 3_100_000_000)
+        feed(stream, at: 3_150_000_000, count: 800)
+        #expect(await until { await primary.calls.count == 3 })
+        #expect(await primary.calls[2].clip.start == 3_100_000_000)
+        #expect(fallback.opens.withLock { $0 } == 0)
+        await stream.close(); for reader in readers { await reader.value }
+    }
+
+    @Test func aParkedFinalWithNothingReadLeavesTheWindowAlone() async throws {
+        let primary = StreamingClipFake(parking: [1]), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: config).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([]), volatile = Mutex<[ASREvent]>([])
+        let readers = [Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } },
+                       Task { for await event in stream.volatileEvents { volatile.withLock { $0.append(event) } } }]
+        feed(stream, at: 3_000_000_000, count: 800)
+        await stream.finalize(through: 3_050_000_000)
+        #expect(await until { await primary.calls.count == 1 })
+        try await Task.sleep(for: .milliseconds(450))   // past finalizeNs: the cut must not have dropped this audio
+        #expect(finalLog(finals).isEmpty)
+        feed(stream, at: 3_050_000_000, count: 1600)
+        #expect(await until { await primary.calls.count == 2 })
+        #expect(await primary.calls[1].clip.start == 3_000_000_000)
+        await stream.close(); for reader in readers { await reader.value }
+    }
+
+    /// Longer than the buffer holds, then released, with reads slower than the audio chunks
+    /// and too slow for the whole window, as after a real long press.
+    @Test func recognitionComesBackAfterSpeakingPastTheBuffer() async throws {
+        let primary = StreamingClipFake(), fallback = StreamingFallbackFake()
+        await primary.simulate(speaking: true)
+        var small = earlyConfig; small.requestNs = 2_000_000_000; small.finalizeNs = 3_000_000_000; small.expiryHeadFrames = 1600
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: small).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([]), volatile = Mutex<[ASREvent]>([])
+        let readers = [Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } },
+                       Task { for await event in stream.volatileEvents { volatile.withLock { $0.append(event) } } }]
+        var at: HostTime = 3_000_000_000
+        func chunks(_ n: Int) async throws {
+            for _ in 0..<n { feed(stream, at: at, count: 320); at += 20_000_000; try await Task.sleep(for: .milliseconds(4)) }
+        }
+        try await chunks(60)              // 1.2 s of audio into a 0.8 s buffer
+        await primary.simulate(speaking: false, slowRead: .milliseconds(30), expiresPastFrames: 3200)
+        try await chunks(60)              // audio never stops arriving in a real call
+        #expect(!finalLog(finals).isEmpty)
+        #expect(fallback.opens.withLock { $0 } == 0)
+        await stream.close(); for reader in readers { await reader.value }
+    }
+
+    @Test func anExpiredWindowAfterAWordlessReadingStillReadsAHeadFirst() async throws {
+        let primary = StreamingClipFake(expiring: [2], readings: [""]), fallback = StreamingFallbackFake()
+        var small = earlyConfig; small.segmentFrames = 16_000; small.bufferFrames = 32_000; small.expiryHeadFrames = 1600
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: small).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([]), volatile = Mutex<[ASREvent]>([])
+        let readers = [Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } },
+                       Task { for await event in stream.volatileEvents { volatile.withLock { $0.append(event) } } }]
+        feed(stream, at: 3_000_000_000)
+        #expect(await until { volatile.withLock { $0.count == 1 } })
+        feed(stream, at: 3_100_000_000, count: 3200)
+        #expect(await until { await primary.calls.count >= 3 })
+        let calls = await primary.calls
+        #expect(calls[2].clip.start == 3_000_000_000 && calls[2].clip.end == 3_100_000_000)
+        await stream.close(); for reader in readers { await reader.value }
+    }
+
+    @Test func anExpiredLongUnreadWindowReadsAHeadOfItFirst() async throws {
+        let primary = StreamingClipFake(expiring: [1]), fallback = StreamingFallbackFake()
+        var small = earlyConfig; small.segmentFrames = 16_000; small.bufferFrames = 32_000; small.expiryHeadFrames = 1600
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: small).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([]), volatile = Mutex<[ASREvent]>([])
+        let readers = [Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } },
+                       Task { for await event in stream.volatileEvents { volatile.withLock { $0.append(event) } } }]
+        feed(stream, at: 3_000_000_000, count: 4800)
+        #expect(await until { await primary.calls.count >= 3 })
+        let calls = await primary.calls
+        #expect(calls[1].clip.start == 3_000_000_000 && calls[1].clip.end == 3_100_000_000)
+        #expect(calls[2].clip.start == 3_100_000_000)   // the rest of the window is still there
+        #expect(fallback.opens.withLock { $0 } == 0)
+        await stream.close(); for reader in readers { await reader.value }
+    }
+
+    @Test func aReadThatOutlastsTheClientLimitCountsAsExpiredNotFailed() async throws {
+        let primary = StreamingClipFake(timingOut: [2]), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: config).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([]), volatile = Mutex<[ASREvent]>([])
+        let readers = [Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } },
+                       Task { for await event in stream.volatileEvents { volatile.withLock { $0.append(event) } } }]
+        feed(stream, at: 3_000_000_000)
+        #expect(await until { volatile.withLock { $0.count == 1 } })
+        feed(stream, at: 3_100_000_000)
+        #expect(await until { finalLog(finals).count == 1 })
+        #expect(finalLog(finals)[0].text == "words 1" && fallback.opens.withLock { $0 } == 0)
+        await stream.close(); for reader in readers { await reader.value }
+    }
+
     @Test func expiredFinalKeepsTheAudioTheLastDecodeDidNotReach() async throws {
         let primary = StreamingClipFake(expiring: [2]), fallback = StreamingFallbackFake()
         let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: config).open(.en, highPriority: false)
@@ -256,6 +397,13 @@ struct QwenStreamingASRTests {
 
     private var earlyConfig: QwenStreamConfiguration {
         var early = config; early.earlySentences = true; return early
+    }
+
+    @Test func onlyAnInstalledQwenReleasesEarlySentences() {
+        let fallback = StreamingFallbackFake()
+        #expect(QwenStreamingASR(primary: StreamingClipFake(), fallback: fallback, configuration: earlyConfig).releasesEarlySentences)
+        #expect(!QwenStreamingASR(primary: StreamingClipFake(), fallback: fallback, configuration: config).releasesEarlySentences)
+        #expect(!QwenStreamingASR(engine: nil, fallback: fallback, windowSeconds: 24, earlySentences: true).releasesEarlySentences)
     }
 
     private let spoken = [

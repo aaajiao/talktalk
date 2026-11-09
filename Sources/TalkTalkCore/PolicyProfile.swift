@@ -40,6 +40,9 @@ public struct PolicyProfile: Codable, Sendable, Equatable {
                            extendToDrain: drain, guardRetry: speak.mt.guardRetry)
     }
 
+    /// LISTEN sends on leg B at some point in a session, so B needs its warm connection.
+    public var listenUsesLegB: Bool { listenHedgePolicy.hedge.enabled || listen.finalMT.openingDoubleSendS > 0 }
+
     public static func decode(_ data: Data) throws -> PolicyProfile {
         try JSONDecoder().decode(PolicyProfile.self, from: data)
     }
@@ -74,7 +77,7 @@ extension PolicyProfile {
             public var silenceMs: [String: Int]
             public var force: Force
             public var stallMs: Int; public var stallMsAfter8s: Int; public var hardCapS: Int
-            /// Video subtitles only; nil everywhere else.
+            /// Long-window Qwen recognition only; nil everywhere else.
             public var captions: Captions?
             public struct Captions: Codable, Sendable, Equatable {
                 /// A sentence this long gives up a piece. A cut at a comma leaves at least
@@ -91,22 +94,37 @@ extension PolicyProfile {
             public var maxOutputTokens: Int; public var contextTokensSoft: Int; public var contextTokensHard: Int
             public var retries: Int
             public var hedge: PartialHedgeConfig
+            /// For this long after a session's first LISTEN request, each sentence goes out on
+            /// both connections. 0 turns it off.
+            public var openingDoubleSendS: Int
+            /// How much past `deadlineMs` to wait for a request the server has started to
+            /// answer. One that has not started still stops at `deadlineMs`.
+            public var respondingGraceMs: Int
         }
-        /// Video subtitles release sentences from stable periods, and real pauses come from the
+        /// Long-window Qwen releases sentences from stable periods, and real pauses come from the
         /// audio. Measured on meeting speech, Qwen's last words lag: the word count holds for about
         /// 1.25 s while the speaker goes on, and every reading ends in a period, so text-based
         /// pauses cut sentences. They remain only as a slow guard against a hung sentence, and
         /// that guard also ends a hold on an unfinished last word (measured hesitation: up to 2.4 s).
-        public var forVideoCaptions: Listen {
-            var video = self
-            video.deLookback.enabled = false   // the single-cue board cannot show a merge of two sentences
-            video.finalize.punctPauseMs = .max
-            video.finalize.captions = .init(splitFromWords: 30, minHeadWords: 12)
+        public var forRollingSentences: Listen {
+            var rolling = self
+            rolling.finalize.punctPauseMs = .max
+            rolling.finalize.captions = .init(splitFromWords: 30, minHeadWords: 12)
             let textPause = 3000
-            video.finalize.force.pauseMs = max(video.finalize.force.pauseMs, textPause)
-            video.finalize.force.pauseMsAfter8s = max(video.finalize.force.pauseMsAfter8s, textPause)
-            video.finalize.stallMs = max(video.finalize.stallMs, textPause)
-            video.finalize.stallMsAfter8s = max(video.finalize.stallMsAfter8s, textPause)
+            rolling.finalize.force.pauseMs = max(rolling.finalize.force.pauseMs, textPause)
+            rolling.finalize.force.pauseMsAfter8s = max(rolling.finalize.force.pauseMsAfter8s, textPause)
+            rolling.finalize.stallMs = max(rolling.finalize.stallMs, textPause)
+            rolling.finalize.stallMsAfter8s = max(rolling.finalize.stallMsAfter8s, textPause)
+            return rolling
+        }
+
+        /// The same rules on video's single-cue board, which cannot show a merge of two sentences.
+        /// Apple's draft is already on that board, so waiting a little longer for a translation
+        /// that is on its way costs nothing visible.
+        public var forVideoCaptions: Listen {
+            var video = forRollingSentences
+            video.deLookback.enabled = false
+            video.finalMT.respondingGraceMs = 1000
             return video
         }
 

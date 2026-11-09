@@ -210,6 +210,15 @@ public final class MeetingSession: SpeakEchoSink {
         switch state { case .starting, .running: return true; default: return false }
     }
 
+    /// A meeting or call the user set to Apple Speech keeps the ordinary text-pause rules. One
+    /// that starts on Qwen stays on these rules if Apple takes over. Video has always used its
+    /// own rules on either recognizer.
+    static func listenRules(_ listen: PolicyProfile.Listen, mode: MeetingMode,
+                            asr: any StreamingASREngine) -> PolicyProfile.Listen {
+        if mode == .captions { return listen.forVideoCaptions }
+        return asr.releasesEarlySentences ? listen.forRollingSentences : listen
+    }
+
     /// All UI callbacks make exactly one MainActor hop, checked after the hop, so an already
     /// queued old-language subtitle cannot arrive after the board was reset.
     private func makePipeline(lang: Lang, target: Lang, engines: ListenPipeline.Engines, log: EventLog,
@@ -223,7 +232,7 @@ public final class MeetingSession: SpeakEchoSink {
                 }
             }
         } else { analysis = nil }
-        return ListenPipeline(lang: lang, target: target, profile: mode == .captions ? profile.listen.forVideoCaptions : profile.listen, engines: engines, log: log, ingest: ingest,
+        return ListenPipeline(lang: lang, target: target, profile: Self.listenRules(profile.listen, mode: mode, asr: engines.asr), engines: engines, log: log, ingest: ingest,
             jobs: jobs, onTranscript: { [weak self] source, target, at in
                 Task { @MainActor in
                     guard let self, self.acceptsListenCallbacks(configuration) else { return }

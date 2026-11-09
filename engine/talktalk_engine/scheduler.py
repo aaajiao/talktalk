@@ -13,7 +13,8 @@ non-preemptible step (a TTS frame, an ASR token, a background chunk). Rules (§6
      even while parked at the render horizon; ASR may still run between its steps
   6  while SPEAK is active (/v1/session speak_active, or any TTS job queued), P2 is paused
   7  P2 past its deadline is dropped, whether paused, not started or running (a running one is
-     cancelled before its next step): counted in expired_dropped, finished with err "expired".
+     cancelled before its next step): counted in expired_dropped, finished with err "expired",
+     or "parked" when rule 6 was holding it, which says nothing about the job.
      P0, P1 and P3 are never dropped for lateness (the app cancels them)
 bufferedAhead comes from the app's /v1/playout reports. Without any report (bench, smoke) it is
 unknown and TTS is never held back by the horizon.
@@ -85,6 +86,8 @@ class Job:
         self.gen = None
         self.cancelled = threading.Event()
         self.expired = False          # rule 7 drop (P2 only)
+        self.held = False             # rule 6 has paused it at some point
+        self.parked = False           # that drop came after rule 6 had held it
         self.finished = False
         self.seq = next(_seq)
         self.produced_audio_ms = 0.0
@@ -299,13 +302,15 @@ class GpuScheduler:
                     candidates.append((d, j.priority, j.seq, j))
                 continue
             if j.priority == P2:
-                # rule 7 before rule 6: a paused P2 still expires, so the app falls back at once
+                # rule 7 before rule 6: a paused P2 still expires, so the caller is not left waiting
                 if now > j.deadline_ms:
                     j.expired = True
+                    j.parked = bool(self.speak_active or tts or j.held)
                     j.cancel()
                     self.expired_dropped += 1
                     return j
                 if self.speak_active or tts:
+                    j.held = True
                     continue
             # rule 2: admission against every active TTS job
             if tts and buffered is not None:
@@ -350,7 +355,7 @@ class GpuScheduler:
                     self.cv.wait(timeout=0.01 if self.jobs else 0.5)
                     continue
             if job.cancelled.is_set():
-                self._retire(job, err="expired" if job.expired else "cancelled")
+                self._retire(job, err="parked" if job.parked else "expired" if job.expired else "cancelled")
                 continue
             t0 = time.perf_counter()
             try:
