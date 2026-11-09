@@ -148,6 +148,9 @@ private actor SpeakTestMT: SpeakTranslator {
     let translations: [String: String]
     let delay: Duration
     let cancelDelay: Duration
+    /// Holds every translation until this many have started, so a backlog test does not depend
+    /// on whether earlier clauses happened to drain before later ones were recognized.
+    let holdUntilCalls: Int
     private(set) var calls = 0
     private(set) var requests: [SpeakMTRequest] = []
     private(set) var preparations: [Direction] = []
@@ -155,14 +158,15 @@ private actor SpeakTestMT: SpeakTranslator {
     private(set) var peak = 0
     private(set) var cancellations = 0
     init(text: String = "Hello world.", delay: Duration = .zero, cancelDelay: Duration = .zero,
-         translations: [String: String] = [:]) {
+         translations: [String: String] = [:], holdUntilCalls: Int = 0) {
         self.text = text; self.delay = delay; self.cancelDelay = cancelDelay
-        self.translations = translations
+        self.translations = translations; self.holdUntilCalls = holdUntilCalls
     }
     func translate(_ request: SpeakMTRequest) async throws -> SpeakMTOutcome {
         requests.append(request)
         calls += 1; active += 1; peak = max(peak, active)
         defer { active -= 1 }
+        while calls < holdUntilCalls { try await Task.sleep(for: .milliseconds(1)) }
         try await Task.sleep(for: delay)
         return .text(translations[request.text] ?? text, backend: .apple, numberWarning: nil, hedge: nil)
     }
@@ -830,9 +834,11 @@ struct SpeakPipelineTests {
     @Test func backlogSummarizesWaitingClausesInsteadOfStartingAllTTS() async throws {
         let transcript = Mutex<SpeakTranscript?>(nil)
         let sources = ["第一段内容。", "第二段内容。", "第三段内容。", "第四段内容。", "一分钟后的新段。"]
-        let mt = SpeakTestMT(text: "We will discuss the complete project plan at the meeting.")
+        // Four 1 s clips, each translating to ~3.8 s of speech. Starting them together and never
+        // finishing synthesis puts the second completion at ~8.3 s of backlog on any interleaving.
+        let mt = SpeakTestMT(text: "We will discuss the complete project plan at the meeting.", holdUntilCalls: 4)
         let (pipeline, mic, host, tts) = try fixture(asr: SpeakTestASR(texts: sources), mt: mt,
-            whileHeld: true, onUI: { event in
+            holdTTS: true, whileHeld: true, onUI: { event in
                 if case .transcript(let value) = event { transcript.withLock { $0 = value } }
             })
         let now = HostClock.now()
@@ -840,7 +846,7 @@ struct SpeakPipelineTests {
         for index in 0..<4 { mic.press.cc.yield(clip(at: now + UInt64(index) * 1_000_000_000)) }
         #expect(await until { await mt.requests.contains { $0.mode == .summarize } })
         #expect(tts.requests.withLock { $0.count < 4 })
-        #expect(host.queue.clauseCount > 0)
+        #expect(await until { host.queue.clauseCount > 0 })
         pipeline.setFloorPaused(true)
         mic.press.cc.yield(clip(at: now + 70_000_000_000))
         #expect(await until { transcript.withLock {
