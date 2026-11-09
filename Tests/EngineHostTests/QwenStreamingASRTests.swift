@@ -13,8 +13,9 @@ private actor StreamingClipFake: ClipASREngine {
     let failFrom: Int?
     let lateAfterFirst: Duration?
     let expiring: Set<Int>
-    init(failFrom: Int? = nil, lateAfterFirst: Duration? = nil, expiring: Set<Int> = []) {
-        self.failFrom = failFrom; self.lateAfterFirst = lateAfterFirst; self.expiring = expiring
+    let readings: [String]
+    init(failFrom: Int? = nil, lateAfterFirst: Duration? = nil, expiring: Set<Int> = [], readings: [String] = []) {
+        self.failFrom = failFrom; self.lateAfterFirst = lateAfterFirst; self.expiring = expiring; self.readings = readings
     }
     enum Failure: Error { case unavailable }
     func transcribe(_ clip: PCMClip16k, hint: Lang, context: String?, job: JobID,
@@ -30,7 +31,7 @@ private actor StreamingClipFake: ClipASREngine {
             // adapter's final fence rather than RemoteQwenASR's already-tested deadline.
             await Task.detached { try? await Task.sleep(for: delay) }.value
         }
-        return .init(text: "words \(number)", language: hint,
+        return .init(text: number <= readings.count ? readings[number - 1] : "words \(number)", language: hint,
                      timing: .init(received: 0, started: 0, firstOutput: 0, finished: 0))
     }
     func cancel(_ job: JobID) async { cancelled.append(job) }
@@ -245,6 +246,174 @@ struct QwenStreamingASRTests {
         #expect(await primary.calls[2].clip.start == 3_100_000_000)
         #expect(fallback.opens.withLock { $0 } == 0)
         await stream.close(); for reader in readers { await reader.value }
+    }
+
+    private var earlyConfig: QwenStreamConfiguration {
+        var early = config; early.earlySentences = true; return early
+    }
+
+    private let spoken = [
+        "Nobody was at fault. The system allowed.",
+        "Nobody was at fault. The system allowed it.",
+        "Nobody was at fault. The system allowed it to.",
+    ]
+
+    @Test func earlySentenceLeavesTheAudioWindowWhereItWas() async throws {
+        let primary = StreamingClipFake(readings: spoken), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: earlyConfig).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([]), volatile = Mutex<[ASREvent]>([])
+        let readers = [Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } },
+                       Task { for await event in stream.volatileEvents { volatile.withLock { $0.append(event) } } }]
+        let start: HostTime = 4_000_000_000
+        for index in 0..<3 {
+            feed(stream, at: start + UInt64(index) * 100_000_000)
+            #expect(await until { await primary.calls.count == index + 1 })
+            #expect(await until { await primary.active == 0 })
+        }
+        #expect(await until { finalLog(finals).count == 1 })
+        #expect(finalLog(finals)[0].text == "Nobody was at fault.")
+        #expect(finalLog(finals)[0].through == start + 200_000_000 - 1)
+        #expect(await until { volatile.withLock { $0.last == .volatile("The system allowed it to.", through: start + 300_000_000) } })
+        #expect(await primary.calls.allSatisfy { $0.clip.start == start })
+        await stream.close(); for reader in readers { await reader.value }
+    }
+
+    @Test func forcedCutDropsTheTailPeriodAndKeepsTheFinalAfterTheEarlySentence() async throws {
+        let readings = spoken + ["Nobody was at fault. The system allowed it to happen. It took a."]
+        let primary = StreamingClipFake(readings: readings), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: earlyConfig).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([])
+        let reader = Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } }
+        let start: HostTime = 5_000_000_000
+        for index in 0..<4 {
+            feed(stream, at: start + UInt64(index) * 100_000_000)
+            #expect(await until { await primary.calls.count == min(index + 1, 4) })
+            #expect(await until { await primary.active == 0 })
+        }
+        #expect(await until { finalLog(finals).count == 3 })
+        #expect(finalLog(finals).map(\.text) == ["Nobody was at fault.", "The system allowed it to happen.", "It took a"])
+        #expect(finalLog(finals)[2].through == start + 400_000_000)
+        #expect(finalLog(finals)[0].through < finalLog(finals)[1].through && finalLog(finals)[1].through < finalLog(finals)[2].through)
+        await stream.close(); await reader.value
+    }
+
+    @Test func aRequestedFinalThroughTheLastReadingStillPassesTheEarlySentence() async throws {
+        let readings = spoken + ["Nobody was at fault. The system allowed it to happen."]
+        let primary = StreamingClipFake(readings: readings), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: earlyConfig).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([])
+        let reader = Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } }
+        let start: HostTime = 6_000_000_000
+        for index in 0..<3 {
+            feed(stream, at: start + UInt64(index) * 100_000_000)
+            #expect(await until { await primary.calls.count == index + 1 })
+            #expect(await until { await primary.active == 0 })
+        }
+        #expect(await until { finalLog(finals).count == 1 })
+        let reading = start + 300_000_000
+        await stream.finalize(through: reading)
+        #expect(await until { finalLog(finals).count == 2 })
+        #expect(finalLog(finals)[1].text == "The system allowed it to happen.")
+        #expect(finalLog(finals)[0].through < finalLog(finals)[1].through)
+        await stream.close(); await reader.value
+    }
+
+    private func releaseFirstSentence(_ stream: any ASRStream, _ primary: StreamingClipFake,
+                                      _ finals: borrowing Mutex<[ASREvent]>, start: HostTime) async {
+        for index in 0..<2 {
+            feed(stream, at: start + UInt64(index) * 100_000_000)
+            #expect(await until { await primary.calls.count == index + 1 })
+            #expect(await until { await primary.active == 0 })
+        }
+        #expect(await until { finalLog(finals).count == 1 })
+    }
+
+    @Test func aFinalAtTheReleasingReadingPassesTheEarlySentencesStamp() async throws {
+        let primary = StreamingClipFake(readings: spoken), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: earlyConfig).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([])
+        let reader = Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } }
+        let start: HostTime = 9_000_000_000
+        await releaseFirstSentence(stream, primary, finals, start: start)
+        await stream.finalize(through: start + 200_000_000)
+        #expect(await until { finalLog(finals).count == 2 })
+        #expect(finalLog(finals)[0].through < finalLog(finals)[1].through)
+        await stream.close(); await reader.value
+    }
+
+    @Test func aFinalBeforeTheStampStillPassesAndKeepsTheRealCut() async throws {
+        let primary = StreamingClipFake(readings: spoken), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: earlyConfig).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([])
+        let reader = Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } }
+        let start: HostTime = 10_000_000_000
+        await releaseFirstSentence(stream, primary, finals, start: start)
+        let cut = start + 150_000_000
+        await stream.finalize(through: cut)
+        #expect(await until { finalLog(finals).count == 2 })
+        #expect(finalLog(finals)[1].through == start + 200_000_000 - 1 + 1)
+        feed(stream, at: start + 200_000_000)
+        #expect(await until { await primary.calls.last?.clip.start == cut })
+        await stream.close(); await reader.value
+    }
+
+    @Test func aFinalLISTENAsksForDuringAForcedCutKeepsItsPeriod() async throws {
+        let primary = StreamingClipFake(lateAfterFirst: .milliseconds(100), readings: ["One two.", "It took a long time."])
+        let fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: earlyConfig).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([])
+        let reader = Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } }
+        let start: HostTime = 11_000_000_000
+        feed(stream, at: start)
+        #expect(await until { await primary.calls.count == 1 })
+        #expect(await until { await primary.active == 0 })
+        feed(stream, at: start + 100_000_000, count: 4800)
+        #expect(await until { await primary.calls.count == 2 })
+        await stream.finalize(through: start + 400_000_000)
+        #expect(await until { finalLog(finals).count == 1 })
+        #expect(finalLog(finals)[0].text == "It took a long time.")
+        await stream.close(); await reader.value
+    }
+
+    @Test func switchingToAppleDoesNotRepeatReleasedSentences() async throws {
+        let primary = StreamingClipFake(failFrom: 4, readings: spoken), fallback = StreamingFallbackFake()
+        var roomy = earlyConfig; roomy.segmentFrames = 12_800; roomy.bufferFrames = 16_000
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: roomy).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([])
+        let reader = Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } }
+        let start: HostTime = 7_000_000_000
+        for index in 0..<4 {
+            feed(stream, at: start + UInt64(index) * 100_000_000)
+            #expect(await until { await primary.calls.count == index + 1 })
+            #expect(await until { await primary.active == 0 })
+        }
+        #expect(await until { fallback.fed.withLock { !$0.isEmpty } })
+        #expect(fallback.fed.withLock { $0.map(\.at) } == [start + 300_000_000])
+        #expect(await until { finalLog(finals).map(\.text) == ["Nobody was at fault.", "The system allowed it to"] })
+        await stream.close(); await reader.value
+    }
+
+    @Test func withoutEarlySentencesEveryReadingAndPeriodPassThroughUnchanged() async throws {
+        let readings = spoken + ["Nobody was at fault. The system allowed it to happen. It took a."]
+        let primary = StreamingClipFake(readings: readings), fallback = StreamingFallbackFake()
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: config).open(.en, highPriority: false)
+        let finals = Mutex<[ASREvent]>([]), volatile = Mutex<[ASREvent]>([])
+        let readers = [Task { for await event in stream.finalEvents { finals.withLock { $0.append(event) } } },
+                       Task { for await event in stream.volatileEvents { volatile.withLock { $0.append(event) } } }]
+        let start: HostTime = 8_000_000_000
+        for index in 0..<4 {
+            feed(stream, at: start + UInt64(index) * 100_000_000)
+            #expect(await until { await primary.calls.count == min(index + 1, 4) })
+            #expect(await until { await primary.active == 0 })
+            if index < 3 {
+                let expected = ASREvent.volatile(readings[index], through: start + UInt64(index + 1) * 100_000_000)
+                #expect(await until { volatile.withLock { $0.last == expected } })
+            }
+        }
+        #expect(await until { finalLog(finals).count == 1 })
+        #expect(finalLog(finals)[0].text == readings[3] && finalLog(finals)[0].through == start + 400_000_000)
+        await stream.close(); for reader in readers { await reader.value }
+        #expect(finalLog(finals).count == 1)
     }
 
     @Test func repeatedExpiriesStillSwitchToApple() async throws {

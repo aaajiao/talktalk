@@ -28,6 +28,8 @@ final class SubtitlePanel {
     /// "朗读新译文" (§4 无障碍), default off.
     var announcesNewTranslations = false
     private var announcedThrough: UInt64 = 0
+    /// Video can show a late sentence after a newer one, which a watermark would never announce.
+    private var announcedVideoFinals: Set<UInt64> = []
     /// Keycap, "修复…" / "详情" and the "暂未听到对方声音" placeholder open the details popover.
     var onDockAction: ((NSView) -> Void)?
     var onPlaceholderClick: ((NSView) -> Void)?
@@ -759,9 +761,11 @@ final class SubtitlePanel {
 
     /// "朗读新译文": each new remote final, never a draft, at medium priority while visible.
     private func announceFinals(_ finals: [(sentence: UInt64, text: String)]) {
-        let fresh = finals.filter { $0.sentence > announcedThrough }
+        let isVideo = presentation == .video
+        let fresh = finals.filter { isVideo ? !announcedVideoFinals.contains($0.sentence) : $0.sentence > announcedThrough }
         guard let newest = fresh.map(\.sentence).max() else { return }
         announcedThrough = newest
+        if isVideo { announcedVideoFinals.formUnion(fresh.map(\.sentence)) }
         guard announcesNewTranslations, isVisible else { return }
         for line in fresh where !line.text.isEmpty {
             NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
@@ -820,6 +824,7 @@ final class SubtitlePanel {
         restoreFromQuietDim()
         if videoLagging { videoLagging = false; onVideoLagChange?(false) }
         announcedThrough = 0
+        announcedVideoFinals = []
         conversation.followLatest()
         if hadHint { onHintChange?(nil) }
         updateConversation()

@@ -18,11 +18,12 @@ public struct QwenStreamingASR: StreamingASREngine {
 
     public init(engine: EngineProcess?, fallback: any StreamingASREngine,
                 jobs: JobIDSequence = .init(), log: EventLog? = nil, cadenceMs: Int = 1000,
+                earlySentences: Bool = false,
                 onEngine: @escaping @Sendable (EngineID) -> Void = { _ in }) {
         self.engine = engine
         primary = engine.flatMap { $0.config.roles.contains("asr") ? RemoteQwenASR(engine: $0) : nil }
         self.fallback = fallback; self.jobs = jobs; self.log = log; self.onEngine = onEngine
-        configuration = .init(cadenceFrames: cadenceMs * 16)
+        configuration = .init(cadenceFrames: cadenceMs * 16, earlySentences: earlySentences)
     }
 
     // Fake clip backends exercise the adapter without launching an engine or accessing audio.
@@ -91,6 +92,7 @@ struct QwenStreamConfiguration: Sendable {
     var requestNs: UInt64 = 900_000_000
     var finalizeNs: UInt64 = 1_000_000_000    // LISTEN waits 1500 ms; old results cannot outlive this cut
     var maxExpiredInARow = 3                  // a restarted window is short, so repeats mean real overload
+    var earlySentences = false                // release sentences from inside the window (RollingSentenceCommitter)
 }
 
 private final class QwenASRStream: ASRStream, @unchecked Sendable {
@@ -119,6 +121,9 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
     private var finalThrough: HostTime?
     private var finalTimer: Task<Void, Never>?
     private var expiredInARow = 0
+    private var sentences: RollingSentenceCommitter?
+    private var earlyThrough: HostTime = 0
+    private var cutIsForced = true            // only an explicit finalize is a cut the speaker made
     private var active: (request: Request, task: Task<Void, Never>)?
     private var switching = false
     private var fallbackTask: Task<Void, Never>?
@@ -135,6 +140,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
         self.primary = primary; self.fallback = fallback; self.language = language
         self.highPriority = highPriority; self.jobs = jobs; self.configuration = configuration
         self.log = log; self.onEngine = onEngine
+        sentences = configuration.earlySentences ? RollingSentenceCommitter(lang: language) : nil
         (volatileEvents, vol) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(1))
         (finalEvents, fin) = AsyncStream.makeStream(bufferingPolicy: .bufferingOldest(64))
     }
@@ -157,7 +163,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
                 cancelActiveLocked()
             }
             if !switching, finalThrough == nil, count >= configuration.segmentFrames {
-                requestFinalLocked(through: boundaryLocked(after: configuration.segmentFrames))
+                requestFinalLocked(through: boundaryLocked(after: configuration.segmentFrames), forced: true)
             }
         }
         schedule()
@@ -168,16 +174,18 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
             guard !closed else { return nil }
             if let fallbackStream { return fallbackStream }
             guard let end = blocks.last?.end, through > finalizedThrough else { return nil }
-            requestFinalLocked(through: min(through, end))
+            requestFinalLocked(through: min(through, end), forced: false)
             return nil
         }
         if let apple { await apple.finalize(through: through) }
         else { schedule() }
     }
 
-    private func requestFinalLocked(through: HostTime) {
+    private func requestFinalLocked(through: HostTime, forced: Bool) {
+        if !forced, finalThrough != nil { cutIsForced = false }   // LISTEN will close on this final
         guard finalThrough == nil, through > finalizedThrough else { return }
         finalThrough = through
+        cutIsForced = forced
         let token = generation, delay = configuration.finalizeNs
         cancelActiveLocked() // prioritize the exact final range over a volatile snapshot
         finalTimer = Task { [weak self] in
@@ -191,7 +199,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
             guard !closed, !switching, fallbackStream == nil, active == nil,
                   let end = blocks.last?.end else { return }
             if finalThrough == nil, count >= configuration.segmentFrames {
-                requestFinalLocked(through: boundaryLocked(after: configuration.segmentFrames))
+                requestFinalLocked(through: boundaryLocked(after: configuration.segmentFrames), forced: true)
             }
             let final = finalThrough != nil
             guard final || (count >= configuration.cadenceFrames &&
@@ -205,7 +213,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
             let energy = clip.samples.reduce(0.0) { $0 + Double($1 * $1) } / Double(max(1, clip.samples.count))
             if energy < 0.000001 {
                 if final { emitFinalLocked("", through: clip.end) }
-                else if hypothesis == nil { advanceLocked(through: clip.end) }
+                else if hypothesis == nil { sentences?.speechStopped(); advanceLocked(through: clip.end) }
                 return
             }
             let request = Request(job: jobs.next(), generation: generation, clip: clip, final: final)
@@ -247,6 +255,10 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
             }
             if failed {
                 if let cut = finalThrough { emitFinalLocked(hypothesisTextLocked(through: cut), through: cut) }
+                else if sentences?.hasReleased == true, let hypothesis, hypothesis.through > finalizedThrough {
+                    // Apple replays all audio not yet finalized, which would repeat released sentences.
+                    emitFinalLocked(hypothesis.text, through: hypothesis.through)
+                }
                 switching = true; useFallback = true
                 return
             }
@@ -256,7 +268,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
                 emitFinalLocked(clean, through: request.clip.end)
             } else {
                 hypothesis = (clean, request.clip.end)
-                if finalThrough == nil { vol.yield(.volatile(clean, through: request.clip.end)) }
+                if finalThrough == nil { publishHypothesisLocked(clean, through: request.clip.end) }
             }
         }
         if useFallback { startFallback() }
@@ -295,11 +307,41 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
         let backend = primary, job = active.request.job
         Task { await backend.cancel(job) }
     }
-    private func emitFinalLocked(_ text: String, through: HostTime) {
+    private func publishHypothesisLocked(_ text: String, through: HostTime) {
+        guard var reader = sentences else { vol.yield(.volatile(text, through: through)); return }
+        let reading = reader.observe(text)
+        sentences = reader
+        if let sentence = reading.sentence {
+            log?.event("asr.sentence_early")
+            yieldEarlyFinalLocked(sentence, before: through)
+        }
+        vol.yield(.volatile(reading.remainder, through: through))
+    }
+    /// LISTEN ignores a final that does not extend past the last one, and drops readings it
+    /// already covers. An early sentence has no audio end of its own, so it takes a stamp just
+    /// under the reading it came from: that fences older readings and leaves the window's cut valid.
+    private func yieldEarlyFinalLocked(_ text: String, before limit: HostTime) {
+        earlyThrough = max(earlyThrough &+ 1, limit &- 1)
+        yieldFinalLocked(text, through: earlyThrough)
+    }
+    private func yieldFinalLocked(_ text: String, through: HostTime) {
         let start = min(blocks.first?.at ?? through, through)
         if case .dropped = fin.yield(.final(text, range: start...through)) {
             log?.event("asr.final_overflow")
         }
+    }
+    private func emitFinalLocked(_ text: String, through: HostTime) {
+        var tail = text, upper = through
+        if var reader = sentences {
+            let closing = reader.finish(text, forced: cutIsForced)
+            sentences = reader
+            for (index, sentence) in closing.sentences.enumerated() {
+                yieldEarlyFinalLocked(sentence, before: through &- UInt64(closing.sentences.count - 1 - index))
+            }
+            tail = closing.tail
+            upper = max(through, earlyThrough &+ 1)
+        }
+        yieldFinalLocked(tail, through: upper)
         advanceLocked(through: through)
     }
     private func advanceLocked(through: HostTime) {
@@ -311,6 +353,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
         }
         count = blocks.reduce(0) { $0 + $1.samples.count }
         generation &+= 1; finalThrough = nil; hypothesis = nil; lastRequestedThrough = 0
+        sentences?.windowMoved(); cutIsForced = true
         finalTimer?.cancel(); finalTimer = nil
     }
     private static func ceilSamples(_ ns: UInt64) -> Int { Int(ns / 62_500 + (ns % 62_500 == 0 ? 0 : 1)) }

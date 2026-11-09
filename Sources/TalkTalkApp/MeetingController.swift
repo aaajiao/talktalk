@@ -364,7 +364,7 @@ final class MeetingController {
         listenEngine = process
         // Video generates no speech, so the GPU is free to read the recognizer twice as often.
         return QwenStreamingASR(engine: process, fallback: AppleSpeechASR(), jobs: jobs, log: log,
-            cadenceMs: mode == .captions ? 500 : 1000,
+            cadenceMs: mode == .captions ? 500 : 1000, earlySentences: mode == .captions,
             onEngine: { [weak self] engine in
                 Task { @MainActor in
                     guard let self, self.subtitleSessionID == sessionID, self.listenRequestID == requestID,

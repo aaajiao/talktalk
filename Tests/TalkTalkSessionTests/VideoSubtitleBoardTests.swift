@@ -64,6 +64,51 @@ import Testing
         #expect(!changed13)
     }
 
+    @Test func aFinalNeverShownGoesBeforeTheNewerCueInsteadOfBeingLost() throws {
+        var board = VideoSubtitleBoard()
+        board.apply(.final(sentence: 1, text: "第一句。", source: "First.", approx: false, numberWarning: false))
+        board.apply(.draft(sentence: 3, text: "第三句", source: "Third"))
+        board.advance()
+        #expect(board.current?.line.sentence == 3)
+        let changed = board.apply(.final(sentence: 2, text: "第二句。", source: "Exactly.", approx: false, numberWarning: false))
+        #expect(changed)
+        #expect(board.current?.line.source == "Exactly.")
+        #expect(board.pendingSentenceIDs == [3])
+        board.apply(.final(sentence: 3, text: "第三句定稿。", source: "Third.", approx: false, numberWarning: false))
+        #expect(board.pendingFinalSentenceIDs == [3])
+        board.advance()
+        #expect(board.current?.line.source == "Third." && board.current?.isFinal == true)
+    }
+
+    @Test func aLateFinalWaitsBehindAFinalAlreadyOnScreenSoItIsNotShownTwice() throws {
+        var board = VideoSubtitleBoard()
+        board.apply(.final(sentence: 3, text: "第三句。", source: "Third.", approx: false, numberWarning: false))
+        let shown = try #require(board.current)
+        let changed = board.apply(.final(sentence: 2, text: "第二句。", source: "Second.", approx: false, numberWarning: false))
+        #expect(!changed)
+        #expect(board.current == shown)
+        #expect(board.pendingSentenceIDs == [2])
+        board.advance()
+        #expect(board.current?.line.source == "Second.")
+        #expect(board.pendingSentenceIDs.isEmpty)
+    }
+
+    @Test func aFinalForASkippedOrFarOlderSentenceStillDoesNotRewind() {
+        var board = VideoSubtitleBoard()
+        board.apply(.draft(sentence: 1, text: "当前", source: "Current"))
+        for sentence in UInt64(2)...4 { board.apply(.draft(sentence: sentence, text: "句", source: "S\(sentence)")) }
+        #expect(board.pendingSentenceIDs == [3, 4])   // 2 was skipped
+        board.advance()
+        board.advance()
+        #expect(board.current?.line.sentence == 4)
+        let skipped = board.apply(.final(sentence: 2, text: "迟到。", source: "Late.", approx: false, numberWarning: false))
+        #expect(!skipped)
+        var far = VideoSubtitleBoard()
+        far.apply(.draft(sentence: 9, text: "九", source: "Nine"))
+        let tooOld = far.apply(.final(sentence: 5, text: "五。", source: "Five.", approx: false, numberWarning: false))
+        #expect(!tooOld && far.current?.line.sentence == 9)
+    }
+
     @Test func pendingKeepsOnlyLatestTwoPairsAndFinalizedPendingCannotRegress() {
         var board = VideoSubtitleBoard()
         board.apply(.draft(sentence: 1, text: "当前句", source: "Current"))
