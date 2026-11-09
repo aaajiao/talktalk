@@ -4,8 +4,8 @@ import TalkTalkCore
 /// width, so tests can use fixed widths. Ranges are character (grapheme) offsets.
 ///
 /// - A page has at most `maxLines` lines that each fit `lineWidth`.
-/// - Where text remains, the page break moves back to the last "，。；？！、" / ", ; . ?"
-///   within half a line.
+/// - Where text remains, the page break moves back to the last "，。；？！、" / ", ; . ?", or a
+///   space between two Chinese characters, within half a line.
 /// - Two-line pages break where the two lines are most nearly equal; the second line never
 ///   holds only one or two characters or a lone punctuation mark when another break fits.
 /// - Latin words and numbers are not split unless a single word is wider than a line; no line
@@ -22,6 +22,40 @@ public enum VideoCaptionPager {
     static let closing: Set<Character> = ["，", "。", "；", "？", "！", "、", "：", "）", "」", "』", "”", "’", "》", "…",
                                           ",", ".", ";", "?", "!", ":", ")", "]", "}", "%", "›"]
     static let opening: Set<Character> = ["（", "「", "『", "“", "‘", "《", "(", "[", "{"]
+    private static let clauseMarks: Set<Character> = ["，", "。"]
+    /// Marks a removed comma or period leaves no gap before. Unlike `closing`, this leaves out
+    /// marks that can begin a token, as in ".NET".
+    private static let noGapBefore = closing.subtracting([".", ":", "%"]).union(["】", "〉", "］"])
+    private static let curlyQuotes: Set<Character> = ["“", "”", "‘", "’"]
+
+    /// The translation line of a video caption follows Chinese subtitle style: "，" and "。" are
+    /// shown as one space, and as nothing at either end or before closing punctuation. Only
+    /// full-width marks change, so "3,000" and "3.5" stay intact. For display only: the text
+    /// that is translated, saved or announced keeps its punctuation.
+    public static func withoutClauseMarks(_ text: String) -> String {
+        guard text.contains(where: clauseMarks.contains) else { return text }
+        var result = ""
+        var gap = false
+        for character in text {
+            if clauseMarks.contains(character) {
+                gap = true
+                continue
+            }
+            if gap {
+                if character.isWhitespace { continue }
+                if let last = result.last, !last.isWhitespace, !noGapBefore.contains(character),
+                   !closesStraightQuote(character, after: result) { result.append(" ") }
+                gap = false
+            }
+            result.append(character)
+        }
+        return result
+    }
+
+    /// A straight quote closes when the same quote before it is still open.
+    private static func closesStraightQuote(_ character: Character, after text: String) -> Bool {
+        (character == "\"" || character == "'") && text.filter { $0 == character }.count % 2 == 1
+    }
 
     public static func paginate(_ text: [Character], advances: [Double], lineWidth: Double,
                                 maxLines: Int = 2) -> [Page] {
@@ -100,8 +134,13 @@ public enum VideoCaptionPager {
 
         func isPreferred(break index: Int, after start: Int) -> Bool {
             let end = trimEnd(start, index)
-            return end > start && VideoCaptionPager.preferredBreaks.contains(text[end - 1])
+            guard end > start else { return false }
+            if VideoCaptionPager.preferredBreaks.contains(text[end - 1]) { return true }
+            // A space between Chinese text stands in for a comma or period.
+            return end < index && index < count && isChineseSide(text[end - 1]) && isChineseSide(text[index])
         }
+
+        func isChineseSide(_ c: Character) -> Bool { isWide(c) || VideoCaptionPager.curlyQuotes.contains(c) }
 
         /// The longest line from `start` that fits; a word wider than the line is cut.
         func fitLine(from start: Int) -> Int {

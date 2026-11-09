@@ -459,7 +459,7 @@ final class SubtitlePreviewCanvas: NSView {
         videoCaption.setAccessibilityTitles(source: String(appLocalized: "原文 · \(languages.source.title)"),
                                              translation: String(appLocalized: "译文 · \(languages.target.title)"))
         let sample = SubtitleListeningSample(scene: .video, languages: languages).pairs[0]
-        let translation = sample.translation
+        let translation = VideoCaptionPager.withoutClauseMarks(sample.translation)
         let source = VideoSubtitleView.sourceText(sample.source,
                                                   font: SubtitleStyle.font(typography.source), display: display)
         // An unfinished tail: the last three characters are still changing.

@@ -33,6 +33,38 @@ import TalkTalkCore
         #expect(farPages[0].joined().count == 40)
     }
 
+    @Test func commasAndPeriodsBecomeSpacesOnTheTranslationLine() {
+        let cases = [
+            "你好，世界。": "你好 世界",
+            "第一句。第二句。": "第一句 第二句",
+            "，开头": "开头",
+            "甲，。乙， 丙": "甲 乙 丙",
+            "他说：“来了。”然后，走了": "他说：“来了”然后 走了",
+            "“好”，他说": "“好” 他说",
+            "他说：\"来了。\"然后走了": "他说：\"来了\"然后走了",
+            "他说，\"来吧\"": "他说 \"来吧\"",
+            "【注意。】": "【注意】",
+            "支持 Java，.NET 和 Go": "支持 Java .NET 和 Go",
+            "3,000 和 3.5，很多？对、错！": "3,000 和 3.5 很多？对、错！",
+            "No marks, here.": "No marks, here.",
+        ]
+        for (text, shown) in cases { #expect(VideoCaptionPager.withoutClauseMarks(text) == shown) }
+    }
+
+    @Test func pageBreakPrefersASpaceBetweenChineseButNotLatinSpaces() {
+        let text = String(repeating: "甲", count: 35) + " " + String(repeating: "乙", count: 14)
+        let result = pages(text)
+        #expect(result.count == 2)
+        #expect(result[0].joined().count == 35)
+        #expect(result[1].joined() == String(repeating: "乙", count: 14))
+        // A space next to Latin text is an ordinary line break opportunity.
+        let mixed = String(repeating: "甲", count: 35) + " AI" + String(repeating: "乙", count: 14)
+        #expect(pages(mixed)[0].joined().hasSuffix("乙"))
+        // A space beside a curly quote still marks the clause.
+        let quoted = String(repeating: "甲", count: 32) + "“好” " + String(repeating: "乙", count: 14)
+        #expect(pages(quoted)[0].joined().hasSuffix("好”"))
+    }
+
     @Test func noLineStartsWithClosingPunctuationAndTinyRemaindersMoveBack() {
         // The 21st character is "。": the first line must not end before it.
         let text = String(repeating: "丙", count: 20) + "。" + String(repeating: "丁", count: 10)

@@ -955,12 +955,16 @@ final class SubtitlePanel {
     private func videoTranslationText(_ cue: VideoSubtitleBoard.Cue?) -> NSAttributedString {
         guard let cue, !cue.line.text.isEmpty else { return NSAttributedString(string: "") }
         guard !cue.isFinal else {
-            return VideoSubtitleView.translationText(cue.line.display, isFinal: true, stablePrefix: 0, font: videoTranslationFont)
+            return VideoSubtitleView.translationText(VideoCaptionPager.withoutClauseMarks(cue.line.display), isFinal: true,
+                                                     stablePrefix: 0, font: videoTranslationFont)
         }
-        let previous = renderedVideoCue.flatMap { $0.line.sentence == cue.line.sentence && !$0.isFinal ? $0.line.text : nil }
+        let text = VideoCaptionPager.withoutClauseMarks(cue.line.text)
+        let previous = renderedVideoCue.flatMap {
+            $0.line.sentence == cue.line.sentence && !$0.isFinal ? VideoCaptionPager.withoutClauseMarks($0.line.text) : nil
+        }
         // Measured when the draft changes; an unchanged draft keeps its dimmed tail.
-        let stable = videoDraftTail.stablePrefix(sentence: cue.line.sentence, text: cue.line.text, previous: previous)
-        return VideoSubtitleView.translationText(cue.line.text, isFinal: false, stablePrefix: stable, font: videoTranslationFont)
+        let stable = videoDraftTail.stablePrefix(sentence: cue.line.sentence, text: text, previous: previous)
+        return VideoSubtitleView.translationText(text, isFinal: false, stablePrefix: stable, font: videoTranslationFont)
     }
 
     /// Only the page actually assigned to the video view counts as displayed. Pending cues
