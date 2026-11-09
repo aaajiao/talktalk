@@ -279,33 +279,6 @@ public enum VideoCaptionPacing {
     public static func stablePrefixLength(previous: String, current: String) -> Int {
         zip(previous, current).prefix(while: { $0 == $1 }).count
     }
-
-    /// UTF-16 offsets of the non-space characters of `text` that a longest common subsequence
-    /// with `seen` leaves unmatched. A shared prefix would charge everything after one early edit.
-    public static func unreadOffsets(in text: String, seen: String) -> [Int] {
-        let new = Array(text), old = Array(seen)
-        let width = old.count + 1
-        var longest = [Int](repeating: 0, count: (new.count + 1) * width)
-        for i in new.indices.reversed() {
-            for j in old.indices.reversed() {
-                longest[i * width + j] = new[i] == old[j]
-                    ? longest[(i + 1) * width + j + 1] + 1
-                    : max(longest[(i + 1) * width + j], longest[i * width + j + 1])
-            }
-        }
-        var unread: [Int] = []
-        var offset = 0, j = 0
-        for i in new.indices {
-            while j < old.count, new[i] != old[j], longest[(i + 1) * width + j] < longest[i * width + j + 1] { j += 1 }
-            if j < old.count, new[i] == old[j] {
-                j += 1
-            } else if !new[i].isWhitespace {
-                unread.append(offset)
-            }
-            offset += new[i].utf16.count
-        }
-        return unread
-    }
 }
 
 /// What a draft actually showed, page by page. A later draft can revise a page the viewer has
@@ -330,11 +303,8 @@ public struct VideoDraftReading: Equatable, Sendable {
 }
 
 /// The reading clock of a final that replaces a draft already on screen (§6 分页). While another
-/// cue waits, a page needs only the time to read what the draft did not show, at least 1 s.
+/// cue waits, a page needs only the time to read what the draft did not show (`SubtitleFinalReading`).
 public struct VideoCaptionFinalHold: Equatable, Sendable {
-    /// A page is treated as rewritten, and read in full, once this share of it is unread.
-    public static let rewrittenShare = 0.6
-
     public struct Page: Equatable, Sendable {
         public var text: String
         public var utf16Range: Range<Int>
@@ -353,8 +323,8 @@ public struct VideoCaptionFinalHold: Equatable, Sendable {
 
     /// `seenSource` and `seenTranslation`: what the draft actually showed (`VideoDraftReading`).
     public init(source: String, translation: String, seenSource: String, seenTranslation: String, at now: Double) {
-        unreadSource = VideoCaptionPacing.unreadOffsets(in: source, seen: seenSource)
-        unreadTranslation = VideoCaptionPacing.unreadOffsets(in: translation, seen: seenTranslation)
+        unreadSource = SubtitleFinalReading.unreadOffsets(in: source, seen: seenSource)
+        unreadTranslation = SubtitleFinalReading.unreadOffsets(in: translation, seen: seenTranslation)
         pageStartedAt = now
     }
 
@@ -368,18 +338,16 @@ public struct VideoCaptionFinalHold: Equatable, Sendable {
     public mutating func restart(at now: Double) { pageStartedAt = now }
 
     public func readyTime(source: Page?, translation: Page?, sourceLanguage: Lang, targetLanguage: Lang) -> Double {
-        pageStartedAt + VideoCaptionPacing.readingTime(
+        pageStartedAt + max(SubtitleFinalReading.minimumSeconds, VideoCaptionPacing.readingTime(
             sourceCharacters: keepsSource ? 0 : Self.charged(source, unread: unreadSource),
             translationCharacters: keepsTranslation ? 0 : Self.charged(translation, unread: unreadTranslation),
-            sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)
+            sourceLanguage: sourceLanguage, targetLanguage: targetLanguage))
     }
 
     private static func charged(_ page: Page?, unread: [Int]) -> Int {
         guard let page else { return 0 }
-        let letters = page.text.reduce(0) { $1.isWhitespace ? $0 : $0 + 1 }
         let count = unread.reduce(0) { page.utf16Range.contains($1) ? $0 + 1 : $0 }
-        guard letters > 0, Double(count) / Double(letters) >= rewrittenShare else { return count }
-        return page.text.count
+        return SubtitleFinalReading.chargedCharacters(unread: count, in: page.text)
     }
 }
 

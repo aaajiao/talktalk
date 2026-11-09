@@ -126,12 +126,12 @@ import TalkTalkCore
     }
 
     @Test func unreadOffsetsAlignInsteadOfComparingPrefixes() {
-        #expect(VideoCaptionPacing.unreadOffsets(in: "你好世界", seen: "你好世界").isEmpty)
-        #expect(VideoCaptionPacing.unreadOffsets(in: "你好世界今天", seen: "你好世界") == [4, 5])
-        #expect(VideoCaptionPacing.unreadOffsets(in: "我们先决定这件事", seen: "我们要决定这件事") == [2])
-        #expect(VideoCaptionPacing.unreadOffsets(in: "a b", seen: "") == [0, 2])
-        #expect(VideoCaptionPacing.unreadOffsets(in: "😀好", seen: "😀") == [2])
-        #expect(VideoCaptionPacing.unreadOffsets(in: "", seen: "旧").isEmpty)
+        #expect(SubtitleFinalReading.unreadOffsets(in: "你好世界", seen: "你好世界").isEmpty)
+        #expect(SubtitleFinalReading.unreadOffsets(in: "你好世界今天", seen: "你好世界") == [4, 5])
+        #expect(SubtitleFinalReading.unreadOffsets(in: "我们先决定这件事", seen: "我们要决定这件事") == [2])
+        #expect(SubtitleFinalReading.unreadOffsets(in: "a b", seen: "") == [0, 2])
+        #expect(SubtitleFinalReading.unreadOffsets(in: "😀好", seen: "😀") == [2])
+        #expect(SubtitleFinalReading.unreadOffsets(in: "", seen: "旧").isEmpty)
     }
 
     @Test func draftReadingKeepsWhatEachPageActuallyShowed() {
@@ -142,21 +142,21 @@ import TalkTalkCore
         reading.record(sourcePage: 1, source: "two more", translationPage: 1, translation: "第二页更长")
         #expect(reading.source == "one two more")
         #expect(reading.translation == "第一页第二页更长")
-        #expect(VideoCaptionPacing.unreadOffsets(in: "改写的第二页更长", seen: reading.translation) == [0, 1, 2])
+        #expect(SubtitleFinalReading.unreadOffsets(in: "改写的第二页更长", seen: reading.translation) == [0, 1, 2])
     }
 
-    @Test func finalHoldChargesUnreadCharactersWithAOneSecondFloor() {
-        let text = "一二三四五六七八九十甲乙丙丁戊己庚辛"
+    @Test func finalHoldChargesUnreadCharactersWithAFloor() {
+        let text = String(repeating: "一二三四五六七八九十甲乙丙丁戊己庚辛", count: 2)
         let page = VideoCaptionFinalHold.Page(text: text, utf16Range: 0..<text.utf16.count)
         func ready(seen: Int) -> Double {
             VideoCaptionFinalHold(source: "", translation: text, seenSource: "", seenTranslation: String(text.prefix(seen)), at: 10)
                 .readyTime(source: nil, translation: page, sourceLanguage: .en, targetLanguage: .zh)
         }
-        #expect(ready(seen: 18) == 11)
-        #expect(ready(seen: 9) == 11)
-        #expect(abs(ready(seen: 8) - (10 + 10.0 / 9)) < 1e-9)
+        #expect(ready(seen: 36) == 11.5)
+        #expect(ready(seen: 30) == 11.5)
+        #expect(ready(seen: 18) == 12)
         // Two thirds new is a rewrite: the whole page is read again.
-        #expect(ready(seen: 6) == 12)
+        #expect(ready(seen: 12) == 14)
     }
 
     @Test func finalHoldStartsEachPageFreshAndSkipsAKeptSide() {
@@ -168,7 +168,7 @@ import TalkTalkCore
 
         var read = VideoCaptionFinalHold(source: source, translation: translation, seenSource: source, seenTranslation: "", at: 10)
         read.flipPage(at: 20, keepsSource: false, keepsTranslation: true)
-        #expect(read.readyTime(source: second, translation: kept, sourceLanguage: .en, targetLanguage: .zh) == 21)
+        #expect(read.readyTime(source: second, translation: kept, sourceLanguage: .en, targetLanguage: .zh) == 21.5)
 
         var unseen = VideoCaptionFinalHold(source: source, translation: translation, seenSource: firstPage, seenTranslation: "", at: 10)
         unseen.flipPage(at: 20, keepsSource: false, keepsTranslation: true)
@@ -179,7 +179,7 @@ import TalkTalkCore
         // Only the unread characters on the page itself count.
         var earlierPageUnread = VideoCaptionFinalHold(source: source, translation: translation, seenSource: secondPage, seenTranslation: "", at: 10)
         earlierPageUnread.flipPage(at: 20, keepsSource: false, keepsTranslation: true)
-        #expect(earlierPageUnread.readyTime(source: second, translation: kept, sourceLanguage: .en, targetLanguage: .zh) == 21)
+        #expect(earlierPageUnread.readyTime(source: second, translation: kept, sourceLanguage: .en, targetLanguage: .zh) == 21.5)
     }
 
     @Test func pacingCatchUpAndDraftTail() {

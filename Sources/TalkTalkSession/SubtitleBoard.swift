@@ -30,6 +30,7 @@ public struct SubtitleBoard: Sendable, Equatable {
     private var finalReadUntil: [UInt64: HostTime] = [:]
     private var pendingFinals: [Line] = []
     private var pendingDraft: Line?
+    private var presentedDraft: Line?
     private var newestReceived: UInt64 = 0
     private var firstFinalAt: [UInt64: HostTime] = [:]
     private var retiredThrough: UInt64 = 0
@@ -50,6 +51,9 @@ public struct SubtitleBoard: Sendable, Equatable {
     public var pendingDraftSentenceID: UInt64? { pendingDraft?.sentence }
 
     public mutating func setHint(_ h: String?) { hint = h }
+
+    /// The panel shows drafts on its own cadence, so only it knows which one reached the screen.
+    public mutating func notePresentedDraft(_ line: Line?) { presentedDraft = line }
 
     /// Returns true if anything visible changed.
     @discardableResult
@@ -124,8 +128,10 @@ public struct SubtitleBoard: Sendable, Equatable {
             if existing != nil || finals.count < finalLines || now >= evictedDeadline {
                 pendingFinals.removeFirst()
                 let previous = existing?.text ?? (draft?.sentence == line.sentence ? draft!.text : "")
-                let deadline = max(finalReadUntil[line.sentence] ?? 0,
-                                   now + readingTime(for: line.text, replacing: previous))
+                let normal = readingTime(for: line.text, replacing: previous)
+                let seen = existing == nil && presentedDraft?.sentence == line.sentence ? presentedDraft?.text : nil
+                let reading = seen.map { min(normal, unreadReadingTime(for: line.text, seen: $0)) } ?? normal
+                let deadline = max(finalReadUntil[line.sentence] ?? 0, now + reading)
                 finals.removeAll { $0.sentence == line.sentence }
                 finals.append(line); finals.sort { $0.sentence < $1.sentence }
                 finalReadUntil[line.sentence] = deadline
@@ -149,6 +155,13 @@ public struct SubtitleBoard: Sendable, Equatable {
         let prefix = zip(previous, text).prefix(while: { $0 == $1 }).count
         let changed = max(0, text.count - prefix)
         return UInt64(Double(changed) / Double(maxCharactersPerSecond) * 1_000_000_000)
+    }
+
+    /// What a final replacing a seen draft asks of the viewer. It only delays the next final.
+    private func unreadReadingTime(for text: String, seen: String) -> HostTime {
+        let unread = SubtitleFinalReading.unreadOffsets(in: text, seen: seen).count
+        let charged = SubtitleFinalReading.chargedCharacters(unread: unread, in: text)
+        return UInt64(max(SubtitleFinalReading.minimumSeconds, Double(charged) / Double(maxCharactersPerSecond)) * 1_000_000_000)
     }
 
     private mutating func trimHistory() {
@@ -175,7 +188,7 @@ public struct SubtitleBoard: Sendable, Equatable {
 
     public mutating func clear() {
         source = ""; finals = []; draft = nil; hint = nil; newestFinal = 0
-        pendingFinals = []; pendingDraft = nil; newestReceived = 0
+        pendingFinals = []; pendingDraft = nil; presentedDraft = nil; newestReceived = 0
         nextDraftDisplayAt = 0; finalReadUntil = [:]
         firstFinalAt = [:]; retiredThrough = 0
     }

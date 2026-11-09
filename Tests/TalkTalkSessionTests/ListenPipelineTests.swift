@@ -586,6 +586,37 @@ enum Fixture {
         #expect(board.finals.map(\.sentence) == [2, 3])
     }
 
+    @Test func finalReplacingASeenDraftChargesOnlyItsUnreadCharacters() {
+        func nextFinalReadyAt(draft: String, final: String, presented: Bool) -> (Bool, Bool) {
+            var board = SubtitleBoard(maxCharactersPerSecond: 9)
+            board.apply(.draft(sentence: 1, text: draft), at: 0)
+            if presented { board.notePresentedDraft(board.draft) }
+            board.apply(.final(sentence: 1, text: final, source: "", approx: false, numberWarning: false), at: 100_000_000)
+            board.apply(.final(sentence: 2, text: "下一句", approx: false, numberWarning: false), at: 150_000_000)
+            board.apply(.final(sentence: 3, text: "第三句", approx: false, numberWarning: false), at: 200_000_000)
+            return (board.advance(at: 1_599_000_000), board.advance(at: 1_600_000_000))
+        }
+        // An early one-character edit used to charge all 36 characters (4 s).
+        let tail = String(repeating: "长", count: 35)
+        let edited = nextFinalReadyAt(draft: "甲" + tail, final: "乙" + tail, presented: true)
+        #expect(edited == (false, true))
+        // A draft the panel never rendered earns no credit.
+        let neverShown = nextFinalReadyAt(draft: "甲" + tail, final: "乙" + tail, presented: false)
+        #expect(neverShown == (false, false))
+
+        // A rewrite keeps the full budget.
+        var rewritten = SubtitleBoard(maxCharactersPerSecond: 9)
+        rewritten.apply(.draft(sentence: 1, text: String(repeating: "旧", count: 36)), at: 0)
+        rewritten.notePresentedDraft(rewritten.draft)
+        rewritten.apply(.final(sentence: 1, text: String(repeating: "新", count: 36), source: "", approx: false, numberWarning: false), at: 100_000_000)
+        rewritten.apply(.final(sentence: 2, text: "下一句", approx: false, numberWarning: false), at: 150_000_000)
+        rewritten.apply(.final(sentence: 3, text: "第三句", approx: false, numberWarning: false), at: 200_000_000)
+        let beforeFull = rewritten.advance(at: 4_099_000_000)
+        #expect(!beforeFull)
+        let afterFull = rewritten.advance(at: 4_100_000_000)
+        #expect(afterFull)
+    }
+
     @Test func finalsStayInSentenceOrderAndKeepTheLastTwo() {
         var b = SubtitleBoard()
         b.apply(.final(sentence: 2, text: "二", approx: false, numberWarning: false))

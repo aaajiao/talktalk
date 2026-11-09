@@ -857,6 +857,7 @@ final class SubtitlePanel {
         }
         if liveSource.isEmpty { renderedSource = "" }
         if board.draft == nil { renderedDraft = nil }
+        board.notePresentedDraft(renderedDraft)
         // The timeline mirrors the paced board: finals at once, previews at the 500 ms cadence.
         let changed = timeline.syncRemote(finals: board.finals, draft: renderedDraft, liveSource: renderedSource, at: now)
         announceFinals(board.finals.map { ($0.sentence, $0.display) })
