@@ -51,6 +51,16 @@ public enum EngineSynthesisSelection {
         }
     }
 
+    /// A node chip fits about 97 pt: its short name. The menu and help keep `title(for:)`.
+    public static func compactTitle(for model: EnginePins.Model) -> String {
+        switch model.key {
+        case "tts-qwen3-1.7b-base-8bit": "Qwen 1.7B"
+        case "tts-qwen3-0.6b-base-8bit": "Qwen 0.6B"
+        case "tts-ming3-0.5b-bf16": "Ming 0.5B"
+        default: title(for: model)
+        }
+    }
+
     public static func action(for id: String, activeRoles: [String: String], readyModelIDs: Set<String>,
                               installationReady: Bool, busy: Bool, sessionActive: Bool,
                               pins: [EnginePins.Model] = EnginePins.models) -> Action {

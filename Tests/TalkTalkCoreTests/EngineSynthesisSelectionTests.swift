@@ -16,6 +16,12 @@ struct EngineSynthesisSelectionTests {
         #expect(EngineSynthesisSelection.availableModels(readyModelIDs: [], activeID: nil).isEmpty)
     }
 
+    @Test func nodeChipUsesShortNamesForEveryPinnedSynthesisModel() {
+        #expect(EngineSynthesisSelection.models().map { EngineSynthesisSelection.compactTitle(for: $0) }.sorted() == [
+            "Ming 0.5B", "Qwen 0.6B", "Qwen 1.7B"
+        ])
+    }
+
     @Test func activeRoleWinsOverOtherDownloadedModels() {
         #expect(action(qwen, ready: [qwen, ming]) == .current)
         #expect(action(ming, ready: [qwen, ming]) == .activate)

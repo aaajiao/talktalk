@@ -270,7 +270,7 @@
   - 会话中锁定：`lock.fill` 9pt 替换 chevron，禁用，`.help`“会话中不可更换”。
   - 来源缺失：前置 `exclamationmark.triangle.fill` 9pt 橙色，节点问题行显示“<App> 未打开”。
 - **菜单项**（13pt 图）：`wand.and.stars` 自动 / 各应用（真实图标）/ 未就绪的应用（三角 + 名称）/ 分隔线 / `arrow.clockwise` 刷新列表。
-- **无障碍**：label 依次为“声音来源”“对方语言”“我的译音”“识别引擎”“翻译方式”“档位”。
+- **无障碍**：label 依次为“声音来源”“对方语言”“我的译音”“识别引擎”“翻译方式”“档位”“合成模型”。
 - **SwiftUI**：`Menu { … } label: { chipLabel }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()`。如果 macOS 丢掉了菜单项图片，退回 `NSPopUpButton`（NSViewRepresentable，`.inline` bezel，controlSize `.small`）。绑定沿用现有 state：`state.remoteLanguage`（会议、电话、视频共用，即“对方语言”）、`state.speakLanguage`（“我的译音”）、来源选择、ASR 偏好。
 - **实现记录（第 3 次提交 7ab201a，582176e）**：API 为 `NodeChip(_ title:, leading: .none | .symbol | .app(bundleID:), width:, warn:, locked:, accessibilityLabel:, help:, items: [NodeChipItem])`，菜单项为 `NodeChipItem(_ title:, glyph: .none | .symbol | .app | .warn, isOn:, isEnabled:, action:)` 与 `.separator`，菜单是带图标的 AppKit 菜单。一个节点放两个 chip 时，自动来源只写“自动 ▾”，不画魔杖：在 113pt 的节点里，图标会把“自动”挤成省略号；菜单里的“自动”仍带 `wand.and.stars`。环境禁用时 chip 半透明；锁定的 chip 保持不透明，只换次要色文字和 `lock.fill`。别的场景运行时，语言 chip 的 help 为“<语言> · 先结束<场景>”，比“会话中不可更换”更能说明该做什么。最大宽仍由节点宽和截断隐含，没有单独写“节点宽 − 16”。
 

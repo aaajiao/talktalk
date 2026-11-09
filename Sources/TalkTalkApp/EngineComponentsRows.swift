@@ -611,42 +611,12 @@ struct EngineOperationRows: View {
     }
 }
 
-/// The model picker changes only TTS and lists locally available choices. Model downloads
-/// stay in maintenance; a damaged active model remains visible with its repair action.
-struct SynthesisModelRows: View {
+/// What the 合成译音 node's model chip can't show itself: the model still in use while a switch
+/// runs, why the chip waits, and the installer's progress and result.
+struct SynthesisStatusRows: View {
     @Bindable var model: EngineComponentsModel
 
     var body: some View {
-        LabeledContent {
-            HStack(spacing: 8) {
-                Picker(String(appLocalized: "合成模型"), selection: Binding(
-                    get: { model.synthesisSelectionID }, set: { model.chooseSynthesis($0) }
-                )) {
-                    if model.record?.roles["tts"] == nil {
-                        Text(String(appLocalized: "未选择")).tag("").disabled(true)
-                    }
-                    ForEach(model.synthesisModels, id: \.key) { choice in
-                        Text(verbatim: EngineSynthesisSelection.title(for: choice)).tag(choice.key)
-                            .help("\(choice.repo) · \(EngineComponentsModel.gb(choice.bytes))")
-                            .disabled(choice.key == model.synthesisRepairID)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .fixedSize()
-                .disabled(model.maintenanceBlocked || !model.canSelectSynthesis || model.synthesisModels.isEmpty)
-                .help(String(appLocalized: "选择已下载的模型后立即切换语音合成"))
-                if model.synthesisAction(model.synthesisSelectionID) == .downloadAndActivate {
-                    Button(model.synthesisRepairID == model.synthesisSelectionID
-                           ? String(appLocalized: "修复") : String(appLocalized: "下载并使用")) {
-                        model.confirmAndRun(.selectTTS(model.synthesisSelectionID))
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-        } label: {
-            Label("合成模型", systemImage: Icon.speech)
-        }
         if model.pendingSynthesisID != nil, let current = model.modelName(role: "tts") {
             LabeledContent(String(appLocalized: "当前使用")) {
                 Text(verbatim: current).foregroundStyle(.secondary)

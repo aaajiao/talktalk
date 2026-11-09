@@ -116,25 +116,13 @@ struct ModelSettingsView: View {
                 FlowGrid.synthesis(state, engine: engine, links: links)
                     .padding(.vertical, 4)
                     .flowFlash(SettingsAnchor.synthesis, in: navigation.flow)
+                SynthesisStatusRows(model: engine)
                 FactRow([FactChip(String(appLocalized: "仅本机 · 不上传"), symbol: Icon.thisMac,
                                   help: String(appLocalized: "语音合成在这台 Mac 上运行"))])
             }
             .id(SettingsAnchor.synthesis)
-            Section {
-                SynthesisModelRows(model: engine)
-                if engine.synthesisModels.isEmpty {
-                    Button {
-                        navigation.open(.components, .components(.engine))
-                    } label: {
-                        Label(String(appLocalized: "安装与维护 · 语音资源"), systemImage: Icon.install)
-                    }
-                }
-            } header: {
-                SectionHeader(String(appLocalized: "语音合成"), symbol: Icon.speech)
-            }
         }
         .formStyle(.grouped)
-        .labelStyle(.settingsRow)
     }
 }
 
@@ -157,8 +145,11 @@ extension FlowGrid {
                 .node(FlowNode(String(appLocalized: "译文"), glyph: .symbol(Icon.translation))),
                 .node(FlowNode(String(appLocalized: "合成译音"), glyph: .symbol(Icon.speech),
                                badge: problem?.status, badgeReason: problem?.text,
-                               link: problem == nil ? nil : links.node(String(appLocalized: "安装与维护 · 语音资源"),
-                                                                       .components, .components(.engine)),
+                               // Nothing to choose from also leads to where models are downloaded.
+                               link: problem == nil && !engine.synthesisModels.isEmpty ? nil
+                                   : links.node(String(appLocalized: "安装与维护 · 语音资源"),
+                                                .components, .components(.engine)),
+                               accessory: .controls { SynthesisModelChip(engine: engine) },
                                satellite: voice,
                                help: engine.modelName(role: "tts"))),
                 .node(FlowNode(String(appLocalized: "译音"), glyph: .symbol(Icon.speech))), .empty
@@ -218,6 +209,49 @@ extension FlowGrid {
         ])
     }
 
+}
+
+/// 合成模型 (§3.4): changes only the TTS role and lists models already on this Mac. Downloads
+/// stay in maintenance; a damaged active model stays listed with its repair action.
+private struct SynthesisModelChip: View {
+    let engine: EngineComponentsModel
+
+    private typealias Icon = SubtitleTokens.SettingsIcon
+
+    var body: some View {
+        let current = engine.synthesisModels.first { $0.key == engine.synthesisSelectionID }
+        NodeChip(current.map { EngineSynthesisSelection.compactTitle(for: $0) }
+                    ?? engine.modelName(role: "tts") ?? String(appLocalized: "未选择"),
+                 locked: engine.sessionInProgress,
+                 accessibilityLabel: String(appLocalized: "合成模型"),
+                 help: engine.sessionInProgress
+                    ? String(appLocalized: "结束当前会话、录音或试听后选择合成模型")
+                    : [current.map { "\($0.repo) · \(EngineComponentsModel.gb($0.bytes))" },
+                       String(appLocalized: "选择已下载的模型后立即切换语音合成")]
+                        .compactMap { $0 }.joined(separator: " · "),
+                 items: items)
+            .disabled(engine.busy || !engine.canSelectSynthesis || engine.synthesisModels.isEmpty)
+    }
+
+    private var items: [NodeChipItem] {
+        let selected = engine.synthesisSelectionID
+        var items = engine.synthesisModels.map { choice in
+            NodeChipItem(EngineSynthesisSelection.title(for: choice), isOn: choice.key == selected,
+                         isEnabled: choice.key != engine.synthesisRepairID) { engine.chooseSynthesis(choice.key) }
+        }
+        if engine.record?.roles["tts"] == nil {
+            items.insert(NodeChipItem(String(appLocalized: "未选择"), isOn: selected.isEmpty, isEnabled: false) {}, at: 0)
+        }
+        if engine.synthesisAction(selected) == .downloadAndActivate {
+            let repairs = engine.synthesisRepairID == selected
+            items += [.separator,
+                      NodeChipItem(repairs ? String(appLocalized: "修复") : String(appLocalized: "下载并使用"),
+                                   glyph: .symbol(repairs ? Icon.repair : Icon.download)) {
+                          engine.confirmAndRun(.selectTTS(selected))
+                      }]
+        }
+        return items
+    }
 }
 
 /// 识别引擎 (§3.4, §7.8): Qwen3-ASR or Apple Speech, in effect at once (a running session
