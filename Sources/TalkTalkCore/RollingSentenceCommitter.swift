@@ -55,16 +55,8 @@ public struct RollingSentenceCommitter: Sendable {
         let all = tokens(reading)
         if all.isEmpty, released.isEmpty { continuesSentence = false }
         let fresh = Array(all[overlap(with: all)...])
-        var agreed: [Int] = []
-        agreed.reserveCapacity(fresh.count)
-        for (index, token) in fresh.enumerated() {
-            // The last token of a reading does not count: every reading ends in a period.
-            let same = index < previous.count - 1 && previous[index].key == token.key
-                && previous[index].surface.last == token.surface.last
-            agreed.append(same ? agreement[index] + 1 : 1)
-        }
-        let confirmed = agreed.firstIndex { $0 < Self.requiredAgreement } ?? fresh.count
-        let limit = min(confirmed, fresh.count - tokensAfterEnd)
+        let agreed = agreements(fresh)
+        let limit = confirmedLimit(fresh, agreed)
         if limit > 0, let found = (0..<limit).first(where: { endsSentence(fresh, at: $0) && hasWords(fresh[...$0]) }) {
             let end = throughTrailingMarks(fresh, from: found)
             let sentence = decapitalized(slice(reading, fresh[...end]))
@@ -80,13 +72,16 @@ public struct RollingSentenceCommitter: Sendable {
     }
 
     /// The window's last reading. `forced` means the cut was made by the window's length and not
-    /// by the speaker, so a period at its end is not believed and the sentence goes on.
+    /// by the speaker, so a period at its end is not believed and the sentence goes on. Only a
+    /// period the previous reading agreed on splits the text. A tail left after a split belongs
+    /// to no request to close, so it goes on as well.
     public mutating func finish(_ text: String, forced: Bool) -> Closing {
         let all = tokens(text)
         let fresh = Array(all[overlap(with: all)...])
         var sentences: [String] = []
         var start = 0, index = 0
-        while index < fresh.count - tokensAfterEnd {
+        let limit = confirmedLimit(fresh, agreements(fresh))
+        while index < limit {
             guard endsSentence(fresh, at: index), hasWords(fresh[start...index]) else { index += 1; continue }
             let end = throughTrailingMarks(fresh, from: index)
             sentences.append(slice(text, fresh[start...end]))
@@ -94,9 +89,10 @@ public struct RollingSentenceCommitter: Sendable {
             index = start
         }
         var tail = slice(text, fresh[start...])
-        if forced { tail = withoutSentenceEnd(tail) }
+        let continues = forced || !sentences.isEmpty
+        if continues { tail = withoutSentenceEnd(tail) }
         if let first = sentences.first { sentences[0] = decapitalized(first) } else { tail = decapitalized(tail) }
-        continuesSentence = forced && !tail.isEmpty
+        continuesSentence = continues && !tail.isEmpty
         windowMoved()
         return Closing(sentences: sentences, tail: tail)
     }
@@ -112,6 +108,19 @@ public struct RollingSentenceCommitter: Sendable {
     }
 
     // MARK: - internals
+
+    private func agreements(_ fresh: [Token]) -> [Int] {
+        fresh.indices.map { index in
+            // The last token of a reading does not count: every reading ends in a period.
+            let same = index < previous.count - 1 && previous[index].key == fresh[index].key
+                && previous[index].surface.last == fresh[index].surface.last
+            return same ? agreement[index] + 1 : 1
+        }
+    }
+
+    private func confirmedLimit(_ fresh: [Token], _ agreed: [Int]) -> Int {
+        min(agreed.firstIndex { $0 < Self.requiredAgreement } ?? fresh.count, fresh.count - tokensAfterEnd)
+    }
 
     private func tokens(_ text: String) -> [Token] {
         switch unit {

@@ -290,10 +290,9 @@ struct QwenStreamingASRTests {
             #expect(await until { await primary.calls.count == min(index + 1, 4) })
             #expect(await until { await primary.active == 0 })
         }
-        #expect(await until { finalLog(finals).count == 3 })
-        #expect(finalLog(finals).map(\.text) == ["Nobody was at fault.", "The system allowed it to happen.", "It took a"])
-        #expect(finalLog(finals)[2].through == start + 400_000_000)
-        #expect(finalLog(finals)[0].through < finalLog(finals)[1].through && finalLog(finals)[1].through < finalLog(finals)[2].through)
+        #expect(await until { finalLog(finals).count == 2 })
+        #expect(finalLog(finals).map(\.text) == ["Nobody was at fault.", "The system allowed it to happen. It took a"])
+        #expect(finalLog(finals)[1].through == start + 400_000_000)
         await stream.close(); await reader.value
     }
 

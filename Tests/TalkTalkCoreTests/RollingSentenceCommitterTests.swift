@@ -67,6 +67,7 @@ struct RollingSentenceCommitterTests {
 
     @Test func aForcedCutDropsTheTailPeriodAndTheSentenceContinues() {
         var committer = RollingSentenceCommitter(lang: .en)
+        _ = committer.observe("That number sounds small. But over a decade it")
         let closing = committer.finish("That number sounds small. But over a decade it is a three-point.", forced: true)
         #expect(closing.sentences == ["That number sounds small."])
         #expect(closing.tail == "But over a decade it is a three-point")
@@ -78,6 +79,20 @@ struct RollingSentenceCommitterTests {
             var committer = RollingSentenceCommitter(lang: .en)
             #expect(committer.finish(reading, forced: true).tail == tail)
         }
+    }
+
+    @Test func aPeriodNoReadingAgreedOnDoesNotSplitTheFinal() {
+        var committer = RollingSentenceCommitter(lang: .en)
+        let closing = committer.finish("Here's the trouble with rain. Here's what about. We were walking to.", forced: false)
+        #expect(closing == .init(sentences: [], tail: "Here's the trouble with rain. Here's what about. We were walking to."))
+    }
+
+    @Test func theTailAfterASplitGoesOnEvenWhenLISTENAskedForTheFinal() {
+        var committer = RollingSentenceCommitter(lang: .en)
+        _ = committer.observe("It really was the weather. You recall the way that")
+        let closing = committer.finish("It really was the weather. You recall the way that the.", forced: false)
+        #expect(closing == .init(sentences: ["It really was the weather."], tail: "You recall the way that the"))
+        #expect(committer.observe("Harvest went badly.").remainder == "harvest went badly.")
     }
 
     @Test func aFinalTheSpeakerCausedKeepsItsPeriod() {

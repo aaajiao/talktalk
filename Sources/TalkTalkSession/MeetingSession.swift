@@ -223,11 +223,7 @@ public final class MeetingSession: SpeakEchoSink {
                 }
             }
         } else { analysis = nil }
-        var listen = profile.listen
-        // Video sentences no longer close at forced cuts, so lookback has little to repair, and
-        // the single-cue board cannot show a merge of two sentences.
-        if mode == .captions { listen.deLookback.enabled = false }
-        return ListenPipeline(lang: lang, target: target, profile: listen, engines: engines, log: log, ingest: ingest,
+        return ListenPipeline(lang: lang, target: target, profile: mode == .captions ? profile.listen.forVideoCaptions : profile.listen, engines: engines, log: log, ingest: ingest,
             jobs: jobs, onTranscript: { [weak self] source, target, at in
                 Task { @MainActor in
                     guard let self, self.acceptsListenCallbacks(configuration) else { return }

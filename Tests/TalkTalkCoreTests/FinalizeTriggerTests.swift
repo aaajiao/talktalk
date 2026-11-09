@@ -30,6 +30,15 @@ import Testing
         #expect(r! == (.punctPause, 900))
     }
 
+    @Test func videoIgnoresTextThatMerelyStopsGrowing() throws {
+        let config = try TestResources.profile().listen.forVideoCaptions.finalize
+        var punctuated = FinalizeTrigger(config: config, lang: .en)
+        #expect(run(&punctuated, [(0, 12, true, 0, false), (2400, 12, true, 0, false)]) == nil)
+        #expect(run(&punctuated, [(2500, 12, true, 0, false)])! == (.force, 2500))
+        var silent = FinalizeTrigger(config: config, lang: .en)
+        #expect(run(&silent, [(0, 3, true, 0, false), (800, 3, true, 800, false)])! == (.silence, 800))
+    }
+
     @Test func tenWordsAndAPauseOf300Then150After8s() throws {
         var t = try trigger()
         #expect(run(&t, [(0, 1, false, 0, false), (1000, 10, false, 0, false), (1299, 10, false, 0, false), (1300, 10, false, 0, false)])! == (.force, 1300))
