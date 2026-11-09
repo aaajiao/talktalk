@@ -18,12 +18,13 @@ public struct QwenStreamingASR: StreamingASREngine {
 
     public init(engine: EngineProcess?, fallback: any StreamingASREngine,
                 jobs: JobIDSequence = .init(), log: EventLog? = nil, cadenceMs: Int = 1000,
-                earlySentences: Bool = false,
+                windowSeconds: Int = 8, earlySentences: Bool = false,
                 onEngine: @escaping @Sendable (EngineID) -> Void = { _ in }) {
         self.engine = engine
         primary = engine.flatMap { $0.config.roles.contains("asr") ? RemoteQwenASR(engine: $0) : nil }
         self.fallback = fallback; self.jobs = jobs; self.log = log; self.onEngine = onEngine
-        configuration = .init(cadenceFrames: cadenceMs * 16, earlySentences: earlySentences)
+        configuration = .init(cadenceFrames: cadenceMs * 16, segmentFrames: windowSeconds * 16_000,
+                              bufferFrames: windowSeconds * 2 * 16_000, earlySentences: earlySentences)
     }
 
     // Fake clip backends exercise the adapter without launching an engine or accessing audio.
@@ -93,6 +94,7 @@ struct QwenStreamConfiguration: Sendable {
     var finalizeNs: UInt64 = 1_000_000_000    // LISTEN waits 1500 ms; old results cannot outlive this cut
     var maxExpiredInARow = 3                  // a restarted window is short, so repeats mean real overload
     var earlySentences = false                // release sentences from inside the window (RollingSentenceCommitter)
+    var longRunWords = 30                     // with earlySentences: a run this long with no release cuts the window
 }
 
 private final class QwenASRStream: ASRStream, @unchecked Sendable {
@@ -219,11 +221,12 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
             let request = Request(job: jobs.next(), generation: generation, clip: clip, final: final)
             lastRequestedThrough = clip.end
             let backend = primary, language = language, limit = configuration.requestNs
+            let pinned = sentences.flatMap { $0.releasedReading.isEmpty ? nil : $0.releasedReading }
             let task = Task { [weak self] in
                 do {
                     try Task.checkCancellation()
-                    let result = try await backend.transcribe(clip, hint: language, context: nil, job: request.job,
-                        priority: .p2Listen, deadline: HostClock.now() + limit)
+                    let result = try await backend.transcribe(clip, hint: language, context: nil, pinnedText: pinned,
+                        job: request.job, priority: .p2Listen, deadline: HostClock.now() + limit)
                     try Task.checkCancellation()
                     self?.completed(request, text: result.text, failed: false, cancelled: false)
                 } catch {
@@ -284,6 +287,9 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
             emitFinalLocked(hypothesis.text, through: hypothesis.through)
         } else if let cut = finalThrough {
             emitFinalLocked("", through: cut)
+        } else if sentences != nil, let hypothesis, hypothesis.through > finalizedThrough {
+            // A wordless reading commits nothing, yet a long window must still restart.
+            advanceLocked(through: hypothesis.through)
         }
     }
 
@@ -316,6 +322,13 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
             yieldEarlyFinalLocked(sentence, before: through)
         }
         vol.yield(.volatile(reading.remainder, through: through))
+        // Speech that never reaches a period would otherwise wait for the window's cap, past
+        // LISTEN's hard cap, whose cut keeps the fake period. A forced cut drops it.
+        if reading.sentence == nil, reader.isLong(reading.remainder, fromWords: configuration.longRunWords),
+           let end = blocks.last?.end {
+            log?.event("asr.long_run_cut")
+            requestFinalLocked(through: end, forced: true)
+        }
     }
     /// LISTEN ignores a final that does not extend past the last one, and drops readings it
     /// already covers. An early sentence has no audio end of its own, so it takes a stamp just

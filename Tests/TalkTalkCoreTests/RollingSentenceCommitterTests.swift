@@ -116,7 +116,7 @@ struct RollingSentenceCommitterTests {
         #expect(cut?.head == "It is done here.")
         #expect(cut?.rest == "\(words), \(words), \(words)")
         let commas = "\(words), \(words), \(words)"
-        #expect(committer.splitLong(commas, fromWords: 30, minHeadWords: 12)?.head == "\(words),")
+        #expect(committer.splitLong(commas, fromWords: 30, minHeadWords: 12)?.head == "\(words), \(words),")
         let farEnd = "\(words), \(words) \(words) \(words) \(words) end. Next one goes here."
         #expect(committer.splitLong(farEnd, fromWords: 30, minHeadWords: 12)?.head == "\(words),")
         let tag = (1...29).map { "w\($0)" }.joined(separator: " ") + ", right."
@@ -217,6 +217,34 @@ struct RollingSentenceCommitterTests {
         let reading = committer.observe(first)
         #expect(reading.sentence != nil)
         return committer
+    }
+
+    @Test func releasedReadingGrowsVerbatimAndClearsWhenTheWindowMoves() {
+        var committer = released(.en, "Nobody was at fault. The system allowed it to.")
+        #expect(committer.releasedReading == "Nobody was at fault.")
+        let next = "Nobody was at fault. The system allowed it. Then we all left."
+        _ = committer.observe(next)
+        #expect(committer.observe(next).sentence == "The system allowed it.")
+        #expect(committer.releasedReading == "Nobody was at fault. The system allowed it.")
+        committer.windowMoved()
+        #expect(committer.releasedReading.isEmpty)
+    }
+
+    @Test func aLongBacklogIsCutNearItsMiddle() throws {
+        let clause = "one two three four five six seven eight,"
+        let text = Array(repeating: clause, count: 5).joined(separator: " ") + " one two three four"
+        let committer = RollingSentenceCommitter(lang: .en)
+        let cut = try #require(committer.splitLong(text, fromWords: 30, minHeadWords: 12))
+        #expect(cut.head.split(separator: " ").count == 24)
+        #expect(cut.rest.split(separator: " ").count == 20)
+    }
+
+    @Test func longRunsCountWordsAndTwiceAsManyChineseCharacters() {
+        let english = RollingSentenceCommitter(lang: .en), chinese = RollingSentenceCommitter(lang: .zh)
+        #expect(english.isLong(Array(repeating: "word", count: 30).joined(separator: " "), fromWords: 30))
+        #expect(!english.isLong(Array(repeating: "word", count: 29).joined(separator: " "), fromWords: 30))
+        #expect(chinese.isLong(String(repeating: "字", count: 60), fromWords: 30))
+        #expect(!chinese.isLong(String(repeating: "字", count: 59) + "。", fromWords: 30))
     }
 
     @Test func aRepeatedPhraseLaterInTheReadingIsNotMistakenForReleasedText() {

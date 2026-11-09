@@ -61,5 +61,16 @@ public protocol ClipASREngine: Sendable {                            // RemoteQw
     var id: EngineID { get }
     func transcribe(_ clip: PCMClip16k, hint: Lang, context: String?, job: JobID,
                     priority: Priority, deadline: HostTime?) async throws -> ASRFinal
+    /// `pinnedText` is the start of the transcript, as an earlier reading of this audio wrote it.
+    /// A backend may ignore it, so callers must accept a reading that restates it in other words.
+    func transcribe(_ clip: PCMClip16k, hint: Lang, context: String?, pinnedText: String?, job: JobID,
+                    priority: Priority, deadline: HostTime?) async throws -> ASRFinal
     func cancel(_ job: JobID) async
+}
+
+public extension ClipASREngine {
+    func transcribe(_ clip: PCMClip16k, hint: Lang, context: String?, pinnedText: String?, job: JobID,
+                    priority: Priority, deadline: HostTime?) async throws -> ASRFinal {
+        try await transcribe(clip, hint: hint, context: context, job: job, priority: priority, deadline: deadline)
+    }
 }

@@ -19,6 +19,7 @@ from .scheduler import P0, P1, P2, P3, Job
 
 MAX_JSON = 1 << 20
 MAX_BINARY = 4 << 20
+MAX_PINNED_TEXT = 8192
 _ALNUM = re.compile(r"[0-9A-Za-zÀ-ÖØ-öø-ÿ一-鿿]")
 
 
@@ -200,7 +201,10 @@ class Handler(BaseHTTPRequestHandler):
         audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
         prio = int((q.get("priority") or ["1"])[0])
         hint = (q.get("hint") or [None])[0]
-        result = self.state.run_asr(audio, hint, head.get("context"), prio, (q.get("job") or [None])[0])
+        pinned = head.get("pinned_text")
+        if pinned is not None and (not isinstance(pinned, str) or len(pinned) > MAX_PINNED_TEXT):
+            raise ApiError(400, "bad_request", "invalid pinned_text")
+        result = self.state.run_asr(audio, hint, head.get("context"), prio, (q.get("job") or [None])[0], pinned)
         self._send_json(200, result)
 
     def r_tts(self, q):

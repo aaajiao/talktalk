@@ -40,6 +40,9 @@ public struct RollingSentenceCommitter: Sendable {
     private var previous: [Token] = []
     private var agreement: [Int] = []
     private var continuesSentence = false
+    /// What the current window has released, exactly as the recognizer wrote it. Later readings
+    /// can continue from this text instead of working it out again. Empty until a release.
+    public private(set) var releasedReading = ""
 
     public init(lang: Lang) {
         self.lang = lang
@@ -61,6 +64,7 @@ public struct RollingSentenceCommitter: Sendable {
             let end = throughTrailingMarks(fresh, from: found)
             let sentence = decapitalized(slice(reading, fresh[...end]))
             released += fresh[...end].filter { Self.hasWords($0.key) }.map(\.key)
+            releasedReading = String(reading[..<fresh[end].surface.endIndex])
             previous = []
             agreement = []
             continuesSentence = false
@@ -110,12 +114,18 @@ public struct RollingSentenceCommitter: Sendable {
         return (slice(text, all[...end]), slice(text, all[(end + 1)...]))
     }
 
+    /// Whether `text` has at least `limit` words, counted as `splitLong` counts them.
+    public func isLong(_ text: String, fromWords limit: Int) -> Bool {
+        tokens(text).filter { Self.hasWords($0.key) }.count >= limit * (unit == .character ? 2 : 1)
+    }
+
     /// The audio went silent, so whatever comes next starts a new sentence.
     public mutating func speechStopped() { continuesSentence = false }
 
     /// The window now starts somewhere else, so its readings no longer repeat released text.
     public mutating func windowMoved() {
         released = []
+        releasedReading = ""
         previous = []
         agreement = []
     }
@@ -177,15 +187,18 @@ public struct RollingSentenceCommitter: Sendable {
     private func longCut(_ all: [Token], total: Int, limit: Int, minPiece: Int) -> Int? {
         var words = 0
         var comma: Int?
+        var earlierComma: Int?
+        // Near the middle, so one cut takes enough out of a backlog that a long window refills.
+        let middle = max(minPiece, min(limit, total / 2))
         for index in 0..<(all.count - 1) {
             if Self.hasWords(all[index].key) { words += 1 }
-            if comma != nil, words >= limit + minPiece { break }
+            if comma != nil || earlierComma != nil, words >= limit + minPiece { break }
             if words >= tokensAfterEnd, endsSentence(all, at: index) { return throughTrailingMarks(all, from: index) }
-            if comma == nil, words >= minPiece, total - words >= minPiece, isClauseMark(all[index]) {
-                comma = throughTrailingMarks(all, from: index)
-            }
+            guard comma == nil, words >= minPiece, total - words >= minPiece, isClauseMark(all[index]) else { continue }
+            if words >= middle { comma = throughTrailingMarks(all, from: index) }
+            else { earlierComma = throughTrailingMarks(all, from: index) }
         }
-        return comma
+        return comma ?? earlierComma
     }
 
     /// Chinese is tokenized by character, where ASCII commas and "：" sit inside numbers.

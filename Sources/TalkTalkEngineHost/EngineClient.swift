@@ -184,13 +184,15 @@ public final class EngineClient: Sendable {
     }
 
     /// `/v1/asr` with 16 kHz mono samples (kind 6). `hint` is the language ("zh", "en", "de") or nil.
+    /// `pinnedText` is text the recognizer continues from; the result starts with it.
     public func asr(samples16k: [Float], hint: String?, priority: Int = 1, job: String? = nil,
-                    context: String? = nil) async throws -> ASRResult {
+                    context: String? = nil, pinnedText: String? = nil) async throws -> ASRResult {
         var q = ["priority=\(priority)"]
         if let hint { q.append("hint=\(hint)") }
         if let job { q.append("job=\(job)") }
         var head: [String: Any] = [:]
         if let context { head["context"] = context }
+        if let pinnedText { head["pinned_text"] = pinnedText }
         var body = try Frames.encodeJSON(.jsonHead, head)
         body.append(Frames.encode(.pcmS16At16k, Frames.pcmS16(samples16k)))
         let resp = try await dataCall(framesRequest("/v1/asr?" + q.joined(separator: "&"), body), expect: [200])

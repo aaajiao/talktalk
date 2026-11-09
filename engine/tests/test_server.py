@@ -118,6 +118,28 @@ class ServerTests(unittest.TestCase):
         st, data = self.req("POST", "/v1/asr", {})
         self.assertEqual((st, json.loads(data)["error"]["code"]), (409, "asr_not_ready"))
 
+    def test_asr_pinned_text_reaches_the_model_and_is_bounded(self):
+        calls = []
+
+        def run_asr(audio, hint, context, priority, job, pinned):
+            calls.append(pinned)
+            return {"text": "x", "timing": {}}
+
+        def post(head):
+            return self.req("POST", "/v1/asr", frames.encode(frames.JSON_HEAD, json.dumps(head).encode())
+                            + frames.encode(frames.PCM_S16_16K, b"\x00\x00"))
+
+        self.state.asr, self.state.asr_state, self.state.run_asr = object(), "ready", run_asr
+        try:
+            self.assertEqual(post({"pinned_text": "A."})[0], 200)
+            self.assertEqual(post({})[0], 200)
+            self.assertEqual(calls, ["A.", None])
+            for bad in (5, "x" * (server.MAX_PINNED_TEXT + 1)):
+                self.assertEqual(post({"pinned_text": bad})[0], 400)
+        finally:
+            self.state.asr, self.state.asr_state = None, "absent"
+            del self.state.run_asr
+
 
 if __name__ == "__main__":
     unittest.main()

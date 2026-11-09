@@ -75,7 +75,7 @@ class FakeASRModel:
         time.sleep(0.05)
         return self
 
-    def stream(self, pcm16k, hint=None, context=None, max_tokens=256, stats=None):
+    def stream(self, pcm16k, hint=None, context=None, max_tokens=256, stats=None, pinned_text=None):
         st = stats if stats is not None else {}
         st.update(step_ms=[], tokens=0)
         for _ in range(min(4, max_tokens)):

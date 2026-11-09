@@ -58,6 +58,11 @@ extension RemoteQwenASR: ClipASREngine {
 
     public func transcribe(_ clip: PCMClip16k, hint: Lang, context: String?, job: JobID,
                            priority: Priority, deadline: HostTime?) async throws -> ASRFinal {
+        try await transcribe(clip, hint: hint, context: context, pinnedText: nil, job: job, priority: priority, deadline: deadline)
+    }
+
+    public func transcribe(_ clip: PCMClip16k, hint: Lang, context: String?, pinnedText: String?, job: JobID,
+                           priority: Priority, deadline: HostTime?) async throws -> ASRFinal {
         let received = HostClock.now()
         if let deadline, deadline <= received { throw RemoteEngineError.deadlineExceeded }
         let wire = WireJob.asr(job)
@@ -69,7 +74,7 @@ extension RemoteQwenASR: ClipASREngine {
             if let deadline, started >= deadline { throw RemoteEngineError.deadlineExceeded }
             let result = try await withTaskCancellationHandler {
                 try await client.asr(samples16k: clip.samples, hint: hint.rawValue, priority: priority.rawValue,
-                                     job: wire, context: context)
+                                     job: wire, context: context, pinnedText: pinnedText)
             } onCancel: {
                 Task { try? await client.cancel(job: wire) }
             }

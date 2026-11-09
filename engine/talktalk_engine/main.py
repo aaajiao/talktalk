@@ -524,13 +524,13 @@ class EngineState:
             raise ApiError(500, "similarity_failed", str(box.get("err")))
         return box["cosine"]
 
-    def run_asr(self, pcm16k, hint, context, priority, job_id):
+    def run_asr(self, pcm16k, hint, context, priority, job_id, pinned_text=None):
         done = threading.Event()
         box = {}
         st = {}
 
         def factory():
-            return self.asr.stream(pcm16k, hint=hint, context=context, stats=st)
+            return self.asr.stream(pcm16k, hint=hint, context=context, stats=st, pinned_text=pinned_text)
 
         def on_item(item):
             box["result"] = item
