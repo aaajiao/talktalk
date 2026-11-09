@@ -279,6 +279,108 @@ public enum VideoCaptionPacing {
     public static func stablePrefixLength(previous: String, current: String) -> Int {
         zip(previous, current).prefix(while: { $0 == $1 }).count
     }
+
+    /// UTF-16 offsets of the non-space characters of `text` that a longest common subsequence
+    /// with `seen` leaves unmatched. A shared prefix would charge everything after one early edit.
+    public static func unreadOffsets(in text: String, seen: String) -> [Int] {
+        let new = Array(text), old = Array(seen)
+        let width = old.count + 1
+        var longest = [Int](repeating: 0, count: (new.count + 1) * width)
+        for i in new.indices.reversed() {
+            for j in old.indices.reversed() {
+                longest[i * width + j] = new[i] == old[j]
+                    ? longest[(i + 1) * width + j + 1] + 1
+                    : max(longest[(i + 1) * width + j], longest[i * width + j + 1])
+            }
+        }
+        var unread: [Int] = []
+        var offset = 0, j = 0
+        for i in new.indices {
+            while j < old.count, new[i] != old[j], longest[(i + 1) * width + j] < longest[i * width + j + 1] { j += 1 }
+            if j < old.count, new[i] == old[j] {
+                j += 1
+            } else if !new[i].isWhitespace {
+                unread.append(offset)
+            }
+            offset += new[i].utf16.count
+        }
+        return unread
+    }
+}
+
+/// What a draft actually showed, page by page. A later draft can revise a page the viewer has
+/// already left, and that unseen revision must not count as read.
+public struct VideoDraftReading: Equatable, Sendable {
+    private var sourcePages: [Int: String] = [:]
+    private var translationPages: [Int: String] = [:]
+
+    public init() {}
+
+    public mutating func record(sourcePage: Int, source: String, translationPage: Int, translation: String) {
+        sourcePages[sourcePage] = source
+        translationPages[translationPage] = translation
+    }
+
+    public var source: String { Self.joined(sourcePages) }
+    public var translation: String { Self.joined(translationPages) }
+
+    private static func joined(_ pages: [Int: String]) -> String {
+        pages.sorted { $0.key < $1.key }.map(\.value).joined()
+    }
+}
+
+/// The reading clock of a final that replaces a draft already on screen (§6 分页). While another
+/// cue waits, a page needs only the time to read what the draft did not show, at least 1 s.
+public struct VideoCaptionFinalHold: Equatable, Sendable {
+    /// A page is treated as rewritten, and read in full, once this share of it is unread.
+    public static let rewrittenShare = 0.6
+
+    public struct Page: Equatable, Sendable {
+        public var text: String
+        public var utf16Range: Range<Int>
+
+        public init(text: String, utf16Range: Range<Int>) {
+            self.text = text
+            self.utf16Range = utf16Range
+        }
+    }
+
+    private let unreadSource: [Int]
+    private let unreadTranslation: [Int]
+    private var pageStartedAt: Double
+    private var keepsSource = false
+    private var keepsTranslation = false
+
+    /// `seenSource` and `seenTranslation`: what the draft actually showed (`VideoDraftReading`).
+    public init(source: String, translation: String, seenSource: String, seenTranslation: String, at now: Double) {
+        unreadSource = VideoCaptionPacing.unreadOffsets(in: source, seen: seenSource)
+        unreadTranslation = VideoCaptionPacing.unreadOffsets(in: translation, seen: seenTranslation)
+        pageStartedAt = now
+    }
+
+    /// A language that stays on its last page has nothing new to read on the next one.
+    public mutating func flipPage(at now: Double, keepsSource: Bool, keepsTranslation: Bool) {
+        pageStartedAt = now
+        self.keepsSource = keepsSource
+        self.keepsTranslation = keepsTranslation
+    }
+
+    public mutating func restart(at now: Double) { pageStartedAt = now }
+
+    public func readyTime(source: Page?, translation: Page?, sourceLanguage: Lang, targetLanguage: Lang) -> Double {
+        pageStartedAt + VideoCaptionPacing.readingTime(
+            sourceCharacters: keepsSource ? 0 : Self.charged(source, unread: unreadSource),
+            translationCharacters: keepsTranslation ? 0 : Self.charged(translation, unread: unreadTranslation),
+            sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)
+    }
+
+    private static func charged(_ page: Page?, unread: [Int]) -> Int {
+        guard let page else { return 0 }
+        let letters = page.text.reduce(0) { $1.isWhitespace ? $0 : $0 + 1 }
+        let count = unread.reduce(0) { page.utf16Range.contains($1) ? $0 + 1 : $0 }
+        guard letters > 0, Double(count) / Double(letters) >= rewrittenShare else { return count }
+        return page.text.count
+    }
 }
 
 /// The draft's dimmed tail (§6 草稿) is measured when the draft text actually changes. A

@@ -81,6 +81,8 @@ final class VideoSubtitleView: NSView {
     /// Blank frame and fade-in of the new page.
     private var fadingIn = false
     private var finalizing = false
+    private var seenDrafts: [UInt64: VideoDraftReading] = [:]
+    private var finalHold: VideoCaptionFinalHold?
     private var advanceCache: [String: CGFloat] = [:]
     private var baselineCache: [String: CGFloat] = [:]
 
@@ -217,6 +219,8 @@ final class VideoSubtitleView: NSView {
         let newSentence = !hasCaption || displayedSentence != sentence
         let changed = !self.source.isEqual(to: source) || !self.translation.isEqual(to: translation)
         let metadataChanged = displayedSentence != sentence || isDisplayingFinal != isFinal
+        let becomesFinal = isFinal && (newSentence || !isDisplayingFinal)
+        if sentence == nil { seenDrafts.removeAll() }
         if newSentence {
             sourceCorrectionAnchor = nil; translationCorrectionAnchor = nil
         } else {
@@ -238,6 +242,14 @@ final class VideoSubtitleView: NSView {
         guard changed || newSentence || metadataChanged else { finalizing = false; return }
         self.source = NSAttributedString(attributedString: source)
         self.translation = NSAttributedString(attributedString: translation)
+        if !isFinal {
+            finalHold = nil
+        } else if becomesFinal {
+            finalHold = sentence.flatMap { seenDrafts[$0] }.map {
+                VideoCaptionFinalHold(source: source.string, translation: translation.string,
+                                      seenSource: $0.source, seenTranslation: $0.translation, at: now)
+            }
+        }
         resetPage = resetPage || newSentence
         textNeedsLayout = true
         needsLayout = true
@@ -272,6 +284,7 @@ final class VideoSubtitleView: NSView {
         if hasSourcePage { sourcePageIndex += 1 }
         if hasTranslationPage { translationPageIndex += 1 }
         currentPageIndex = max(sourcePageIndex, translationPageIndex)
+        finalHold?.flipPage(at: now, keepsSource: !hasSourcePage, keepsTranslation: !hasTranslationPage)
         showPage(at: now, newPage: true)
         return true
     }
@@ -327,7 +340,22 @@ final class VideoSubtitleView: NSView {
 
     /// The page budget, shortened while pending cues wait.
     private var readyTime: Double {
-        pageShownAt + VideoCaptionPacing.effectiveDuration(max(0, pageReadyAt - pageShownAt), catchingUp: catchingUp)
+        let budget = pageShownAt + VideoCaptionPacing.effectiveDuration(max(0, pageReadyAt - pageShownAt), catchingUp: catchingUp)
+        guard catchingUp, let finalHold else { return budget }
+        return min(budget, finalHold.readyTime(source: holdPage(in: sourcePages, at: sourcePageIndex),
+                                               translation: holdPage(in: translationPages, at: translationPageIndex),
+                                               sourceLanguage: sourceLanguage, targetLanguage: targetLanguage))
+    }
+
+    private func holdPage(in pages: [Page], at index: Int) -> VideoCaptionFinalHold.Page? {
+        page(in: pages, at: index).map { .init(text: $0.text.string, utf16Range: $0.range.location..<NSMaxRange($0.range)) }
+    }
+
+    private func rememberDraftOnScreen() {
+        guard layoutReady, hasCaption, !isDisplayingFinal, let sentence = displayedSentence else { return }
+        if seenDrafts[sentence] == nil { seenDrafts = seenDrafts.filter { $0.key + 4 >= sentence } }
+        seenDrafts[sentence, default: .init()].record(sourcePage: sourcePageIndex, source: displayedSource,
+                                                      translationPage: translationPageIndex, translation: displayedTranslation)
     }
 
     /// Hidden time is not reading time. An explicit restore gives the currently visible page
@@ -335,6 +363,7 @@ final class VideoSubtitleView: NSView {
     func resetReadingTime(at now: Double) {
         lastTime = now
         pageShownAt = now
+        finalHold?.restart(at: now)
         pageReadyAt = now + (hasCaption && layoutReady
             ? VideoCaptionPacing.readingTime(sourceCharacters: displayedSource.count,
                                              translationCharacters: displayedTranslation.count,
@@ -453,6 +482,7 @@ final class VideoSubtitleView: NSView {
         let pageTargetCharacters = newSentence || newTarget != displayedTranslation ? newTarget.count : 0
         let textChanged = newSource != displayedSource || newTarget != displayedTranslation
         displayedSource = newSource; displayedTranslation = newTarget
+        rememberDraftOnScreen()
         // Page flips cross-fade; in-place draft growth and resizes do not.
         presentVisual(animated: animated ?? newPage)
         if layoutReady {
@@ -473,7 +503,7 @@ final class VideoSubtitleView: NSView {
         } else if changedSource > 0 || changedTarget > 0 {
             // A same-sentence final or partial does not charge the already visible prefix
             // again, and a color/font-only update never restarts its reading clock. New text
-            // restarts the budget, so catching up cannot discount the time a draft was on screen.
+            // restarts the budget; `finalHold` shortens it while another cue waits.
             let changedReadyAt = now + VideoCaptionPacing.readingTime(sourceCharacters: changedSource,
                                                                       translationCharacters: changedTarget,
                                                                       sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)

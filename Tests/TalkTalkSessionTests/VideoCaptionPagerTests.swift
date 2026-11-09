@@ -125,6 +125,63 @@ import TalkTalkCore
         }
     }
 
+    @Test func unreadOffsetsAlignInsteadOfComparingPrefixes() {
+        #expect(VideoCaptionPacing.unreadOffsets(in: "你好世界", seen: "你好世界").isEmpty)
+        #expect(VideoCaptionPacing.unreadOffsets(in: "你好世界今天", seen: "你好世界") == [4, 5])
+        #expect(VideoCaptionPacing.unreadOffsets(in: "我们先决定这件事", seen: "我们要决定这件事") == [2])
+        #expect(VideoCaptionPacing.unreadOffsets(in: "a b", seen: "") == [0, 2])
+        #expect(VideoCaptionPacing.unreadOffsets(in: "😀好", seen: "😀") == [2])
+        #expect(VideoCaptionPacing.unreadOffsets(in: "", seen: "旧").isEmpty)
+    }
+
+    @Test func draftReadingKeepsWhatEachPageActuallyShowed() {
+        var reading = VideoDraftReading()
+        reading.record(sourcePage: 0, source: "one ", translationPage: 0, translation: "第一页")
+        reading.record(sourcePage: 1, source: "two", translationPage: 1, translation: "第二页")
+        // A later draft rewrites page 1 while page 2 is on screen; only page 2 is recorded again.
+        reading.record(sourcePage: 1, source: "two more", translationPage: 1, translation: "第二页更长")
+        #expect(reading.source == "one two more")
+        #expect(reading.translation == "第一页第二页更长")
+        #expect(VideoCaptionPacing.unreadOffsets(in: "改写的第二页更长", seen: reading.translation) == [0, 1, 2])
+    }
+
+    @Test func finalHoldChargesUnreadCharactersWithAOneSecondFloor() {
+        let text = "一二三四五六七八九十甲乙丙丁戊己庚辛"
+        let page = VideoCaptionFinalHold.Page(text: text, utf16Range: 0..<text.utf16.count)
+        func ready(seen: Int) -> Double {
+            VideoCaptionFinalHold(source: "", translation: text, seenSource: "", seenTranslation: String(text.prefix(seen)), at: 10)
+                .readyTime(source: nil, translation: page, sourceLanguage: .en, targetLanguage: .zh)
+        }
+        #expect(ready(seen: 18) == 11)
+        #expect(ready(seen: 9) == 11)
+        #expect(abs(ready(seen: 8) - (10 + 10.0 / 9)) < 1e-9)
+        // Two thirds new is a rewrite: the whole page is read again.
+        #expect(ready(seen: 6) == 12)
+    }
+
+    @Test func finalHoldStartsEachPageFreshAndSkipsAKeptSide() {
+        let firstPage = String(repeating: "a", count: 36), secondPage = String(repeating: "b", count: 36)
+        let source = firstPage + secondPage
+        let translation = String(repeating: "新", count: 18)
+        let second = VideoCaptionFinalHold.Page(text: secondPage, utf16Range: 36..<72)
+        let kept = VideoCaptionFinalHold.Page(text: translation, utf16Range: 0..<18)
+
+        var read = VideoCaptionFinalHold(source: source, translation: translation, seenSource: source, seenTranslation: "", at: 10)
+        read.flipPage(at: 20, keepsSource: false, keepsTranslation: true)
+        #expect(read.readyTime(source: second, translation: kept, sourceLanguage: .en, targetLanguage: .zh) == 21)
+
+        var unseen = VideoCaptionFinalHold(source: source, translation: translation, seenSource: firstPage, seenTranslation: "", at: 10)
+        unseen.flipPage(at: 20, keepsSource: false, keepsTranslation: true)
+        #expect(unseen.readyTime(source: second, translation: kept, sourceLanguage: .en, targetLanguage: .zh) == 22)
+        unseen.restart(at: 30)
+        #expect(unseen.readyTime(source: second, translation: kept, sourceLanguage: .en, targetLanguage: .zh) == 32)
+
+        // Only the unread characters on the page itself count.
+        var earlierPageUnread = VideoCaptionFinalHold(source: source, translation: translation, seenSource: secondPage, seenTranslation: "", at: 10)
+        earlierPageUnread.flipPage(at: 20, keepsSource: false, keepsTranslation: true)
+        #expect(earlierPageUnread.readyTime(source: second, translation: kept, sourceLanguage: .en, targetLanguage: .zh) == 21)
+    }
+
     @Test func pacingCatchUpAndDraftTail() {
         #expect(VideoCaptionPacing.readingTime(sourceCharacters: 0, translationCharacters: 3) == 1)
         #expect(VideoCaptionPacing.readingTime(sourceCharacters: 36, translationCharacters: 9) == 2)
