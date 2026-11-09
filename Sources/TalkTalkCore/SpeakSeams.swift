@@ -178,10 +178,19 @@ public protocol SpeakEngineControl: Sendable {
 
 public protocol SpeakEchoSink: Sendable {
     func recordPlayed(text: String, startHost: HostTime, endHost: HostTime) async
+    /// A clause's first sample reached the Feed. It counts as playing until `stopPlaying`, so a
+    /// final released mid-playback can still be recognized as its echo.
+    func recordPlaying(clause: UInt64, text: String, startHost: HostTime) async
+    func stopPlaying(clause: UInt64) async
     func recordPassthrough(startHost: HostTime, endHost: HostTime) async
     func recentRemoteText(withinS: Double) async -> [String]
     /// nil means the interval was not observed; zero means observed with no remote speech.
     func remoteVADOverlap(from: HostTime, to: HostTime) async -> Double?
+}
+
+public extension SpeakEchoSink {
+    func recordPlaying(clause: UInt64, text: String, startHost: HostTime) async {}
+    func stopPlaying(clause: UInt64) async {}
 }
 
 /// One press's current display snapshot, independent of audio playback status. `isFinal`

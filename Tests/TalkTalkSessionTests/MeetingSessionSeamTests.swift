@@ -27,6 +27,24 @@ import TalkTalkCore
         #expect(session.remoteVADOverlap(from: now, to: now + 1_000_000) == nil)
     }
 
+    @Test func aFinalReleasedDuringPlaybackIsRecognizedAsItsEcho() async throws {
+        let profile = try PolicyProfile.load(from: Fixture.repoRoot.appendingPathComponent("Resources/PolicyProfile.default.json"))
+        let stream = FakeStream(), sink = Sink()
+        let p = ListenPipeline(lang: .en, profile: profile.listen,
+                               engines: .init(asr: FakeASR(stream: stream), apple: nil, primary: nil),
+                               log: EventLog(inMemory: HostClock.now), tickMs: 100_000, onUpdate: { sink.add($0) })
+        let session = MeetingSession(profile: profile, makeEngines: { _, _, _ in fatalError("not started") }, onSubtitle: { _ in })
+        try await p.start()
+        session.runForTesting(app: "Zoom", pipeline: p)
+        await session.recordPlaying(clause: 3, text: "We will ship the release on Monday", startHost: HostClock.now() - 1_000_000_000)
+        stream.final("We will ship the release on Monday.")
+        #expect(await until { @Sendable in sink.items.contains(.dropped(sentence: 1)) })
+        await session.stopPlaying(clause: 3)
+        stream.final("We will ship the release on Monday.")
+        #expect(await until { @Sendable in sink.finals.count == 1 })
+        await session.stop()
+    }
+
     @Test func remoteVADRequiresCoverageAndMeasuresIntersection() {
         let ingest = AudioIngest()
         let start: HostTime = 1_000_000_000

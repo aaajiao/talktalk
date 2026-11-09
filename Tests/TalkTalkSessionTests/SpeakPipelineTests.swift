@@ -229,12 +229,21 @@ private struct SpeakTestEcho: SpeakEchoSink {
     func recentRemoteText(withinS: Double) async -> [String] { [] }
     func remoteVADOverlap(from: HostTime, to: HostTime) async -> Double? { 0 }
 }
+private final class RecordingSpeakEcho: SpeakEchoSink, Sendable {
+    let calls = Mutex<[String]>([])
+    func recordPlayed(text: String, startHost: HostTime, endHost: HostTime) async { calls.withLock { $0.append("played") } }
+    func recordPlaying(clause: UInt64, text: String, startHost: HostTime) async { calls.withLock { $0.append("playing") } }
+    func stopPlaying(clause: UInt64) async { calls.withLock { $0.append("stopped") } }
+    func recordPassthrough(startHost: HostTime, endHost: HostTime) async {}
+    func recentRemoteText(withinS: Double) async -> [String] { [] }
+    func remoteVADOverlap(from: HostTime, to: HostTime) async -> Double? { 0 }
+}
 
 struct SpeakPipelineTests {
     private func fixture(asr: SpeakTestASR = .init(), mt: SpeakTestMT = .init(),
                          primary: SpeakTestASR? = nil, ttsFailures: Int = 0, clone: Bool = false, holdTTS: Bool = false,
                          preview: (any StreamingASREngine)? = nil, whileHeld: Bool = false, source: Lang = .zh, target: Lang = .en,
-                         captureFromKeyDown: Bool = false, log: EventLog? = nil,
+                         captureFromKeyDown: Bool = false, log: EventLog? = nil, echo: any SpeakEchoSink = SpeakTestEcho(),
                          asrContext: @escaping @Sendable () -> String? = { nil },
                          onCommit: @escaping @Sendable () -> Void = {},
                          onWorkChange: @escaping @Sendable (Bool) -> Void = { _ in },
@@ -250,7 +259,7 @@ struct SpeakPipelineTests {
             voice: { .init(clone: clone ? tts : nil, system: tts, systemHandle: handle,
                            cloneAvailability: clone ? .ready(handle) : .noProfile,
                            playoutGainDb: 0, hudVoice: clone ? .mine : .system) },
-            engine: SpeakTestControl(), echo: SpeakTestEcho(), previewASR: preview, source: source, target: target, jobs: JobIDSequence(),
+            engine: SpeakTestControl(), echo: echo, previewASR: preview, source: source, target: target, jobs: JobIDSequence(),
             log: log ?? EventLog(inMemory: HostClock.now), speakerMode: { false }, captureFromKeyDown: captureFromKeyDown,
             ui: onUI, onCommit: onCommit, onWorkChange: onWorkChange, onSpoken: onSpoken,
             asrContext: asrContext, commitWhileHeld: whileHeld)
@@ -553,6 +562,28 @@ struct SpeakPipelineTests {
         #expect(next.contextID != first.contextID && next.previousJob == nil)
         #expect(await mt.requests[2].history.isEmpty)
         #expect(host.queue.clauseCount == 1)
+        await pipeline.stop()
+    }
+
+    @Test func aClauseIsOpenForTheEchoFilterWhilePlayingAndKeptWhenCut() async throws {
+        let echo = RecordingSpeakEcho()
+        let (pipeline, mic, _, tts) = try fixture(holdTTS: true, whileHeld: true, echo: echo)
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        mic.press.cc.yield(clip(at: now, isFinal: false))
+        #expect(await until { tts.requests.withLock { $0.count == 1 } })
+        let first = try #require(tts.requests.withLock { $0.first })
+        mic.press.cc.yield(clip(at: now + 1_000_000_000, isFinal: false))
+        #expect(await until { tts.requests.withLock { $0.count == 2 } })
+        let second = try #require(tts.requests.withLock { $0.dropFirst().first })
+        await pipeline.receive([.firstSamplePlayed(clause: first.clause, job: first.job, at: now + 2_000_000_000)])
+        #expect(echo.calls.withLock { $0 } == ["playing"])
+        await pipeline.receive([.played(.init(clause: first.clause, text: first.text,
+                                             start: now + 2_000_000_000, end: now + 2_300_000_000, incomplete: false))])
+        #expect(echo.calls.withLock { $0 } == ["playing", "played", "stopped"])
+        await pipeline.receive([.firstSamplePlayed(clause: second.clause, job: second.job, at: now + 2_400_000_000),
+                                .cut(clause: second.clause, reason: .passthroughCut, at: now + 2_500_000_000)])
+        #expect(echo.calls.withLock { $0 } == ["playing", "played", "stopped", "playing", "played", "stopped"])
         await pipeline.stop()
     }
 

@@ -34,14 +34,19 @@ final class ListenCloud {
         private var _listenEnabled = false
         private var _active = false
         private var _speakEnabled = false
-        private var _warmB = false
+        /// B is used for the whole meeting (SPEAK or LISTEN hedging).
+        private var _warmBAlways = false
+        /// B is used only by LISTEN's opening double-send, so it can go cold afterwards.
+        private var _warmBForOpening = false
         var mt: OpenAIMT? { lock.withLock { _mt } }
         var speak: OpenAIMT? { lock.withLock { _speakEnabled ? _mt : nil } }
-        var warmB: Bool { lock.withLock { _warmB } }
+        var warmB: Bool {
+            lock.withLock { _warmBAlways || (_warmBForOpening && _mt?.listenOpeningIsOver == false) }
+        }
         var active: Bool { lock.withLock { _active } }
-        func set(_ mt: OpenAIMT?, speakEnabled: Bool = false, warmB: Bool = false) {
+        func set(_ mt: OpenAIMT?, speakEnabled: Bool = false) {
             lock.withLock {
-                _mt = mt; _speakEnabled = speakEnabled; _warmB = warmB
+                _mt = mt; _speakEnabled = speakEnabled; _warmBAlways = false; _warmBForOpening = false
                 if mt == nil { _sessionLog = nil; _listenEnabled = false }
             }
         }
@@ -60,9 +65,11 @@ final class ListenCloud {
                                                     fastMode: forMeeting && prefs.fastMode)) ?? nil
                 }
                 let profile = try? PolicyProfile.loadDefault()
-                _warmB = prefs.effort == "none" && (
+                _warmBAlways = prefs.effort == "none" && (
                     (prefs.speakCloudEnabled && profile?.speakHedgePolicy.hedge.enabled == true)
-                    || (prefs.listenCloudEnabled && profile?.listenUsesLegB == true))
+                    || (prefs.listenCloudEnabled && profile?.listenHedgePolicy.hedge.enabled == true))
+                _warmBForOpening = prefs.effort == "none" && prefs.listenCloudEnabled
+                    && (profile?.listen.finalMT.openingDoubleSendS ?? 0) > 0
                 _sessionLog = log; _mt = mt
                 _listenEnabled = prefs.listenCloudEnabled; _speakEnabled = prefs.speakCloudEnabled
                 return _listenEnabled ? mt : nil

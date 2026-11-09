@@ -52,14 +52,14 @@ func subtitleLanguagesSelfTest() async -> SelfTestReport {
             let finals = Mutex<[UInt64: (String, String)]>([:])
             let usedQwen = Mutex(false), fellBack = Mutex(false)
             let asr: any StreamingASREngine = backend == "apple" ? AppleSpeechASR() : QwenStreamingASR(
-                engine: qwen, fallback: AppleSpeechASR(), onEngine: { engine in
+                engine: qwen, fallback: AppleSpeechASR(), windowSeconds: 24, earlySentences: true, onEngine: { engine in
                     if engine.placement == .engineGPU { usedQwen.withLock { $0 = true } }
                     else { fellBack.withLock { $0 = true } }
                 })
             var engines = ListenPipeline.Engines(asr: asr, apple: apple, primary: nil)
             engines.prepareTranslation = { try? await apple.prepare(session) }
-            let pipeline = ListenPipeline(lang: direction.source, target: direction.target, profile: profile.listen,
-                engines: engines, log: EventLog(inMemory: HostClock.now), ingest: ingest, onUpdate: { update in
+            let pipeline = ListenPipeline(lang: direction.source, target: direction.target,
+                profile: MeetingSession.listenRules(profile.listen, mode: .meeting, asr: asr), engines: engines, log: EventLog(inMemory: HostClock.now), ingest: ingest, onUpdate: { update in
                     if case let .final(sentence, text, source, _, _) = update {
                         finals.withLock { $0[sentence] = (source, text) }
                     }

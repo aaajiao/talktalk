@@ -128,6 +128,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
     private var sentences: RollingSentenceCommitter?
     private var earlyThrough: HostTime = 0
     private var cutIsForced = true            // only an explicit finalize is a cut the speaker made
+    private var parkedHold: HostTime?         // after a parked read, no own read before this audio time
     private var active: (request: Request, task: Task<Void, Never>)?
     private var switching = false
     private var fallbackTask: Task<Void, Never>?
@@ -159,6 +160,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
             guard skip < frames.count else { return }
             blocks.append(Block(samples: Array(frames.dropFirst(skip)), at: at + UInt64(skip) * 62_500))
             count += frames.count - skip
+            let end = blocks.last?.end ?? 0
             if count > configuration.bufferFrames {
                 // Keep the newest segment. Trimming only to the limit overflows again on the next
                 // chunk, and each overflow cancels the read that would drain the buffer.
@@ -168,7 +170,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
                 advanceLocked(through: cut)
                 cancelActiveLocked()
             }
-            if !switching, finalThrough == nil, count >= configuration.segmentFrames {
+            if !switching, finalThrough == nil, count >= configuration.segmentFrames, parkedHold.map({ end >= $0 }) ?? true {
                 requestFinalLocked(through: boundaryLocked(after: configuration.segmentFrames), forced: true)
             }
         }
@@ -204,6 +206,7 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
         lock.withLock {
             guard !closed, !switching, fallbackStream == nil, active == nil,
                   let end = blocks.last?.end else { return }
+            if finalThrough == nil, let parkedHold, end < parkedHold { return }
             if finalThrough == nil, count >= configuration.segmentFrames {
                 requestFinalLocked(through: boundaryLocked(after: configuration.segmentFrames), forced: true)
             }
@@ -305,6 +308,9 @@ private final class QwenASRStream: ASRStream, @unchecked Sendable {
             emitFinalLocked(hypothesis.text, through: hypothesis.through)
         } else {
             clearFinalCutLocked()
+            // A speaking turn has no length limit. The window did not move, so without this a
+            // full window would resend its 24 s of audio about three times a second.
+            parkedHold = blocks.last.map { $0.end + UInt64(configuration.cadenceFrames) * 62_500 }
         }
     }
 

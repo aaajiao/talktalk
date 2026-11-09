@@ -40,12 +40,32 @@ extension FakeServerCloudTests {
         FakeServer.enqueue(.A, FakeServer.good("一。"), FakeServer.good("二。"))
         FakeServer.enqueue(.B, .hang(headersAtMs: nil))
         let engine = openingEngine(TalkTalkCore.EventLog(inMemory: HostClock.now), seconds: 1)
+        #expect(!engine.listenOpeningIsOver)
         _ = try await engine.translate(listenRequest(1))
         #expect(FakeServer.requests(.B).count == 1)
+        #expect(!engine.listenOpeningIsOver)
         try await Task.sleep(for: .milliseconds(1100))
+        #expect(engine.listenOpeningIsOver)
         _ = try await engine.translate(listenRequest(2))
         #expect(FakeServer.requests(.B).count == 1 && FakeServer.requests(.A).count == 2)
     }
+
+    @Test func aKeyRefusalSeenBeforeTheCallerLeftStillPausesTheCloud() async throws {
+        FakeServer.enqueue(.A, .json(401, "{}"))
+        FakeServer.enqueue(.B, .hang(headersAtMs: nil))
+        let log = TalkTalkCore.EventLog(inMemory: HostClock.now)
+        let engine = openingEngine(log, seconds: 45)
+        let request = listenRequest(1, deadlineMs: 5000)
+        let task = Task { try await engine.translate(request) }
+        #expect(await eventually { requestsAnswered(.A) })
+        try await Task.sleep(for: .milliseconds(100))
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(log.recorded.contains { $0["ev"] as? String == "cloud.breaker" && $0["state"] as? String == "cloudPaused:http401" })
+        #expect(!names(log).contains("cloud.session_reset"))
+    }
+
+    private func requestsAnswered(_ leg: Leg) -> Bool { !FakeServer.requests(leg).isEmpty }
 
     @Test func twoOpeningSentencesWithNoHeadersOnEitherLegStillRebuild() async throws {
         FakeServer.enqueue(.A, .hang(headersAtMs: nil), .hang(headersAtMs: nil))

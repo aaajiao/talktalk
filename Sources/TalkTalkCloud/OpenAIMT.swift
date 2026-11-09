@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import TalkTalkCore
 
 /// The OpenAI MT backend (ARCHITECTURE.md §4.1, §5.4, §6.4, §13): `MTEngine` with placement
@@ -51,7 +52,8 @@ public actor OpenAIMT: SpeakCloudMT {
     private var pressWarm: (id: UUID, task: Task<Void, Never>)?
     private let keyCache: MeetingKeyCache?
     private var fastModeOn: Bool
-    private var listenOpeningEndsMs: Int?
+    /// Keep-warm reads this from a synchronous closure, hence the lock.
+    private nonisolated let listenOpeningEnds = Mutex<ContinuousClock.Instant?>(nil)
 
     /// - Parameters:
     ///   - client: the app's OpenAIClient (two `.ephemeral` sessions A/B, key from the Keychain).
@@ -383,9 +385,12 @@ public actor OpenAIMT: SpeakCloudMT {
     /// One HedgedRequest, cancellable through `cancel(job)` and through task cancellation.
     private func run(_ r: MTRequest, policy: HedgePolicy, deadlineMs: Int, replyByMs: Int? = nil, kind: HedgeRun.Kind,
                      speak: SpeakCloudContext?) async throws -> HedgedRequest.Outcome {
-        try Task.checkCancellation()
-        if cancelledJobs.contains(r.job) { throw CancellationError() }
         let dir: CloudHealth.Direction = r.session.isSpeak ? .speak : .listen
+        if Task.isCancelled || cancelledJobs.contains(r.job) {
+            // A guard retry's probe was already booked; this one could be another sentence's.
+            if kind == .normal { health.releaseProbes(dir) }
+            throw CancellationError()
+        }
         let soft = r.session.isSpeak ? profile.speak.mt.contextTokensSoft : profile.listen.finalMT.contextTokensSoft
         let hard = r.session.isSpeak ? profile.speak.mt.contextTokensHard : profile.listen.finalMT.contextTokensHard
         let tier = fastModeOn ? Self.fastTier : profile.cloud.serviceTier
@@ -414,22 +419,24 @@ public actor OpenAIMT: SpeakCloudMT {
         inFlight[r.job] = nil
         logRequest(r, tier: tier, deadlineMs: deadlineMs, outcome: outcome)
 
-        if outcome.cancelledByCaller || Task.isCancelled || cancelledJobs.contains(r.job) {
-            health.releaseProbes(dir)
-            log?.event("mt.cancelled", ["job": .int(Int(r.job))])
-            throw CancellationError()
-        }
+        let cancelled = outcome.cancelledByCaller || Task.isCancelled || cancelledJobs.contains(r.job)
         if fastModeRefused(tier: tier, outcome: outcome) {
             health.releaseProbes(dir)
+            if cancelled { throw cancellation(r) }
             var refused = outcome
             // Don't name the key or quota for a tier refusal. A 403 that really is the key
             // pauses on the next standard-tier sentence.
             refused.decision.pauseReason = nil
             return refused
         }
-        for line in health.record(dir, decision: outcome.decision, hedgePauseS: outcome.hedgePauseS, now: nowMs()) {
+        // A cancelled request still books what its legs proved. Its timeout does not count:
+        // the caller's own timer cut it, and opening bursts would open the timeout breaker.
+        var booked = outcome.decision
+        if cancelled { booked.timedOut = false }
+        for line in health.record(dir, decision: booked, hedgePauseS: outcome.hedgePauseS, now: nowMs()) {
             log?.event("cloud.breaker", ["state": .tag(line)])
         }
+        if cancelled { throw cancellation(r) }
         // Connection health (§6.4): a hedge that wins while the loser never got headers, or a
         // LISTEN request whose headers come late, rebuilds that connection. A LISTEN double-send
         // that got any answer says nothing about either: the legs start together and the stalls
@@ -456,13 +463,27 @@ public actor OpenAIMT: SpeakCloudMT {
         return outcome
     }
 
+    private func cancellation(_ r: MTRequest) -> CancellationError {
+        log?.event("mt.cancelled", ["job": .int(Int(r.job))])
+        return CancellationError()
+    }
+
     /// LISTEN requests stall far more often in a session's opening; the first one starts the clock.
     private func isListenOpening() -> Bool {
         let seconds = profile.listen.finalMT.openingDoubleSendS
         guard seconds > 0 else { return false }
-        let now = nowMs(), end = listenOpeningEndsMs ?? now + seconds * 1000
-        listenOpeningEndsMs = end
+        let now = ContinuousClock.now
+        let end = listenOpeningEnds.withLock { end in
+            let value = end ?? now + .seconds(seconds)
+            end = value
+            return value
+        }
         return now < end
+    }
+
+    /// The opening double-send has run its course. False until the first LISTEN request.
+    public nonisolated var listenOpeningIsOver: Bool {
+        listenOpeningEnds.withLock { end in end.map { ContinuousClock.now >= $0 } ?? false }
     }
 
     /// If this account or model cannot use Fast mode, that costs one sentence, not the meeting:

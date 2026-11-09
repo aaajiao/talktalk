@@ -60,6 +60,22 @@ actor FakeMT: MTEngine {
     func cancel(_ job: JobID) async { cancels.append(job) }
 }
 
+/// Finishes in the order the test names, whatever order the sentences were sent in.
+actor ScriptedDelayMT: MTEngine {
+    nonisolated let id = EngineID(name: "scripted", revision: "1", placement: .network)
+    let delayMs: [String: Int]
+    init(delayMs: [String: Int]) { self.delayMs = delayMs }
+    func translate(_ r: MTRequest) async throws -> MTResult {
+        try await Task.sleep(for: .milliseconds(delayMs[r.text] ?? 0))
+        let now = HostClock.now()
+        return MTResult(text: r.text, tokens: 1, reasoningTokens: 0, engine: id,
+                        hedge: HedgeOutcome(fired: false, winner: .A, reason: nil, ms: 0),
+                        timing: StageTiming(received: now, started: now, firstOutput: now, finished: now))
+    }
+    func setContext(_ s: MTSession, glossary: [GlossaryEntry]) async throws {}
+    func cancel(_ job: JobID) async {}
+}
+
 /// Long texts take longer, so a short piece finishes before the longer one cut ahead of it.
 actor LengthPacedMT: MTEngine {
     nonisolated let id = EngineID(name: "paced", revision: "1", placement: .network)
@@ -125,6 +141,41 @@ enum Fixture {
         #expect(silence.contains(.finalize(sentence: 1, trigger: .silence, throughMs: 10_000)))
         #expect(adjusted.finalize.silenceMs == original.finalize.silenceMs)
         #expect(adjusted.finalize.hardCapS == original.finalize.hardCapS)
+    }
+
+    @Test func theTranscriptKeepsSentenceOrderWhenALaterSentenceFinishesFirst() async throws {
+        let first = "We will ship the release on Monday.", second = "The budget review comes after that."
+        let stream = FakeStream(), sink = Sink(), written = Mutex<[String]>([])
+        let primary = ScriptedDelayMT(delayMs: [first: 200])
+        let p = ListenPipeline(lang: .en, profile: try Fixture.listen(deadlineMs: 2000),
+                               engines: .init(asr: FakeASR(stream: stream), apple: nil, primary: primary),
+                               log: EventLog(inMemory: HostClock.now), tickMs: 100_000,
+                               onTranscript: { source, _, _ in written.withLock { $0.append(source) } },
+                               onUpdate: { sink.add($0) })
+        try await p.start()
+        stream.final(first)
+        stream.final(second)
+        #expect(await until { @Sendable in written.withLock { $0.count == 2 } })
+        #expect(sink.finals.map(\.0) == [2, 1])    // the subtitle events really did finish out of order
+        #expect(written.withLock { $0 } == [first, second])
+        await p.stop()
+    }
+
+    @Test func aFinishedSentenceHeldBehindAnUnfinishedOneIsWrittenOnStop() async throws {
+        let first = "We will ship the release on Monday.", second = "The budget review comes after that."
+        let stream = FakeStream(), sink = Sink(), written = Mutex<[String]>([])
+        let p = ListenPipeline(lang: .en, profile: try Fixture.listen(deadlineMs: 9000),
+                               engines: .init(asr: FakeASR(stream: stream), apple: nil, primary: ScriptedDelayMT(delayMs: [first: 5000])),
+                               log: EventLog(inMemory: HostClock.now), tickMs: 100_000,
+                               onTranscript: { source, _, _ in written.withLock { $0.append(source) } },
+                               onUpdate: { sink.add($0) })
+        try await p.start()
+        stream.final(first)
+        stream.final(second)
+        #expect(await until { @Sendable in sink.finals.count == 1 })
+        #expect(written.withLock { $0.isEmpty })
+        await p.stop()
+        #expect(written.withLock { $0 } == [second])
     }
 
     @Test func piecesOfASplitSentenceAppearInOrder() async throws {

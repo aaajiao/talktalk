@@ -216,14 +216,7 @@ public struct HedgedRequest: Sendable {
         for leg in Leg.allCases where reports[leg]!.result == nil && reports[leg]!.sentMs != nil { cancel(leg) }
         cont.finish()
 
-        let final: HedgeDecision
-        if let d = decision {
-            final = d
-        } else {
-            final = HedgeDecision(outcome: HedgeOutcome(fired: reports[.B]!.sentMs != nil, winner: .apple, reason: nil, ms: now()),
-                                  fallback: nil, breakerFailure: false, timedOut: false, primaryRateLimited: false,
-                                  retryAfterS: nil, pauseReason: nil)
-        }
+        let final = decision ?? policy.abandoned(state, now: now())
         sink(.hedge(final.outcome))
         let text: String? = switch final.outcome.winner {
         case .A: acc[.A]!.firstLine.trimmed

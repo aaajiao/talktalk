@@ -338,6 +338,13 @@ extension HedgePolicy {
         return out
     }
 
+    /// The caller left before the run decided. A leg's 429 or refused key is a fact whether or
+    /// not anyone waited for the other leg.
+    public func abandoned(_ run: HedgeRun, now: Int) -> HedgeDecision {
+        var finished = run
+        return decide(&finished, winner: .apple, fallback: nil, now: now)
+    }
+
     private func finishApple(_ run: inout HedgeRun, _ reason: FallbackReason, now: Int) -> [HedgeAction] {
         var out: [HedgeAction] = []
         if !run.appleStarted, run.kind == .normal { run.appleStarted = true; out.append(.startApple) }

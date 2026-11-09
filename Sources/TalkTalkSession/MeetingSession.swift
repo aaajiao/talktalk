@@ -106,6 +106,7 @@ public final class MeetingSession: SpeakEchoSink {
         }
     }
     private var echoRecords: [EchoRecord] = []
+    private var playingEcho: [UInt64: (text: String, start: HostTime)] = [:]
     private var tap: MeetingTap?
     private var echoReference: EnvelopeHistory?
     private var draftsPaused = false
@@ -162,6 +163,16 @@ public final class MeetingSession: SpeakEchoSink {
         await pipeline?.recordPlayed(text: text, startHost: startHost, endHost: endHost)
     }
 
+    public func recordPlaying(clause: UInt64, text: String, startHost: HostTime) async {
+        playingEcho[clause] = (text, startHost)
+        await pipeline?.recordPlaying(clause: clause, text: text, startHost: startHost)
+    }
+
+    public func stopPlaying(clause: UInt64) async {
+        playingEcho[clause] = nil
+        await pipeline?.stopPlaying(clause: clause)
+    }
+
     public func recordPassthrough(startHost: HostTime, endHost: HostTime) async {
         guard endHost >= startHost else { return }
         if let last = echoRecords.last, case let .passthrough(start, end) = last,
@@ -173,7 +184,8 @@ public final class MeetingSession: SpeakEchoSink {
     }
 
     private func pruneEchoRecords() {
-        let now = HostClock.now(), window = UInt64(profile.listen.echoFilter.windowS + profile.listen.echoFilter.afterPlayS) * 1_000_000_000
+        let now = HostClock.now()
+        let window = UInt64(profile.listen.echoFilter.windowS + profile.listen.echoFilter.afterPlayS + EchoFilter.backlogS) * 1_000_000_000
         echoRecords.removeAll { now >= $0.end && now - $0.end > window }
     }
 
@@ -213,7 +225,7 @@ public final class MeetingSession: SpeakEchoSink {
     /// A meeting or call the user set to Apple Speech keeps the ordinary text-pause rules. One
     /// that starts on Qwen stays on these rules if Apple takes over. Video has always used its
     /// own rules on either recognizer.
-    static func listenRules(_ listen: PolicyProfile.Listen, mode: MeetingMode,
+    public nonisolated static func listenRules(_ listen: PolicyProfile.Listen, mode: MeetingMode,
                             asr: any StreamingASREngine) -> PolicyProfile.Listen {
         if mode == .captions { return listen.forVideoCaptions }
         return asr.releasesEarlySentences ? listen.forRollingSentences : listen
@@ -233,11 +245,10 @@ public final class MeetingSession: SpeakEchoSink {
             }
         } else { analysis = nil }
         return ListenPipeline(lang: lang, target: target, profile: Self.listenRules(profile.listen, mode: mode, asr: engines.asr), engines: engines, log: log, ingest: ingest,
+            // No configuration check here: only sentences that finished before a stop reach this,
+            // and a stop flushes them after this session has closed its other callbacks.
             jobs: jobs, onTranscript: { [weak self] source, target, at in
-                Task { @MainActor in
-                    guard let self, self.acceptsListenCallbacks(configuration) else { return }
-                    self.onTranscript(source, target, at)
-                }
+                Task { @MainActor in self?.onTranscript(source, target, at) }
             }, onAnalysis: analysis, glossary: glossary, onUpdate: { [weak self] update in
                 Task { @MainActor in
                     guard let self, self.acceptsListenCallbacks(configuration) else { return }
@@ -294,6 +305,10 @@ public final class MeetingSession: SpeakEchoSink {
             self.pruneEchoRecords()
             let records = self.echoRecords
             for record in records { await record.replay(to: next) }
+            for clause in Array(self.playingEcho.keys) {   // a clause can stop during this loop
+                guard let open = self.playingEcho[clause] else { continue }
+                await next.recordPlaying(clause: clause, text: open.text, startHost: open.start)
+            }
             guard self.acceptsListenCallbacks(configuration), !Task.isCancelled else { throw CancellationError() }
             log.event("listen.configuration", ["lang": .tag(lang.rawValue), "target": .tag(target.rawValue), "generation": .int(Int(configuration))])
         }
@@ -543,7 +558,7 @@ public final class MeetingSession: SpeakEchoSink {
         pipeline = nil; listenTask = nil; listenTaskConfigurationID = nil; listenLanguage = nil; listenTarget = nil
         if let p { await p.stop() }
         _ = await pending?.result
-        ingest.reset(); echoRecords.removeAll()
+        ingest.reset(); echoRecords.removeAll(); playingEcho.removeAll()
         if let a = activity { ProcessInfo.processInfo.endActivity(a) }
         activity = nil
         log?.event("meeting.end", ["reason": .tag(reason.rawValue), "minutes": .double(Double(nowMs) / 60_000),

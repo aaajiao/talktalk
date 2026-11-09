@@ -38,6 +38,15 @@ public struct EchoFilter: Sendable {
 
     public let config: Config
     private var played: [Played] = []
+    /// Clauses on the Feed right now, by clause. Finals can be released mid-playback, before
+    /// `recordPlayed` exists for the clause they echo.
+    private var playing: [UInt64: Played] = [:]
+    /// No clause plays this long. A close that never arrived must not suppress speech forever.
+    private static let openClauseLimitMs = 60_000
+    /// Recognition is paused for a whole speaking turn, then reads up to this much old audio.
+    /// That audio is judged against the clauses that played back then, so they are kept longer
+    /// than the match window; `decide` still bounds matches by audio time.
+    public static let backlogS = 48
     private var passthrough: [(startMs: Int, endMs: Int)] = []
 
     public init(config: Config = Config()) {
@@ -49,6 +58,15 @@ public struct EchoFilter: Sendable {
         played.append(Played(tokens: Self.tokens(text), startMs: startMs, endMs: endMs))
         prune(nowMs: endMs)
     }
+
+    /// A TTS clause whose first sample just reached the Feed. It counts as playing until
+    /// `stopPlaying`.
+    public mutating func recordPlaying(clause: UInt64, text: String, startMs: Int) {
+        playing = playing.filter { startMs - $0.value.startMs <= Self.openClauseLimitMs }
+        playing[clause] = Played(tokens: Self.tokens(text), startMs: startMs, endMs: startMs)
+    }
+
+    public mutating func stopPlaying(clause: UInt64) { playing[clause] = nil }
 
     public mutating func recordPassthrough(startMs: Int, endMs: Int) {
         guard endMs >= startMs else { return }
@@ -71,6 +89,13 @@ public struct EchoFilter: Sendable {
                 let duringPlay = startMs >= p.startMs && startMs <= p.endMs + afterMs
                 if acoustic || duringPlay { return .drop(reason: .ttsEcho, overlap: o) }
             }
+            for p in playing.values where startMs - p.startMs <= Self.openClauseLimitMs {
+                let o = Self.overlap(segment: seg, played: p.tokens)
+                guard o >= config.overlap, Self.hasTextEvidence(segment: seg, played: p.tokens) else { continue }
+                // Text alone needs a few shared words: a remote "Monday?" can land mid-clause.
+                let enough = Set(seg).intersection(p.tokens).count >= 3
+                if acoustic || (startMs >= p.startMs && enough) { return .drop(reason: .ttsEcho, overlap: o) }
+            }
         }
         if acoustic, passthrough.contains(where: { startMs >= $0.startMs && startMs <= $0.endMs + afterMs }) {
             return .drop(reason: .passthroughEcho, overlap: 0)
@@ -79,7 +104,7 @@ public struct EchoFilter: Sendable {
     }
 
     private mutating func prune(nowMs: Int) {
-        let keep = Int((config.windowS + config.afterPlayS) * 1000)
+        let keep = Int((config.windowS + config.afterPlayS + Double(Self.backlogS)) * 1000)
         played.removeAll { nowMs - $0.endMs > keep }
         passthrough.removeAll { nowMs - $0.endMs > keep }
     }

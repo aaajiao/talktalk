@@ -310,6 +310,23 @@ struct QwenStreamingASRTests {
 
     /// Longer than the buffer holds, then released, with reads slower than the audio chunks
     /// and too slow for the whole window, as after a real long press.
+    @Test func aFullWindowIsNotResentFasterThanTheCadenceDuringALongTurn() async throws {
+        let primary = StreamingClipFake(), fallback = StreamingFallbackFake()
+        await primary.simulate(speaking: true)
+        var small = earlyConfig
+        small.cadenceFrames = 1600; small.segmentFrames = 3200; small.bufferFrames = 64_000; small.finalizeNs = 3_000_000_000
+        let stream = try await QwenStreamingASR(primary: primary, fallback: fallback, configuration: small).open(.en, highPriority: false)
+        var at: HostTime = 3_000_000_000
+        for _ in 0..<200 {               // 20 cadences of audio in 200 chunks
+            feed(stream, at: at, count: 160); at += 10_000_000
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        let reads = await primary.calls.count
+        #expect(reads >= 3 && reads <= 25)
+        #expect(fallback.opens.withLock { $0 } == 0)
+        await stream.close()
+    }
+
     @Test func recognitionComesBackAfterSpeakingPastTheBuffer() async throws {
         let primary = StreamingClipFake(), fallback = StreamingFallbackFake()
         await primary.simulate(speaking: true)

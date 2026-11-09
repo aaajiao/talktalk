@@ -394,6 +394,23 @@ import Testing
         #expect(f.decide(text: "walk you through the plan", startMs: 5500, echoScore: nil) == .keep)
     }
 
+    @Test func clausesAreKeptForTheBacklogReadAfterALongTurn() {
+        var f = EchoFilter()
+        f.recordPlayed(text: "Let me walk you through the plan", startMs: 1000, endMs: 3000)
+        f.recordPlayed(text: "Something else entirely here", startMs: 40_000, endMs: 42_000)
+        #expect(f.decide(text: "walk you through the plan", startMs: 2000, echoScore: nil) != .keep)
+    }
+
+    @Test func aClauseStillPlayingCountsUntilItStops() {
+        var f = EchoFilter()
+        f.recordPlaying(clause: 1, text: "Let me walk you through the plan", startMs: 1000)
+        #expect(f.decide(text: "walk you through the plan", startMs: 9000, echoScore: nil) != .keep)
+        #expect(f.decide(text: "walk you through the plan", startMs: 500, echoScore: nil) == .keep)
+        #expect(f.decide(text: "The plan?", startMs: 9000, echoScore: nil) == .keep)
+        f.stopPlaying(clause: 1)
+        #expect(f.decide(text: "walk you through the plan", startMs: 9000, echoScore: nil) == .keep)
+    }
+
     @Test func oldClausesFallOutOfTheWindow() {
         var f = EchoFilter()
         f.recordPlayed(text: "budget approved", startMs: 0, endMs: 1000)

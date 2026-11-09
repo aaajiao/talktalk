@@ -148,6 +148,7 @@ public actor ListenPipeline {
     private var finalsInFlight = 0
     private var running = false
     private var finalTasks: [UInt64: Task<Void, Never>] = [:]
+    private var heldTranscripts: [UInt64: (source: String, target: String, at: HostTime)] = [:]
     /// The piece just cut off a long sentence. What follows it must not appear before it.
     private var openHead: Task<Void, Never>?
     private var remoteText: [(host: HostTime, text: String)] = []
@@ -254,6 +255,7 @@ public actor ListenPipeline {
         ingest.detach()
         for t in finalTasks.values { t.cancel() }
         finalTasks.removeAll()
+        writeTranscripts()   // sentences already finished, held behind ones just cancelled
         openHead = nil
         remoteText.removeAll()
         for t in tasks { t.cancel() }
@@ -351,6 +353,12 @@ public actor ListenPipeline {
     public func recordPlayed(text: String, startHost: HostTime, endHost: HostTime) {
         echo.recordPlayed(text: text, startMs: ms(startHost), endMs: ms(endHost))
     }
+
+    public func recordPlaying(clause: UInt64, text: String, startHost: HostTime) {
+        echo.recordPlaying(clause: clause, text: text, startMs: ms(startHost))
+    }
+
+    public func stopPlaying(clause: UInt64) { echo.stopPlaying(clause: clause) }
 
     public func recordPassthrough(startHost: HostTime, endHost: HostTime) {
         echo.recordPassthrough(startMs: ms(startHost), endMs: ms(endHost))
@@ -559,8 +567,20 @@ public actor ListenPipeline {
         defer {
             if let draft { cancelDraft(draft) }
             finalsInFlight -= 1; finalTasks[f.sentence] = nil
+            writeTranscripts()
         }
         await renderFinal(f, replacing: replacement, correctionDeadline: correctionDeadline, original: original, draft: draft, after: head)
+    }
+
+    /// Sentences released together can finish translating in either order; the record stays in
+    /// the order they were said. A sentence waits only for earlier ones still in flight.
+    private func writeTranscripts() {
+        let oldest = finalTasks.keys.min()
+        for sentence in heldTranscripts.keys.sorted() {
+            if let oldest, sentence > oldest { break }
+            guard let entry = heldTranscripts.removeValue(forKey: sentence) else { continue }
+            onTranscript(entry.source, entry.target, entry.at)
+        }
     }
 
     private func renderFinal(_ f: ListenSegmenter.SentenceFinal, replacing replacement: UInt64? = nil,
@@ -706,7 +726,8 @@ public actor ListenPipeline {
                                "met_deadline": .bool(completedMs <= deadlineMs)])
         onAnalysis?(.init(stage: .mtCompleted, sentence: historyID, at: completedAt,
                           source: source, translation: out, engine: engineTag, numberWarning: numberWarning))
-        onTranscript(source, out, completedAt)
+        heldTranscripts[f.sentence] = (source, out, completedAt)
+        writeTranscripts()
         if let replacement {
             lookbackRevisions += 1
             log.event("listen.de_lookback", ["sentence": .int(Int(replacement)), "revisions": .int(1)])

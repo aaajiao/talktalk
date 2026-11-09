@@ -40,9 +40,6 @@ public struct PolicyProfile: Codable, Sendable, Equatable {
                            extendToDrain: drain, guardRetry: speak.mt.guardRetry)
     }
 
-    /// LISTEN sends on leg B at some point in a session, so B needs its warm connection.
-    public var listenUsesLegB: Bool { listenHedgePolicy.hedge.enabled || listen.finalMT.openingDoubleSendS > 0 }
-
     public static func decode(_ data: Data) throws -> PolicyProfile {
         try JSONDecoder().decode(PolicyProfile.self, from: data)
     }
