@@ -97,6 +97,19 @@ public struct RollingSentenceCommitter: Sendable {
         return Closing(sentences: sentences, tail: tail)
     }
 
+    /// Cuts one piece off a sentence too long for one subtitle, at a sentence end or else at a
+    /// comma. One piece at a time, because the subtitle board holds only two waiting cues. Limits
+    /// count words; Chinese counts characters, twice as many. Nil if the text stays whole.
+    public func splitLong(_ text: String, fromWords limit: Int, minHeadWords: Int) -> (head: String, rest: String)? {
+        let all = tokens(text)
+        let scale = unit == .character ? 2 : 1
+        let total = all.filter { Self.hasWords($0.key) }.count
+        guard total >= limit * scale,
+              let end = longCut(all, total: total, limit: limit * scale, minPiece: minHeadWords * scale),
+              end + 1 < all.count else { return nil }
+        return (slice(text, all[...end]), slice(text, all[(end + 1)...]))
+    }
+
     /// The audio went silent, so whatever comes next starts a new sentence.
     public mutating func speechStopped() { continuesSentence = false }
 
@@ -133,9 +146,52 @@ public struct RollingSentenceCommitter: Sendable {
         }
     }
 
+    /// The text of these tokens, without the period the recognizer left after an unfinished word.
     private func slice(_ text: String, _ tokens: ArraySlice<Token>) -> String {
-        guard let first = tokens.first, let last = tokens.last else { return "" }
-        return String(text[first.surface.startIndex..<last.surface.endIndex])
+        guard let first = tokens.first else { return "" }
+        var out = ""
+        var cursor = first.surface.startIndex
+        var lowerNext = false
+        for index in tokens.indices {
+            let surface = tokens[index].surface
+            out += text[cursor..<surface.startIndex]
+            cursor = surface.endIndex
+            if index < tokens.endIndex - 1, endsOnUnfinishedWord(tokens, at: index) {
+                out += surface.dropLast()
+                lowerNext = lang == .en
+            } else {
+                out += lowerNext ? Self.withLoweredHead(String(surface)) : String(surface)
+                lowerNext = false
+            }
+        }
+        return out
+    }
+
+    private func endsOnUnfinishedWord(_ tokens: ArraySlice<Token>, at index: Int) -> Bool {
+        guard let mark = tokens[index].surface.last, mark == "." || mark == "。" else { return false }
+        let context = tokens[max(tokens.startIndex, index - 3)...index].map(\.surface).joined(separator: unit == .word ? " " : "")
+        return UnfinishedEnding.matches(context, lang: lang)
+    }
+
+    /// A sentence end is the better cut, unless it is so far off that the piece would be long again.
+    private func longCut(_ all: [Token], total: Int, limit: Int, minPiece: Int) -> Int? {
+        var words = 0
+        var comma: Int?
+        for index in 0..<(all.count - 1) {
+            if Self.hasWords(all[index].key) { words += 1 }
+            if comma != nil, words >= limit + minPiece { break }
+            if words >= tokensAfterEnd, endsSentence(all, at: index) { return throughTrailingMarks(all, from: index) }
+            if comma == nil, words >= minPiece, total - words >= minPiece, isClauseMark(all[index]) {
+                comma = throughTrailingMarks(all, from: index)
+            }
+        }
+        return comma
+    }
+
+    /// Chinese is tokenized by character, where ASCII commas and "：" sit inside numbers.
+    private func isClauseMark(_ token: Token) -> Bool {
+        guard let mark = token.surface.last else { return false }
+        return (unit == .character ? "，；" : ",;:").contains(mark)
     }
 
     /// How many leading tokens of this reading restate released text. Readings of one window can
@@ -161,7 +217,7 @@ public struct RollingSentenceCommitter: Sendable {
             let word = words[prefix - 1]
             let endsOnLastWord = all[word].key == lastWord
             let atSentenceEnd = marksAfter(all, word: word).endsSentence
-                || all[word].surface.last.map(Self.enders.contains) == true
+                || (all[word].surface.last.map(Self.enders.contains) == true && !endsOnUnfinishedWord(all[...], at: word))
             return (distances[prefix], atSentenceEnd ? 0 : 1, endsOnLastWord ? 0 : 1, abs(prefix - target))
         }
         guard let best = distances.indices.min(by: { rank($0) < rank($1) }), best > 0,
@@ -198,6 +254,7 @@ public struct RollingSentenceCommitter: Sendable {
         var body = tokens[index].surface
         while let last = body.last, Self.closers.contains(last) { body.removeLast() }
         guard let last = body.last, Self.enders.contains(last) else { return false }
+        if endsOnUnfinishedWord(tokens[...], at: index) { return false }
         if unit == .character {
             // "3.5", "Node.js" and "Dr." inside Chinese speech. The sentence period here is "。".
             guard last == ".", index > 0, let before = tokens[index - 1].surface.last else { return true }
@@ -235,7 +292,12 @@ public struct RollingSentenceCommitter: Sendable {
     /// The model capitalizes the first word of every window, even mid-sentence. German nouns are
     /// capitalized anyway, and acronyms or "I" must keep theirs.
     private func decapitalized(_ text: String) -> String {
-        guard continuesSentence, released.isEmpty, lang == .en, let first = text.first, first.isUppercase else { return text }
+        guard continuesSentence, released.isEmpty, lang == .en else { return text }
+        return Self.withLoweredHead(text)
+    }
+
+    private static func withLoweredHead(_ text: String) -> String {
+        guard let first = text.first, first.isUppercase else { return text }
         let head = text.prefix { !$0.isWhitespace }
         let letters = head.filter(\.isLetter)
         guard letters.dropFirst().allSatisfy(\.isLowercase),

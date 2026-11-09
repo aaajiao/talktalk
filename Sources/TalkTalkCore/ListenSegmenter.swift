@@ -50,6 +50,8 @@ public struct ListenSegmenter: Sendable {
     private var lastDraftWords = 0
     private var lastSpeechAtMs: Int?
     private var firstWordAtMs: Int?
+    private let captions: PolicyProfile.Listen.Finalize.Captions?
+    private let textRules: RollingSentenceCommitter
 
     public init(lang: Lang, profile: PolicyProfile.Listen, finalWaitMs: Int = 1500) {
         self.lang = lang
@@ -57,6 +59,8 @@ public struct ListenSegmenter: Sendable {
         self.finalWaitMs = finalWaitMs
         self.trigger = FinalizeTrigger(config: profile.finalize, lang: lang)
         self.lcp = LCPCommitter(unit: .for(lang), adoptsRevisedPrefix: true)
+        self.captions = profile.finalize.captions
+        self.textRules = RollingSentenceCommitter(lang: lang)
     }
 
     private func joined(_ parts: [String]) -> String {
@@ -122,7 +126,8 @@ public struct ListenSegmenter: Sendable {
             return close(text: joined(finals), trigger: .asrFinal, triggerAtMs: nowMs,
                          nowMs: nowMs, timeout: false)
         }
-        return draftIfDue(nowMs: nowMs) + observe(nowMs: nowMs, silenceMs: 0, asrFinal: false)
+        let pieces = cutLongFinals(nowMs: nowMs)
+        return pieces + draftIfDue(nowMs: nowMs) + observe(nowMs: nowMs, silenceMs: 0, asrFinal: false)
     }
 
     /// Periodic tick (e.g. every 50 ms) with the remote VAD's current silence length.
@@ -148,9 +153,11 @@ public struct ListenSegmenter: Sendable {
     private mutating func observe(nowMs: Int, silenceMs: Int, asrFinal: Bool) -> [Action] {
         guard pending == nil else { return [] }
         let stable = stableText
+        // A pause after "I kind of" is hesitation. The text-pause guard still ends the wait.
+        let heard = captions != nil && UnfinishedEnding.matches(sourceLine, lang: lang) ? 0 : silenceMs
         guard let kind = trigger.observe(nowMs: nowMs, words: fullWords,
                                          stableEndsWithSentencePunct: FinalizeTrigger.endsWithSentencePunct(stable),
-                                         silenceMs: silenceMs, asrFinal: asrFinal) else { return [] }
+                                         silenceMs: heard, asrFinal: asrFinal) else { return [] }
         // Everything heard is already final (a mid-sentence final, then silence): nothing for
         // finalize(through:) to add, so close now instead of waiting finalWaitMs.
         if volatile.isEmpty, !finals.isEmpty {
@@ -175,8 +182,31 @@ public struct ListenSegmenter: Sendable {
         return [.draft(sentence: sentence, text: text)]
     }
 
+    private func cutLong(_ text: String) -> (head: String, rest: String)? {
+        guard let captions else { return nil }
+        return textRules.splitLong(text, fromWords: captions.splitFromWords, minHeadWords: captions.minHeadWords)
+    }
+
+    /// Finals of a sentence that is still going: what is long enough leaves as its own subtitle.
+    private mutating func cutLongFinals(nowMs: Int) -> [Action] {
+        guard let (head, rest) = cutLong(joined(finals)) else { return [] }
+        let out = closeOne(text: head, trigger: .longSentence, triggerAtMs: nowMs, nowMs: nowMs, timeout: false)
+        finals = [rest]
+        firstWordAtMs = nowMs
+        return out
+    }
+
     private mutating func close(text: String, trigger kind: FinalizeTrigger.Kind, triggerAtMs: Int,
                                 nowMs: Int, timeout: Bool) -> [Action] {
+        guard let (head, rest) = cutLong(text) else {
+            return closeOne(text: text, trigger: kind, triggerAtMs: triggerAtMs, nowMs: nowMs, timeout: timeout)
+        }
+        return closeOne(text: head, trigger: .longSentence, triggerAtMs: triggerAtMs, nowMs: nowMs, timeout: timeout)
+            + closeOne(text: rest, trigger: kind, triggerAtMs: triggerAtMs, nowMs: nowMs, timeout: timeout)
+    }
+
+    private mutating func closeOne(text: String, trigger kind: FinalizeTrigger.Kind, triggerAtMs: Int,
+                                   nowMs: Int, timeout: Bool) -> [Action] {
         let id = sentence
         let first = firstWordAtMs
         sentence += 1

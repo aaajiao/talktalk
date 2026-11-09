@@ -93,37 +93,98 @@ import Testing
         #expect(board.pendingSentenceIDs.isEmpty)
     }
 
-    @Test func aFinalForASkippedOrFarOlderSentenceStillDoesNotRewind() {
+    @Test func aFinalWhoseDraftWasEvictedIsShownButAFarOlderOneIsNot() {
         var board = VideoSubtitleBoard()
         board.apply(.draft(sentence: 1, text: "当前", source: "Current"))
         for sentence in UInt64(2)...4 { board.apply(.draft(sentence: sentence, text: "句", source: "S\(sentence)")) }
-        #expect(board.pendingSentenceIDs == [3, 4])   // 2 was skipped
+        #expect(board.pendingSentenceIDs == [3, 4])   // the draft of 2 was evicted, unseen
+        #expect(board.skippedCount == 0)
         board.advance()
         board.advance()
         #expect(board.current?.line.sentence == 4)
-        let skipped = board.apply(.final(sentence: 2, text: "迟到。", source: "Late.", approx: false, numberWarning: false))
-        #expect(!skipped)
+        let late = board.apply(.final(sentence: 2, text: "迟到。", source: "Late.", approx: false, numberWarning: false))
+        #expect(late && board.current?.line.text == "迟到。")
         var far = VideoSubtitleBoard()
         far.apply(.draft(sentence: 9, text: "九", source: "Nine"))
         let tooOld = far.apply(.final(sentence: 5, text: "五。", source: "Five.", approx: false, numberWarning: false))
         #expect(!tooOld && far.current?.line.sentence == 9)
     }
 
-    @Test func pendingKeepsOnlyLatestTwoPairsAndFinalizedPendingCannotRegress() {
+    @Test func pendingKeepsTwoPairsAndDraftsLeaveBeforeFinals() {
         var board = VideoSubtitleBoard()
         board.apply(.draft(sentence: 1, text: "当前句", source: "Current"))
         board.apply(.final(sentence: 2, text: "第二句。", source: "Second.", approx: false, numberWarning: false))
         board.apply(.draft(sentence: 3, text: "第三句", source: "Third"))
         board.apply(.draft(sentence: 4, text: "第四句", source: "Fourth"))
         #expect(board.current?.line.sentence == 1)
-        #expect(board.pendingSentenceIDs == [3, 4])
+        #expect(board.pendingSentenceIDs == [2, 4])
+        #expect(board.skippedCount == 0)
         board.apply(.final(sentence: 3, text: "第三句定稿。", source: "Third finalized.", approx: false, numberWarning: false))
         board.apply(.draft(sentence: 3, text: "旧草稿", source: "Old draft"))
-        #expect(board.pendingFinalSentenceIDs == [3])
-        #expect(board.pendingDraftSentenceIDs == [4])
+        #expect(board.pendingFinalSentenceIDs == [2, 3])
+        #expect(board.pendingDraftSentenceIDs.isEmpty)
+        board.advance()
         let changed14 = board.advance()
         #expect(changed14)
         #expect(board.current?.isFinal == true && board.current?.line.source == "Third finalized.")
+    }
+
+    @Test func aFinalCorrectingAReplacedDraftIsShown() {
+        var board = VideoSubtitleBoard()
+        board.apply(.draft(sentence: 8, text: "在十九岁时", source: "In nineteen ninety"))
+        board.apply(.draft(sentence: 9, text: "第九句", source: "Ninth"))
+        board.advance()
+        #expect(board.current?.line.sentence == 9)
+        let changed = board.apply(.final(sentence: 8, text: "1990 年。", source: "In nineteen ninety.", approx: false, numberWarning: false))
+        #expect(changed)
+        #expect(board.current?.line.text == "1990 年。" && board.current?.isFinal == true)
+        #expect(board.pendingSentenceIDs == [9])
+    }
+
+    @Test func aFinalMatchingTheDraftAlreadyReadIsNotShownAgain() {
+        var board = VideoSubtitleBoard()
+        board.apply(.draft(sentence: 8, text: "第八句", source: "Eighth"))
+        board.apply(.draft(sentence: 9, text: "第九句", source: "Ninth"))
+        board.advance()
+        let changed = board.apply(.final(sentence: 8, text: "第八句", source: "Eighth.", approx: false, numberWarning: false))
+        #expect(!changed && board.current?.line.sentence == 9)
+    }
+
+    @Test func onlyPunctuationDifferencesAreNotACorrection() {
+        var board = VideoSubtitleBoard()
+        board.apply(.draft(sentence: 8, text: "第八句", source: "Eighth"))
+        board.apply(.draft(sentence: 9, text: "第九句", source: "Ninth"))
+        board.advance()
+        let changed = board.apply(.final(sentence: 8, text: "第八句。", source: "Eighth.", approx: false, numberWarning: false))
+        #expect(!changed && board.current?.line.sentence == 9)
+    }
+
+    @Test func aCorrectionCannotJumpBackPastAFinalAlreadyShown() {
+        var board = VideoSubtitleBoard()
+        board.apply(.draft(sentence: 8, text: "草稿", source: "Eighth"))
+        board.apply(.final(sentence: 9, text: "第九句。", source: "Ninth.", approx: false, numberWarning: false))
+        board.advance()
+        board.apply(.draft(sentence: 10, text: "第十句", source: "Tenth"))
+        board.advance()
+        let changed = board.apply(.final(sentence: 8, text: "定稿。", source: "Eighth.", approx: false, numberWarning: false))
+        #expect(!changed && board.current?.line.sentence == 10)
+    }
+
+    @Test func lateFinalsWaitingBehindAFinalKeepTheirOrder() {
+        var board = VideoSubtitleBoard()
+        board.apply(.final(sentence: 5, text: "五。", source: "Five.", approx: false, numberWarning: false))
+        board.apply(.final(sentence: 3, text: "三。", source: "Three.", approx: false, numberWarning: false))
+        board.apply(.final(sentence: 4, text: "四。", source: "Four.", approx: false, numberWarning: false))
+        #expect(board.pendingSentenceIDs == [3, 4])
+    }
+
+    @Test func aCorrectionDoesNotInterruptANewerFinal() {
+        var board = VideoSubtitleBoard()
+        board.apply(.draft(sentence: 8, text: "草稿", source: "Eighth"))
+        board.apply(.final(sentence: 9, text: "第九句。", source: "Ninth.", approx: false, numberWarning: false))
+        board.advance()
+        let changed = board.apply(.final(sentence: 8, text: "定稿。", source: "Eighth.", approx: false, numberWarning: false))
+        #expect(!changed && board.current?.line.sentence == 9 && board.pendingSentenceIDs.isEmpty)
     }
 
     @Test func droppedRemovesDraftsButNeverAcceptedFinals() throws {

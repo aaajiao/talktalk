@@ -33,8 +33,8 @@ import Testing
     @Test func videoIgnoresTextThatMerelyStopsGrowing() throws {
         let config = try TestResources.profile().listen.forVideoCaptions.finalize
         var punctuated = FinalizeTrigger(config: config, lang: .en)
-        #expect(run(&punctuated, [(0, 12, true, 0, false), (2400, 12, true, 0, false)]) == nil)
-        #expect(run(&punctuated, [(2500, 12, true, 0, false)])! == (.force, 2500))
+        #expect(run(&punctuated, [(0, 12, true, 0, false), (2900, 12, true, 0, false)]) == nil)
+        #expect(run(&punctuated, [(3000, 12, true, 0, false)])! == (.force, 3000))
         var silent = FinalizeTrigger(config: config, lang: .en)
         #expect(run(&silent, [(0, 3, true, 0, false), (800, 3, true, 800, false)])! == (.silence, 800))
     }

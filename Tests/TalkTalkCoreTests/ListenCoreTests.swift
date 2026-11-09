@@ -152,6 +152,59 @@ import Testing
         a.compactMap { if case let .draft(_, t) = $0 { t } else { nil } }
     }
 
+    func video(_ lang: Lang = .en) throws -> ListenSegmenter {
+        ListenSegmenter(lang: lang, profile: try TestResources.profile().listen.forVideoCaptions)
+    }
+
+    func closes(_ a: [ListenSegmenter.Action]) -> [FinalizeTrigger.Kind] {
+        a.compactMap { if case let .finalize(_, kind, _) = $0 { kind } else { nil } }
+    }
+
+    private static let longRun = "one two three four five six seven eight nine ten eleven twelve thirteen, "
+        + "fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo twentythree twentyfour twentyfive, "
+        + "twentysix twentyseven twentyeight twentynine thirty thirtyone thirtytwo"
+
+    @Test func videoWaitsOutAPauseAfterAnUnfinishedWordUntilTheGuard() throws {
+        var s = try video()
+        _ = s.volatile("I kind of.", nowMs: 0)
+        #expect(closes(s.tick(nowMs: 2900, silenceMs: 2900)).isEmpty)
+        #expect(closes(s.tick(nowMs: 3000, silenceMs: 3000)) == [.stall])
+    }
+
+    @Test func videoStillClosesAFinishedSentenceOnSilence() throws {
+        var s = try video()
+        _ = s.volatile("I agree with you.", nowMs: 0)
+        #expect(closes(s.tick(nowMs: 800, silenceMs: 800)) == [.silence])
+    }
+
+    @Test func meetingsDoNotHoldAndDoNotSplit() throws {
+        var s = try seg()
+        _ = s.volatile("I kind of", nowMs: 0)
+        #expect(closes(s.tick(nowMs: 800, silenceMs: 800)) == [.silence])
+        var long = try seg()
+        let f = finals(long.final(Self.longRun + ".", nowMs: 100))
+        #expect(f.count == 1 && f[0].trigger == .asrFinal)
+    }
+
+    @Test func aLongRunningSentenceLeavesAsAPieceAndTheRestGoesOn() throws {
+        var s = try video()
+        let pieces = finals(s.final(Self.longRun, nowMs: 100))
+        #expect(pieces.map(\.trigger) == [.longSentence])
+        #expect(pieces[0].text.hasSuffix("thirteen,"))
+        #expect(s.sentence == 2)
+        #expect(s.stableText.hasPrefix("fourteen") && s.stableText.hasSuffix("thirtytwo"))
+        let closed = finals(s.final("and that is all.", nowMs: 900))
+        #expect(closed.count == 1 && closed[0].text.hasSuffix("and that is all.") && closed[0].trigger == .asrFinal)
+    }
+
+    @Test func aLongClosingSentenceIsCutAndTheLastPieceKeepsTheTrigger() throws {
+        var s = try video()
+        let pieces = finals(s.final(Self.longRun + ".", nowMs: 100))
+        #expect(pieces.map(\.trigger) == [.longSentence, .asrFinal])
+        #expect(pieces.map(\.sentence) == [1, 2])
+        #expect(s.sentence == 3)
+    }
+
     @Test func spontaneousAsrFinalClosesTheSentenceAtOnce() throws {
         var s = try seg()
         _ = s.volatile("good morning", nowMs: 0)

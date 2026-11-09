@@ -1,3 +1,4 @@
+import Foundation
 import TalkTalkCore
 
 /// Video presents one bilingual cue. Draft and final are states of that same cue, never
@@ -21,9 +22,11 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
     private var discardedDraftThrough: UInt64?
     /// Every sentence the board has heard of, so a late final can tell "never shown" from "passed".
     private var known: Set<UInt64> = []
+    /// The draft most recently replaced by a newer sentence, in case its final arrives just after.
+    private var passedDraft: Cue?
     /// When each pending sentence first arrived, for the lag signal (§6 视觉反馈).
     private var queuedAt: [UInt64: HostTime] = [:]
-    /// Cues dropped from the pending queue without ever being displayed. The view shows
+    /// Finals dropped from the pending queue without ever being displayed. The view shows
     /// "已跳过 N 句" when this grows.
     public private(set) var skippedCount = 0
     private static let pendingLimit = 2
@@ -83,6 +86,10 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
 
     private var arrival: HostTime = 0
 
+    private static func wording(_ text: String) -> String {
+        text.trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines))
+    }
+
     private mutating func trimQueueTimes() {
         let live = Set(pending.map(\.line.sentence))
         queuedAt = queuedAt.filter { live.contains($0.key) }
@@ -101,8 +108,11 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
         // Older results cannot rewind after that move, even if the new cue was later dropped.
         guard newestDisplayed.map({ sentence > $0 || (current == nil && cue.isFinal && sentence == $0) }) ?? true else {
             // A short sentence can still be translating when the next one reaches the screen.
-            // Nothing of it has been shown, so it is shown now instead of being lost.
-            if neverHeard, cue.isFinal, let newest = newestDisplayed, newest - sentence <= UInt64(Self.pendingLimit) {
+            // Nothing of it has been shown, or only a draft that now reads differently, so it is
+            // shown now instead of being lost. After a newer final the moment has passed.
+            let correctsDraft = passedDraft.map { $0.line.sentence == sentence && Self.wording($0.line.text) != Self.wording(cue.line.text) } == true
+                && current?.isFinal != true
+            if neverHeard || correctsDraft, cue.isFinal, let newest = newestDisplayed, newest - sentence <= UInt64(Self.pendingLimit) {
                 showLate(cue)
             }
             return
@@ -115,20 +125,29 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
             pending.append(cue)
             if queuedAt[sentence] == nil { queuedAt[sentence] = arrival }
             pending.sort { $0.line.sentence < $1.line.sentence }
-            if pending.count > Self.pendingLimit {
-                let overflow = pending.count - Self.pendingLimit
-                skippedCount += overflow
-                pending.removeFirst(overflow)
-            }
+            evictOverflow()
         }
         if current == nil { _ = advance() }
+    }
+
+    /// A draft is only a preview and its final still comes, so drafts leave before finals.
+    private mutating func evictOverflow() {
+        while pending.count > Self.pendingLimit {
+            let victim = pending.firstIndex { !$0.isFinal } ?? 0
+            if pending[victim].isFinal {
+                skippedCount += 1
+            } else {
+                known.remove(pending[victim].line.sentence)   // nothing of it was shown, so its final may be
+            }
+            pending.remove(at: victim)
+        }
     }
 
     /// A final on screen has been read or is being read, so showing it again would repeat it.
     /// The late cue waits behind it. A draft is only a preview and returns to the queue.
     private mutating func showLate(_ cue: Cue) {
         if let current, current.isFinal {
-            pending.insert(cue, at: 0)
+            pending.insert(cue, at: pending.firstIndex { $0.line.sentence > cue.line.sentence } ?? pending.endIndex)
             queuedAt[cue.line.sentence] = arrival
             return
         }
@@ -145,6 +164,7 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
     @discardableResult
     public mutating func advance() -> Bool {
         guard !pending.isEmpty else { return false }
+        if let current { passedDraft = current.isFinal ? nil : current }
         let next = pending.removeFirst()
         queuedAt[next.line.sentence] = nil
         current = next
@@ -161,6 +181,7 @@ public struct VideoSubtitleBoard: Sendable, Equatable {
         newestDisplayed = nil
         discardedDraftThrough = nil
         known = []
+        passedDraft = nil
         queuedAt = [:]
         skippedCount = 0
     }

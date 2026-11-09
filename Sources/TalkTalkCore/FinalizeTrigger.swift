@@ -13,7 +13,8 @@ import Foundation
 /// "Pause" is time since the word count last changed; the sentence starts at its first word.
 public struct FinalizeTrigger: Sendable, Equatable {
     public enum Kind: String, Sendable, Codable, CaseIterable {
-        case asrFinal, punctPause, force, silence, stall, hardCap
+        /// `longSentence` never fires here. ListenSegmenter labels the pieces it cuts off with it.
+        case asrFinal, punctPause, force, silence, stall, hardCap, longSentence
     }
 
     public let config: PolicyProfile.Listen.Finalize

@@ -148,6 +148,8 @@ public actor ListenPipeline {
     private var finalsInFlight = 0
     private var running = false
     private var finalTasks: [UInt64: Task<Void, Never>] = [:]
+    /// The piece just cut off a long sentence. What follows it must not appear before it.
+    private var openHead: Task<Void, Never>?
     private var remoteText: [(host: HostTime, text: String)] = []
 
     public init(lang: Lang, target: Lang = .zh, profile: PolicyProfile.Listen, engines: Engines, log: EventLog,
@@ -252,6 +254,7 @@ public actor ListenPipeline {
         ingest.detach()
         for t in finalTasks.values { t.cancel() }
         finalTasks.removeAll()
+        openHead = nil
         remoteText.removeAll()
         for t in tasks { t.cancel() }
         tasks.removeAll()
@@ -529,24 +532,27 @@ public actor ListenPipeline {
             $0.sentence == f.sentence && $0.session == session && $0.source == work.text ? $0 : nil
         }
         if let candidateDraft, sharedDraft == nil { cancelDraft(candidateDraft) }
-        finalTasks[f.sentence] = Task {
-            await self.finalize(final, replacing: replacement, correctionDeadline: expires, original: f, draft: sharedDraft)
+        let head = openHead
+        let task = Task {
+            await self.finalize(final, replacing: replacement, correctionDeadline: expires, original: f, draft: sharedDraft, after: head)
         }
+        finalTasks[f.sentence] = task
+        openHead = f.trigger == .longSentence ? task : nil
     }
 
     private func finalize(_ f: ListenSegmenter.SentenceFinal, replacing replacement: UInt64? = nil,
                           correctionDeadline: HostTime? = nil, original: ListenSegmenter.SentenceFinal? = nil,
-                          draft: DraftWork? = nil) async {
+                          draft: DraftWork? = nil, after head: Task<Void, Never>? = nil) async {
         defer {
             if let draft { cancelDraft(draft) }
             finalsInFlight -= 1; finalTasks[f.sentence] = nil
         }
-        await renderFinal(f, replacing: replacement, correctionDeadline: correctionDeadline, original: original, draft: draft)
+        await renderFinal(f, replacing: replacement, correctionDeadline: correctionDeadline, original: original, draft: draft, after: head)
     }
 
     private func renderFinal(_ f: ListenSegmenter.SentenceFinal, replacing replacement: UInt64? = nil,
                              correctionDeadline: HostTime? = nil, original: ListenSegmenter.SentenceFinal? = nil,
-                             draft: DraftWork? = nil) async {
+                             draft: DraftWork? = nil, after head: Task<Void, Never>? = nil) async {
         guard running, !Task.isCancelled else { return }
         let deadlineMs = f.triggerAtMs + profile.finalMT.deadlineMs
         var source = f.text
@@ -662,6 +668,7 @@ public actor ListenPipeline {
             text = await withTaskCancellationHandler { await appleTask.value } onCancel: { appleTask.cancel() }
             if text == nil { engineTag = "none"; text = source }   // §4.2 draft fallback: show the source
         }
+        await head?.value
         guard running, !Task.isCancelled else { return }
         // A correction that missed the three-second display window must not rewrite history.
         // Translate the new fragment normally instead, retaining its own sentence identity.

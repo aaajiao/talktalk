@@ -60,6 +60,20 @@ actor FakeMT: MTEngine {
     func cancel(_ job: JobID) async { cancels.append(job) }
 }
 
+/// Long texts take longer, so a short piece finishes before the longer one cut ahead of it.
+actor LengthPacedMT: MTEngine {
+    nonisolated let id = EngineID(name: "paced", revision: "1", placement: .network)
+    func translate(_ r: MTRequest) async throws -> MTResult {
+        try await Task.sleep(for: .milliseconds(r.text.count > 40 ? 150 : 0))
+        let now = HostClock.now()
+        return MTResult(text: r.text, tokens: 1, reasoningTokens: 0, engine: id,
+                        hedge: HedgeOutcome(fired: false, winner: .A, reason: nil, ms: 0),
+                        timing: StageTiming(received: now, started: now, firstOutput: now, finished: now))
+    }
+    func setContext(_ s: MTSession, glossary: [GlossaryEntry]) async throws {}
+    func cancel(_ job: JobID) async {}
+}
+
 final class Sink: @unchecked Sendable {
     private let lock = NSLock()
     private var _items: [SubtitleUpdate] = []
@@ -111,6 +125,21 @@ enum Fixture {
         #expect(silence.contains(.finalize(sentence: 1, trigger: .silence, throughMs: 10_000)))
         #expect(adjusted.finalize.silenceMs == original.finalize.silenceMs)
         #expect(adjusted.finalize.hardCapS == original.finalize.hardCapS)
+    }
+
+    @Test func piecesOfASplitSentenceAppearInOrder() async throws {
+        let sink = Sink()
+        let pipeline = ListenPipeline(lang: .en, profile: try Fixture.listen(deadlineMs: 2000).forVideoCaptions,
+                                      engines: .init(asr: FakeASR(stream: FakeStream()), apple: nil, primary: LengthPacedMT()),
+                                      log: EventLog(inMemory: HostClock.now), tickMs: 100_000, onUpdate: { sink.add($0) })
+        try await pipeline.start()
+        let head = (1...14).map { "w\($0)" }.joined(separator: " ")
+        let rest = (1...16).map { "r\($0)" }.joined(separator: " ")
+        let cut = HostClock.now()
+        await pipeline.onFinal("\(head), \(rest).", range: cut...cut)
+        #expect(await until { sink.finals.count == 2 })
+        #expect(sink.finals.map(\.0) == [1, 2])
+        await pipeline.stop()
     }
 
     @Test func volatileDeliveredAfterItsFinalCannotRepopulateTheNextSentence() async throws {

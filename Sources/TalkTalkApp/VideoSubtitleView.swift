@@ -472,10 +472,15 @@ final class VideoSubtitleView: NSView {
                                                                sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)
         } else if changedSource > 0 || changedTarget > 0 {
             // A same-sentence final or partial does not charge the already visible prefix
-            // again, and a color/font-only update never restarts its reading clock.
-            pageReadyAt = max(pageReadyAt, now + VideoCaptionPacing.readingTime(sourceCharacters: changedSource,
-                                                                               translationCharacters: changedTarget,
-                                                                               sourceLanguage: sourceLanguage, targetLanguage: targetLanguage))
+            // again, and a color/font-only update never restarts its reading clock. New text
+            // restarts the budget, so catching up cannot discount the time a draft was on screen.
+            let changedReadyAt = now + VideoCaptionPacing.readingTime(sourceCharacters: changedSource,
+                                                                      translationCharacters: changedTarget,
+                                                                      sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)
+            if changedReadyAt > pageReadyAt {
+                pageShownAt = now
+                pageReadyAt = changedReadyAt
+            }
         }
         if textChanged || newPage { onDisplayedTextChange?() }
     }

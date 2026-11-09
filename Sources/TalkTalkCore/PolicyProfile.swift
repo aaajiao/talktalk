@@ -74,6 +74,13 @@ extension PolicyProfile {
             public var silenceMs: [String: Int]
             public var force: Force
             public var stallMs: Int; public var stallMsAfter8s: Int; public var hardCapS: Int
+            /// Video subtitles only; nil everywhere else.
+            public var captions: Captions?
+            public struct Captions: Codable, Sendable, Equatable {
+                /// A sentence this long gives up a piece. A cut at a comma leaves at least
+                /// `minHeadWords` on each side. Chinese counts twice as many characters.
+                public var splitFromWords: Int; public var minHeadWords: Int
+            }
             public struct Force: Codable, Sendable, Equatable {
                 public var minWords: Int; public var pauseMs: Int; public var pauseMsAfter8s: Int
             }
@@ -88,12 +95,14 @@ extension PolicyProfile {
         /// Video subtitles release sentences from stable periods, and real pauses come from the
         /// audio. Measured on meeting speech, Qwen's last words lag: the word count holds for about
         /// 1.25 s while the speaker goes on, and every reading ends in a period, so text-based
-        /// pauses cut sentences. They remain only as a slow guard against a hung sentence.
+        /// pauses cut sentences. They remain only as a slow guard against a hung sentence, and
+        /// that guard also ends a hold on an unfinished last word (measured hesitation: up to 2.4 s).
         public var forVideoCaptions: Listen {
             var video = self
             video.deLookback.enabled = false   // the single-cue board cannot show a merge of two sentences
             video.finalize.punctPauseMs = .max
-            let textPause = 2500
+            video.finalize.captions = .init(splitFromWords: 30, minHeadWords: 12)
+            let textPause = 3000
             video.finalize.force.pauseMs = max(video.finalize.force.pauseMs, textPause)
             video.finalize.force.pauseMsAfter8s = max(video.finalize.force.pauseMsAfter8s, textPause)
             video.finalize.stallMs = max(video.finalize.stallMs, textPause)

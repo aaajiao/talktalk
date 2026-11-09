@@ -81,6 +81,60 @@ struct RollingSentenceCommitterTests {
         }
     }
 
+    @Test func aPeriodAfterAnUnfinishedWordIsNotBelieved() {
+        var committer = RollingSentenceCommitter(lang: .en)
+        _ = committer.observe("I kind of. Agree with the notion that")
+        let reading = committer.observe("I kind of. Agree with the notion that it")
+        #expect(reading == .init(sentence: nil, remainder: "I kind of agree with the notion that it"))
+        let closing = committer.finish("I kind of. Agree with the notion that it is.", forced: false)
+        #expect(closing == .init(sentences: [], tail: "I kind of agree with the notion that it is."))
+    }
+
+    @Test func unfinishedEndings() {
+        #expect(UnfinishedEnding.matches("I kind of.", lang: .en))
+        #expect(UnfinishedEnding.matches("I think the", lang: .en))
+        #expect(!UnfinishedEnding.matches("What is it of?", lang: .en))
+        #expect(!UnfinishedEnding.matches("You don't have to.", lang: .en))
+        #expect(!UnfinishedEnding.matches("We closed our Series A.", lang: .en))
+        #expect(!UnfinishedEnding.matches("Um.", lang: .en))
+        #expect(!UnfinishedEnding.matches("Um, um.", lang: .en))
+        #expect(UnfinishedEnding.matches("Ich weiß, dass.", lang: .de))
+        #expect(!UnfinishedEnding.matches("Ich steige ein.", lang: .de))
+        #expect(!UnfinishedEnding.matches("Ja, ich habe einen.", lang: .de))
+        #expect(UnfinishedEnding.matches("我觉得因为。", lang: .zh))
+        #expect(UnfinishedEnding.matches("这个方案，嗯。", lang: .zh))
+        #expect(!UnfinishedEnding.matches("嗯。", lang: .zh))
+        #expect(!UnfinishedEnding.matches("嗯嗯。", lang: .zh))
+        #expect(!UnfinishedEnding.matches("我们要参与。", lang: .zh))
+    }
+
+    @Test func aLongSentenceIsCutAtSentenceEndsThenCommas() {
+        let committer = RollingSentenceCommitter(lang: .en)
+        let words = (1...14).map { "W\($0)" }.joined(separator: " ")
+        let long = "It is done here. \(words), \(words), \(words)"
+        let cut = committer.splitLong(long, fromWords: 30, minHeadWords: 12)
+        #expect(cut?.head == "It is done here.")
+        #expect(cut?.rest == "\(words), \(words), \(words)")
+        let commas = "\(words), \(words), \(words)"
+        #expect(committer.splitLong(commas, fromWords: 30, minHeadWords: 12)?.head == "\(words),")
+        let farEnd = "\(words), \(words) \(words) \(words) \(words) end. Next one goes here."
+        #expect(committer.splitLong(farEnd, fromWords: 30, minHeadWords: 12)?.head == "\(words),")
+        let tag = (1...29).map { "w\($0)" }.joined(separator: " ") + ", right."
+        #expect(committer.splitLong(tag, fromWords: 30, minHeadWords: 12) == nil)
+        let plain = (1...40).map { "w\($0)" }.joined(separator: " ")
+        #expect(committer.splitLong(plain, fromWords: 30, minHeadWords: 12) == nil)
+    }
+
+    @Test func chineseIsCutAtFullWidthMarksOnly() {
+        let committer = RollingSentenceCommitter(lang: .zh)
+        let run = String(repeating: "字", count: 30)
+        let cut = committer.splitLong("\(run)1,000\(run)，\(run)", fromWords: 30, minHeadWords: 12)
+        #expect(cut?.head == "\(run)1,000\(run)，")
+        #expect(cut?.rest == run)
+        let ratio = committer.splitLong("\(run)3：1\(run)，\(run)", fromWords: 30, minHeadWords: 12)
+        #expect(ratio?.head == "\(run)3：1\(run)，")
+    }
+
     @Test func aPeriodNoReadingAgreedOnDoesNotSplitTheFinal() {
         var committer = RollingSentenceCommitter(lang: .en)
         let closing = committer.finish("Here's the trouble with rain. Here's what about. We were walking to.", forced: false)

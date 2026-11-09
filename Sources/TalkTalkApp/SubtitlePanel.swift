@@ -870,7 +870,7 @@ final class SubtitlePanel {
     private var videoTranslationFont: NSFont { SubtitleStyle.font(videoTypography.translation) }
 
     private func applyVideo(_ update: SubtitleUpdate, at now: HostTime) {
-        let previousPending = videoBoard.pendingSentenceIDs
+        let previousPending = videoBoard.pendingFinalSentenceIDs
         let previousSource = liveSource
         var droppedSentence: UInt64?
         if case .source(let text) = update { liveSource = text }
