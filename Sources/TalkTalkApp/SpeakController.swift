@@ -357,7 +357,7 @@ final class SpeakController {
             }
             let gate = try TargetTextGate(config: profile.speak.mt.targetGate, patterns: GatePatterns.loadDefault())
             let cloud = demo ? ListenCloud.Box() : meeting.cloud.box
-            if demo { _ = cloud.make(log: log) }
+            if demo { _ = cloud.make(log: log, forMeeting: false) }
             let translator = FallbackMT(cloud: cloud.speak, apple: apple, profile: profile, gate: gate,
                                        glossary: { AppGlossary.store.snapshot() },
                                        prepareApple: prepareApple, log: log)

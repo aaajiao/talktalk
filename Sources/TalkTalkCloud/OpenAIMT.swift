@@ -21,11 +21,16 @@ public actor OpenAIMT: SpeakCloudMT {
         /// Added to `max_output_tokens` when effort is not none (§11; M0-T4 ⑦: 0 reasoning tokens
         /// at effort low on one sentence per tier, so a small budget).
         public var reasoningBudget: Int
+        /// Settings › 翻译: send requests with OpenAI's Fast mode.
+        public var fastMode: Bool
 
-        public init(model: String, effort: String, reasoningBudget: Int = 64) {
+        public init(model: String, effort: String, reasoningBudget: Int = 64, fastMode: Bool = false) {
             self.model = model; self.effort = effort; self.reasoningBudget = reasoningBudget
+            self.fastMode = fastMode
         }
     }
+
+    static let fastTier = "fast"
 
     public nonisolated let id: EngineID
     public nonisolated let client: OpenAIClient
@@ -44,13 +49,16 @@ public actor OpenAIMT: SpeakCloudMT {
     private let t0 = ContinuousClock.now
     public private(set) var keepWarm: KeepWarm?
     private var pressWarm: (id: UUID, task: Task<Void, Never>)?
+    private let keyCache: MeetingKeyCache?
+    private var fastModeOn: Bool
 
     /// - Parameters:
     ///   - client: the app's OpenAIClient (two `.ephemeral` sessions A/B, key from the Keychain).
     ///   - gate: TargetTextGate for SPEAK results (en/de); nil skips the gate (tests, LISTEN-only).
     ///   - log: the session's EventLog; nil = no events.
+    ///   - keyCache: the meeting's copy of the key behind `client`, closed by `endMeeting`.
     public init(client: OpenAIClient, profile: PolicyProfile, prompts: MTPrompts, configuration: Configuration,
-                gate: TargetTextGate? = nil, log: EventLog? = nil) {
+                gate: TargetTextGate? = nil, log: EventLog? = nil, keyCache: MeetingKeyCache? = nil) {
         self.client = client
         self.profile = profile
         self.builder = OpenAIRequestBuilder(cloud: profile.cloud, prompts: prompts)
@@ -60,13 +68,17 @@ public actor OpenAIMT: SpeakCloudMT {
         self.health = CloudHealth(cloud: profile.cloud)
         self.resets = SessionResetPolicy(config: profile.cloud.sessionReset)
         self.id = EngineID(name: "openai", revision: configuration.model, placement: .network)
+        self.keyCache = keyCache
+        self.fastModeOn = configuration.fastMode
     }
 
     /// For the running app: the bundle's key item, the bundled PolicyProfile / prompts / gate
     /// patterns, and the selected model and effort from Settings › 翻译 (`TranslationPreferences`).
     /// Returns nil when there is no key (the caller then uses Apple only, §11).
+    /// `forMeeting` holds the key for the meeting, reading it now rather than during a sentence.
     public static func forCurrentApp(bundleID: String? = Bundle.main.bundleIdentifier, model: String, effort: String,
-                                     log: EventLog?, knownPresence: Bool? = nil) throws -> OpenAIMT? {
+                                     log: EventLog?, knownPresence: Bool? = nil, forMeeting: Bool = false,
+                                     fastMode: Bool = false) throws -> OpenAIMT? {
         func measured<T>(_ stage: String, _ operation: () throws -> T) rethrows -> T {
             let started = HostClock.now()
             defer {
@@ -82,20 +94,33 @@ public actor OpenAIMT: SpeakCloudMT {
         }
         guard let secret else { return nil }
         let profile = try measured("profile") { try PolicyProfile.loadDefault() }
+        let readKey: @Sendable () throws -> String = { String(decoding: try secret.read(), as: UTF8.self) }
+        let keyCache = forMeeting ? MeetingKeyCache(read: readKey) : nil
+        let keyProvider: @Sendable () throws -> String
+        if let keyCache { keyProvider = { try keyCache.value() } } else { keyProvider = readKey }
         let client = measured("client") {
-            OpenAIClient(cloud: profile.cloud, keyProvider: { String(decoding: try secret.read(), as: UTF8.self) },
-                         sink: OpenAIMT.eventSink(log))
+            OpenAIClient(cloud: profile.cloud, keyProvider: keyProvider, sink: OpenAIMT.eventSink(log))
         }
         let (gate, prompts) = try measured("resources") {
             let gate = try? TargetTextGate(config: profile.speak.mt.targetGate, patterns: try GatePatterns.loadDefault())
             return (gate, try MTPrompts.loadDefault())
         }
+        if let keyCache {
+            // Off the caller's thread: a Keychain prompt must not hold up session setup.
+            Task.detached(priority: .userInitiated) {
+                let started = HostClock.now()
+                let ok = (try? keyCache.value()) != nil
+                log?.event("cloud.prepare", ["stage": .tag("key_read"), "ok": .bool(ok),
+                                             "ms": .int(HostClock.ms(started, to: HostClock.now()))])
+            }
+        }
         return OpenAIMT(client: client, profile: profile, prompts: prompts,
-                        configuration: Configuration(model: model, effort: effort), gate: gate, log: log)
+                        configuration: Configuration(model: model, effort: effort, fastMode: fastMode),
+                        gate: gate, log: log, keyCache: keyCache)
     }
 
-    /// Reuse only current presence metadata. Requests still read the live key from Keychain;
-    /// callers without resolved metadata retain the original existence check.
+    /// Reuse only current presence metadata; this says nothing about the key's value.
+    /// Callers without resolved metadata retain the original existence check.
     static func resolveKeyPresence(_ known: Bool?, query: () -> Bool) -> Bool {
         known ?? query()
     }
@@ -122,10 +147,29 @@ public actor OpenAIMT: SpeakCloudMT {
                 log.event("cloud.breaker", ["state": .tag(s)])
             case .fallback(let s):
                 log.event("mt.fallback", ["reason": .tag(s)])
-            case .request, .response, .metrics:
+            case .request(let leg, let path, let id, let keyReadMs):
+                log.event("cloud.request", ["leg": .tag(leg.rawValue), "req": .tag(id),
+                                            "kind": .tag(path.hasSuffix("/responses") ? "responses" : "models"),
+                                            "key_read_ms": .double(keyReadMs)])
+            case .metrics(let m):
+                log.event("cloud.metrics", metricsFields(m))
+            case .response:
                 break
             }
         }
+    }
+
+    /// Connection timing for one attempt, joined to `mt.request` by `req`. Absent values stay absent.
+    static func metricsFields(_ m: RequestMetrics) -> [String: EventLog.Value] {
+        var fields: [String: EventLog.Value] = ["leg": .tag(m.leg.rawValue)]
+        if let id = m.clientRequestID { fields["req"] = .tag(id) }
+        if let name = m.protocolName { fields["protocol"] = .tag(name.replacingOccurrences(of: "/", with: "_")) }
+        if let reused = m.reusedConnection { fields["reused"] = .bool(reused) }
+        for (name, value) in [("connect_ms", m.connectMs), ("tls_ms", m.tlsMs), ("fetch_to_request_ms", m.fetchToRequestMs),
+                              ("request_to_response_ms", m.requestToResponseStartMs), ("task_ms", m.taskMs)] {
+            if let value { fields[name] = .double(value) }
+        }
+        return fields
     }
 
     private func nowMs() -> Int { Int((ContinuousClock.now - t0) / .milliseconds(1)) }
@@ -149,6 +193,12 @@ public actor OpenAIMT: SpeakCloudMT {
     public func stopKeepWarm() async {
         pressWarm?.task.cancel(); pressWarm = nil
         await keepWarm?.stop()
+    }
+
+    /// The key leaves memory first; keep-warm can take a moment to wind down.
+    public func endMeeting() async {
+        keyCache?.close()
+        await stopKeepWarm()
     }
 
     /// Scheduling the re-warm must not hold up the press's ASR/session setup.
@@ -333,12 +383,13 @@ public actor OpenAIMT: SpeakCloudMT {
         let dir: CloudHealth.Direction = r.session.isSpeak ? .speak : .listen
         let soft = r.session.isSpeak ? profile.speak.mt.contextTokensSoft : profile.listen.finalMT.contextTokensSoft
         let hard = r.session.isSpeak ? profile.speak.mt.contextTokensHard : profile.listen.finalMT.contextTokensHard
+        let tier = fastModeOn ? Self.fastTier : profile.cloud.serviceTier
         let body: Data
         do {
             body = try builder.body(for: r, glossary: glossaries[r.session] ?? [],
                                     options: .init(model: config.model, effort: config.effort,
                                                    reasoningBudget: config.effort == "none" ? 0 : config.reasoningBudget,
-                                                   contextTokensSoft: soft, contextTokensHard: hard))
+                                                   contextTokensSoft: soft, contextTokensHard: hard, serviceTier: tier))
         } catch {
             health.releaseProbes(dir)
             throw MTError.cloudUnavailable("body")
@@ -350,17 +401,26 @@ public actor OpenAIMT: SpeakCloudMT {
         let startApple: @Sendable () -> Void = speak?.onStartApple ?? { @Sendable in }
         let appleLate = speak?.appleLate ?? false
         let task = Task<HedgedRequest.Outcome, Never> {
-            await hedged.run(body: body, sentEffort: effort, kind: kind, deadlineMs: deadlineMs,
+            await hedged.run(body: body, sentEffort: effort, sentTier: tier, kind: kind, deadlineMs: deadlineMs,
                              hedgingPaused: paused, appleLate: appleLate, onStartApple: startApple)
         }
         inFlight[r.job] = task
         let outcome = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         inFlight[r.job] = nil
+        logRequest(r, tier: tier, deadlineMs: deadlineMs, outcome: outcome)
 
         if outcome.cancelledByCaller || Task.isCancelled || cancelledJobs.contains(r.job) {
             health.releaseProbes(dir)
             log?.event("mt.cancelled", ["job": .int(Int(r.job))])
             throw CancellationError()
+        }
+        if fastModeRefused(tier: tier, outcome: outcome) {
+            health.releaseProbes(dir)
+            var refused = outcome
+            // Don't name the key or quota for a tier refusal. A 403 that really is the key
+            // pauses on the next standard-tier sentence.
+            refused.decision.pauseReason = nil
+            return refused
         }
         for line in health.record(dir, decision: outcome.decision, hedgePauseS: outcome.hedgePauseS, now: nowMs()) {
             log?.event("cloud.breaker", ["state": .tag(line)])
@@ -379,5 +439,43 @@ public actor OpenAIMT: SpeakCloudMT {
             for leg in Leg.allCases where outcome.legs[leg]?.sentMs != nil { await kw.noteActivity(leg, reused: nil) }
         }
         return outcome
+    }
+
+    /// If this account or model cannot use Fast mode, that costs one sentence, not the meeting:
+    /// the rest of the meeting uses the standard tier and the refusal never reaches the breaker
+    /// or the sticky pause.
+    private func fastModeRefused(tier: String, outcome: HedgedRequest.Outcome) -> Bool {
+        guard tier == Self.fastTier else { return false }
+        let status = outcome.legs.values.compactMap { $0.headers?.status }.first { (400..<500).contains($0) && $0 != 429 && $0 != 401 }
+        let badEcho = outcome.legs.values.contains { $0.validation?.rejectReason?.hasPrefix("serviceTier:") == true }
+        guard status != nil || badEcho else { return false }
+        if fastModeOn {
+            fastModeOn = false
+            log?.event("mt.fast_off", ["status": .int(status ?? 0), "bad_echo": .bool(badEcho)])
+        }
+        return true
+    }
+
+    /// One numeric line per leg sent. It runs before the cancellation exit in `run`: a request
+    /// abandoned at the deadline is the one whose timing matters most.
+    private func logRequest(_ r: MTRequest, tier: String, deadlineMs: Int, outcome: HedgedRequest.Outcome) {
+        guard let log else { return }
+        let decided = outcome.decision.outcome
+        for leg in Leg.allCases {
+            guard let report = outcome.legs[leg], report.sentMs != nil else { continue }
+            let echo = report.echo ?? report.createdEcho
+            var fields: [String: EventLog.Value] = [
+                "job": .int(Int(r.job)), "session": .tag(r.session.rawValue), "leg": .tag(leg.rawValue), "tier": .tag(tier),
+                "deadline_ms": .int(deadlineMs), "elapsed_ms": .int(decided.ms),
+                "won": .bool(decided.winner.rawValue == leg.rawValue), "cancelled": .bool(report.cancelled),
+            ]
+            let numbers = [("sent_ms", report.sentMs), ("headers_ms", report.headersMs), ("first_delta_ms", report.firstDeltaMs),
+                           ("end_ms", report.endMs), ("status", report.headers?.status), ("processing_ms", report.headers?.processingMs),
+                           ("input_tokens", echo?.inputTokens), ("output_tokens", echo?.outputTokens), ("cached_tokens", echo?.cachedTokens)]
+            for case let (name, value?) in numbers { fields[name] = .int(value) }
+            if let id = report.clientRequestID { fields["req"] = .tag(id) }
+            if let echoed = echo?.serviceTier { fields["tier_echo"] = .tag(echoed) }
+            log.event("mt.request", fields)
+        }
     }
 }

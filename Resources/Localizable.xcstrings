@@ -977,6 +977,22 @@
         }
       }
     },
+    "2× 费用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2× cost"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2× 费用"
+          }
+        }
+      }
+    },
     "30 天": {
       "localizations": {
         "en": {
@@ -1229,6 +1245,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "FaceTime 菜单栏 › 视频 › 麦克风"
+          }
+        }
+      }
+    },
+    "Fast 模式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast 模式"
           }
         }
       }
@@ -1501,6 +1533,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "OpenAI 拒绝了请求：你所在的国家或地区不受支持，或 key 缺少权限（HTTP 403）。"
+          }
+        }
+      }
+    },
+    "OpenAI 按两倍价格计费": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenAI bills Fast mode at twice the price"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenAI 按两倍价格计费"
           }
         }
       }
@@ -4093,6 +4141,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "以后要用时需要重新下载。"
+          }
+        }
+      }
+    },
+    "优先处理翻译请求，下次开始时生效": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handles translation requests first. Applies next session"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优先处理翻译请求，下次开始时生效"
           }
         }
       }

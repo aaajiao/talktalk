@@ -111,13 +111,14 @@ public struct ResponseAccumulator: Sendable {
     }
 
     /// The result of a terminal event, per §5.4 (sentEffort = the request's effort).
-    public func terminalResult(sentEffort: String, cloud: PolicyProfile.Cloud) -> (LegResult, ResponseValidation?) {
+    public func terminalResult(sentEffort: String, cloud: PolicyProfile.Cloud,
+                               sentTier: String? = nil) -> (LegResult, ResponseValidation?) {
         switch finalType {
         case "response.completed", "response.incomplete":
             guard let f = final else { return (.failed(.validationReject("finalMissing")), nil) }
             let v = OpenAIRequestBuilder.validate(f, sentEffort: sentEffort,
                                                   firstLineComplete: firstLine.isComplete || (finalType == "response.completed" && sawDelta),
-                                                  expectedServiceTier: cloud.serviceTier)
+                                                  expectedServiceTier: sentTier ?? cloud.serviceTier)
             if v.isUsable, firstLine.trimmed.isEmpty { return (.failed(.validationReject("emptyText")), v) }
             return (v.isUsable ? .valid : .failed(.validationReject(v.rejectReason ?? "")), v)
         case "response.failed":
@@ -133,9 +134,11 @@ public struct ResponseAccumulator: Sendable {
     }
 
     /// After the newline grace expired: partial validation on response.created.
-    public func partialResult(sentEffort: String, cloud: PolicyProfile.Cloud) -> (LegResult, ResponseValidation?) {
+    public func partialResult(sentEffort: String, cloud: PolicyProfile.Cloud,
+                              sentTier: String? = nil) -> (LegResult, ResponseValidation?) {
         guard let c = created else { return (.failed(.validationReject("createdMissing")), nil) }
-        let v = OpenAIRequestBuilder.validatePartial(created: c, sentEffort: sentEffort, expectedServiceTier: cloud.serviceTier)
+        let v = OpenAIRequestBuilder.validatePartial(created: c, sentEffort: sentEffort,
+                                                     expectedServiceTier: sentTier ?? cloud.serviceTier)
         if v.isUsable, firstLine.trimmed.isEmpty { return (.failed(.validationReject("emptyText")), v) }
         return (v.isUsable ? .valid : .failed(.validationReject(v.rejectReason ?? "")), v)
     }

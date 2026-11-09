@@ -269,8 +269,8 @@ struct Runner: Sendable {
 
     static func log(_ e: CloudEvent, _ r: BenchRecords, _ m: MetricsStore) {
         switch e {
-        case .request(let leg, let path, let id):
-            r.write("request", ["leg": leg.rawValue, "path": path, "client_request_id": id])
+        case .request(let leg, let path, let id, let keyReadMs):
+            r.write("request", ["leg": leg.rawValue, "path": path, "client_request_id": id, "key_read_ms": keyReadMs])
         case .response(let leg, let h):
             r.write("response", ["leg": leg.rawValue, "status": h.status, "x_request_id": h.requestID ?? NSNull(),
                                  "processing_ms": h.processingMs ?? NSNull(), "remaining_requests": h.remainingRequests ?? NSNull(),

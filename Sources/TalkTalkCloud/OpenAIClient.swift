@@ -17,13 +17,17 @@ public struct RequestMetrics: Sendable, Equatable, Codable {
     public var requestToResponseStartMs: Double?
     public var taskMs: Double?
     public var redirects: Int
+    /// From the task starting to the request going out: name lookup, connecting, waiting for a stream.
+    public var fetchToRequestMs: Double?
 
     public init(leg: Leg, protocolName: String? = nil, reusedConnection: Bool? = nil, localPort: Int? = nil,
                 remotePort: Int? = nil, connectMs: Double? = nil, tlsMs: Double? = nil,
-                requestToResponseStartMs: Double? = nil, taskMs: Double? = nil, redirects: Int = 0) {
+                requestToResponseStartMs: Double? = nil, taskMs: Double? = nil, redirects: Int = 0,
+                fetchToRequestMs: Double? = nil) {
         self.leg = leg; self.protocolName = protocolName; self.reusedConnection = reusedConnection
         self.localPort = localPort; self.remotePort = remotePort; self.connectMs = connectMs; self.tlsMs = tlsMs
         self.requestToResponseStartMs = requestToResponseStartMs; self.taskMs = taskMs; self.redirects = redirects
+        self.fetchToRequestMs = fetchToRequestMs
     }
 
     init(leg: Leg, clientRequestID: String?, _ m: URLSessionTaskMetrics) {
@@ -39,6 +43,7 @@ public struct RequestMetrics: Sendable, Equatable, Codable {
         connectMs = ms(t.connectStartDate, t.connectEndDate)
         tlsMs = ms(t.secureConnectionStartDate, t.secureConnectionEndDate)
         requestToResponseStartMs = ms(t.requestStartDate, t.responseStartDate)
+        fetchToRequestMs = ms(t.fetchStartDate, t.requestStartDate)
     }
 }
 
@@ -68,7 +73,7 @@ public struct OpenAIResponseHeaders: Sendable, Equatable, Codable {
 /// Everything the cloud layer logs. Numbers, codes and ids only: never a key, never request or
 /// response text, never `error.message` (§7.7).
 public enum CloudEvent: Sendable, Equatable {
-    case request(leg: Leg, path: String, clientRequestID: String)
+    case request(leg: Leg, path: String, clientRequestID: String, keyReadMs: Double)
     case response(leg: Leg, OpenAIResponseHeaders)
     case error(leg: Leg, status: Int, OpenAIErrorInfo?)
     case metrics(RequestMetrics)
@@ -84,8 +89,8 @@ public typealias CloudEventSink = @Sendable (CloudEvent) -> Void
 
 /// The app's only HTTPS client for OpenAI (§6.3): two long-lived `.ephemeral` URLSessions,
 /// A (all MT) and B (hedge copies only). Each has its own connection pool (O17; T4 ③ checks
-/// the ports). The key is read through `keyProvider` for each request, goes only into the
-/// Authorization header, and is never logged.
+/// the ports). The key comes from `keyProvider` for each request (the Keychain, or the meeting's
+/// `MeetingKeyCache`), goes only into the Authorization header, and is never logged.
 public final class OpenAIClient: Sendable {
     public enum ClientError: Error, Sendable, Equatable {
         case noKey
@@ -149,10 +154,12 @@ public final class OpenAIClient: Sendable {
 
     func session(_ leg: Leg) -> URLSession { sessions.withLock { $0[leg]! } }
 
-    func request(path: String, method: String, body: Data?, streaming: Bool) throws -> (URLRequest, String) {
+    func request(path: String, method: String, body: Data?, streaming: Bool) throws -> (URLRequest, String, keyReadMs: Double) {
         guard let url = cloud.url(path) else { throw ClientError.badURL }
         let key: String
+        let keyReadStarted = ContinuousClock.now
         do { key = try keyProvider() } catch { throw ClientError.noKey }
+        let keyReadMs = (ContinuousClock.now - keyReadStarted) / .milliseconds(1)
         guard !key.isEmpty else { throw ClientError.noKey }
         var r = URLRequest(url: url)
         r.httpMethod = method
@@ -163,7 +170,7 @@ public final class OpenAIClient: Sendable {
             r.setValue(v, forHTTPHeaderField: k)
         }
         r.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
-        return (r, id.uuidString.lowercased())
+        return (r, id.uuidString.lowercased(), keyReadMs)
     }
 
     /// POST /v1/responses with `body` on `leg`. Cancelling the consuming task cancels the
@@ -172,8 +179,8 @@ public final class OpenAIClient: Sendable {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let (req, id) = try request(path: cloud.responsesPath, method: "POST", body: body, streaming: true)
-                    sink(.request(leg: leg, path: cloud.responsesPath, clientRequestID: id))
+                    let (req, id, keyReadMs) = try request(path: cloud.responsesPath, method: "POST", body: body, streaming: true)
+                    sink(.request(leg: leg, path: cloud.responsesPath, clientRequestID: id, keyReadMs: keyReadMs))
                     continuation.yield(.started(clientRequestID: id))
                     let delegate = MetricsDelegate(leg: leg, clientRequestID: id, sink: sink)
                     let (bytes, response) = try await session(leg).bytes(for: req, delegate: delegate)
@@ -214,8 +221,8 @@ public final class OpenAIClient: Sendable {
 
     /// A small GET (model list, keep-warm `GET /v1/models/{model}`, `GET /v1/responses/{id}`).
     public func get(leg: Leg, path: String) async throws -> Reply {
-        let (req, id) = try request(path: path, method: "GET", body: nil, streaming: false)
-        sink(.request(leg: leg, path: path, clientRequestID: id))
+        let (req, id, keyReadMs) = try request(path: path, method: "GET", body: nil, streaming: false)
+        sink(.request(leg: leg, path: path, clientRequestID: id, keyReadMs: keyReadMs))
         let (data, response) = try await session(leg).data(for: req, delegate: MetricsDelegate(leg: leg, clientRequestID: id, sink: sink))
         guard let http = response as? HTTPURLResponse else { throw ClientError.notHTTP }
         let headers = OpenAIResponseHeaders(http)

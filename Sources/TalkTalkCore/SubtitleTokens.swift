@@ -348,6 +348,8 @@ public enum SubtitleTokens {
         public static let recording = "record.circle"
         public static let recordingActive = "record.circle.fill"
         public static let slow = "tortoise"
+        /// 文本翻译 › OpenAI › Fast 模式.
+        public static let fastMode = "hare"
         /// Performance and real-time capability; replaces gauge.
         public static let performance = "gauge.with.needle"
         public static let cost = "dollarsign.circle"

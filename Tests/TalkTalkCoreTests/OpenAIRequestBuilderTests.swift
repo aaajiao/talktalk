@@ -170,6 +170,12 @@ import Testing
         #expect(B.validate(echo(effort: "low"), sentEffort: "none", firstLineComplete: true).rejectReason == "effort:low")
         #expect(B.validate(echo(effort: nil), sentEffort: "none", firstLineComplete: true).rejectReason == "effort:missing")
         #expect(B.validate(echo(tier: "flex"), sentEffort: "none", firstLineComplete: true).rejectReason == "serviceTier:flex")
+        // Fast mode may echo its own name, the older "priority", or "default" after a downgrade.
+        for tier in ["fast", "priority", "default"] {
+            #expect(B.validate(echo(tier: tier), sentEffort: "none", firstLineComplete: true, expectedServiceTier: "fast").isUsable)
+        }
+        #expect(B.validate(echo(tier: "flex"), sentEffort: "none", firstLineComplete: true, expectedServiceTier: "fast").rejectReason == "serviceTier:flex")
+        #expect(B.validate(echo(tier: "fast"), sentEffort: "none", firstLineComplete: true).rejectReason == "serviceTier:fast")
         #expect(B.validate(echo(reasoning: 3), sentEffort: "none", firstLineComplete: true).rejectReason == "reasoningTokens:nonzero")
         #expect(B.validate(echo(reasoning: nil), sentEffort: "none", firstLineComplete: true).rejectReason == "reasoningTokens:missing")
         // Yellow path: reasoning tokens recorded, not blocked.

@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import Synchronization
 
 /// The only code that reads or writes the OpenAI API key (ARCHITECTURE.md §7.7).
 ///
@@ -14,6 +15,11 @@ public struct KeychainSecret: Sendable {
     public let service: String
     public let account: String
     public let label: String
+
+    private static let writes = Atomic<UInt64>(0)
+    /// Changes after every save or delete in this process, so a held copy can tell it is stale.
+    public static var writeGeneration: UInt64 { writes.load(ordering: .sequentiallyConsistent) }
+    private static func noteWrite() { writes.add(1, ordering: .sequentiallyConsistent) }
 
     public init(service: String, account: String = "api-key", label: String) {
         self.service = service
@@ -47,6 +53,7 @@ public struct KeychainSecret: Sendable {
 
     /// Adds the item, or updates its data if it already exists.
     public func store(_ secret: Data) throws {
+        defer { Self.noteWrite() }
         var add = baseQuery
         add[kSecAttrLabel as String] = label
         add[kSecValueData as String] = secret
@@ -78,6 +85,7 @@ public struct KeychainSecret: Sendable {
     }
 
     public func delete() throws {
+        defer { Self.noteWrite() }
         let status = SecItemDelete(baseQuery as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw Failure(operation: "SecItemDelete", status: status)

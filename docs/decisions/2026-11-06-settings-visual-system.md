@@ -528,6 +528,7 @@
 | 导出 | square.and.arrow.up | — |
 | 录音 | record.circle(.fill) | — |
 | 变慢 | tortoise | — |
+| Fast 模式 | hare | — |
 | 性能 / 实时可用 | gauge.with.needle | gauge |
 | 费用 | dollarsign.circle | — |
 
@@ -1034,6 +1035,7 @@ FactRow：`[laptopcomputer 本机识别]`（help“声音在这台 Mac 上转成
   - 行：Link `[arrow.up.forward.app OpenAI]` + ⓘ“建议单独建一个 project 并设硬性预算上限，再在其中建 key。”
 - Section `[network] OpenAI`（任一方向开启或已有 key 时显示）：
   - Picker 行 `[square.stack.3d.up] 模型`，选项后缀只留“默认”；菜单图：`tortoise` 表示会变慢，`clock.badge.exclamationmark` 表示即将下线。行尾 IconButton `arrow.clockwise`（help“重新读取模型列表”）。
+  - Toggle 行 `[hare] Fast 模式`：行尾 chip `[dollarsign.circle 2× 费用]` → 等待状态（help“下次开始生效”）→ 开关；打开后费用行按两倍估算。
   - Toggle `[pin] 显示固定快照`。
   - 下线通知：warn“X 已下线 → Y”或“Y 即将下线” + IconButton `xmark`（help“知道了”）。
   - 行 `[gauge.with.needle] 实时可用`：状态图形 + “首字 N ms · 共 N ms”（help“一次测量”）；变慢时加 chip `[tortoise 变慢]`；失败时 failed“无响应”“仍有推理 token”“响应不完整”；IconButton `arrow.clockwise`（help“再测一次”）。
@@ -1043,7 +1045,7 @@ FactRow：`[laptopcomputer 本机识别]`（help“声音在这台 Mac 上转成
 - 开发构建：`ContentUnavailableView`“此构建不可用”。
 - 本页 ⓘ：cloudNotice + key 建议，共 2 个。
 
-**保留可见中文**：我说的话 听到的话 中 EN/DE OpenAI Apple 译文 中文字幕 备用 Apple / DataBoundary：本机 声音 · 声音档案 · 录音 OpenAI 文字 · 上下文 · 术语 未连接 / 无 key → Apple 下次开始生效 / API key 同意发送文字 sk-… 保存 已存入钥匙串 · 请清空剪贴板 + 错误短句 OpenAI / 模型 默认 显示固定快照 X 已下线 → Y Y 即将下线 实时可用 首字 N ms · 共 N ms 变慢 费用 ≈ $X/小时（估） 开始时提醒：文字发给 OpenAI / 弹窗。
+**保留可见中文**：我说的话 听到的话 中 EN/DE OpenAI Apple 译文 中文字幕 备用 Apple / DataBoundary：本机 声音 · 声音档案 · 录音 OpenAI 文字 · 上下文 · 术语 未连接 / 无 key → Apple 下次开始生效 / Fast 模式 2× 费用 / API key 同意发送文字 sk-… 保存 已存入钥匙串 · 请清空剪贴板 + 错误短句 OpenAI / 模型 默认 显示固定快照 X 已下线 → Y Y 即将下线 实时可用 首字 N ms · 共 N ms 变慢 费用 ≈ $X/小时（估） 开始时提醒：文字发给 OpenAI / 弹窗。
 
 **删除**：
 - “原文 → 译文”；“把识别出来的原文翻译成目标语言。OpenAI 和 Apple 翻译都只处理文字…”；“这里的翻译引擎与 OpenAI 模型选择在下次开始同传或字幕时生效。”

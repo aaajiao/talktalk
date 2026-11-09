@@ -123,7 +123,9 @@ public final class TranslationSettingsModel {
     public var cloud: PolicyProfile.Cloud { profile.cloud }
     public var hasKey: Bool { keyState != .none }
     public var isYellow: Bool { preferences.effort != "none" }
-    public var costLine: String { TranslationSettingsText.cost(for: preferences.model, yellow: isYellow) }
+    public var costLine: String {
+        TranslationSettingsText.cost(for: preferences.model, yellow: isYellow, fastMode: preferences.fastMode)
+    }
 
     /// What the 文本翻译 diagram draws now.
     public var flowFacts: TranslationFlowFacts {
@@ -133,7 +135,7 @@ public final class TranslationSettingsModel {
 
     /// `start`: when the running session started, nil while none runs. The first sight of a
     /// session keeps the current preferences as its own: only this model writes them, so they
-    /// have not changed since that session read them.
+    /// match what that session read unless changed during its few seconds of startup.
     public func trackSession(_ start: Date?) {
         guard start != sessionStart else { return }
         sessionStart = start

@@ -23,7 +23,7 @@ struct GlossaryMT: MTEngine {
 /// `make` still returns LISTEN's primary; `Box.speak` exposes SPEAK's backend to its controller.
 /// Its lifecycle follows MeetingEvents: keep-warm while the meeting runs, NetworkHealth changes
 /// forwarded (offline → Apple at once, back online → OpenAI), `didWake` after sleep.
-/// The key is read by OpenAIMT's own key provider only; nothing here touches it.
+/// The key is read by OpenAIMT's own key provider only, once per meeting; nothing here touches it.
 @MainActor
 final class ListenCloud {
     /// Shared with the engine factory (off the main actor) and keep-warm's `isEnabled`.
@@ -49,14 +49,15 @@ final class ListenCloud {
 
         /// A rebuilt LISTEN pipeline keeps the same meeting log. Reuse its backend, including
         /// the nil/disabled choice, so SPEAK, breaker state and warm connections stay together.
-        func make(log: EventLog, knownPresence: Bool? = nil) -> OpenAIMT? {
+        func make(log: EventLog, knownPresence: Bool? = nil, forMeeting: Bool = true) -> OpenAIMT? {
             lock.withLock {
                 if _sessionLog === log { return _listenEnabled ? _mt : nil }
                 let prefs = TranslationPreferences.load(.standard)
                 var mt: OpenAIMT?
                 if prefs.cloudConsentGiven, prefs.listenCloudEnabled || prefs.speakCloudEnabled {
                     mt = (try? OpenAIMT.forCurrentApp(model: prefs.model, effort: prefs.effort, log: log,
-                                                    knownPresence: knownPresence)) ?? nil
+                                                    knownPresence: knownPresence, forMeeting: forMeeting,
+                                                    fastMode: forMeeting && prefs.fastMode)) ?? nil
                 }
                 let profile = try? PolicyProfile.loadDefault()
                 _warmB = prefs.effort == "none" && (
@@ -111,9 +112,9 @@ final class ListenCloud {
         case let .resumed(afterSleep):
             // MeetingLifecycle remembers a sleep even when a lock suspended first.
             if afterSleep, let mt = box.mt { Task { await mt.didWake() } }
-        case .ended:
+        case .ended, .state(.idle):   // a failed start reaches idle without .ended
             box.setActive(false)
-            if let mt = box.mt { Task { await mt.stopKeepWarm() } }
+            if let mt = box.mt { Task { await mt.endMeeting() } }
             box.set(nil)
         case .suspended, .audioServiceRestarted, .state, .hint, .translation, .stopping:
             break

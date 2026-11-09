@@ -21,6 +21,8 @@ public struct TranslationPreferences: Sendable, Equatable {
     public var model: String = ModelFilter.defaultModel
     /// "none" on the normal path, "low" on the yellow path (§11).
     public var effort: String = "none"
+    /// Fast mode: OpenAI's faster processing at twice the price; off unless chosen.
+    public var fastMode = false
     public var speakCloudEnabled = true
     public var listenCloudEnabled = true
     public var cloudConsentGiven = false
@@ -38,6 +40,7 @@ public struct TranslationPreferences: Sendable, Equatable {
         func b(_ k: String, _ def: Bool) -> Bool { d.object(forKey: prefix + k) == nil ? def : d.bool(forKey: prefix + k) }
         p.model = s("model") ?? p.model
         p.effort = s("effort") ?? p.effort
+        p.fastMode = b("fastMode", false)
         p.speakCloudEnabled = b("speakCloudEnabled", true)
         p.listenCloudEnabled = b("listenCloudEnabled", true)
         p.cloudConsentGiven = b("cloudConsentGiven", false)
@@ -52,6 +55,7 @@ public struct TranslationPreferences: Sendable, Equatable {
         let k = Self.prefix
         d.set(model, forKey: k + "model")
         d.set(effort, forKey: k + "effort")
+        d.set(fastMode, forKey: k + "fastMode")
         d.set(speakCloudEnabled, forKey: k + "speakCloudEnabled")
         d.set(listenCloudEnabled, forKey: k + "listenCloudEnabled")
         d.set(cloudConsentGiven, forKey: k + "cloudConsentGiven")
@@ -129,6 +133,12 @@ public struct TranslationFlowFacts: Sendable, Equatable {
     public var modelWaits: Bool {
         guard let baseline else { return false }
         return baseline.model != preferences.model || baseline.effort != preferences.effort
+    }
+
+    /// Fast mode changed during the running session, which keeps the tier it started with.
+    public var fastModeWaits: Bool {
+        guard let baseline else { return false }
+        return baseline.fastMode != preferences.fastMode
     }
 
     /// The OpenAI section shows once a direction is set to OpenAI or a key exists (§7.9).
@@ -398,9 +408,9 @@ public enum TranslationSettingsText {
     }
 
     /// The cost line (§11 费用, 估). `yellow`: the model runs on effort low.
-    public static func cost(for model: String, yellow: Bool) -> String {
+    public static func cost(for model: String, yellow: Bool, fastMode: Bool = false) -> String {
         if let usd = ModelFilter.known[model]?.usdPerMeetingHour {
-            let amount = String(format: "%.2f", usd)
+            let amount = String(format: "%.2f", fastMode ? usd * 2 : usd)
             return yellow ? String(appLocalized: "≈ $\(amount)/小时（估）+ 推理") : String(appLocalized: "≈ $\(amount)/小时（估）")
         }
         return String(appLocalized: "见 OpenAI 定价")

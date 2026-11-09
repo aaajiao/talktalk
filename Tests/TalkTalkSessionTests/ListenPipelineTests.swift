@@ -277,6 +277,7 @@ enum Fixture {
         #expect(sink.finals[0].1 == "苹:Let us begin." && sink.finals[0].2 == true)
         #expect(await primary.cancels.count == 1)
         #expect(events(log, "mt.late").count == 1)
+        #expect(events(log, "mt.send").first?["sentence"] != nil && events(log, "mt.send").first?["job"] != nil)
         await p.stop()
     }
 

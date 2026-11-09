@@ -207,6 +207,15 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         #expect(!TranslationFlowFacts(preferences: q, hasKey: true, keyStateKnown: true).modelWaits)
     }
 
+    @Test func fastModeChangedDuringASessionWaitsAndDoublesTheEstimate() {
+        let p = TranslationPreferences()
+        var q = p
+        q.fastMode = true
+        #expect(TranslationFlowFacts(preferences: q, hasKey: true, keyStateKnown: true, baseline: p).fastModeWaits)
+        #expect(!TranslationFlowFacts(preferences: q, hasKey: true, keyStateKnown: true).fastModeWaits)
+        #expect(TranslationSettingsText.cost(for: "gpt-6-luna", yellow: false, fastMode: true).contains("0.12"))
+    }
+
     /// The menu's glyphs are spoken (the visible suffixes are gone).
     @Test func modelChoicesSayWhatTheirGlyphMeans() {
         let picker = ModelFilter.picker([
@@ -225,7 +234,8 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         var p = TranslationPreferences.load(d)
         #expect(p == TranslationPreferences())
         #expect(p.speakCloudEnabled && p.listenCloudEnabled && !p.cloudConsentGiven && p.model == "gpt-6-luna")
-        p.model = "gpt-6.1-sol"; p.effort = "low"; p.listenCloudEnabled = false; p.cloudConsentGiven = true
+        #expect(!p.fastMode)
+        p.model = "gpt-6.1-sol"; p.effort = "low"; p.listenCloudEnabled = false; p.cloudConsentGiven = true; p.fastMode = true
         p.save(d)
         #expect(TranslationPreferences.load(d) == p)
     }

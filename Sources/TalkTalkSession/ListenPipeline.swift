@@ -619,6 +619,7 @@ public actor ListenPipeline {
                                 history: history.suffix(2).map(\.turn))
             let call = Task { try await primary.translate(req) }
             let remaining = max(0, deadlineMs - nowMs)
+            log.event("mt.send", ["sentence": .int(Int(f.sentence)), "job": .int(Int(job)), "remaining_ms": .int(remaining)])
             let wait = Task { await Race.first(call, withinMs: remaining) }
             primaryWaits[job] = wait
             let outcome = await withTaskCancellationHandler { await wait.value } onCancel: { wait.cancel() }

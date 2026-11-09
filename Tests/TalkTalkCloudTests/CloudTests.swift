@@ -323,7 +323,7 @@ final class Counter: @unchecked Sendable {
         #expect(!text.contains("fAkE"))
         #expect(!text.contains(sourceText))
         #expect(!text.contains("next Wednesday"))
-        #expect(log.events.contains { if case .request(.A, "/v1/responses", _) = $0 { true } else { false } })
+        #expect(log.events.contains { if case .request(.A, "/v1/responses", _, _) = $0 { true } else { false } })
         #expect(log.events.contains { if case .hedge = $0 { true } else { false } })
     }
 

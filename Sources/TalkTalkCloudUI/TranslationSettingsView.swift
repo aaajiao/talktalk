@@ -150,6 +150,7 @@ public struct TranslationSettingsView: View {
     private var openAISection: some View {
         Section {
             modelRow
+            fastModeRow
             Toggle(isOn: Binding(get: { model.preferences.showSnapshots },
                                  set: { on in model.update { $0.showSnapshots = on } })) {
                 Label("显示固定快照", systemImage: Icon.snapshots)
@@ -212,6 +213,29 @@ public struct TranslationSettingsView: View {
         } label: {
             Label("模型", systemImage: Icon.Page.models)
         }
+    }
+
+    /// Fast mode, trailing in the fixed order: what it costs, status, then the switch.
+    private var fastModeRow: some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                FactChip(String(appLocalized: "2× 费用"), symbol: Icon.cost,
+                         help: String(appLocalized: "OpenAI 按两倍价格计费"))
+                if model.flowFacts.fastModeWaits {
+                    StatusGlyph(.waiting)
+                        .help(String(appLocalized: "下次开始生效"))
+                        .accessibilityLabel(String(appLocalized: "下次开始生效"))
+                }
+                Toggle(String(appLocalized: "Fast 模式"),
+                       isOn: Binding(get: { model.preferences.fastMode },
+                                     set: { on in model.update { $0.fastMode = on } }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+        } label: {
+            Label("Fast 模式", systemImage: Icon.fastMode)
+        }
+        .help(String(appLocalized: "优先处理翻译请求，下次开始时生效"))
     }
 
     /// The glyph's meaning goes to VoiceOver in words (choiceSpoken).

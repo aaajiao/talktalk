@@ -59,7 +59,8 @@ public struct HedgedRequest: Sendable {
 
     /// Runs one sentence. `sentEffort` must be the effort in `body`. `onStartApple` is called
     /// at most once, when the policy wants the Apple fallback started (hedge time or the end).
-    public func run(body: Data, sentEffort: String, kind: HedgeRun.Kind = .normal, deadlineMs: Int,
+    /// `sentTier` must be the service tier in `body` when it is not the profile's.
+    public func run(body: Data, sentEffort: String, sentTier: String? = nil, kind: HedgeRun.Kind = .normal, deadlineMs: Int,
                     hedgingPaused: Bool = false, appleLate: Bool = false,
                     onStartApple: @escaping @Sendable () -> Void = {}) async -> Outcome {
         let (inputs, cont) = AsyncStream<Input>.makeStream()
@@ -90,6 +91,7 @@ public struct HedgedRequest: Sendable {
         }
         func cancel(_ leg: Leg) {
             reports[leg]!.cancelled = reports[leg]!.result == nil
+            reports[leg]!.createdEcho = acc[leg]!.created   // finishLeg never runs for this leg
             pumps[leg]?.cancel()
         }
 
@@ -147,7 +149,7 @@ public struct HedgedRequest: Sendable {
                     cancelledByCaller = true
                 case .tick:
                     for (leg, g) in grace where g <= t {
-                        let (r, v) = acc[leg]!.partialResult(sentEffort: sentEffort, cloud: client.cloud)
+                        let (r, v) = acc[leg]!.partialResult(sentEffort: sentEffort, cloud: client.cloud, sentTier: sentTier)
                         finishLeg(leg, r, validation: v, partial: true)
                     }
                     if decision == nil { perform(policy.step(&state, .tick(t))) }
@@ -182,7 +184,7 @@ public struct HedgedRequest: Sendable {
                                 grace[leg] = t + afterNewlineGraceMs
                             case .terminal:
                                 reports[leg]!.error = acc[leg]!.error
-                                let (r, v) = acc[leg]!.terminalResult(sentEffort: sentEffort, cloud: client.cloud)
+                                let (r, v) = acc[leg]!.terminalResult(sentEffort: sentEffort, cloud: client.cloud, sentTier: sentTier)
                                 finishLeg(leg, r, validation: v, partial: false)
                             }
                         }
@@ -193,7 +195,7 @@ public struct HedgedRequest: Sendable {
                     // session rebuild (§6.4 step 6) and counts as a connection error.
                     if error is CancellationError { break }
                     if grace[leg] != nil, error == nil {
-                        let (r, v) = acc[leg]!.partialResult(sentEffort: sentEffort, cloud: client.cloud)
+                        let (r, v) = acc[leg]!.partialResult(sentEffort: sentEffort, cloud: client.cloud, sentTier: sentTier)
                         finishLeg(leg, r, validation: v, partial: true)
                     } else {
                         finishLeg(leg, .failed(.connectionError), validation: nil, partial: false)

@@ -146,9 +146,13 @@ public struct OpenAIRequestBuilder: Sendable {
         public var reasoningBudget: Int
         public var contextTokensSoft: Int
         public var contextTokensHard: Int
-        public init(model: String, effort: String, reasoningBudget: Int = 0, contextTokensSoft: Int, contextTokensHard: Int) {
+        /// nil sends `cloud.serviceTier`.
+        public var serviceTier: String?
+        public init(model: String, effort: String, reasoningBudget: Int = 0, contextTokensSoft: Int, contextTokensHard: Int,
+                    serviceTier: String? = nil) {
             self.model = model; self.effort = effort; self.reasoningBudget = reasoningBudget
             self.contextTokensSoft = contextTokensSoft; self.contextTokensHard = contextTokensHard
+            self.serviceTier = serviceTier
         }
     }
 
@@ -167,7 +171,7 @@ public struct OpenAIRequestBuilder: Sendable {
             "max_output_tokens": max(Self.minOutputTokens, r.maxOutputTokens + o.reasoningBudget),
             "stream": cloud.stream,
             "store": false,
-            "service_tier": cloud.serviceTier,
+            "service_tier": o.serviceTier ?? cloud.serviceTier,
             "prompt_cache_options": ["mode": "explicit"],
         ]
         if o.effort == "none" { body["temperature"] = cloud.temperature }   // only legal with effort none
@@ -267,9 +271,16 @@ extension OpenAIRequestBuilder {
 
     private static func echoProblem(_ e: ResponseEcho, sentEffort: String, expectedServiceTier: String) -> String? {
         if e.effort != sentEffort { return "effort:\(e.effort ?? "missing")" }
-        if e.serviceTier != expectedServiceTier { return "serviceTier:\(e.serviceTier ?? "missing")" }
+        if !tierMatches(echo: e.serviceTier, sent: expectedServiceTier) { return "serviceTier:\(e.serviceTier ?? "missing")" }
         if e.store == true { return "store:true" }
         return nil
+    }
+
+    /// Fast mode can come back under its own name, as "priority" (older models), or as
+    /// "default" when OpenAI moved the request to standard speed; all are good translations.
+    private static func tierMatches(echo: String?, sent: String) -> Bool {
+        guard sent == "fast", let echo else { return echo == sent }
+        return ["fast", "priority", "default"].contains(echo)
     }
 }
 
