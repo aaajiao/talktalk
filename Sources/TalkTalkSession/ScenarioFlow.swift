@@ -295,14 +295,14 @@ public struct PhoneChecklist: Sendable, Equatable {
     /// physical microphone, the reader-change barrier) keeps ① done; the problem row and the
     /// Phone node say what is wrong.
     public static func make(phoneSession: Bool, starting: Bool, stopping: Bool, active: Bool,
-                            readyToDial: Bool, dialing: Bool, callAudioActive: Bool,
+                            readyToDial: Bool, callAudioActive: Bool,
                             wasReady: Bool = false) -> PhoneChecklist {
         guard phoneSession else { return PhoneChecklist(prepare: .pending, dial: .pending, finish: .pending) }
         let prepare: Status
         if active, readyToDial || wasReady || callAudioActive, !stopping { prepare = .done }
         else if starting || stopping || active { prepare = .inProgress }
         else { prepare = .pending }
-        let dial: Status = prepare != .done ? .pending : callAudioActive ? .done : dialing ? .inProgress : .pending
+        let dial: Status = prepare != .done ? .pending : callAudioActive ? .done : .pending
         let finish: Status = stopping ? .inProgress : .pending
         return PhoneChecklist(prepare: prepare, dial: dial, finish: finish)
     }

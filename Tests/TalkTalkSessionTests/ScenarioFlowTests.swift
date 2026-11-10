@@ -101,26 +101,23 @@ import TalkTalkCore
 
     @Test func phoneChecklistDimsDialingUntilPrepared() {
         let idle = PhoneChecklist.make(phoneSession: false, starting: false, stopping: false, active: false,
-                                       readyToDial: false, dialing: false, callAudioActive: false)
+                                       readyToDial: false, callAudioActive: false)
         #expect(idle.prepare == .pending && !idle.dialEnabled)
         let starting = PhoneChecklist.make(phoneSession: true, starting: true, stopping: false, active: false,
-                                           readyToDial: false, dialing: false, callAudioActive: false)
+                                           readyToDial: false, callAudioActive: false)
         #expect(starting.prepare == .inProgress && !starting.dialEnabled)
-        let ready = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
-                                        readyToDial: true, dialing: true, callAudioActive: false)
-        #expect(ready.prepare == .done && ready.dialEnabled && ready.dial == .inProgress)
         let call = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
-                                       readyToDial: true, dialing: false, callAudioActive: true)
+                                       readyToDial: true, callAudioActive: true)
         #expect(call.dial == .done && call.finish == .pending)
         let stopping = PhoneChecklist.make(phoneSession: true, starting: false, stopping: true, active: true,
-                                           readyToDial: true, dialing: false, callAudioActive: false)
+                                           readyToDial: true, callAudioActive: false)
         #expect(stopping.prepare == .inProgress && stopping.finish == .inProgress)
         // Readiness lost after it was reached (barrier, physical mic) keeps ① and ② as they were.
         let lost = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
-                                       readyToDial: false, dialing: false, callAudioActive: true, wasReady: true)
+                                       readyToDial: false, callAudioActive: true, wasReady: true)
         #expect(lost.prepare == .done && lost.dialEnabled && lost.dial == .done)
         let neverReady = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
-                                             readyToDial: false, dialing: false, callAudioActive: false, wasReady: false)
+                                             readyToDial: false, callAudioActive: false, wasReady: false)
         #expect(neverReady.prepare == .inProgress && !neverReady.dialEnabled)
     }
 }

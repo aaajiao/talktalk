@@ -25,7 +25,7 @@ struct PhoneSettingsView: View {
     private var checklist: PhoneChecklist {
         PhoneChecklist.make(phoneSession: facts.phoneSession, starting: state.meetingStarting,
                             stopping: state.meetingStopping, active: state.meetingActive,
-                            readyToDial: state.phoneReadyToDial, dialing: false,
+                            readyToDial: state.phoneReadyToDial,
                             callAudioActive: state.phoneAudioActive, wasReady: state.phoneReadyThisSession)
     }
 

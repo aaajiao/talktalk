@@ -748,6 +748,8 @@ struct OnboardingView: View {
                                 .foregroundStyle(status.foreground)
                                 .background(Circle().fill(status.fill))
                             Text(step.guideTitle).font(.caption)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
                                 .foregroundStyle(step == model.step ? Color.primary : Color.secondary)
                         }
                         .frame(maxWidth: .infinity)
