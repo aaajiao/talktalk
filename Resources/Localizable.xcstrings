@@ -14737,6 +14737,22 @@
         }
       }
     },
+    "实底样式背景固定": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plate style has a fixed background"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实底样式背景固定"
+          }
+        }
+      }
+    },
     "提交 → 首声": {
       "localizations": {
         "en": {

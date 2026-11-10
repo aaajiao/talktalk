@@ -461,7 +461,8 @@ final class TimelineRowView: NSView, HoverClearing {
         var sourceHeight = measure(sourceText, width: sourceWidth, with: sourceLabel)
         tokenFrame = nil
         let line = style.typography.source.size * style.typography.source.lineHeight
-        if !expanded, let limit = ConversationLayout.truncatedSourceHeight(
+        // A still-live source keeps its cursor and newest words; the long-source fold waits for the final.
+        if !expanded, !row.sourceIsLive, let limit = ConversationLayout.truncatedSourceHeight(
             source: Double(sourceHeight), translation: Double(translationHeight), sourceLine: line) {
             let token = expandToken(style)
             shown = truncated(sourceText, width: sourceWidth, maxHeight: CGFloat(limit), token: token)

@@ -154,6 +154,9 @@ final class MeetingController {
 
     func setSubtitlesVisible(_ on: Bool) {
         panel.setVisible(on && state.meetingActive)
+        // The user turning captions on is explicit: it also brings back a window they closed
+        // with red (never a minimized one; that stays the user's).
+        if on, panel.canRestoreWindow, !panel.isMiniaturized { panel.restoreWindow() }
         hud?.setSubtitlesVisible(on)
     }
 

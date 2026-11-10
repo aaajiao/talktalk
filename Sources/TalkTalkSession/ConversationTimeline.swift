@@ -347,13 +347,14 @@ public struct TurnDelivery: Sendable, Equatable {
     }
 
     /// Meeting: 已送出 or 未发送 (nothing for local-only playback). Phone: 已中止, 仅本机 ·
-    /// Phone 未接收 or 已送入 Phone; nothing otherwise (the phone table's "—"). Video has no turns.
+    /// Phone 未接收 or 已送入 Phone, 未发送 when a translation never reached anyone; nothing without one.
+    /// Video has no turns.
     public func label(scene: SubtitleScene, hasTranslation: Bool) -> ConversationTimeline.Delivery? {
         switch scene {
         case .phone:
             if aborted { return .aborted }
             if localOnly { return .phoneLocalOnly }
-            return sent ? .phoneSent : nil
+            return sent ? .phoneSent : (hasTranslation ? .notSent : nil)
         case .meeting:
             if sent { return .sent }
             // Local-only playback (demo): nothing was meant to reach anyone.
