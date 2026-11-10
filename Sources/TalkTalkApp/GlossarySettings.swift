@@ -32,13 +32,16 @@ final class GlossarySettingsModel {
     /// `result` while it still holds (§7.13: the save result in the hero's status slot):
     /// 已保存 only until the rows differ from the file, 需中文 + 至少一种译法 only while some
     /// term still lacks it (the save rule); a read or save failure stays until the next one.
+    /// Otherwise unsaved edits wait for 保存.
     var currentResult: SettingsProblem? {
-        guard let result else { return nil }
-        switch result.status {
-        case .ok: return hasUnsavedChanges ? nil : result
-        case .warn: return rows.contains { $0.entry.lacksChinese || $0.entry.lacksTranslation } ? result : nil
-        default: return result
+        let held: SettingsProblem? = switch result?.status {
+        case nil: nil
+        case .ok?: hasUnsavedChanges ? nil : result
+        case .warn?: rows.contains { $0.entry.lacksChinese || $0.entry.lacksTranslation } ? result : nil
+        default: result
         }
+        if held == nil, hasUnsavedChanges { return SettingsProblem(.waiting, String(appLocalized: "未保存")) }
+        return held
     }
 
     func reload() {
@@ -52,9 +55,22 @@ final class GlossarySettingsModel {
             result = SettingsProblem(.failed, String(appLocalized: "读取失败"), help: error.localizedDescription)
         }
     }
-    func add() { guard rows.count < GlossaryStore.limit else { return }; rows.append(Row(entry: .init(zh: "", en: "", de: ""))) }
+    /// The new row's id, for the editor to scroll to and focus; nil at the limit.
+    @discardableResult
+    func add() -> UUID? {
+        guard rows.count < GlossaryStore.limit else { return nil }
+        let row = Row(entry: .init(zh: "", en: "", de: ""))
+        rows.append(row)
+        return row.id
+    }
     func remove(_ id: UUID) { rows.removeAll { $0.id == id } }
     func save() {
+        // A row left completely empty is not a term: it is dropped, not refused (the store's
+        // missing-term rule still holds for every other row).
+        rows.removeAll { row in
+            [row.entry.zh, row.entry.en, row.entry.de, row.entry.note ?? ""]
+                .allSatisfy { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        }
         do {
             try store.save(rows.map(\.entry))
             // The store trims; the rows keep their ids (and focus) and take the saved text.
@@ -85,35 +101,50 @@ struct GlossarySettingsView: View {
     private typealias Icon = SubtitleTokens.SettingsIcon
     private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 
+    /// The row whose 中文 field has focus: a new row gets it.
+    @FocusState private var focusedRow: UUID?
+
     var body: some View {
-        Form {
-            Section { hero }
-            if model.rows.isEmpty {
-                Section { empty }
-            } else {
-                Section {
-                    columnHeads
-                    ForEach($model.rows) { $row in
-                        termRow($row)
+        ScrollViewReader { proxy in
+            Form {
+                Section { hero(proxy) }
+                if model.rows.isEmpty {
+                    Section { empty(proxy) }
+                } else {
+                    Section {
+                        columnHeads
+                        ForEach($model.rows) { $row in
+                            termRow($row).id(row.id)
+                        }
                     }
                 }
             }
+            .formStyle(.grouped)
         }
-        .formStyle(.grouped)
     }
 
-    /// Some direction translates through OpenAI (consent given and a cloud switch on): the terms
-    /// travel with the text (§5.4, always visible). Every change goes through the shared
-    /// `TranslationSettingsModel` (模型 › 翻译, onboarding step 5), whose preferences this view
-    /// observes; until that model exists in this run nothing has changed the stored ones.
+    /// Adds a row, then brings it into view with the focus in its 中文 field.
+    private func addTerm(_ proxy: ScrollViewProxy) {
+        guard let id = model.add() else { return }
+        DispatchQueue.main.async {
+            withAnimation { proxy.scrollTo(id, anchor: .center) }
+            focusedRow = id
+        }
+    }
+
+    /// Text that may travel to OpenAI (§5.4, always visible): the same fact as the data
+    /// boundary (`TranslationFlowFacts.cloudConnected`: a key, and an OpenAI direction now or in
+    /// the running session). Until the shared `TranslationSettingsModel` (模型 › 翻译,
+    /// onboarding step 5) exists in this run, the stored preferences.
     private var cloudTranslation: Bool {
-        let prefs = translation.model?.preferences ?? TranslationPreferences.load(.standard)
+        if let facts = translation.model?.flowFacts { return facts.cloudConnected }
+        let prefs = TranslationPreferences.load(.standard)
         return prefs.cloudConsentGiven && prefs.anyCloud
     }
 
     // MARK: Z2
 
-    private var hero: some View {
+    private func hero(_ proxy: ScrollViewProxy) -> some View {
         let count = model.rows.count
         let limit = GlossaryStore.limit
         return PageHero(String(appLocalized: "术语表"), symbol: Icon.Page.glossary,
@@ -133,25 +164,29 @@ struct GlossarySettingsView: View {
                          help: String(appLocalized: "未启用云端翻译，术语不发出"))
             }
         } trailing: {
-            IconButton(Icon.add, help: String(appLocalized: "添加术语")) { model.add() }
-                .disabled(count >= limit)
+            // While the list is empty its own 添加 is the one way in.
+            if count > 0 {
+                IconButton(Icon.add, help: count >= limit ? String(appLocalized: "\(count) 条术语，最多 \(limit) 条")
+                                                          : String(appLocalized: "添加术语")) { addTerm(proxy) }
+                    .disabled(count >= limit)
+            }
             if model.hasUnsavedChanges {
                 Button("保存") { model.save() }.buttonStyle(.borderedProminent)
             } else {
-                Button("保存") { model.save() }.buttonStyle(.bordered)
+                Button("保存") { model.save() }.buttonStyle(.bordered).disabled(true)
             }
         }
     }
 
     // MARK: Z3
 
-    private var empty: some View {
+    private func empty(_ proxy: ScrollViewProxy) -> some View {
         ContentUnavailableView {
             Label("还没有术语", systemImage: Icon.Page.glossary)
         } description: {
             Text("产品名 · 人名 · 专业词")
         } actions: {
-            Button { model.add() } label: {
+            Button { addTerm(proxy) } label: {
                 Label("添加", systemImage: Icon.add)
             }
         }
@@ -180,6 +215,7 @@ struct GlossarySettingsView: View {
         return HStack(spacing: 8) {
             Color.clear.frame(width: Ladder.rowColumn, height: 1)
             field(String(appLocalized: "中文"), text: row.entry.zh, missing: model.showsMissing && entry.lacksChinese)
+                .focused($focusedRow, equals: row.wrappedValue.id)
             field(String(appLocalized: "英语"), text: row.entry.en, missing: model.showsMissing && entry.lacksTranslation)
             field(String(appLocalized: "德语"), text: row.entry.de, missing: model.showsMissing && entry.lacksTranslation)
             field(String(appLocalized: "备注"), text: Binding(get: { row.wrappedValue.entry.note ?? "" },

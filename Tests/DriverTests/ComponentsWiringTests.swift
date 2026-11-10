@@ -206,6 +206,9 @@ struct ComponentsWiringTests {
         #expect(clean?.outcome == .complete && clean?.notRemoved.isEmpty == true)
         #expect(clean?.short == "已删除 1 项")
         #expect(FullUninstallSummary(phase: .blocked("先结束会议模式。"), report: .init())?.short == "先结束会议模式")
+        // English clauses end at punctuation before a space or the end, not inside names or versions.
+        #expect(FullUninstallSummary.firstClause("Calls are still on. Leave first.") == "Calls are still on")
+        #expect(FullUninstallSummary.firstClause("Update Demo.app to 1.0.15 first.") == "Update Demo.app to 1.0.15 first")
         for step in FullUninstaller.Step.allCases { #expect(step.title.unicodeScalars.contains { $0.value > 0x2E80 }) }
     }
 
@@ -221,8 +224,23 @@ struct ComponentsWiringTests {
         #expect(probe.engineRowsBlockedDuringEngineStep == true)
         #expect(!m.fullUninstallRunning)
         #expect(!m.isBusy)
+        // A complete run left nothing to remove: the button stays disabled (quit and trash the app).
+        #expect(m.fullUninstallSummary?.outcome == .complete)
         m.requestFullUninstall()
-        #expect(m.confirmingFullUninstall, "a finished run can be started again")
+        #expect(!m.confirmingFullUninstall)
+    }
+
+    /// A running session disables 完全卸载 beforehand instead of refusing it after the confirmation.
+    @Test func aRunningSessionDisablesFullUninstall() {
+        let m = model(restore: .noRecord)
+        final class Session: @unchecked Sendable { var running = true }
+        let session = Session()
+        m.sessionActive = { session.running }
+        #expect(m.fullUninstallBlocked)
+        m.requestFullUninstall()
+        #expect(!m.confirmingFullUninstall)
+        session.running = false
+        #expect(!m.fullUninstallBlocked)
     }
 
     /// A fake install-engine.sh at `t/engine-installer.sh` running `body`.

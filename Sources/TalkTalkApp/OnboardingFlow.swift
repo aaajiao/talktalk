@@ -1051,7 +1051,7 @@ private struct DriverStep: View {
         // on its Form; never on a Section, which would hand them to every row.
         if let driver = model.driverPage?.model {
             page
-                .driverComponentLifecycle(driver)
+                .driverComponentLifecycle(driver, host: .onboarding)
                 .onChange(of: driver.state, initial: true) { _, _ in model.refreshDriver() }
         } else {
             page

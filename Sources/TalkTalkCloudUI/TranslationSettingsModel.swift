@@ -67,6 +67,11 @@ public final class TranslationSettingsModel {
     public var verification: Check { verificationResult.presentation(cloud: cloud) }
     public var listing: Check { listingResult.presentation(cloud: cloud) }
     public var probe: Check { probeResult.presentation(cloud: cloud) }
+    /// Why the last model picked in the menu was not taken (the model row's status); idle once
+    /// a model is taken or measured again.
+    private var candidateResult: TranslationSettingsText.CheckResult = .idle
+    @ObservationIgnored private var probeBeforeCandidate: TranslationSettingsText.CheckResult?
+    public var candidate: Check { candidateResult.presentation(cloud: cloud) }
     public private(set) var picker = ModelFilter.picker([], current: nil)
     public var notice: String? { retirement.flatMap(TranslationSettingsText.retirementNotice) }
     /// Which retirement `notice` reports: `.fellBackToDefault` (already switched) or
@@ -232,15 +237,31 @@ public final class TranslationSettingsModel {
         guard hasKey else { verificationResult = .noKey; return }
         verificationResult = .verifying
         await loadModels()
+        // The page's forced refresh on reappearing supersedes this request without a result:
+        // wait for the newest list instead.
+        while let task = modelListTask { await task.value }
         guard case .ok = listing else {
-            if case .failed = listing { verificationResult = listingResult }
+            // A superseded or invalidated list: the check ends without a verdict.
+            if case .failed = listing { verificationResult = listingResult } else { verificationResult = .idle }
             return
         }
         await runProbe(model: preferences.model, effort: preferences.effort)
         switch probe {
         case .ok: verificationResult = .verified(model: preferences.model)
         case .failed: verificationResult = probeResult
-        default: break
+        default: verificationResult = .idle
+        }
+    }
+
+    /// The failed check is about the key or the model itself (no key, 401/403/404), not a
+    /// passing network, rate-limit or server problem: what the 文本翻译 card warns about.
+    public var verificationRejectsKeyOrModel: Bool {
+        func rejects(_ status: Int?) -> Bool { status.map { [401, 403, 404].contains($0) } ?? false }
+        switch verificationResult {
+        case .noKey: return true
+        case let .httpFailure(status, _): return rejects(status)
+        case let .probed(r, _, _): return !r.accepted && rejects(r.httpStatus)
+        default: return false
         }
     }
 
@@ -262,6 +283,8 @@ public final class TranslationSettingsModel {
         verificationResult = .idle
         listingResult = .idle
         probeResult = .idle
+        candidateResult = .idle
+        probeBeforeCandidate = nil
         picker = ModelFilter.picker([], current: nil)
         listed = []
         hasSavedHint = false
@@ -371,6 +394,9 @@ public final class TranslationSettingsModel {
     /// support it) asks for the yellow-path confirmation instead of switching.
     public func select(model: String) async {
         guard model != preferences.model || probe == .idle else { return }
+        candidateResult = .idle
+        // 实时可用 measures the selected model: a candidate that is not taken leaves it as it was.
+        if model != preferences.model, probeBeforeCandidate == nil { probeBeforeCandidate = probeResult }
         if ModelFilter.known[model]?.supportsEffortNone == false {
             pendingYellow = YellowConfirmation(model: model)
             return
@@ -378,8 +404,11 @@ public final class TranslationSettingsModel {
         let r = await runProbe(model: model, effort: "none")
         if let r, r.accepted {
             update { $0.model = model; $0.effort = "none" }
+            probeBeforeCandidate = nil
         } else if let r, r.needsLowEffort {
             pendingYellow = YellowConfirmation(model: model)
+        } else {
+            rejectCandidate()
         }
     }
 
@@ -388,12 +417,36 @@ public final class TranslationSettingsModel {
         guard let y = pendingYellow else { return }
         pendingYellow = nil
         let r = await runProbe(model: y.model, effort: "low")
-        if let r, r.accepted { update { $0.model = y.model; $0.effort = "low" } }
+        if let r, r.accepted {
+            update { $0.model = y.model; $0.effort = "low" }
+            probeBeforeCandidate = nil
+        } else {
+            rejectCandidate()
+        }
     }
 
-    public func cancelYellow() { pendingYellow = nil }
+    public func cancelYellow() {
+        pendingYellow = nil
+        restoreProbe()
+    }
 
-    public func reprobe() async { await runProbe(model: preferences.model, effort: preferences.effort) }
+    public func reprobe() async {
+        candidateResult = .idle
+        probeBeforeCandidate = nil
+        await runProbe(model: preferences.model, effort: preferences.effort)
+    }
+
+    /// A candidate's own failure (404, 无响应…) is the model row's status, not 实时可用's.
+    private func rejectCandidate() {
+        guard probeBeforeCandidate != nil else { return }   // the selected model itself: 实时可用
+        if case .probed = probeResult { candidateResult = probeResult }
+        restoreProbe()
+    }
+
+    private func restoreProbe() {
+        if let previous = probeBeforeCandidate { probeResult = previous }
+        probeBeforeCandidate = nil
+    }
 
     @discardableResult
     private func runProbe(model: String, effort: String) async -> OpenAIModelCatalog.ProbeResult? {

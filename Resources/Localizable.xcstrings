@@ -2545,22 +2545,6 @@
         }
       }
     },
-    "key 未通过验证": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Key verification failed"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "key 未通过验证"
-          }
-        }
-      }
-    },
     "nav.components.resources": {
       "localizations": {
         "en": {
@@ -16081,6 +16065,22 @@
         }
       }
     },
+    "未保存": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not saved"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未保存"
+          }
+        }
+      }
+    },
     "未决定": {
       "localizations": {
         "en": {
@@ -17437,6 +17437,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "校验安装"
+          }
+        }
+      }
+    },
+    "校验未通过": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check failed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "校验未通过"
           }
         }
       }
@@ -19841,6 +19857,22 @@
         }
       }
     },
+    "磁盘空间不足": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough disk space"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘空间不足"
+          }
+        }
+      }
+    },
     "示例": {
       "localizations": {
         "en": {
@@ -21869,6 +21901,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "自检进行中，原声直通暂不可用"
+          }
+        }
+      }
+    },
+    "自检通过": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Self-test passed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自检通过"
           }
         }
       }
@@ -24925,6 +24973,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "选择组合以修复引擎"
+          }
+        }
+      }
+    },
+    "选择组合以更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a preset to update"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择组合以更新"
           }
         }
       }

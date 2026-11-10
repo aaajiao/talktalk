@@ -108,8 +108,9 @@ struct SettingsNavigationBand: View {
             return .status(.warn, String(appLocalized: "OpenAI key 或额度异常 · 已用 Apple"))
         }
         let warning: String?
-        if case .failed = model.verification {
-            warning = String(appLocalized: "key 未通过验证")
+        if model.verificationRejectsKeyOrModel, let line = model.verification.line {
+            // The key row's own words; a passing network or server failure stays on the page.
+            warning = line.text
         } else {
             switch model.retirement {
             case .fellBackToDefault: warning = String(appLocalized: "所选模型已下线")

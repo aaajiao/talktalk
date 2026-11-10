@@ -202,6 +202,8 @@ public struct TranslationSettingsView: View {
                     StatusGlyph(.busy)
                 } else if let line = model.listing.line, line.status == .failed {
                     StatusLabel(line.text, line.status, help: line.help)
+                } else if let line = model.candidate.line {
+                    StatusLabel(line.text, line.status, help: line.help)
                 } else if waits {
                     StatusGlyph(.waiting)
                         .help(String(appLocalized: "下次开始生效"))
@@ -279,6 +281,8 @@ public struct TranslationSettingsView: View {
                 }
                 if let line = model.probe.line {
                     StatusLabel(line.text, line.status, help: line.help)
+                } else {
+                    StatusLabel(String(appLocalized: "未检查"), .pending)
                 }
                 IconButton(Icon.refresh, help: String(appLocalized: "再测一次"),
                            accessibilityLabel: String(appLocalized: "再测一次实时可用")) { Task { await model.reprobe() } }
