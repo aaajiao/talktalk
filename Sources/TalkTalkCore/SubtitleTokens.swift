@@ -388,6 +388,8 @@ public enum SubtitleTokens {
         public static let unavailable = "xmark.circle"
 
         // 通用 (§7.5): one row each, the menu's glyph where the menu has the same item.
+        /// 界面语言.
+        public static let interfaceLanguage = "globe"
         public static let launchAtLogin = "power"
         /// 会议结束通知 (the menu has no 通知设置…: §8.6).
         public static let notifications = "bell"

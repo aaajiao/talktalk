@@ -431,7 +431,9 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             // Label rows: the system sizes the glyph to the Sidebar icon size setting and tints it
             // in the selected row.
-            List(SettingsSection.allCases, selection: $navigation.selection) { section in
+            // The sidebar always has a page: a deselecting click keeps the current one.
+            List(SettingsSection.allCases, selection: Binding(get: { navigation.selection },
+                                                              set: { if let s = $0 { navigation.selection = s } })) { section in
                 Label(section.navigationTitle, systemImage: section.symbol)
                     .help(section.title)
                     .accessibilityLabel(Text(verbatim: section.title))
@@ -487,7 +489,7 @@ struct SettingsView: View {
             GlossarySettingsView(model: glossary, translation: translation)
         case .privacy:
             DiagnosticsView(model: PrivacySettings.shared, navigation: navigation, state: state,
-                            translation: translation, voice: voice)
+                            translation: translation, voice: voice, driver: driver)
         }
     }
 }

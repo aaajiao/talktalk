@@ -243,7 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let recording: StatusMenuFacts.Recording? = !recorder.recordingTracks.isEmpty
                     ? .recording(tracks: DiagnosticRecorder.Track.allCases.filter(recorder.recordingTracks.contains)
                                     .map(\.label).joined(separator: " · "))
-                    : recorder.micAndTTSArmed ? .planned(thisSession: recorder.meetingRunning) : nil
+                    : recorder.micAndTTSArmed ? .planned(thisSession: recorder.micAndTTSThisSession) : nil
                 return (recording, analysis.isRecording || analysis.isStarting)
             }))
         statusItem = status
