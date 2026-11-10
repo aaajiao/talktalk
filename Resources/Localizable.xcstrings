@@ -1153,18 +1153,18 @@
         }
       }
     },
-    "Apple 本地翻译": {
+    "Apple 翻译": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple on-device translation"
+            "value": "Apple Translation"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple 本地翻译"
+            "value": "Apple 翻译"
           }
         }
       }
@@ -1713,6 +1713,22 @@
         }
       }
     },
+    "Phone 在用实体麦": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone using physical mic"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone 在用实体麦"
+          }
+        }
+      }
+    },
     "Phone 尚未使用 TalkTalk Mic": {
       "localizations": {
         "en": {
@@ -1869,6 +1885,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Phone 正在使用实体麦克风"
+          }
+        }
+      }
+    },
+    "Phone 没有使用 TalkTalk Mic": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone is not using TalkTalk Mic"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone 没有使用 TalkTalk Mic"
           }
         }
       }
@@ -5921,6 +5953,22 @@
         }
       }
     },
+    "再点按一次完成发言；译音播完后回到原声，同传继续。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap again to finish speaking. Original audio returns after translated speech finishes playing; interpretation continues."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再点按一次完成发言；译音播完后回到原声，同传继续。"
+          }
+        }
+      }
+    },
     "再点按右⌥完成发言": {
       "localizations": {
         "en": {
@@ -5953,18 +6001,18 @@
         }
       }
     },
-    "再点按右⌥结束；译音播完后回到原声": {
+    "再点按右⌥完成发言；译音播完后回到原声": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap right ⌥ again to finish; original audio returns after translated speech finishes playing"
+            "value": "Tap right ⌥ again to finish speaking; original audio returns after translated speech finishes playing"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "再点按右⌥结束；译音播完后回到原声"
+            "value": "再点按右⌥完成发言；译音播完后回到原声"
           }
         }
       }
@@ -7281,18 +7329,18 @@
         }
       }
     },
-    "原文：%@ → 译文：%@": {
+    "原文：%@ → 字幕：%@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Original: %@ → Translation: %@"
+            "value": "Original: %@ → Subtitles: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "原文：%@ → 译文：%@"
+            "value": "原文：%@ → 字幕：%@"
           }
         }
       }
@@ -10621,6 +10669,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "对方说"
+          }
+        }
+      }
+    },
+    "对方说：%@ → 字幕：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Others speak: %@ → Subtitles: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对方说：%@ → 字幕：%@"
           }
         }
       }
@@ -14353,18 +14417,18 @@
         }
       }
     },
-    "按选定语言识别；说完再点按右⌥结束": {
+    "按选定语言识别；说完再点按右⌥完成发言": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recognize the selected language; tap right ⌥ again when you finish speaking"
+            "value": "Recognize the selected language; tap right ⌥ again to finish speaking"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按选定语言识别；说完再点按右⌥结束"
+            "value": "按选定语言识别；说完再点按右⌥完成发言"
           }
         }
       }
@@ -18977,18 +19041,18 @@
         }
       }
     },
-    "点按右⌥开始，说完再点按结束，等待译音": {
+    "点按右⌥开始，说完再点按完成发言，等待译音": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap right ⌥ to start, tap again when finished, then wait for the translation"
+            "value": "Tap right ⌥ to start, tap again to finish speaking, then wait for the translation"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "点按右⌥开始，说完再点按结束，等待译音"
+            "value": "点按右⌥开始，说完再点按完成发言，等待译音"
           }
         }
       }
@@ -21201,18 +21265,18 @@
         }
       }
     },
-    "翻译收音中，再按右⌥结束。": {
+    "翻译收音中，再点按右⌥完成发言。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Capturing for translation. Press right ⌥ again to finish."
+            "value": "Capturing for translation. Tap right ⌥ again to finish speaking."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "翻译收音中，再按右⌥结束。"
+            "value": "翻译收音中，再点按右⌥完成发言。"
           }
         }
       }
@@ -21741,6 +21805,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "自检没有跑完，上次的结果保留。%@"
+          }
+        }
+      }
+    },
+    "自检进行中，原声暂不可用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Self-test running; original audio temporarily unavailable"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自检进行中，原声暂不可用"
           }
         }
       }
@@ -23841,18 +23921,18 @@
         }
       }
     },
-    "请开启自动接入系统输入，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。": {
+    "请开启“同传时设为系统默认输入”，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enable automatic system input switching, or choose TalkTalk Mic under Audio › Microphone in Phone."
+            "value": "Turn on “Set as system default input during interpretation”, or choose TalkTalk Mic under Audio › Microphone in Phone."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请开启自动接入系统输入，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。"
+            "value": "请开启“同传时设为系统默认输入”，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。"
           }
         }
       }

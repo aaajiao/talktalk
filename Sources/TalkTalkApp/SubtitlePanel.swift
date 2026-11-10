@@ -496,7 +496,10 @@ final class SubtitlePanel {
         remoteLanguageTitle = listening.source.title
         translationLanguageTitle = listening.target.title
         languageTitle = String(appLocalized: "\(listening.source.title) → \(listening.target.title)")
-        let listen = String(appLocalized: "原文：\(listening.source.title) → 译文：\(listening.target.title)")
+        // The language popover's own words: 对方说/原文 → 字幕.
+        let listen = speaking == nil
+            ? String(appLocalized: "原文：\(listening.source.title) → 字幕：\(listening.target.title)")
+            : String(appLocalized: "对方说：\(listening.source.title) → 字幕：\(listening.target.title)")
         languageDetail = speaking.map {
             listen + "\n" + String(appLocalized: "我说：\($0.source.title) → 译音：\($0.target.title)")
         } ?? listen

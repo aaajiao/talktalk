@@ -466,7 +466,7 @@ final class MeetingController {
         // leftover notice never shows as a strip while starting.
         if mode == .phone {
             state.phoneProblem = nil; phoneReadinessDetail = nil
-            state.phoneReadyToDial = false; state.phoneAudioActive = false
+            state.phoneReadyToDial = false; state.phoneAudioActive = false; state.phoneReadyThisSession = false
             refreshPhoneContext()
             await captionsEngineCleanup?.value
             startEngineEarly(for: mode)

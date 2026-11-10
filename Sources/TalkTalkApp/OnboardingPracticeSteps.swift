@@ -188,7 +188,7 @@ struct TryItStep: View {
             return SettingsProblem(.busy, String(appLocalized: "准备中…"), help: String(appLocalized: "正在准备麦克风和耳机播放"))
         case .listening:
             return model.speakDemoStatus.map { SettingsProblem(.waiting, sentence: $0) }
-                ?? SettingsProblem(.ok, String(appLocalized: "就绪"), help: String(appLocalized: "点按右⌥开始，说完再点按结束，等待译音"))
+                ?? SettingsProblem(.ok, String(appLocalized: "就绪"), help: String(appLocalized: "点按右⌥开始，说完再点按完成发言，等待译音"))
         case .played:
             return SettingsProblem(.ok, String(appLocalized: "已播放译音"))
         case .failed(let reason):
@@ -339,7 +339,7 @@ extension FlowGrid {
                                        Text(verbatim: appState.speakSourceLanguage.title).font(.caption2).foregroundStyle(.secondary)
                                        Keycap(key: TitlebarKey(action: String(appLocalized: "开始翻译"), style: .idle), showsAction: false)
                                    }
-                               }, help: String(appLocalized: "按选定语言识别；说完再点按右⌥结束"))),
+                               }, help: String(appLocalized: "按选定语言识别；说完再点按右⌥完成发言"))),
                 .node(FlowNode(String(appLocalized: "翻译与合成"), glyph: .symbol(Icon.translation),
                                help: String(appLocalized: "原文和译文显示在“我的发言”区"))),
                 .node(FlowNode(String(appLocalized: "耳机听译音"), glyph: .symbol(Icon.headphones),

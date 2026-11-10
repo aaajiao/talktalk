@@ -284,7 +284,7 @@ public enum StatusMenu {
             rows.append(voiceRow(voice))
         }
         if f.mode == .phone, f.phase == .running {
-            if let voice = f.voice, let delivery = PhoneDelivery(voice.kind) {
+            if let voice = f.voice, let delivery = PhoneDelivery(voice.kind, phoneInputConfirmed: f.micCheck == nil) {
                 rows.append(deliveryRow(delivery, help: f.phoneStatus))
             }
             rows.append(StatusMenuRow(.action(.openPhone), String(appLocalized: "打开 Phone"),

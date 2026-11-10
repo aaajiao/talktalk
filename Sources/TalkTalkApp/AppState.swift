@@ -319,9 +319,16 @@ final class AppState {
     }
     var phoneStatus: String?
     var phoneProblem: String?
+    /// Feed is ready but Phone cannot read TalkTalk Mic yet (SpeakController): the actionable sentence.
+    var phoneInputHint: String?
     var phoneReadyToDial = false {
-        didSet { if phoneReadyToDial, !phonePreparedOnce { phonePreparedOnce = true } }
+        didSet {
+            if phoneReadyToDial, !phonePreparedOnce { phonePreparedOnce = true }
+            if phoneReadyToDial, !phoneReadyThisSession { phoneReadyThisSession = true }
+        }
     }
+    /// This phone session has been ready to dial; reset when the next preparation starts.
+    var phoneReadyThisSession = false
     /// A phone session has been ready to dial once (`ui.phonePreparedOnce`): 首次连接 is then
     /// collapsed by default (§7.2).
     private(set) var phonePreparedOnce: Bool {

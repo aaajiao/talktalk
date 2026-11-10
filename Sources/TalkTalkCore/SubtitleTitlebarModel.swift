@@ -94,7 +94,8 @@ public struct VoiceState: Sendable, Equatable {
     public var kind: Kind
     public var appearance: Appearance
     public var title: String
-    /// Narrowest titlebar: 原声 / 译音 / 本机 / 收听; the risk keeps "对方听到原声".
+    /// Narrowest titlebar: 原声 / 译音 / 本机 / 收听; 恢复中, 未发送 and 不可用 keep their own words
+    /// (never read as a local mode); the risk keeps "对方听到原声".
     public var compactTitle: String
     public var symbol: String
     /// One sentence for the details popover's top row.
@@ -117,11 +118,13 @@ public struct VoiceState: Sendable, Equatable {
     public var isStatusGlyph: Bool { kind == .listening }
 
     /// Mode family used to announce only real speaking-mode changes, not processing/playback
-    /// toggles inside one translated turn.
+    /// toggles inside one translated turn. The unannounced 松开确认 has its own family, so the
+    /// latched mode after it is still announced.
     public var announcementGroup: Int {
         switch kind {
         case .original: 0
-        case .translating, .processing, .playingTranslation, .switching, .localPlayback: 1
+        case .translating, .processing, .playingTranslation, .localPlayback: 1
+        case .switching: 8
         case .restoring: 2
         case .notSent, .phoneNotConnected, .phoneLocalTrial, .phoneLocalOnly: 3
         case .phoneReconnecting: 4
@@ -214,7 +217,7 @@ public struct VoiceState: Sendable, Equatable {
             short = String(appLocalized: "正在恢复原声")
             announcement = String(appLocalized: "正在恢复原声")
         case .notSent:
-            title = titlebarLabel("未发送"); compact = titlebarLabel("本机"); symbol = icon.localOnly
+            title = titlebarLabel("未发送"); compact = titlebarLabel("未发送"); symbol = icon.localOnly
             appearance = .dashed
             consequence = String(appLocalized: "现在什么都没有发出去")
             short = String(appLocalized: "对方听不到你")
@@ -259,7 +262,7 @@ public struct VoiceState: Sendable, Equatable {
             short = String(appLocalized: "按键翻译已停用")
             announcement = String(appLocalized: "对方能听到原声")
         case .unavailable:
-            title = titlebarLabel("音频不可用"); compact = titlebarLabel("本机"); symbol = icon.originalOff
+            title = titlebarLabel("音频不可用"); compact = titlebarLabel("不可用"); symbol = icon.originalOff
             appearance = .warnFill
             consequence = String(appLocalized: "现在什么都没有发出去")
             short = String(appLocalized: "未发送")
