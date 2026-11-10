@@ -1,4 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
+import AppKit
 import SwiftUI
 import TalkTalkAudio
 import TalkTalkCloudUI
@@ -90,6 +91,12 @@ struct ScenarioFacts {
         return Self.name(sourceID, in: state.availableSources)
     }
 
+    /// The chosen app runs, though it has no audio process now (`availableSources` lists audio
+    /// processes only).
+    var missingSourceRunning: Bool {
+        missingSource != nil && !NSRunningApplication.runningApplications(withBundleIdentifier: sourceID).isEmpty
+    }
+
     /// The app this scene listens to: the chosen one, else the running session's own; nil while
     /// automatic selection has not picked one.
     var sourceApp: (id: String, name: String)? {
@@ -111,8 +118,10 @@ struct ScenarioFacts {
                                           help: mode == .phone ? String(appLocalized: "Phone 麦克风选“使用系统设置”")
                                               : String(appLocalized: "在 \(app) 的音频设置里选 TalkTalk Mic")) : nil
         let noMic = noMicrophone ? SettingsProblem(.failed, String(appLocalized: "无可用麦克风")) : nil
+        // The chosen app is running but has no audio process object yet: not "未打开".
         let missing = missingSource.map {
-            SettingsProblem(.warn, String(appLocalized: "\($0) 未打开"), help: String(appLocalized: "不会自动换用其他来源"))
+            SettingsProblem(.warn, missingSourceRunning ? String(appLocalized: "所选应用当前没有声音") : String(appLocalized: "\($0) 未打开"),
+                            help: String(appLocalized: "不会自动换用其他来源"))
         }
         switch mode {
         case .meeting:
@@ -165,7 +174,8 @@ extension EngineComponentsModel {
                 ? SettingsProblem(.warn, String(appLocalized: "已转 Apple 备用")) : nil,
             qwenRequired && record?.roles["asr"] == nil && !appleProfile
                 ? SettingsProblem(.pending, String(appLocalized: "识别模型未安装")) : nil,
-            qwenRequired && appleProfile && !installed ? problem : nil
+            // An asr role that cannot start (missing files, runtime to update, damaged record).
+            qwenRequired && record?.roles["asr"] != nil && !installed ? problem : nil
         ])
     }
 
@@ -238,7 +248,7 @@ extension FlowGrid {
     static func phone(_ facts: ScenarioFacts, driver: DriverComponentsPage, links: ScenarioLinks) -> FlowGrid {
         let remote = FlowNode(String(appLocalized: "对方"), glyph: .symbol(SubtitleTokens.ConversationIcon.phoneRemote),
                               accessory: .controls {
-                                  SceneLanguageChip(state: facts.state, mode: facts.mode, role: .listenSource)
+                                  SceneLanguageChip(state: facts.state, mode: facts.mode, role: .listenSource, compact: true)
                               })
         return FlowGrid(String(appLocalized: "电话同传声音路径"), lanes: [
             listenLane(facts, remote: remote, links: links),
@@ -354,7 +364,7 @@ extension FlowGrid {
         let targetControl: NodeAccessory = links == nil ? .display {
             Text(verbatim: state.speakLanguages(for: facts.mode).target.title).font(.caption2).foregroundStyle(.secondary)
         } : .controls {
-            SceneLanguageChip(state: state, mode: facts.mode, role: .speakTarget)
+            SceneLanguageChip(state: state, mode: facts.mode, role: .speakTarget, compact: true)
         }
         return FlowLane(String(appLocalized: "我说话 · 译音"), gutter: .voice(translating), cells: [
             .node(FlowNode(String(appLocalized: "我说"), glyph: .symbol(Icon.me),
@@ -398,7 +408,7 @@ extension FlowGrid {
         let app = facts.sourceApp
         let check = facts.micCheck
         let badge: (SettingsStatus, String) = switch check {
-        case .notChecked: (.pending, String(appLocalized: "会议麦克风待确认"))
+        case .notChecked: (.pending, facts.running ? String(appLocalized: "会议麦克风待确认") : String(appLocalized: "未检查"))
         case .green: (.ok, check.text)
         case let .physicalMic(app, _): (.risk, String(appLocalized: "\(app) 正在使用实体麦克风"))
         case .nobodyReads: (.warn, String(appLocalized: "会议尚未使用 TalkTalk Mic"))
@@ -457,10 +467,22 @@ private struct SourceChip: View {
                                   isEnabled: state.onRefreshSources != nil) {
             state.onRefreshSources?()
         })
-        // "自动 ▾" is its word alone; a chosen app shows its icon and (truncated) name.
+        // "自动 ▾" is its word alone; a chosen app with an icon shows the icon alone, as the
+        // chip shares its node with the language chip (the name stays in help and VoiceOver).
         return NodeChip(title, leading: selected.isEmpty ? .none : .app(bundleID: selected),
-                        warn: missing != nil, locked: locked, accessibilityLabel: String(appLocalized: "声音来源"),
-                        help: locked ? String(appLocalized: "\(title) · 会话中不可更换") : title, items: items)
+                        warn: missing != nil, locked: locked, iconOnly: !selected.isEmpty && AppIcon.image(selected) != nil,
+                        accessibilityLabel: String(appLocalized: "声音来源"),
+                        help: help(locked: locked, title: title, selected: selected), items: items)
+    }
+
+    /// Locked: another scene's session says which to end; this scene's own also names the app an
+    /// automatic source listens to.
+    private func help(locked: Bool, title: String, selected: String) -> String {
+        guard locked else { return title }
+        if facts.anotherRunning { return String(appLocalized: "先结束\(facts.state.meetingMode.scene.title)") }
+        let app = selected.isEmpty && facts.running ? facts.sourceApp?.name : nil
+        let head = ([title] + [app].compactMap { $0 }).joined(separator: " · ")
+        return String(appLocalized: "\(head) · 会话中不可更换")
     }
 
     private func select(_ id: String) {

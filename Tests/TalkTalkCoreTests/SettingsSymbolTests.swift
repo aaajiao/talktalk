@@ -23,7 +23,7 @@ import TalkTalkCore
         let actions = [S.refresh, S.reset, S.add, S.remove, S.close, S.copy, S.finder, S.delete, S.cancel, S.more,
                        S.flowArrow, S.back]
         let flow = [S.link, S.loopBack, S.unknownApp, S.browserTabs, S.noMicrophone, S.iPhone, S.sameAccount,
-                    S.sameNetwork, S.handoff, S.subtitlesHidden, S.start, S.stop, S.dial, S.callContinues]
+                    S.sameNetwork, S.handoff, S.languageSwap, S.subtitlesHidden, S.start, S.stop, S.dial, S.callContinues]
         // StepTrack draws the numbered circles of the system set.
         let steps = (1...3).map { "\($0).circle" }
         let status = [S.statusWarn, S.statusFailed, S.statusOK, S.statusPending, S.statusWaiting,

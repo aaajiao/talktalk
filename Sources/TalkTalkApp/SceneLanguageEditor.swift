@@ -42,7 +42,10 @@ struct SceneLanguageEditor: View {
     }
 
     private var arrow: some View {
-        Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary).accessibilityHidden(true)
+        Image(systemName: SubtitleTokens.SettingsIcon.flowArrow)
+            .font(.system(size: SubtitleTokens.SettingsIcon.Size.badge))
+            .foregroundStyle(.tertiary)
+            .accessibilityHidden(true)
     }
 }
 
@@ -53,6 +56,8 @@ struct SceneLanguageChip: View {
     @Bindable var state: AppState
     let mode: MeetingMode
     let role: Role
+    /// A flow node's chip: the short code ("中", "EN", "DE"); menu items, help and VoiceOver keep
+    /// the language's name.
     var compact = false
 
     private var current: Lang {
@@ -84,7 +89,7 @@ struct SceneLanguageChip: View {
 
     var body: some View {
         NodeChip(compact ? current.shortCode : current.title, width: compact ? 34 : nil,
-                 accessibilityLabel: label, help: String(appLocalized: "\(label)：\(current.title)"),
+                 accessibilityLabel: label, accessibilityValue: current.title, help: String(appLocalized: "\(label)：\(current.title)"),
                  items: choices.map { language in
                      NodeChipItem(language.title, isOn: current == language) { select(language) }
                  })
@@ -109,14 +114,8 @@ struct SceneLanguageSwapButton: View {
     let mode: MeetingMode
 
     var body: some View {
-        Button { state.setListenLanguages(state.listenLanguages(for: mode).swapped, for: mode) } label: {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.caption2)
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
+        IconButton(SubtitleTokens.SettingsIcon.languageSwap, help: String(appLocalized: "交换原文与译文语言")) {
+            state.setListenLanguages(state.listenLanguages(for: mode).swapped, for: mode)
         }
-        .buttonStyle(.plain)
-        .help(String(appLocalized: "交换原文与译文语言"))
-        .accessibilityLabel(String(appLocalized: "交换原文与译文语言"))
     }
 }
