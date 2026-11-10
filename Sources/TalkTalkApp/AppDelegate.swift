@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hud.refreshAppLanguage()
         conversationPanel.refreshAppLanguage()
         statusItem?.refreshAppLanguage()
+        updateIcon()   // a failure's status word is a localized menu line
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -206,7 +207,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSettings: { [weak self] section in self?.settings?.show(section) },
             openSettingsAt: { [weak self] section, subpage, anchor in self?.settings?.show(section, subpage, anchor: anchor) },
             toggleMeeting: { [weak meeting] in meeting?.toggle() },
-            endSession: { [weak meeting] in meeting?.toggle() },
+            // As the titlebar's 结束: only a running session ends; a menu left open after the
+            // session ended by itself never starts a new one.
+            endSession: { [weak meeting, weak state] in
+                if let state, state.meetingActive { meeting?.toggle(mode: state.meetingMode) }
+            },
             quit: { NSApp.terminate(nil) },
             stillInMeeting: { [weak meeting] in meeting?.stillInMeeting() },
             // 继续使用引导 opens onboarding at its saved step (§8.2).
@@ -276,6 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engineHost.onChange = { [weak self] in self?.engineChanged() }
         engineChanged()
         followInstallation()
+        followIconFacts()
 
         systemInput?.start()
         speak?.prepareLaunchTakeover()
@@ -327,6 +333,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 || settings?.driver.model?.selfTestRunning == true
                 || AppUIModels.shared.engine.blocked
         }
+        // 组件未就绪 and the system voice follow the engine at once, not the next session.
+        updateIcon()
+    }
+
+    /// The icon's facts that change without a callback of their own: preparing and ending, the
+    /// recognition fallback or failure, how the last session ended, engine maintenance and the
+    /// onboarding path (§11, settings visual system §8.5).
+    private func followIconFacts() {
+        withObservationTracking {
+            _ = (state.meetingStarting, state.meetingStopping, state.listenASRFallback, state.listenASRFailure,
+                 state.lastEndProblem, state.lastEndAutomatic, engineHost.maintenanceActive, onboarding?.model.steps)
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.updateIcon()
+                self?.followIconFacts()
+            }
+        }
     }
 
     private func followInstallation() {
@@ -359,6 +382,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let speakerMode = systemInput?.route.state.speakerMode
         let systemVoice = state.voiceProfilePresent && engineHost.routing.source == .systemVoice
         let speakDegraded = (speak?.degraded ?? false) && meeting?.cloud.box.speak != nil
+        // Engine maintenance drops the instance on purpose; a path without the engine step (视频
+        // only, which runs on Apple recognition) never installed one.
+        let enginePath = onboarding?.model.steps.contains(.engine) ?? true
+        let componentsMissing = engineHost.engine() == nil && !engineHost.maintenanceActive && enginePath
+        let asrFailed = state.listenASRFailure != nil
+        let lastEndFailed = state.lastEndProblem != nil
         let icon = MenuBarIcon.compute(meetingActive: state.meetingActive,
                                        systemInput: systemInput?.switcher.status ?? .idle,
                                        translationDegraded: state.listenTranslationDegraded && state.listenTranslation != .appleOnly,
@@ -366,19 +395,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                        mode: state.meetingMode,
                                        phonePrepared: state.phoneReadyToDial,
                                        talkTalkMicReadWhileInactive: readWhileInactive,
-                                       componentsMissing: engineHost.engine() == nil,
+                                       componentsMissing: componentsMissing,
                                        listenReady: meeting?.session?.listenLanguage != nil,
-                                       warming: speak?.warming ?? false,
+                                       // 正在准备… / 正在结束… in the menu: hourglass here too.
+                                       warming: (speak?.warming ?? false) || state.meetingStarting || state.meetingStopping,
                                        speaking: speak?.speaking ?? false,
                                        passthroughOpen: speak?.passthroughOpen ?? false,
                                        speakerMode: speakerMode,
                                        systemVoice: systemVoice,
-                                       speakTranslationDegraded: speakDegraded)
+                                       speakTranslationDegraded: speakDegraded,
+                                       asrFallback: state.listenASRFallback,
+                                       asrFailed: asrFailed,
+                                       lastEndFailed: lastEndFailed)
         let reasons = MenuBarIcon.reasons(meetingActive: state.meetingActive, micGuard: micGuard, mode: state.meetingMode,
                                           phonePrepared: state.phoneReadyToDial, talkTalkMicReadWhileInactive: readWhileInactive,
                                           speakerMode: speakerMode, systemVoice: systemVoice,
                                           speakTranslationDegraded: speakDegraded)
-        statusItem?.setIcon(icon, reasons: reasons)
+        statusItem?.setIcon(icon, reasons: reasons,
+                            words: MenuBarIcon.failureText(icon, meetingActive: state.meetingActive, mode: state.meetingMode,
+                                                           asrFailed: asrFailed, lastEndFailed: lastEndFailed))
     }
 
     /// A second launch or a Dock click restores a minimized subtitle window first; otherwise

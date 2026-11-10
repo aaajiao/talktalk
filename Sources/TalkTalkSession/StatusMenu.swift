@@ -26,6 +26,8 @@ public enum StatusMenuDestination: Sendable, Equatable {
     case translation
     /// 安装与维护 › 语音资源 › 引擎.
     case components
+    /// 安装与维护 › TalkTalk Mic: the virtual microphone's driver.
+    case driver
     /// 通用 › 使用引导… (§8.2: it lives there once onboarding is done), which re-runs the
     /// Apple speech download.
     case onboarding
@@ -157,6 +159,11 @@ public struct StatusMenuFacts: Sendable, Equatable {
     public var meetingHintKind: MeetingSession.Hint?
     /// The last session ended on a failure.
     public var lastEndProblem: MeetingMode?
+    /// The last session ended by itself: long silence, or no audio when the Mac woke or unlocked.
+    public var lastEndAutomatic: MeetingMode?
+    /// TalkTalk Mic's driver is not loaded while a speaking session runs: its lines lead to
+    /// 安装与维护 instead of 音频.
+    public var driverMissing = false
     /// Apple speech or translation resources are missing (§7.5 item 6).
     public var appleCheck: String?
     /// The default-input notice when it needs the user (SystemInputController.menuNotice).
@@ -446,6 +453,21 @@ public enum StatusMenu {
         StatusMenuRow(.action(.open(.components)), String(appLocalized: "安装与维护…"), symbol: SubtitleTokens.SettingsIcon.Page.components)
     }
 
+    /// 安装与维护 › TalkTalk Mic, for a speaking session whose driver is not loaded.
+    private static var driverSettings: StatusMenuRow {
+        StatusMenuRow(.action(.open(.driver)), String(appLocalized: "安装与维护…"), symbol: SubtitleTokens.SettingsIcon.Page.components)
+    }
+
+    /// 字幕翻译's fallback in one sentence, by its reason (the line already says Apple 备用).
+    private static func translationFallbackHelp(_ translation: ListenTranslation, offline: Bool) -> String {
+        if case let .appleFallback(reason) = translation, !offline, reason != "offline" {
+            if reason.hasPrefix("paused") { return String(appLocalized: "OpenAI key 无效或额度用完，已改用 Apple 翻译") }
+            if reason == "deadline" { return String(appLocalized: "OpenAI 超时，这句改用 Apple 翻译") }
+            return String(appLocalized: "OpenAI 暂不可用，改用 Apple 翻译")
+        }
+        return String(appLocalized: "离线，改用 Apple 翻译")
+    }
+
     /// The line of an icon fact that has none of its own (§8.1), with its sentence and fix.
     private static func issue(_ reason: MenuBarIcon.Reason) -> Issue {
         typealias Icon = SubtitleTokens.SettingsIcon
@@ -474,7 +496,9 @@ public enum StatusMenu {
     private static func issues(_ f: StatusMenuFacts) -> [StatusMenuRow] {
         typealias Icon = SubtitleTokens.SettingsIcon
         var list: [Issue] = []
-        var micLine = false, inputLine = false, fallbackLine = false
+        var micLine = false, inputLine = false, fallbackLine = false, failureLine = false
+        // A speaking session without TalkTalk Mic's driver: its lines lead to the driver.
+        let driverMissing = f.driverMissing && f.inSession && f.mode.supportsSpeaking
 
         // The meeting or Phone check: the risk keeps its safety words (§1.3), the rest the check's own.
         if f.inSession, f.mode.supportsSpeaking, let check = f.micCheck {
@@ -488,7 +512,7 @@ public enum StatusMenu {
             let help = risk ? [check.text, check.help ?? f.voice?.detail].compactMap { $0 }.joined(separator: "\n")
                             : check.help
             list.append(Issue(check.tone, risk ? String(appLocalized: "对方能听到原声") : check.text, symbol: symbol, help: help,
-                              fixes: [checkMicrophone]))
+                              fixes: [driverMissing ? driverSettings : checkMicrophone]))
         }
 
         // The system default input (§8.6): TalkTalk Mic's glyph in the notice's colour.
@@ -507,7 +531,8 @@ public enum StatusMenu {
         }
         if let notice = f.systemInput {
             inputLine = true
-            inputFixes.append(StatusMenuRow(.action(.open(.talkTalkMic)), String(appLocalized: "查看音频设置…"), symbol: Icon.Page.audio))
+            inputFixes.append(driverMissing ? driverSettings
+                : StatusMenuRow(.action(.open(.talkTalkMic)), String(appLocalized: "查看音频设置…"), symbol: Icon.Page.audio))
             list.append(Issue(notice.tone, notice.text, symbol: Icon.talkTalkMic, help: notice.help, fixes: inputFixes))
         }
 
@@ -524,6 +549,7 @@ public enum StatusMenu {
         }
 
         if f.inSession, let failure = f.asrFailure {
+            failureLine = true
             list.append(Issue(.failed, String(appLocalized: "字幕识别出错"), symbol: SubtitleTokens.MenuIcon.degraded,
                               help: failure, fixes: [models(.recognition)]))
         }
@@ -535,16 +561,31 @@ public enum StatusMenu {
         if f.inSession, let translation = f.translation, translation != .appleOnly, translation != .openAI || f.offline {
             fallbackLine = true
             list.append(Issue(.warn, String(appLocalized: "字幕翻译：Apple 备用"), symbol: SubtitleTokens.MenuIcon.degraded,
-                              help: translation.menuText(offline: f.offline), fixes: [models(.translation)]))
+                              help: translationFallbackHelp(translation, offline: f.offline), fixes: [models(.translation)]))
         }
 
         if f.phase == .idle, let mode = f.lastEndProblem {
+            failureLine = true
             list.append(Issue(.warn, String(appLocalized: "\(mode.scene.title)因错误已结束"), symbol: SubtitleTokens.MenuIcon.degraded,
                               help: String(appLocalized: "字幕识别或发言链路出错，已自动结束。可重新开始。"),
                               fixes: [StatusMenuRow(.action(.openScene(mode)), sceneRowTitle(mode), symbol: mode.sceneSymbol)]))
+        } else if f.phase == .idle, let mode = f.lastEndAutomatic {
+            // Ending by itself is no error: a neutral line, with the same fix.
+            list.append(Issue(nil, String(appLocalized: "\(mode.scene.title)已自动结束"), symbol: mode.sceneSymbol,
+                              help: String(appLocalized: "长时间没有声音，或解锁、唤醒时应用没有声音"),
+                              fixes: [StatusMenuRow(.action(.openScene(mode)), sceneRowTitle(mode), symbol: mode.sceneSymbol)]))
         }
 
-        // A listening hint keeps its titlebar chip's glyph and colour (one glyph per meaning).
+        // 视频字幕's only output is its subtitles: hidden, nothing shows (the scene bar's words).
+        if f.inSession, f.mode == .captions, !f.subtitlesVisible {
+            list.append(Issue(.warn, String(appLocalized: "字幕已隐藏"), symbol: Icon.subtitlesHidden,
+                              help: String(appLocalized: "所有场景的字幕窗口都已隐藏"),
+                              fixes: [StatusMenuRow(.action(.toggleSubtitles), String(appLocalized: "显示字幕"),
+                                                    symbol: SubtitleTokens.MenuIcon.subtitles)]))
+        }
+
+        // A listening hint keeps its titlebar chip's words, glyph and colour (one glyph per meaning),
+        // with the chip's sentence in the tooltip.
         if let hint = f.meetingHint {
             let warning = f.meetingHintKind?.warning
             let chip = warning?.chip(scene: f.mode.scene)
@@ -554,9 +595,15 @@ public enum StatusMenu {
             default: nil
             }
             let keepsListening = f.meetingHintKind == .meetingSeemsOver || (f.mode == .phone && f.phase == .running)
-            list.append(Issue(tone, hint, symbol: chip?.symbol ?? warning?.symbol, help: chip?.detail,
-                              fixes: keepsListening ? [StatusMenuRow(.action(.stillInMeeting), String(appLocalized: "继续收听"),
-                                                                     symbol: SubtitleTokens.VoiceIcon.listening)] : []))
+            var fixes: [StatusMenuRow] = keepsListening
+                ? [StatusMenuRow(.action(.stillInMeeting), String(appLocalized: "继续收听"), symbol: SubtitleTokens.VoiceIcon.listening)] : []
+            // The chip's 权限设置… in the subtitle window's details, also here (视频 may show no window).
+            if f.meetingHintKind == .tccUnconfirmed {
+                fixes.append(StatusMenuRow(.action(.continueOnboarding), String(appLocalized: "权限设置…"),
+                                           symbol: SubtitleTokens.MenuIcon.onboarding))
+            }
+            list.append(Issue(tone, chip?.label ?? hint, symbol: chip?.symbol ?? warning?.symbol, help: chip?.detail ?? hint,
+                              fixes: fixes))
         }
 
         if f.phase == .running, f.mode != .phone, (f.meetingApp ?? "").isEmpty, !f.usesGlobalFallback {
@@ -575,7 +622,7 @@ public enum StatusMenu {
         case .warming: f.phase == .starting || f.phase == .stopping
         case .speaking, .passthroughOpen: f.inSession && f.voice != nil
         case .audioNeedsCheck: micLine
-        case .degraded: fallbackLine || inputLine || voiceReason
+        case .degraded: fallbackLine || failureLine || inputLine || voiceReason
         case .needsAttention: inputLine || f.iconReasons.contains(.talkTalkMicReadWhileIdle)
         case .remoteHearsOriginal: micRisk(f)
         }
@@ -592,6 +639,7 @@ public enum StatusMenu {
             case .audioNeedsCheck: String(appLocalized: "尚未确认会议应用在用 TalkTalk Mic")
             case .needsAttention: String(appLocalized: "音频设备需要处理")
             case .degraded: String(appLocalized: "部分功能正在用备用方案")
+            case .warming: String(appLocalized: "正在准备音频")
             default: nil
             }
             let fixes = [.remoteHearsOriginal, .audioNeedsCheck, .needsAttention].contains(f.icon) ? [checkMicrophone] : []

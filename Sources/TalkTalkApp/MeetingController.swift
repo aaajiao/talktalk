@@ -107,6 +107,7 @@ final class MeetingController {
             case .resumed: self?.privacy?.recorder.meetingResumed()
             case .ended(let reason):
                 self?.state.lastEndProblem = reason == .failed ? self?.state.meetingMode : nil
+                self?.state.lastEndAutomatic = reason == .autoEnd || reason == .afterSleep ? self?.state.meetingMode : nil
                 self?.releaseCaptionsEngine()
                 self?.hud?.meetingEnded()
                 self?.privacy?.recorder.meetingEnded(reason.rawValue)
@@ -451,6 +452,7 @@ final class MeetingController {
         state.requestedScenario = mode
         state.meetingStarting = true
         state.lastEndProblem = nil
+        state.lastEndAutomatic = nil
         defer {
             state.meetingStarting = false
             // A failed or abandoned start leaves no window behind (idempotent).

@@ -275,7 +275,31 @@ struct AudioFacts {
             ? SettingsProblem(.warn, String(appLocalized: "正在外放 · 耳机译音已停用"),
                               help: String(appLocalized: "停用耳机译音与原声通路，避免回声"))
             : nil
-        return SettingsProblem.mostSevere([meeting, micProblem, speaker])
+        return SettingsProblem.mostSevere([meeting, micProblem, speaker] + menuLines)
+    }
+
+    /// The menu's problem lines whose fix lands on this page (§8.5), in the menu's words: the
+    /// default input, an app reading TalkTalk Mic while idle, and playback not yet confirmed.
+    private var menuLines: [SettingsProblem?] {
+        let input: SettingsProblem? = state.systemInputNotice.flatMap { line in
+            let status: SettingsStatus? = switch line.style {
+            case .red, .redBanner: .failed
+            case .yellow: .warn
+            case .secondary: .pending
+            case .normal, .check: nil
+            }
+            return status.map { SettingsProblem($0, line.text, help: line.detail) }
+        }
+        let reasons = MenuBarIcon.reasons(meetingActive: state.meetingActive, micGuard: driver.systemInput?.micGuard.state ?? .init(),
+                                          mode: state.meetingMode, phonePrepared: state.phoneReadyToDial,
+                                          talkTalkMicReadWhileInactive: driver.systemInput?.micReadWhileInactive ?? false,
+                                          speakerMode: model.speakerMode)
+        let reader = reasons.contains(.talkTalkMicReadWhileIdle)
+            ? SettingsProblem(.failed, String(appLocalized: "有应用在读 TalkTalk Mic"),
+                              help: String(appLocalized: "未开始同传时，有应用在读 TalkTalk Mic")) : nil
+        let playback = reasons.contains(.playbackUnknown)
+            ? SettingsProblem(.warn, String(appLocalized: "播放设备未确认"), help: String(appLocalized: "尚未读到会议应用的播放设备")) : nil
+        return [input, reader, playback]
     }
 
     /// The microphone's menu glyph: headset, iPhone, this Mac or a microphone.

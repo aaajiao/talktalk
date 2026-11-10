@@ -140,6 +140,27 @@ import TalkTalkCore
                                     translationDegraded: false, micGuard: green) == .degraded)
         #expect(MenuBarIcon.compute(meetingActive: false, systemInput: .idle, translationDegraded: true) == .standby)
     }
+
+    /// Recognition's fallback or failure and a session that ended on an error draw their menu
+    /// line's triangle; a failure's word is that line's, not 使用备用.
+    @Test func recognitionProblemsAndAFailedEndAreDegraded() {
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .idle, translationDegraded: false, micGuard: green,
+                                    asrFallback: true) == .degraded)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .idle, translationDegraded: false, mode: .captions,
+                                    asrFailed: true) == .degraded)
+        #expect(MenuBarIcon.compute(meetingActive: false, systemInput: .idle, translationDegraded: false,
+                                    lastEndFailed: true) == .degraded)
+        // Preparing comes first; a failed end only counts while idle.
+        #expect(MenuBarIcon.compute(meetingActive: false, systemInput: .idle, translationDegraded: false,
+                                    warming: true, lastEndFailed: true) == .warming)
+        #expect(MenuBarIcon.compute(meetingActive: true, systemInput: .idle, translationDegraded: false, micGuard: green,
+                                    lastEndFailed: true) == .listening)
+        #expect(MenuBarIcon.failureText(.degraded, meetingActive: true, mode: .meeting, asrFailed: true, lastEndFailed: false) == "字幕识别出错")
+        #expect(MenuBarIcon.failureText(.degraded, meetingActive: false, mode: .phone, asrFailed: false, lastEndFailed: true)
+                == "电话同传因错误已结束")
+        #expect(MenuBarIcon.failureText(.degraded, meetingActive: true, mode: .meeting, asrFailed: false, lastEndFailed: true) == nil)
+        #expect(MenuBarIcon.failureText(.listening, meetingActive: true, mode: .meeting, asrFailed: true, lastEndFailed: false) == nil)
+    }
 }
 
 /// Every status-item glyph exists on this system; the risk glyph's fallback parts exist where
