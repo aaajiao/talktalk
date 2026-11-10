@@ -365,9 +365,13 @@ extension FlowGrid {
             .node(FlowNode(String(appLocalized: "我的声音"), glyph: .symbol(Icon.myVoice),
                            badge: profile ? nil : .pending, badgeReason: profile ? nil : String(appLocalized: "未录制"),
                            link: links?.node(String(appLocalized: "我的声音"), .voice),
-                           satellite: profile ? nil : FlowSatellite(String(appLocalized: "系统声音"), symbol: Icon.speech,
-                                                                    help: String(appLocalized: "未录制时用系统声音"),
-                                                                    dashed: true))),
+                           // A profile without an installed engine is synthesized with the system voice,
+                           // as the menu says.
+                           satellite: profile && facts.engine.installed ? nil
+                               : FlowSatellite(String(appLocalized: "系统声音"), symbol: Icon.speech,
+                                               help: profile ? String(appLocalized: "引擎未安装，声音档案暂不能用")
+                                                             : String(appLocalized: "未录制时用系统声音"),
+                                               dashed: true))),
             .node(FlowNode(String(appLocalized: "对方听到译音"), glyph: .symbol(remoteSymbol), accessory: targetControl))
         ])
     }

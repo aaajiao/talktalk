@@ -674,7 +674,7 @@ final class SpeakController {
     }
 
     private func devicesChanged(_ event: DeviceWatcher.Event) {
-        if case .devicesChanged = event { mic?.refreshDevices(); output.devicesChanged() }
+        if case .devicesChanged = event { mic?.refreshDevices(); output.devicesChanged(); AppUIModels.shared.audio.reload() }
         let devices = AudioDeviceCatalog.devices()
         if !devices.contains(where: { $0.uid == MicPolicy.talkTalkMicUID }) {
             keys?.systemEvent(.talkTalkMicGone, at: HostClock.now()); feedConfirmed = false

@@ -1336,6 +1336,29 @@ final class Flag: @unchecked Sendable {
         #expect(try store.loadProfile().id == saved.id)
     }
 
+    // The audition review reads the monitor output once: an unavailable one greys the clips'
+    // play buttons with its reason (the view), an available one leaves it nil; leaving clears it.
+    @Test @MainActor func theAuditionReviewReadsTheMonitorsAvailability() async throws {
+        for available in [false, true] {
+            let store = VoiceStore(root: try tempRoot()), b = FakeBackend()
+            let monitor: any AuditionMonitor = available ? RecordingAuditionMonitor() : UnavailableAuditionMonitor()
+            let c = EnrollmentController(store: store, transcriber: nil, engine: services(b), monitor: monitor)
+            c.seedReview(take: Synth.take(segments: [6.0, 6.4], pauses: [0.6]), report: savedReport(), device: Self.device)
+            c.save()
+            await c.lastSaveAttempt?.value
+            guard case .auditionReview = c.phase else { Issue.record("\(c.phase)"); return }
+            if available {
+                try? await Task.sleep(for: .milliseconds(50))
+                #expect(c.auditionUnavailableReason == nil)
+            } else {
+                await until { @MainActor in c.auditionUnavailableReason != nil }
+                #expect(c.auditionUnavailableReason == UnavailableAuditionMonitor.reason)
+                c.cancel()
+                #expect(c.auditionUnavailableReason == nil)
+            }
+        }
+    }
+
     // A driven save that passes: review, then 保存 commits and SPEAK follows the new profile.
     @Test @MainActor func aDrivenSaveReviewsThenCommits() async throws {
         let store = VoiceStore(root: try tempRoot())

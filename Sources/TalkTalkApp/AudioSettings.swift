@@ -75,6 +75,9 @@ enum HeadphoneAnswers {
         alert.informativeText = String(appLocalized: "外放时停用耳机译音和会议原声，避免回声。")
         alert.addButton(withTitle: String(appLocalized: "是耳机"))
         alert.addButton(withTitle: String(appLocalized: "是扬声器"))
+        // Asked mid-session while the user types elsewhere: Return must not answer for them, and
+        // "是耳机" is the unsafe side (speaker echo protection off).
+        alert.buttons.forEach { $0.keyEquivalent = "" }
         NSApp.activate()
         let yes = alert.runModal() == .alertFirstButtonReturn
         set(yes, uid: uid, name: name, d)
@@ -88,6 +91,8 @@ final class AudioSettingsModel {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let gains: PassthroughGainDefaults
     @ObservationIgnored private var gainObserver: NSObjectProtocol?
+    /// Runs while 音频 is on screen: a microphone plugged or removed there updates the page.
+    @ObservationIgnored private let deviceWatcher = DeviceWatcher()
     let launch: LaunchAtLogin
     let calibration: PassthroughCalibration
 
@@ -102,6 +107,14 @@ final class AudioSettingsModel {
     var cuesEnabled: Bool { didSet { defaults.set(cuesEnabled, forKey: UIPrefKey.cuesEnabled) } }
     var cueDbfs: Double { didSet { defaults.set(cueDbfs, forKey: UIPrefKey.cueDbfs) } }
     var switchDefaultInput: Bool { didSet { defaults.set(switchDefaultInput, forKey: UIPrefKey.switchDefaultInput) } }
+    /// What the running speaking session actually did with 同传时设为系统默认输入 (set by
+    /// SystemInputController when it enters meeting mode; nil: no session, or not entered yet).
+    /// The switch is read only then, so a change during the session applies from the next one.
+    var sessionSwitchDefaultInput: Bool?
+    /// The switch in effect now: this session's, else the setting.
+    var defaultInputSwitching: Bool { sessionSwitchDefaultInput ?? switchDefaultInput }
+    /// The switch differs from this session's: the change waits for the next start.
+    var switchChangeWaits: Bool { sessionSwitchDefaultInput.map { $0 != switchDefaultInput } ?? false }
     var headphones: [(uid: String, name: String, isHeadphone: Bool)] = []
     /// Set by SystemInputController from MeetingMicGuard during meeting mode.
     var meetingMic: MeetingMicCheck = .notChecked
@@ -128,7 +141,20 @@ final class AudioSettingsModel {
         }
     }
 
-    isolated deinit { if let gainObserver { NotificationCenter.default.removeObserver(gainObserver) } }
+    isolated deinit {
+        if let gainObserver { NotificationCenter.default.removeObserver(gainObserver) }
+        deviceWatcher.stop()
+    }
+
+    /// The page appeared: follow the device list until it goes away (no device is opened).
+    func startWatchingDevices() {
+        deviceWatcher.start { [weak self] event in
+            guard event == .devicesChanged else { return }
+            Task { @MainActor in self?.reload() }
+        }
+    }
+
+    func stopWatchingDevices() { deviceWatcher.stop() }
 
     private func refreshGain() {
         passthroughGainDb = selection.device.flatMap { gains.gainDb(micUIDHash: VoiceProfile.micUIDHash($0.uid)) }
@@ -164,9 +190,21 @@ final class AudioSettingsModel {
     }
 
     /// Calibrates the selected microphone (`PassthroughCalibration`); not during a session.
+    /// The list is read again first: a microphone that went away since the page was read ends as
+    /// 麦克风已变 · 已取消 instead of doing nothing.
     func calibrate(meetingActive: Bool) {
-        let device = selection.device.flatMap { InputDeviceCatalog.device(uid: $0.uid) }
+        guard !meetingActive else { return }
+        let shown = selection.device?.uid
+        reload()
+        guard let uid = selection.device?.uid, uid == shown, let device = InputDeviceCatalog.device(uid: uid) else {
+            calibration.microphoneChanged()
+            return
+        }
         calibration.start(device: device, meetingActive: meetingActive)
+    }
+
+    func openMicrophonePrivacy() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
     }
 
     func forgetHeadphone(_ uid: String) {
@@ -257,7 +295,7 @@ struct AudioFacts {
     /// TalkTalk Mic's node: the driver's state, else ok while 同传时设为系统默认输入 is on.
     var talkTalkMic: SettingsProblem? {
         driver.driverProblem
-            ?? (model.switchDefaultInput ? SettingsProblem(.ok, String(appLocalized: "同传时设为默认输入")) : nil)
+            ?? (model.defaultInputSwitching ? SettingsProblem(.ok, String(appLocalized: "同传时设为默认输入")) : nil)
     }
 
     /// The meeting plays through a speaker now: 耳机译音 and the passthrough stop.
@@ -325,9 +363,9 @@ struct AudioSettingsView: View {
             .settingsPageScroll(navigation, subpage: SettingsSection.audio)
             .settingsAnchorTarget(navigation, proxy)
         }
-        .onAppear { model.reload(); model.launch.refresh(); driver.load() }
+        .onAppear { model.reload(); model.startWatchingDevices(); model.launch.refresh(); driver.load() }
         // Leaving the page stops a calibration and forgets its outcome: it belonged to this visit.
-        .onDisappear { model.calibration.reset() }
+        .onDisappear { model.stopWatchingDevices(); model.calibration.reset() }
         .onChange(of: state.meetingActive) { _, on in if on { model.calibration.cancel() } }
     }
 
@@ -427,12 +465,18 @@ struct AudioSettingsView: View {
         let calibration = model.calibration
         if calibration.running {
             let db = calibration.levelDb ?? -60
+            let fraction = min(1, max(0, (db + 60) / 60))
+            let clipping = db > -3
             HStack(spacing: 8) {
-                ProgressView(value: min(1, max(0, (db + 60) / 60)))
+                ProgressView(value: fraction)
                     .progressViewStyle(.linear)
-                    .tint(db > -3 ? .red : .accentColor)
+                    .tint(clipping ? .red : .accentColor)
                     .frame(width: 80)
                     .accessibilityLabel(String(appLocalized: "输入音量"))
+                    .accessibilityValue(Text(verbatim: clipping ? String(appLocalized: "削波")
+                                                                : fraction.formatted(.percent.precision(.fractionLength(0)))))
+                // Not by color alone: the shape and the word for those who cannot tell red from green.
+                if clipping { StatusGlyph(.warn).accessibilityHidden(true) }
                 Text(String(appLocalized: "按平常音量读一句（约 \(PassthroughCalibration.seconds) 秒）"))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
@@ -441,8 +485,16 @@ struct AudioSettingsView: View {
             }
             .padding(.leading, Ladder.rowTextInset)
         } else if let outcome = calibration.outcome, let problem = Self.problem(outcome) {
-            StatusLabel(problem.text, problem.status, help: problem.help)
-                .padding(.leading, Ladder.rowTextInset)
+            HStack(spacing: 8) {
+                StatusLabel(problem.text, problem.status, help: problem.help)
+                // Only System Settings can change a refusal macOS will not ask about again.
+                if outcome == .needsPermission {
+                    Button { model.openMicrophonePrivacy() } label: {
+                        Label("系统设置…", systemImage: Icon.openApp).labelStyle(.titleAndIcon)
+                    }
+                }
+            }
+            .padding(.leading, Ladder.rowTextInset)
         }
     }
 
@@ -451,7 +503,8 @@ struct AudioSettingsView: View {
         case .calibrated: nil
         case .unclear: SettingsProblem(.warn, String(appLocalized: "未测到清晰语音或削波 · 重试"))
         case .microphoneChanged: SettingsProblem(.warn, String(appLocalized: "麦克风已变 · 已取消"))
-        case .needsPermission: SettingsProblem(.warn, String(appLocalized: "需麦克风权限"))
+        case .needsPermission: SettingsProblem(.warn, String(appLocalized: "需麦克风权限"),
+                                               help: String(appLocalized: "没有麦克风权限：请在“系统设置 › 隐私与安全性 › 麦克风”里允许 TalkTalk，然后再试"))
         case let .failed(error): SettingsProblem(.failed, String(appLocalized: "未完成"), help: error)
         case .cancelled: SettingsProblem(.pending, String(appLocalized: "已取消"))
         }
@@ -466,6 +519,10 @@ struct AudioSettingsView: View {
         return Section {
             LabeledContent {
                 HStack(spacing: 8) {
+                    // The switch is read when the session starts: a change during it waits.
+                    if model.switchChangeWaits {
+                        StatusLabel(String(appLocalized: "下次开始生效"), .waiting, help: String(appLocalized: "本次仍按开始时的设置"))
+                    }
                     InfoButton(topic: String(appLocalized: "默认输入"),
                                lines: [String(appLocalized: "结束同传或退出时自动还原；你手动改过的输入会保留。")])
                     Toggle(String(appLocalized: "同传时设为系统默认输入"), isOn: $model.switchDefaultInput)
@@ -475,7 +532,7 @@ struct AudioSettingsView: View {
             } label: {
                 Label("同传时设为系统默认输入", systemImage: Icon.talkTalkMic)
             }
-            if model.switchDefaultInput {
+            if model.defaultInputSwitching {
                 FactRow([FactChip(String(appLocalized: "听写、Siri 等也会收到原声或译音"), symbol: Icon.talkTalkMic,
                                   help: String(appLocalized: "跟随系统默认输入的应用"))], indented: true)
             }
@@ -575,7 +632,7 @@ extension FlowGrid {
                                   },
                                   help: device?.name)
         let input = FlowNode("TalkTalk Mic", glyph: .symbol(Icon.talkTalkMic),
-                             state: facts.model.switchDefaultInput ? .ready : .off,
+                             state: facts.model.defaultInputSwitching ? .ready : .off,
                              badge: talkTalkMic?.status, badgeReason: talkTalkMic?.text,
                              link: NodeLink("TalkTalk Mic") { jump(SettingsAnchor.talkTalkMic) })
         let meeting = FlowNode(String(appLocalized: "会议 · Phone"), glyph: .symbol(SubtitleTokens.SceneIcon.meeting),

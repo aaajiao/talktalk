@@ -352,6 +352,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let window = self.window ?? makeWindow()
         self.window = window
         voice.reload()
+        AppUIModels.shared.audio.reload()
         foregroundGeneration &+= 1
         let generation = foregroundGeneration
         NSApp.setActivationPolicy(.regular)
