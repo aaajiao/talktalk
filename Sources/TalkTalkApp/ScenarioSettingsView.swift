@@ -61,7 +61,7 @@ struct MeetingSettingsView: View {
 
     /// A flow link: ReturnPill on the target page leads back to this scene and position.
     private var links: ScenarioLinks {
-        ScenarioLinks { section, subpage, anchor in
+        ScenarioLinks(flash: navigation.flow) { section, subpage, anchor in
             navigation.open(section, subpage, scenario: state.requestedScenario, anchor: anchor)
         }
     }

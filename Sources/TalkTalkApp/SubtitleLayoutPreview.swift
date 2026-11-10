@@ -326,8 +326,7 @@ final class SubtitlePreviewCanvas: NSView {
         titlebar.frame = NSRect(x: frame.maxX - trailingMargin - barWidth, y: frame.minY, width: barWidth, height: height)
         titleView.frame = NSRect(x: frame.minX + SubtitleTitlebarView.leadingTitleX, y: frame.minY,
                                  width: titleView.frame.width, height: height)
-        titleView.setWidth(min(titleView.naturalWidth,
-                               max(titleView.minimumWidth, width - SubtitleTitlebarView.windowChrome - barWidth)))
+        titleView.fit(width - SubtitleTitlebarView.windowChrome - barWidth, compaction: compaction)
     }
 
     // MARK: meeting / phone

@@ -518,7 +518,10 @@ final class MeetingController {
             refreshSourceOptions()
             if let selectedSource, !state.availableSources.contains(where: { $0.id == selectedSource }) {
                 let name = MeetingApp.named(selectedSource)?.name ?? selectedSource
-                alert(String(appLocalized: "所选应用尚未就绪"), String(appLocalized: "请先打开 \(name)，或在当前场景中选择其他应用。不会自动改为收听其他应用。"))
+                // Running without an audio process object: open already, only silent (as the page says).
+                alert(String(appLocalized: "所选应用尚未就绪"), ScenarioFacts.isRunning(selectedSource)
+                      ? String(appLocalized: "\(name) 当前没有声音。请先在其中播放或加入会议，或在当前场景中选择其他应用。不会自动改为收听其他应用。")
+                      : String(appLocalized: "请先打开 \(name)，或在当前场景中选择其他应用。不会自动改为收听其他应用。"))
                 return
             }
         }

@@ -21,6 +21,8 @@ enum SettingsAnchor {
     static let talkTalkMic = "audio.meetingInput"
     static let playback = "audio.playback"
     static let phoneDial = "phone.dial"
+    /// The meeting and video scenes' source chip (the menu's quick start that needs a choice).
+    static let scenarioSource = "scenario.source"
     /// 模型 › 语音识别's diagram and problem line.
     static let recognition = "model.recognition"
     /// 模型 › 文本翻译's diagram and problem line (TalkTalkCloudUI draws it).
@@ -94,7 +96,13 @@ struct ScenarioFacts {
     /// The chosen app runs, though it has no audio process now (`availableSources` lists audio
     /// processes only).
     var missingSourceRunning: Bool {
-        missingSource != nil && !NSRunningApplication.runningApplications(withBundleIdentifier: sourceID).isEmpty
+        missingSource != nil && Self.isRunning(sourceID)
+    }
+
+    /// An app with this bundle id runs now, whether or not it has an audio process object (the
+    /// page's problem line and the start alert tell "未打开" from "没有声音" by it).
+    static func isRunning(_ bundleID: String) -> Bool {
+        !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty
     }
 
     /// The app this scene listens to: the chosen one, else the running session's own; nil while
@@ -222,6 +230,8 @@ extension SpeakTargetLanguage {
 /// What the scene diagrams link to: another page (with ReturnPill) and a section of it.
 @MainActor
 struct ScenarioLinks {
+    /// The scene page's flash state: the source chip flashes `SettingsAnchor.scenarioSource`.
+    var flash: FlowInteraction? = nil
     let open: (SettingsSection, SettingsSubpage?, String?) -> Void
 
     func node(_ destination: String, _ section: SettingsSection, _ subpage: SettingsSubpage? = nil,
@@ -239,7 +249,7 @@ extension FlowGrid {
         let state = facts.state
         let remote = FlowNode(String(appLocalized: "对方"), glyph: .symbol(Icon.remote), accessory: links == nil ? nil : .controls {
             HStack(spacing: 4) {
-                SourceChip(facts: facts)
+                SourceChip(facts: facts, flash: links?.flash)
                 SceneLanguageChip(state: state, mode: facts.mode, role: .listenSource, compact: true)
             }
         })
@@ -267,7 +277,7 @@ extension FlowGrid {
         let source = FlowNode(String(appLocalized: "应用声音"), glyph: .app(bundleID: app?.id, fallback: Icon.speech),
                               accessory: .controls {
                                   HStack(spacing: 4) {
-                                      SourceChip(facts: facts)
+                                      SourceChip(facts: facts, flash: links.flash)
                                       SceneLanguageChip(state: facts.state, mode: facts.mode, role: .listenSource, compact: true)
                                   }
                               })
@@ -453,8 +463,13 @@ extension StepState {
 /// open (triangle), 刷新列表. Locked during a session.
 private struct SourceChip: View {
     let facts: ScenarioFacts
+    let flash: FlowInteraction?
 
     var body: some View {
+        if let flash { chip.flowFlash(SettingsAnchor.scenarioSource, in: flash) } else { chip }
+    }
+
+    private var chip: some View {
         let state = facts.state
         let selected = facts.sourceID
         let missing = facts.missingSource

@@ -530,8 +530,7 @@ final class SubtitlePanel {
         }
         titlebar.apply(content, compaction: compaction)
         // The source name yields first: the leading title takes only the remaining width.
-        titleView.setWidth(min(titleView.naturalWidth,
-                               max(titleView.minimumWidth, chromeWidth - SubtitleTitlebarView.windowChrome - titlebar.frame.width)))
+        titleView.fit(chromeWidth - SubtitleTitlebarView.windowChrome - titlebar.frame.width, compaction: compaction)
         hoverStrip.needsLayout = true
     }
 

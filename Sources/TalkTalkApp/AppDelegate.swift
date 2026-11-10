@@ -246,6 +246,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 meeting?.quickStart(mode: mode) { mode in
                     self?.state.requestedScenario = mode
                     self?.settings?.show(.meeting)
+                    // Automatic selection found several apps: point at the source chip once the
+                    // page has laid out (as a flow link's anchor does).
+                    guard self?.state.sourceChoicePending == mode else { return }
+                    DispatchQueue.main.async { [weak self] in
+                        self?.settings?.navigation.flow.flash(SettingsAnchor.scenarioSource)
+                    }
                 }
             },
             voiceState: { [weak hud] in hud?.model.voiceState },
