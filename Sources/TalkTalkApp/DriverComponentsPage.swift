@@ -56,6 +56,8 @@ final class DriverComponentsPage {
         // Both use the same EngineInstaller: the engine rows wait while 完全卸载 runs, and
         // 完全卸载 waits while the engine installer runs (FullUninstaller's engineBusy).
         engine.blockedBy = { [weak model, weak self] in model?.fullUninstallRunning == true || self?.externalBusy() == true }
+        // The engine rows' own session check (AppDelegate): 完全卸载 is disabled beforehand too.
+        model.sessionActive = { [weak engine] in engine?.sessionInProgress == true }
         if let full = model.fullUninstaller { follow(full) }
     }
 

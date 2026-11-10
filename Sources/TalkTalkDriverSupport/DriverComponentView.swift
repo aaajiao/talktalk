@@ -117,6 +117,8 @@ private struct DriverUsersView: View {
 /// in a Form Section (or a VStack) and attach `driverComponentLifecycle` once to the container.
 public struct DriverComponentRows: View {
     @Bindable var model: DriverComponentModel
+    /// The window these rows are in (`driverComponentLifecycle`): its confirmations appear there.
+    @Environment(\.driverComponentHost) private var host
 
     public init(model: DriverComponentModel) { self.model = model }
 
@@ -144,13 +146,13 @@ public struct DriverComponentRows: View {
         let busy = model.isBusy
         switch model.state {
         case .notInstalled:
-            adminButton(String(appLocalized: "安装")) { model.requestInstall() }.disabled(busy || !model.carriesDriver)
+            adminButton(String(appLocalized: "安装")) { model.requestInstall(from: host) }.disabled(busy || !model.carriesDriver)
         case .outdated:
-            adminButton(String(appLocalized: "更新")) { model.requestInstall() }.disabled(busy)
+            adminButton(String(appLocalized: "更新")) { model.requestInstall(from: host) }.disabled(busy)
         case .damaged:
-            adminButton(String(appLocalized: "重新安装")) { model.requestInstall() }.disabled(busy || !model.carriesDriver)
+            adminButton(String(appLocalized: "重新安装")) { model.requestInstall(from: host) }.disabled(busy || !model.carriesDriver)
         case .onDiskNotLoaded:
-            adminButton(String(appLocalized: "重启音频服务")) { model.requestRestartAudio() }.disabled(busy)
+            adminButton(String(appLocalized: "重启音频服务")) { model.requestRestartAudio(from: host) }.disabled(busy)
         case .loaded, .selfTestFailed:
             EmptyView()
         }
@@ -221,12 +223,12 @@ public struct DriverComponentRows: View {
         var items = [IconMenuItem(String(appLocalized: "刷新"), symbol: Icon.refresh) { model.refresh() }]
         if model.state.isUsable {
             items.append(IconMenuItem(String(appLocalized: "重新安装"), symbol: Icon.download,
-                                      isEnabled: model.carriesDriver) { model.requestInstall() })
+                                      isEnabled: model.carriesDriver) { model.requestInstall(from: host) })
         }
         if model.state != .notInstalled {
             items.append(.separator)
             items.append(IconMenuItem(String(appLocalized: "卸载 TalkTalk Mic…"), symbol: Icon.delete,
-                                      isDestructive: true) { model.requestUninstall() })
+                                      isDestructive: true) { model.requestUninstall(from: host) })
         }
         return items
     }
@@ -291,18 +293,34 @@ extension View {
     /// The driver section's refresh on appear and its confirmations (texts as they were: what the
     /// administrator's password and the audio restart cost). Attach it once, to the Form or the
     /// VStack that holds `DriverComponentRows`.
-    public func driverComponentLifecycle(_ model: DriverComponentModel) -> some View {
-        modifier(DriverComponentLifecycle(model: model))
+    /// `host`: the window it is in; the rows inside ask for their confirmation there only.
+    public func driverComponentLifecycle(_ model: DriverComponentModel,
+                                         host: DriverComponentModel.Host = .settings) -> some View {
+        modifier(DriverComponentLifecycle(model: model, host: host))
+    }
+}
+
+private struct DriverComponentHostKey: EnvironmentKey {
+    static let defaultValue = DriverComponentModel.Host.settings
+}
+
+extension EnvironmentValues {
+    var driverComponentHost: DriverComponentModel.Host {
+        get { self[DriverComponentHostKey.self] }
+        set { self[DriverComponentHostKey.self] = newValue }
     }
 }
 
 private struct DriverComponentLifecycle: ViewModifier {
     @Bindable var model: DriverComponentModel
+    let host: DriverComponentModel.Host
 
     func body(content: Content) -> some View {
         content
+            .environment(\.driverComponentHost, host)
             .onAppear { model.refresh() }
-            .alert(item: $model.confirmation) { alert($0) }
+            .alert(item: Binding(get: { model.confirmation(for: host) },
+                                 set: { if $0 == nil { model.dismissConfirmation() } })) { alert($0) }
     }
 
     private func alert(_ c: DriverComponentModel.Confirmation) -> Alert {

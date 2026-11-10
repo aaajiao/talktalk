@@ -356,6 +356,37 @@ let fakeKey = "sk-proj-" + String(repeating: "a", count: 152) + "WXYZ"   // 164 
         #expect(m.pendingYellow == nil)
     }
 
+    /// 实时可用 measures the selected model: a candidate that is not taken leaves it as it was,
+    /// and its own failure is the model row's status.
+    @Test func aCandidateThatIsNotTakenLeavesTheProbeRow() async throws {
+        FakeOpenAI.set(404, #"{"error":{"type":"invalid_request_error","code":"model_not_found"}}"#)
+        let m = try make(MemoryKeyStore(fakeKey))
+        await m.select(model: "gpt-6.1-terra")
+        #expect(m.preferences.model == "gpt-6-luna")
+        #expect(m.probe == .idle)
+        #expect(m.candidate.line?.text == "模型不存在 · 404")
+
+        FakeOpenAI.set(400, #"{"error":{"type":"invalid_request_error","param":"reasoning.effort"}}"#)
+        await m.select(model: "gpt-6.1-terra")
+        #expect(m.pendingYellow?.model == "gpt-6.1-terra")
+        #expect(m.candidate == .idle)
+        m.cancelYellow()
+        #expect(m.probe == .idle)
+        #expect(m.preferences.model == "gpt-6-luna")
+    }
+
+    /// The card warns only about the key or the model itself; a passing failure stays on the page.
+    @Test func onlyKeyOrModelFailuresRejectTheKey() async throws {
+        FakeOpenAI.set(401, #"{"error":{"type":"invalid_request_error","code":"invalid_api_key"}}"#)
+        let m = try make(MemoryKeyStore(fakeKey))
+        await m.verify()
+        #expect(m.verificationRejectsKeyOrModel)
+        FakeOpenAI.set(429, #"{"error":{"type":"rate_limit_error"}}"#)
+        await m.verify()
+        #expect(m.verification.line?.text == "请求太频繁")
+        #expect(!m.verificationRejectsKeyOrModel)
+    }
+
     @Test func deleteClears() async throws {
         let store = MemoryKeyStore(fakeKey)
         let m = try make(store)

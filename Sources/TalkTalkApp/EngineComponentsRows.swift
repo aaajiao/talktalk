@@ -59,11 +59,18 @@ final class EngineComponentsModel {
     private(set) var restarting = false
     /// The last install, check, model or restart run's outcome (the 引擎 section's result row).
     private enum Outcome {
-        case finished, failed(String), cancelled, restarted, restartFailed(String)
+        case finished, failed(String, check: Bool), cancelled, restarted, restartFailed(String)
         var presentation: SettingsProblem {
             switch self {
             case .finished: SettingsProblem(.ok, String(appLocalized: "完成"))
-            case let .failed(why): SettingsProblem(.failed, String(appLocalized: "未完成"), help: why)
+            // 校验安装 found problems: something to look at, not a broken run.
+            case let .failed(why, true): SettingsProblem(.warn, String(appLocalized: "校验未通过"), help: why)
+            // The installer's few fixed reasons get a visible short word; the raw line stays the help.
+            case let .failed(why, false) where why.hasPrefix("not enough disk space"):
+                SettingsProblem(.failed, String(appLocalized: "磁盘空间不足"), help: why)
+            case let .failed(why, false) where why.hasPrefix("could not download and verify"):
+                SettingsProblem(.failed, String(appLocalized: "下载失败"), help: why)
+            case let .failed(why, false): SettingsProblem(.failed, String(appLocalized: "未完成"), help: why)
             case .cancelled: SettingsProblem(.pending, String(appLocalized: "已取消"))
             case .restarted: SettingsProblem(.ok, String(appLocalized: "引擎已重启"))
             case let .restartFailed(why): SettingsProblem(.failed, String(appLocalized: "引擎未能重启"), help: why)
@@ -92,7 +99,9 @@ final class EngineComponentsModel {
         state = r.state
         record = r.record
         pendingSynthesisID = nil
-        pendingPresetID = nil
+        // A cancelled or failed profile change keeps its explicit choice, so 换档 can retry it
+        // and the picker does not fall back to 标准; only the installed profile clears it.
+        if pendingPresetID == installedProfile?.rawValue { pendingPresetID = nil }
         readyModelIDs = Set(EnginePins.models.filter { installation.isModelReady(id: $0.key) }.map(\.key))
     }
 
@@ -240,7 +249,7 @@ final class EngineComponentsModel {
             let s = await installer.run(op)
             switch s {
             case .finished: outcome = .finished
-            case let .failed(why): outcome = .failed(why)
+            case let .failed(why): outcome = .failed(why, check: op == .check)
             case .cancelled: outcome = .cancelled
             case .idle, .running: break
             }
@@ -250,8 +259,13 @@ final class EngineComponentsModel {
     /// The confirmations (§7.11), shortened to what the run costs.
     private func confirmation(_ op: InstallerOp) -> (String, String, String)? {
         switch op {
-        case let .install(p):
-            let prof = p ?? profile
+        case .install(nil):
+            // A repair without a readable record: the installer reinstalls what
+            // install.json.prev recorded, so the confirmation names no profile.
+            return (String(appLocalized: "修复 \(String(appLocalized: "引擎"))？"),
+                    String(appLocalized: "上次安装没有完成"), String(appLocalized: "修复"))
+        case let .install(p?):
+            let prof = p
             return (String(appLocalized: "安装引擎（\(Self.profileTitle(prof))）？"),
                     downloadSummary(prof),
                     missingModelBytes(prof) == 0 ? String(appLocalized: "应用档位") : String(appLocalized: "下载并安装"))
@@ -359,6 +373,13 @@ final class EngineComponentsModel {
 
     var customRepairRequiresPreset: Bool {
         record != nil && installedProfile == nil && needsRepair && synthesisRepairID == nil
+    }
+
+    /// An outdated custom combination has no recorded preset to update: like a repair, it
+    /// needs an explicit preset and 换档.
+    var customUpdateRequiresPreset: Bool {
+        guard case .outdated = state else { return false }
+        return record != nil && installedProfile == nil
     }
 
     /// The install lifecycle's steps (§7.11): 下载 → 安装 → 校验 → 就绪.
@@ -486,11 +507,13 @@ struct EngineControlRows: View {
                 }
                 .disabled(model.maintenanceBlocked)
             } else if model.needsRepair && !custom {
-                Button { model.confirmAndRun(.install(profile: recorded ?? model.profile)) } label: {
+                // No record (an unfinished run): no explicit profile, so the installer keeps the
+                // combination install.json.prev recorded instead of installing 标准.
+                Button { model.confirmAndRun(.install(profile: recorded)) } label: {
                     Label("修复", systemImage: Icon.repair).labelStyle(.titleAndIcon)
                 }
                 .disabled(model.maintenanceBlocked)
-                .help(String(appLocalized: "重新安装 \(EngineComponentsModel.profileTitle(recorded ?? model.profile))"))
+                .help(ifPresent: recorded.map { String(appLocalized: "重新安装 \(EngineComponentsModel.profileTitle($0))") })
             }
             if model.pendingPresetID != nil {
                 Button("换档") { model.confirmAndRun(installing) }
@@ -540,13 +563,21 @@ struct EngineControlRows: View {
     }
 
     @ViewBuilder private var statusRow: some View {
-        // The flow's ready badge and profile already describe a healthy installation.
-        if model.sessionInProgress {
+        // The flow's ready badge and profile already describe a healthy installation. While a
+        // run goes its progress row speaks, and after a failed run the result row already
+        // says 未完成.
+        if model.progress != nil || (model.state == .unfinished && model.lastResult?.status == .failed) {
+            EmptyView()
+        } else if model.sessionInProgress {
             StatusLabel(String(appLocalized: "当前操作结束后可维护"), .waiting,
                         help: String(appLocalized: "结束当前会话、录音或试听后维护引擎"))
                 .padding(.leading, Ladder.rowTextInset)
         } else if model.customRepairRequiresPreset && model.pendingPresetID == nil {
             StatusLabel(String(appLocalized: "选择组合以修复引擎"), .warn,
+                        help: String(appLocalized: "请选择安装组合并点击“换档”；识别与合成模型将按所选组合配置。"))
+                .padding(.leading, Ladder.rowTextInset)
+        } else if model.customUpdateRequiresPreset && model.pendingPresetID == nil {
+            StatusLabel(String(appLocalized: "选择组合以更新"), .warn,
                         help: String(appLocalized: "请选择安装组合并点击“换档”；识别与合成模型将按所选组合配置。"))
                 .padding(.leading, Ladder.rowTextInset)
         } else if let status = model.pendingProfileChange ?? model.problem {
@@ -682,12 +713,16 @@ struct EngineModelRows: View {
             }
             .disabled(model.maintenanceBlocked)
         } label: {
+            // The row keeps the technical id (the folder on disk); help and VoiceOver use the
+            // name the engine cards show.
+            let name = EngineSynthesisSelection.title(for: m)
             Label {
                 Text(verbatim: m.key).monospaced()
             } icon: {
                 Image(systemName: m.role == "asr" ? Icon.recognition : Icon.speech)
             }
-            .help(role)
+            .help("\(role) · \(name)")
+            .accessibilityLabel(Text(verbatim: name))
             .accessibilityHint(role)
         }
     }
@@ -741,8 +776,10 @@ extension FlowGrid {
         let status = model.pendingProfileChange ?? model.status
         func node(_ stage: EngineComponentsModel.Stage, _ title: String, _ symbol: String) -> FlowNode {
             let running = stage == active
+            // While a run goes the recorded state is stale until reload(): only the running
+            // step carries a badge.
             let badge: SettingsProblem? = running ? SettingsProblem(.busy, String(appLocalized: "进行中"))
-                : model.statusStage == stage ? status : nil
+                : !model.running && model.statusStage == stage ? status : nil
             let accessory: NodeAccessory? = running ? .controls { EngineStageProgress(model: model, stage: stage) }
                 : stage == .ready ? .controls { EngineProfileChip(model: model) } : nil
             return FlowNode(title, glyph: .symbol(symbol),

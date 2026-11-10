@@ -126,7 +126,7 @@ struct ComponentsSettingsView: View {
             }
             .formStyle(.grouped)
             .labelStyle(.settingsRow)
-            .driverComponentLifecycle(model)
+            .driverComponentLifecycle(model, host: .settings)
         } else if let problem = driver.problem {
             // A binary without a bundle id, or the smoke run (§5.2, §7.12): the reason is the help.
             ContentUnavailableView(String(appLocalized: "此构建不可用"), systemImage: Icon.unavailable)

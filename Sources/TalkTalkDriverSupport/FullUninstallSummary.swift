@@ -74,9 +74,22 @@ public struct FullUninstallSummary: Sendable, Equatable {
     }
 
     /// A blocker's cause before its advice ("通话还在进行：先离开会议…" → "通话还在进行").
+    /// English punctuation ends a clause only before a space, a line break or the end, so
+    /// "TalkTalk.app" and "1.0.15" stay whole ("A call is still active. Leave…" → "A call is still active").
     static func firstClause(_ text: String) -> String? {
-        let head = text.split(whereSeparator: { "：。；".contains($0) }).first.map(String.init)? // l10n-ignore
-            .trimmingCharacters(in: .whitespaces)
-        return head?.isEmpty == false ? head : nil
+        var end = text.endIndex
+        var i = text.startIndex
+        while i < text.endIndex {
+            let next = text.index(after: i)
+            let c = text[i]
+            if "：。；\n".contains(c) // l10n-ignore
+                || (".:;,".contains(c) && (next == text.endIndex || text[next].isWhitespace)) {
+                end = i
+                break
+            }
+            i = next
+        }
+        let head = text[text.startIndex..<end].trimmingCharacters(in: .whitespaces)
+        return head.isEmpty ? nil : head
     }
 }
