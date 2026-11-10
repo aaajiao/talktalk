@@ -9,9 +9,10 @@ import TalkTalkSession
 import TalkTalkVoice
 import UserNotifications
 
-/// The normal launch path (ARCHITECTURE.md §13): `TalkTalk` with no arguments starts the menu
-/// bar app. One instance per build flavor (SingleInstance); a second launch brings the running
-/// one's settings window forward and exits.
+/// The normal launch path (ARCHITECTURE.md, "实时音频与生命周期约束"): `TalkTalk` with no arguments
+/// starts the menu bar app. One instance per build flavor (SingleInstance); a second launch
+/// brings the running one forward and exits: a minimized subtitle window is restored first,
+/// otherwise an unfinished onboarding opens, otherwise the settings window (`showFront`).
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static var retained: AppDelegate?

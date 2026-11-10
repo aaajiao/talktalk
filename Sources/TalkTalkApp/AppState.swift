@@ -5,7 +5,7 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkVoice
 
-/// App-wide UI state (ARCHITECTURE.md §13 `AppState`). Holds only what the menu, the settings
+/// App-wide UI state (`AppState`; ARCHITECTURE.md, "三种使用场景"). Holds only what the menu, the settings
 /// window and (later) the subtitle panel share; the meeting session owns its own pipeline state.
 @MainActor
 @Observable

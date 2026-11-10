@@ -2,7 +2,7 @@ import Foundation
 import TalkTalkAudio
 import TalkTalkCore
 
-// TalkTalk entry point (ARCHITECTURE.md §13).
+// TalkTalk entry point (ARCHITECTURE.md, "实时音频与生命周期约束").
 //
 //   TalkTalk                                           the menu bar app (single instance per flavor)
 //   TalkTalk --smoke-ui [--out <file>] [--preview]     dev UI check; preview stays open (no audio)
