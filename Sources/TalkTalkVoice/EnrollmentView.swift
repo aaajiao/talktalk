@@ -298,9 +298,9 @@ public struct EnrollmentView: View {
                     .keyboardShortcut(.defaultAction)
                     .disabled(!(controller.selectedDevice?.verdict.isAccepted ?? false))
             case .measuringNoise, .countdown:
-                Button("取消") { controller.cancel() }
+                Button("取消") { controller.cancel() }.keyboardShortcut(.cancelAction)
             case .recording:
-                Button("取消") { controller.cancel() }
+                Button("取消") { controller.cancel() }.keyboardShortcut(.cancelAction)
                 Button("完成录制") { controller.finishRecording() }.keyboardShortcut(.defaultAction)
             case .analyzing, .saving, .auditioning:
                 EmptyView()
