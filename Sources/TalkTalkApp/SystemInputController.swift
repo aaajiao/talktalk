@@ -137,7 +137,7 @@ final class SystemInputController {
             pendingResume = false
             let r: SystemInputSwitcher.EntryResult = waitForFeed ? .unchanged
                 : switcher.enterMeetingMode(meetingApps: [appID], switchDefaultInput: AppUIModels.shared.audio.switchDefaultInput)
-            if !waitForFeed { entry(r) }
+            if !waitForFeed { entry(r); recordEntry() }
             // The route first: the guard's first red asks it whether a cue may play (review of a5b2b6b #3).
             route.start(scope: [appID])
             micGuard.start(scope: [appID], justSwitchedDefaultInput: r == .switched)
@@ -164,7 +164,19 @@ final class SystemInputController {
         }
     }
 
+    /// 音频's TalkTalk Mic section follows what this session did: the switch is read on entering
+    /// meeting mode only, and a default input already held stays held.
+    private func recordEntry() {
+        var holds = false
+        switch switcher.status {
+        case .holding, .suspended: holds = true
+        default: break
+        }
+        AppUIModels.shared.audio.sessionSwitchDefaultInput = AppUIModels.shared.audio.switchDefaultInput || holds
+    }
+
     private func stopWatching() {
+        AppUIModels.shared.audio.sessionSwitchDefaultInput = nil
         ownsMeetingMode = false
         pendingAppID = nil
         pendingResume = false
@@ -182,6 +194,7 @@ final class SystemInputController {
             let result = switcher.enterMeetingMode(meetingApps: [app],
                                                    switchDefaultInput: AppUIModels.shared.audio.switchDefaultInput)
             entry(result)
+            recordEntry()
         }
         micGuard.audioRestarted()
         onFactsChange?()

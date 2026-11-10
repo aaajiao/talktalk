@@ -84,6 +84,12 @@ final class PassthroughCalibration {
             }
         }
     }
+    /// The microphone chosen on the page is gone: nothing starts, and the page says so.
+    func microphoneChanged() {
+        guard !running else { return }
+        outcome = .microphoneChanged
+    }
+
     /// Stops a running calibration (已取消, shown on the page that is still open); otherwise
     /// forgets the last outcome, which belonged to the microphone it was measured on.
     func cancel() {

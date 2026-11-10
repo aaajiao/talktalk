@@ -79,6 +79,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let onboardingModel = OnboardingFlowModel(appState: state, engine: AppUIModels.shared.engine,
                                                   translation: settings.translation)
         onboardingModel.voice.engineHost = engineHost
+        // A profile saved or deleted in one window is read again by the other.
+        settings.voice.peer = onboardingModel.voice
+        onboardingModel.voice.peer = settings.voice
         onboardingModel.demo.panel = conversationPanel
         onboardingModel.demo.canStart = { [weak state] in
             state?.meetingActive == false && state?.meetingStarting == false
@@ -196,8 +199,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             privacy.diagnosticsStatus.canRunAudioSelfTest = { [weak self, weak settings, weak onboardingModel] in
                 guard let self, let settings, let onboardingModel else { return false }
                 return !state.meetingActive && !state.meetingStarting && speak?.isActive != true
-                    && settings.voice.enrollment == nil && settings.voice.auditioning == nil
-                    && onboardingModel.voice.enrollment == nil && onboardingModel.voice.auditioning == nil
+                    && !settings.voice.recordingBusy && settings.voice.auditioning == nil
+                    && !onboardingModel.voice.recordingBusy && onboardingModel.voice.auditioning == nil
                     && !AppUIModels.shared.engine.running && settings.driver.model?.selfTestRunning != true
             }
             settings.voice.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
@@ -383,7 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let voices = [settings?.voice, onboarding?.model.voice].compactMap { $0 }
             return state.meetingActive || state.meetingStarting || state.meetingStopping
                 || state.speakSessionActive || speak?.isActive == true
-                || voices.contains { $0.enrollment != nil || $0.auditioning != nil || $0.deleting || $0.externalBusy() }
+                || voices.contains { $0.recordingBusy || $0.auditioning != nil || $0.deleting || $0.externalBusy() }
                 || settings?.driver.model?.selfTestRunning == true
                 || AppUIModels.shared.engine.blocked
         }
