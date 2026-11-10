@@ -277,8 +277,15 @@ final class AppState {
         onLanguagePresentationChange?()
     }
 
-    /// Meeting mode (LISTEN) can be started from the menu.
+    /// A session can start now: onboarding is done and no self-test, speaking test, engine
+    /// installation or maintenance holds the audio (AppDelegate keeps it in step). The menu's
+    /// quick start and the scenario page's start read it alike.
     var meetingAvailable = true
+    /// The quick start found several sources and opened this scene's page instead (the page's
+    /// problem line and the menu's 确认应用…); cleared by choosing a source or the next start.
+    var sourceChoicePending: MeetingMode?
+    /// A start waits for macOS's speech-asset download (the 下载中 tooltip).
+    var downloadingSpeechAssets = false
     var meetingMode: MeetingMode = .meeting
     /// Settings selection only; choosing a scene never changes a running session. Persisted
     /// as `ui.requestedScenario` (redesign §7).
@@ -295,10 +302,16 @@ final class AppState {
     }
     var availableSources: [SourceOption] = []
     var meetingSourceID: String {
-        didSet { ListeningSourcePreferences.setSource(meetingSourceID, for: .meeting, defaults: defaults) }
+        didSet {
+            ListeningSourcePreferences.setSource(meetingSourceID, for: .meeting, defaults: defaults)
+            if sourceChoicePending == .meeting { sourceChoicePending = nil }
+        }
     }
     var videoSourceID: String {
-        didSet { ListeningSourcePreferences.setSource(videoSourceID, for: .captions, defaults: defaults) }
+        didSet {
+            ListeningSourcePreferences.setSource(videoSourceID, for: .captions, defaults: defaults)
+            if sourceChoicePending == .captions { sourceChoicePending = nil }
+        }
     }
     @ObservationIgnored var onRefreshSources: (() -> Void)?
 

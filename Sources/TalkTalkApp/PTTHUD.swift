@@ -39,7 +39,7 @@ final class PTTHUD {
     private var publishedPhoneInput = false
     private var subtitlesVisible = true
     private var listenHint: HUDModel.Warning?
-    private var cloudReminder: (apple: () -> Void, copy: () -> Void)?
+    private var cloudReminder: (apple: () -> Void, copy: (() -> Void)?)?
     private var cloudPopoverShown = false
     private var cloudPopoverScheduled = false
     /// Presses whose own translated audio is playing (SpeakUIEvent.outputPresses).
@@ -143,7 +143,8 @@ final class PTTHUD {
         render()
     }
 
-    func showCloudReminder(useApple: @escaping () -> Void, copyNotice: @escaping () -> Void) {
+    /// `copyNotice` nil: no chat notice to copy (视频字幕 has no other party).
+    func showCloudReminder(useApple: @escaping () -> Void, copyNotice: (() -> Void)?) {
         cloudReminder = (useApple, copyNotice)
         model.cloudPrivacyPending = true
         render()
@@ -704,7 +705,9 @@ final class PTTHUD {
             button(String(appLocalized: "本场只用 Apple 翻译听到的话")) { [weak self] in
                 reminder.apple(); self?.closeCloudReminder()
             }
-            button(String(appLocalized: "复制聊天说明"), symbol: SubtitleTokens.ActionIcon.copy) { reminder.copy() }
+            if let copy = reminder.copy {
+                button(String(appLocalized: "复制聊天说明"), symbol: SubtitleTokens.ActionIcon.copy) { copy() }
+            }
             button(String(appLocalized: "本场不再提示"), symbol: SubtitleTokens.ActionIcon.dismissReminder) { [weak self] in
                 self?.closeCloudReminder()
             }

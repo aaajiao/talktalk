@@ -483,6 +483,8 @@ public final class MeetingSession: SpeakEchoSink {
         processes = source.objectIDs
         app = source.app
         do { try buildTap() } catch {
+            // The app shows one localized sentence; the cause is kept here.
+            log.event("listen.start_failed", ["error": .tag(String(describing: type(of: error))), "stage": .tag("tap")])
             await p.stop()
             pipeline = nil; listenLanguage = nil; listenTarget = nil
             listenTask = nil; listenTaskConfigurationID = nil

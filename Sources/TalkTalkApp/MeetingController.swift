@@ -28,6 +28,8 @@ final class MeetingController {
     private var listenEngine: EngineProcess?
     private var earlyEngine: EngineProcess?
     private var phoneReadinessDetail: String?
+    /// `phoneProblem` is openPhone()'s own failure.
+    private var phoneOpenFailed = false
     private let languagePopover = NSPopover()
     private let engineProcess: @Sendable () -> EngineProcess?
     private let defaults: UserDefaults
@@ -40,6 +42,8 @@ final class MeetingController {
     /// Live metadata only, read on the main actor when the session's backend is constructed.
     var knownCloudKeyPresence: (@MainActor @Sendable () -> Bool?)?
     var canStartMeeting: () -> Bool = { true }
+    /// macOS installed a locale's speech assets for a start (the Apple resource check reruns).
+    var onSpeechAssetsInstalled: (() -> Void)?
     private let hud: PTTHUD?
     private let privacy: PrivacySettings?
     private var transcript: TranscriptWriter?
@@ -231,7 +235,10 @@ final class MeetingController {
         state.requestedScenario = mode
         Task {
             await start(mode: mode, askForChoice: false)
-            if !lastStartSucceeded, !state.meetingActive, !state.meetingStarting { openScenario(mode) }
+            // The user already went to System Settings from the alert: no extra window.
+            if !lastStartSucceeded, !lastStartOpenedSystemSettings, !state.meetingActive, !state.meetingStarting {
+                openScenario(mode)
+            }
         }
     }
 
@@ -239,9 +246,13 @@ final class MeetingController {
 
     func openPhone() {
         Task {
-            do { try await NativePhone.open() }
-            catch {
+            do {
+                try await NativePhone.open()
+                // A later open that works clears its own earlier failure, not a preparation problem.
+                if phoneOpenFailed { phoneOpenFailed = false; state.phoneProblem = nil; refreshPhoneContext() }
+            } catch {
                 state.phoneProblem = String(appLocalized: "无法打开 Phone，请从“应用程序”中打开后重试。")
+                phoneOpenFailed = true
                 refreshPhoneContext()
             }
         }
@@ -342,7 +353,9 @@ final class MeetingController {
                 }
             } catch {
                 guard self.session === session, listenRequestID == requestID, !Task.isCancelled else { return }
-                let text = String(appLocalized: "字幕识别切换未完成：\(error.localizedDescription)")
+                // The cause goes to the event log; the menu, titlebar and status say it in one phrase.
+                session.eventLog?.event("listen.switch_failed", ["error": .tag(String(describing: type(of: error)))])
+                let text = String(appLocalized: "字幕识别切换未完成")
                 state.listenASRStatus = text
                 state.listenASRFailure = text
                 panel.setHint(text)
@@ -384,7 +397,8 @@ final class MeetingController {
         guard prefs.meetingReminderEnabled, prefs.cloudConsentGiven, prefs.listenCloudEnabled else { return }
         hud?.showCloudReminder(useApple: { [weak self] in
             Task { await self?.session?.useAppleForThisMeeting() }
-        }, copyNotice: { [weak self] in
+        // The chat notice speaks of a synthesized voice to the other party: 视频字幕 has neither.
+        }, copyNotice: session?.mode.supportsSpeaking != true ? nil : { [weak self] in
             let text: String
             switch self?.state.remoteLanguage.lang ?? .en {
             case .zh:
@@ -439,10 +453,13 @@ final class MeetingController {
 
     /// Whether the latest `start` reached `.started` (the quick start opens settings otherwise).
     private var lastStartSucceeded = false
+    /// The latest `start` sent the user to System Settings for a permission.
+    private var lastStartOpenedSystemSettings = false
 
     func start(mode: MeetingMode = .meeting, choice: String? = nil, askForChoice: Bool = true) async {
         let requestedAt = HostClock.now()
         lastStartSucceeded = false
+        lastStartOpenedSystemSettings = false
         guard !state.meetingActive, !state.meetingStarting else { return }
         guard canStartMeeting() else {
             alert(String(appLocalized: "暂时不能开始收听"), String(appLocalized: "请先结束正在运行的自检或说话测试，或等待语音资源维护完成。"))
@@ -453,6 +470,9 @@ final class MeetingController {
         state.meetingStarting = true
         state.lastEndProblem = nil
         state.lastEndAutomatic = nil
+        state.sourceChoicePending = nil
+        // Any start clears the last phone preparation failure, as it does the last end's.
+        state.phoneProblem = nil; phoneOpenFailed = false
         defer {
             state.meetingStarting = false
             // A failed or abandoned start leaves no window behind (idempotent).
@@ -467,7 +487,7 @@ final class MeetingController {
         // preparation stays in the menu (phoneStatus), never a bare titlebar strip, and a
         // leftover notice never shows as a strip while starting.
         if mode == .phone {
-            state.phoneProblem = nil; phoneReadinessDetail = nil
+            phoneReadinessDetail = nil
             state.phoneReadyToDial = false; state.phoneAudioActive = false
             refreshPhoneContext()
             await captionsEngineCleanup?.value
@@ -601,7 +621,10 @@ final class MeetingController {
             }
         case let .needsChoice(ids):
             session = nil
-            guard askForChoice else { return }   // the caller opens the scenario page
+            guard askForChoice else {
+                state.sourceChoicePending = mode   // the caller opens the scenario page, which says why
+                return
+            }
             if let pick = choose(ids) {
                 state.selectSource(pick, for: mode)
                 state.meetingStarting = false
@@ -612,7 +635,8 @@ final class MeetingController {
             if confirm(String(appLocalized: "需要“系统录音”权限"),
                        String(appLocalized: "TalkTalk 收听所选应用的声音来生成字幕。请在“系统设置 › 隐私与安全性 › 录屏与系统录音”里允许 TalkTalk，然后重新开始。"),
                        ok: String(appLocalized: "打开系统设置")) {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                lastStartOpenedSystemSettings = true
+                Self.openSystemAudioPrivacy()
             }
         case let .speechAssetsMissing(l):
             session = nil
@@ -620,28 +644,43 @@ final class MeetingController {
             if confirm(String(appLocalized: "需要下载 \(name) 语音识别资源"),
                        String(appLocalized: "字幕要用 macOS 的语音识别。\(name) 资源约 140 MB，由 macOS 下载和管理。现在下载吗？"),
                        ok: String(appLocalized: "下载")) {
+                state.downloadingSpeechAssets = true
                 do {
                     try await AppleSpeechASR.installAssets(l)
+                    state.downloadingSpeechAssets = false
+                    onSpeechAssetsInstalled?()
                     state.meetingStarting = false
                     await start(mode: mode, choice: choice)
                 } catch {
-                    alert(String(appLocalized: "下载没有完成"), "\(error)")
+                    state.downloadingSpeechAssets = false
+                    // As onboarding step 2: the system's own words, never the raw error.
+                    alert(String(appLocalized: "下载没有完成"), error.localizedDescription)
                 }
             }
         case .speechNotAuthorized:
             session = nil
             if confirm(String(appLocalized: "需要“语音识别”权限"), String(appLocalized: "请在“系统设置 › 隐私与安全性 › 语音识别”里允许 TalkTalk。"), ok: String(appLocalized: "打开系统设置")) {
+                lastStartOpenedSystemSettings = true
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")!)
             }
-        case let .failed(why):
+        case .failed:
+            // The cause stays in the session's listen.start_failed event; the user gets one
+            // localized sentence.
             session = nil
+            let why = String(appLocalized: "字幕识别或声音采集没能启动。可重新开始。")
             if mode == .phone { state.phoneProblem = why }
             alert(String(appLocalized: "无法开始收听"), why)
         }
     }
 
+    /// 系统设置 › 隐私与安全性 › 录屏与系统录音.
+    static func openSystemAudioPrivacy() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+    }
+
+    /// The cause stays in the session's listen.resume_failed event.
     private func showListenFailure(_ message: String) {
-        let text = String(appLocalized: "字幕识别未能恢复：\(message)")
+        let text = String(appLocalized: "字幕识别未能恢复")
         state.listenASRStatus = text
         state.listenASRFailure = text
         panel.setHint(text)

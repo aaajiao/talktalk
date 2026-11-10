@@ -7,6 +7,7 @@ import TalkTalkCore
 import TalkTalkCloudUI
 import TalkTalkSession
 import TalkTalkVoice
+import UserNotifications
 
 /// The normal launch path (ARCHITECTURE.md §13): `TalkTalk` with no arguments starts the menu
 /// bar app. One instance per build flavor (SingleInstance); a second launch brings the running
@@ -30,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let isSmoke: Bool
     private var quitting = false
     private var languageObserver: NSObjectProtocol?
+    private var appleCheckTask: Task<Void, Never>?
 
     init(smoke: Bool, smokeOut: String?) {
         isSmoke = smoke
@@ -56,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings?.refreshAppLanguage()
         onboarding?.refreshAppLanguage()
         meeting?.refreshAppLanguage()
+        systemInput?.refreshAppLanguage()   // its menu line is a stored sentence
+        refreshAppleCheck()                 // so is 通用's and the menu's Apple summary
         hud.refreshAppLanguage()
         conversationPanel.refreshAppLanguage()
         statusItem?.refreshAppLanguage()
@@ -112,15 +116,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         state.onToggleListening = { [weak meeting] mode in meeting?.toggle(mode: mode) }
-        hud.onOpenSettings = { [weak settings, weak onboarding] destination in
+        hud.onOpenSettings = { [weak settings, weak self] destination in
             switch destination {
-            case .audio: settings?.show(.audio)
+            // As the menu's 检查麦克风…: the TalkTalk Mic section, which flashes.
+            case .audio: settings?.show(.audio, nil, anchor: SettingsAnchor.talkTalkMic)
             case .translation:
                 settings?.navigation.openModel(.translation)
                 settings?.show(.translation)
-            case .permissions: onboarding?.show()
+            case .permissions: self?.openSystemAudioPermission()
             }
         }
+        meeting.onSpeechAssetsInstalled = { [weak self] in self?.refreshAppleCheck() }
         meeting.prepareCloud = { [weak settings, weak onboardingModel] in
             onboardingModel?.demo.stop()
             let prefs = TranslationPreferences.load(.standard)
@@ -216,6 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             stillInMeeting: { [weak meeting] in meeting?.stillInMeeting() },
             // 继续使用引导 opens onboarding at its saved step (§8.2).
             openOnboarding: { [weak onboarding] in onboarding?.show() },
+            openPermissions: { [weak self] in self?.openSystemAudioPermission() },
             onboarding: { [weak onboardingModel] in
                 guard let onboardingModel, onboardingModel.needsOnboarding else { return .finished }
                 return .unfinished(onboardingModel.progress)
@@ -270,11 +277,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // §7.5 item 6, in the background; the menu shows a status line when something is missing.
-        Task { [state, isSmoke] in
+        Task { [weak self, isSmoke] in
             if !isSmoke { await AppleSpeechASR.reserveInstalledLocales() }   // the smoke run changes nothing
-            let r = await AppleStartupCheckItem().run()
-            state.appleCheck = r.level == .ok ? nil : String(appLocalized: "Apple：\(r.summary)")
+            self?.refreshAppleCheck()
         }
+        followAppleAssets()
 
         // The installer (onboarding step 4, Settings › 组件) changed the installation: build or
         // drop the engine instance; Settings' 重启引擎 restarts that instance.
@@ -282,6 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engineChanged()
         followInstallation()
         followIconFacts()
+        followStartAvailability()
 
         systemInput?.start()
         speak?.prepareLaunchTakeover()
@@ -295,12 +303,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if !isSmoke {
             Task { await AppUIModels.shared.general.refreshNotifications() }
+            // Clicking the auto-end notification restores a minimized subtitle window.
+            if BuildFlavor.current != .bare { UNUserNotificationCenter.current().delegate = self }
         }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         guard !isSmoke else { return }
         Task { await AppUIModels.shared.general.refreshNotifications() }
+        // Back from System Settings or a download elsewhere: Apple resources may be complete now.
+        refreshAppleCheck()
+    }
+
+    /// §7.5 item 6 again (status APIs only: no prompt, no download, no network), so 通用's row
+    /// and the menu's "Apple 资源待配置" leave once the resources are in place.
+    private func refreshAppleCheck() {
+        appleCheckTask?.cancel()
+        appleCheckTask = Task { [state] in
+            let r = await AppleStartupCheckItem().run()
+            guard !Task.isCancelled else { return }
+            state.appleCheck = r.level == .ok ? nil : String(appLocalized: "Apple：\(r.summary)")
+        }
+    }
+
+    /// Onboarding step 2's downloads, and onboarding finishing: the Apple check runs again.
+    private func followAppleAssets() {
+        guard let model = onboarding?.model else { return }
+        withObservationTracking { _ = (model.assets, model.step) } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.refreshAppleCheck()
+                self?.followAppleAssets()
+            }
+        }
+    }
+
+    /// `state.meetingAvailable`: the menu's quick start and the scenario page's 开始 share one
+    /// answer, from the same facts `canStartMeeting` reads and the onboarding state (§8.2).
+    private func followStartAvailability() {
+        let available = withObservationTracking {
+            _ = (state.speakSessionActive, onboarding?.model.step, onboarding?.model.steps,
+                 onboarding?.model.choosingScenarios, engineHost.maintenanceActive, AppUIModels.shared.engine.running)
+            return onboarding?.model.needsOnboarding != true && meeting?.canStartMeeting() != false
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.followStartAvailability() }
+        }
+        if state.meetingAvailable != available { state.meetingAvailable = available }
+    }
+
+    /// The titlebar's and the menu's 权限设置… for an unconfirmed system-audio grant: onboarding
+    /// when it waits on that very step, else System Settings' pane (as a denied start does).
+    private func openSystemAudioPermission() {
+        if let o = onboarding, o.model.needsOnboarding, o.model.step == .permissions { o.show() }
+        else { MeetingController.openSystemAudioPrivacy() }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -446,6 +500,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppUIModels.shared.engine.installer?.cancel()
         settings?.voice.endRecording()
         Task {
+            // A running session ends as 结束 does: meeting.end, the recordings' .json, the
+            // transcript and the auto-end notification are finished before SPEAK goes.
+            await meeting?.session?.stop(.user)
             await speak?.shutdown()
             await engineHost.engine()?.stop()
             sender.reply(toApplicationShouldTerminate: true)
@@ -653,6 +710,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         writeResult(result, to: smokeOut)
         exit(0)
         #endif
+    }
+}
+
+/// The only notification is the auto-end warning: clicking it activates TalkTalk and brings a
+/// minimized subtitle window back, as a Dock click does; 继续收听 stays in the menu.
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            didReceive response: UNNotificationResponse) async {
+        await MainActor.run {
+            if conversationPanel.canRestoreWindow { conversationPanel.restoreWindow() }
+        }
     }
 }
 

@@ -116,9 +116,17 @@ struct ScenarioBottomBar: View {
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .tint(ends ? Color.red : Color.accentColor)
-        .help(run.help(systemInputSwitched: state.systemInputHeld) ?? "")
+        .help(run.help(systemInputSwitched: state.systemInputHeld, downloadingAssets: state.downloadingSpeechAssets)
+              ?? startBlocked(run) ?? "")
         .accessibilityLabel(run.accessibilityLabel)
         .disabled(!run.isEnabled || state.onToggleListening == nil
                   || (!state.meetingActive && !state.meetingAvailable))
+    }
+
+    /// A disabled 开始 says why, in the menu quick start's words.
+    private func startBlocked(_ run: ScenarioRunState) -> String? {
+        guard case .start = run.action, !state.meetingActive else { return nil }
+        return ScenarioRunState.startBlocked(onboardingNeeded: AppUIModels.shared.general.onboarding?.needsOnboarding == true,
+                                             available: state.meetingAvailable)
     }
 }
