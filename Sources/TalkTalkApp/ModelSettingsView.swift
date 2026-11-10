@@ -206,7 +206,7 @@ extension FlowGrid {
                                accessory: .display {
                                    Text(verbatim: state.speakSourceLanguage.title).font(.caption2).foregroundStyle(.secondary)
                                },
-                               help: String(appLocalized: "按选定语言识别；点按右⌥开始或结束翻译"))),
+                               help: String(appLocalized: "按选定语言识别；点按右⌥开始翻译或完成发言"))),
                 .node(speak), .node(source), .empty
             ])
         ])

@@ -4,7 +4,7 @@ import TalkTalkDriverSupport
 import TalkTalkEngineHost
 
 // m2 driver: `--bench driver <op> --out <file>` (dev build). The real product code paths of
-// "设置 › 组件 › 虚拟麦克风" without the window (§8.4, §11):
+// "设置 › 安装与维护 › 虚拟麦克风" without the window (§8.4, §11):
 //
 //   status                         DriverInstallation.check(), the three devices, 'ttdg' summary
 //   install | uninstall | restart-audio

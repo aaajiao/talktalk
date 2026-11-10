@@ -374,7 +374,7 @@ extension FlowGrid {
         return FlowLane(String(appLocalized: "我说话 · 译音"), gutter: .voice(translating), cells: [
             .node(FlowNode(String(appLocalized: "我说"), glyph: .symbol(Icon.me),
                            accessory: sourceControl,
-                           help: String(appLocalized: "按选定语言识别；点按右⌥开始或结束翻译"))),
+                           help: String(appLocalized: "按选定语言识别；点按右⌥开始翻译或完成发言"))),
             .node(FlowNode(String(appLocalized: "识别与翻译"), glyph: .symbol(Icon.translation),
                            link: links?.node(String(appLocalized: "识别与翻译 · 文本翻译"), .translation, .model(.translation)))),
             .node(FlowNode(String(appLocalized: "我的声音"), glyph: .symbol(Icon.myVoice),

@@ -20,7 +20,11 @@
 #      "extractionState": "manual";
 #   5. titlebar short labels stay short (redesign §3): `titlebarLabel("…")` at most 10 and
 #      `noticeLabel("…")` at most 8 units, where a CJK character, a run of Latin letters/digits
-#      and an interpolation each count as one; spaces and punctuation are free.
+#      and an interpolation each count as one; spaces and punctuation are free. Their English
+#      value must also fit the capsule: at most 138 pt in 11 pt semibold system type (the 180 pt
+#      cap minus padding, icon and chevron; the chip's 148 pt is looser), estimated from the
+#      per-character widths of the system font, so a long English label is caught here instead
+#      of being truncated in the title bar.
 # Interpolations `\(…)` become `%@` in the key; catalog keys compare with %@ / %lld / %ld / %d /
 # %lf / %f (and positional %1$@) treated alike, so a catalog edited in Xcode still matches.
 # The Chinese source keys are stable identifiers. compile-localizations.py validates both
@@ -49,10 +53,24 @@ root, update, quiet = sys.argv[1], sys.argv[2] == "1", sys.argv[3] == "1"
 MARKER = "// l10n: zh-Hans (scripts/check-strings.sh)"
 CATALOG = os.path.join(root, "Resources", "Localizable.xcstrings")
 SHORT_LIMITS = {"titlebarLabel": 10, "noticeLabel": 8}
+# English short labels: 138 pt of text fit the 180 pt capsule (8 + 10 + 4 + text + 12 chevron + 8).
+EN_LABEL_MAX_WIDTH = 138.0
+# SF system font, 11 pt semibold: advance widths of the printable ASCII characters (U+0020...U+007E)
+# in tenths of a point, plus the few other characters English labels use. Anything else counts 11 pt.
+ASCII_WIDTHS = [30,38,60,73,73,110,81,37,46,46,53,73,37,53,37,36,74,55,70,73,74,72,74,66,75,74,37,37,73,73,73,60,102,79,75,81,82,68,65,84,85,34,64,77,65,99,84,87,73,87,75,73,72,83,78,110,79,76,74,46,36,46,73,68,56,64,71,64,71,66,44,70,68,31,31,64,31,101,68,68,70,70,46,61,44,68,63,91,62,64,62,46,32,46,73]
+OTHER_WIDTHS = {"·": 37, "…": 100, "’": 37, "⌥": 110, "–": 68}
 KEY_CALLEES = {"Text", "Button", "Toggle", "Label", "Picker", "LabeledContent", "Section", "Menu", "DisclosureGroup", "ProgressView",
                "alert", "confirmationDialog", "help", "navigationTitle"} | set(SHORT_LIMITS)
 CJK_CHAR = re.compile("[㐀-鿿豈-﫿]")
 LATIN_RUN = re.compile("[A-Za-z0-9]+")
+
+def en_label_width(v):
+    v = SPEC.sub("00", v)
+    total = 0
+    for ch in v:
+        o = ord(ch)
+        total += ASCII_WIDTHS[o - 32] if 32 <= o <= 126 else OTHER_WIDTHS.get(ch, 110)
+    return total / 10.0
 
 def short_units(k):
     k = SPEC.sub("X", k)
@@ -175,6 +193,7 @@ def scan(path, text, line=1, ignore_lines=None):
     return out
 
 used = {}   # normalized key -> (raw key, file:line)
+short_used = []   # (callee, raw key, file:line) of the short-label literals
 files = 0
 for d, _, fs in os.walk(os.path.join(root, "Sources")):
     for f in sorted(fs):
@@ -188,6 +207,8 @@ for d, _, fs in os.walk(os.path.join(root, "Sources")):
             if localized and key:
                 used.setdefault(norm(key), (key, "%s:%d" % (rel, line)))
                 limit = SHORT_LIMITS.get(callee)
+                if limit is not None:
+                    short_used.append((callee, key, "%s:%d" % (rel, line)))
                 if limit is not None and short_units(key) > limit:
                     problems.append("%s:%d: %s label longer than %d characters (put the sentence in the detail): \"%s\"" % (rel, line, callee, limit, key))
             elif cjk and not ignored:
@@ -223,6 +244,12 @@ if update:
     if not quiet: print("check-strings: catalog updated (+%d, -%d, %d keys)" % (len(missing), len(stale), len(catalog["strings"])))
     missing, stale = [], []
     problems = [p for p in problems if not p.startswith("missing catalog") and "sourceLanguage" not in p]
+
+for callee, key, where in short_used:
+    entry = strings.get(have.get(norm(key), key)) or {}
+    value = (((entry.get("localizations") or {}).get("en") or {}).get("stringUnit") or {}).get("value")
+    if value and en_label_width(value) > EN_LABEL_MAX_WIDTH:
+        problems.append("%s: %s English label is about %.0f pt, over the %.0f pt the capsule fits (shorten the en value; the sentence belongs in the detail): \"%s\" = \"%s\"" % (where, callee, en_label_width(value), EN_LABEL_MAX_WIDTH, key, value))
 
 for k in missing:
     raw, where = used[k]

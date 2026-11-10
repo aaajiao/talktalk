@@ -371,7 +371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let engine = engineHost.engine()
         state.installedEngineProfile = engineHost.recognitionProfile
         let components = AppUIModels.shared.engine
-        // nil on success; EngineFailure's description already says "去设置 › 组件 修复".
+        // nil on success; EngineFailure's description already says "去设置 › 安装与维护 修复".
         // restartFromSettings also schedules the §7.6 idle exit after the restart.
         components.restart = engine == nil ? nil : { [weak engineHost] in
             do { try await engineHost?.restartFromSettings(); return nil } catch { return "\(error)" }

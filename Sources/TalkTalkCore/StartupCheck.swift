@@ -99,7 +99,7 @@ public struct EngineStartupCheck: StartupCheckItem {
             return StartupCheckResult(id: id, level: .action, summary: "unfinished install (re-run to resume)", details: d)
         case .damaged(let reason):
             d["reason"] = reason
-            return StartupCheckResult(id: id, level: .action, summary: String(appLocalized: "damaged (repair in 设置 › 组件)"), details: d)
+            return StartupCheckResult(id: id, level: .action, summary: String(appLocalized: "damaged (repair in 设置 › 安装与维护)"), details: d)
         }
     }
 }
