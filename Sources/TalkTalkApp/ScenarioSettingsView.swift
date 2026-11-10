@@ -46,6 +46,11 @@ struct MeetingSettingsView: View {
             AppUIModels.shared.audio.reload()
             driver.load()
         }
+        // The app opened or the microphone plugged in while this page stays mounted.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            state.onRefreshSources?()
+            AppUIModels.shared.audio.reload()
+        }
         // A visit of the phone scene ends: 首次连接 takes its default afresh next time.
         .onDisappear { navigation.phoneSetupDefault = nil }
         .onChange(of: state.requestedScenario) { _, _ in

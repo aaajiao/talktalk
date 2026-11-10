@@ -182,8 +182,14 @@ public struct SettingsProblem: Sendable, Equatable {
     /// A problem reported as a full sentence ("Phone 的音频尚未就绪。请打开 Phone 后重新准备电话同
     /// 传。"): its first clause is the line, the whole sentence the help.
     public init(_ status: SettingsStatus, sentence: String) {
-        let head = sentence.split(whereSeparator: { "，。；".contains($0) }).first.map(String.init) ?? sentence // l10n-ignore
-        let text = head.trimmingCharacters(in: .whitespaces)
+        // The clause ends at "，。；" or a line break, and in English at ". " / "; " or a final ".".
+        let chars = Array(sentence)
+        let end = chars.indices.first { index in
+            let char = chars[index]
+            if "，。；\n".contains(char) { return true } // l10n-ignore
+            return (char == "." || char == ";") && (index + 1 == chars.count || chars[index + 1] == " ")
+        } ?? chars.count
+        let text = String(chars[..<end]).trimmingCharacters(in: .whitespaces)
         self.init(status, text.isEmpty ? sentence : text, help: text == sentence ? nil : sentence)
     }
 

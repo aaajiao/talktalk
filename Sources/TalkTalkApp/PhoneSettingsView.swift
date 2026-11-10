@@ -39,7 +39,7 @@ struct PhoneSettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 FlowGrid.phone(facts, driver: driver, links: links)
                 FlowGrid.phoneSteps(checklist, problem: state.phoneProblem ?? state.phoneInputHint,
-                                    dial: NodeLink(String(appLocalized: "打开 Phone")) { scrollTo(SettingsAnchor.phoneDial) })
+                                    dial: NodeLink(String(appLocalized: "在 Phone 中拨号或接听")) { scrollTo(SettingsAnchor.phoneDial) })
                 if let problem = facts.problem {
                     StatusLabel(problem.text, problem.status, help: problem.help)
                 }

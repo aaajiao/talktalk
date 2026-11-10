@@ -325,10 +325,11 @@ public struct FlowGrid: View {
         return voices.contains { VoiceCapsuleView.width(for: $0, full: true, large: false, chevron: false) > gutterWidth }
     }
 
-    private static func height(for nodes: [FlowNode], columns: Int, gutter: Bool) -> Double {
-        // Conservative content budget at the window's 820 pt minimum. Short labels keep
+    static func height(for nodes: [FlowNode], columns: Int, gutter: Bool) -> Double {
+        // Conservative content budget at the window's 820 pt minimum: the detail area is about
+        // 569 pt there (820 less the 190 pt sidebar and the page margins). Short labels keep
         // the existing compact Chinese layout; wider titles get real line space, not smaller type.
-        let columnWidth = (520 - (gutter ? gutterWidth : 0) - Double(max(0, columns - 1)) * arrowWidth) / Double(columns) - 16
+        let columnWidth = (560 - (gutter ? gutterWidth : 0) - Double(max(0, columns - 1)) * arrowWidth) / Double(columns) - 16
         let longTitle = nodes.contains {
             ($0.title as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width > columnWidth
         }
