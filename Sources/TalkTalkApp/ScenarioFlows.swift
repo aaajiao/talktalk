@@ -114,6 +114,10 @@ struct ScenarioFacts {
         let missing = missingSource.map {
             SettingsProblem(.warn, String(appLocalized: "\($0) 未打开"), help: String(appLocalized: "不会自动换用其他来源"))
         }
+        // The menu's quick start opened this page because automatic selection found several apps.
+        let choice = state.sourceChoicePending == mode && !sessionBusy
+            ? SettingsProblem(.pending, String(appLocalized: "选择要收听的应用"),
+                              help: String(appLocalized: "有多个可用应用，请为当前场景选择一个来源。这个场景会记住你的选择。")) : nil
         switch mode {
         case .meeting:
             let check: SettingsProblem? = switch micCheck {
@@ -121,9 +125,9 @@ struct ScenarioFacts {
             case .notChecked where running: SettingsProblem(.pending, String(appLocalized: "会议麦克风待确认"))
             default: nil
             }
-            return SettingsProblem.mostSevere([risk, noMic, missing, check])
+            return SettingsProblem.mostSevere([risk, noMic, missing, check, choice])
         case .captions:
-            return SettingsProblem.mostSevere([missing])
+            return SettingsProblem.mostSevere([missing, choice])
         case .phone:
             let check = phoneCheck.status == .warn ? phoneCheck : nil
             return SettingsProblem.mostSevere([risk, noMic, check, state.phoneProblem.map { SettingsProblem(.warn, sentence: $0) }])

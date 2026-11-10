@@ -9745,18 +9745,34 @@
         }
       }
     },
-    "字幕识别切换未完成：%@": {
+    "字幕识别切换未完成": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not finish switching subtitle recognition: %@"
+            "value": "Could not finish switching subtitle recognition"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "字幕识别切换未完成：%@"
+            "value": "字幕识别切换未完成"
+          }
+        }
+      }
+    },
+    "字幕识别或声音采集没能启动。可重新开始。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subtitle recognition or audio capture couldn't start. You can start again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字幕识别或声音采集没能启动。可重新开始。"
           }
         }
       }
@@ -9777,18 +9793,18 @@
         }
       }
     },
-    "字幕识别未能恢复：%@": {
+    "字幕识别未能恢复": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subtitle recognition could not recover: %@"
+            "value": "Subtitle recognition could not recover"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "字幕识别未能恢复：%@"
+            "value": "字幕识别未能恢复"
           }
         }
       }

@@ -180,13 +180,25 @@ public struct ScenarioRunState: Sendable, Equatable {
         }
     }
 
-    /// 结束: what the meeting or call receives afterwards; blocked: which scene to end first.
-    public func help(systemInputSwitched: Bool) -> String? {
+    /// 结束: what the meeting or call receives afterwards; blocked: which scene to end first;
+    /// 准备中… for another scene: which one prepares (the menu's words); while macOS downloads
+    /// the speech assets for the start: 下载中.
+    public func help(systemInputSwitched: Bool, downloadingAssets: Bool = false) -> String? {
         switch action {
         case let .end(mode): mode.scene.endHelp(systemInputSwitched: systemInputSwitched)
         case let .blocked(running): String(appLocalized: "先结束\(running.scene.title)")
-        case .start, .progress: nil
+        case let .progress(mode, ending):
+            !ending && downloadingAssets ? String(appLocalized: "下载中") : mode != browsing ? accessibilityLabel : nil
+        case .start: nil
         }
+    }
+
+    /// Why a start waits, for the menu's quick start and the page's 开始 alike (§8.2): onboarding
+    /// first, then a self-test, speaking test or maintenance that holds the audio (the alert's
+    /// sentence); nil when it can start.
+    public static func startBlocked(onboardingNeeded: Bool, available: Bool) -> String? {
+        if onboardingNeeded { return String(appLocalized: "完成引导后可用") }
+        return available ? nil : String(appLocalized: "请先结束正在运行的自检或说话测试，或等待语音资源维护完成。")
     }
 
     public var isEnabled: Bool {

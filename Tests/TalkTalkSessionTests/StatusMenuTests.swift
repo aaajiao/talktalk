@@ -112,6 +112,28 @@ import Testing
         // 通用's 使用引导… row, which carries the same status and downloads again.
         #expect(row(done, "通用设置…")?.kind == .action(.open(.onboarding)))
         #expect(row(done, "Apple 资源待配置")?.help == "Apple：缺少英语识别资源")
+        // A self-test or maintenance holds the start too, with the alert's reason as its tooltip.
+        f.meetingAvailable = false
+        let busy = StatusMenu.rows(f)
+        #expect(!busy[0].isEnabled && busy[0].help == "请先结束正在运行的自检或说话测试，或等待语音资源维护完成。")
+    }
+
+    /// The quick start opened the scene's page for a choice: the idle menu leads back to it;
+    /// a speech-asset download says so on 正在准备…; quitting a session names its consequence.
+    @Test func sourceChoiceDownloadAndQuitRows() {
+        var f = StatusMenuFacts()
+        f.sourceChoicePending = .captions
+        #expect(row(StatusMenu.rows(f), "确认应用…")?.kind == .action(.openScene(.captions)))
+        var starting = StatusMenuFacts()
+        starting.phase = .starting
+        starting.mode = .captions
+        starting.sourceChoicePending = .captions
+        #expect(row(StatusMenu.rows(starting), "确认应用…") == nil)
+        #expect(row(StatusMenu.rows(starting), "正在准备视频字幕…")?.help == nil)
+        starting.downloadingAssets = true
+        #expect(row(StatusMenu.rows(starting), "正在准备视频字幕…")?.help == "下载中")
+        #expect(StatusMenu.rows(StatusMenuFacts()).last?.help == nil)
+        #expect(StatusMenu.rows(running(.phone)).last?.help == SubtitleScene.phone.endHelp(systemInputSwitched: false))
     }
 
     @Test func noStateHasTheMoreSubmenuOrTheEntriesThatMovedToSettings() {
@@ -187,10 +209,10 @@ import Testing
     @Test func aRecognitionFailureHasItsLine() throws {
         var f = running()
         f.voice = voice(.original)
-        f.asrFailure = "字幕识别未能恢复：engine exited"
+        f.asrFailure = "字幕识别未能恢复"
         let rows = StatusMenu.rows(f)
         let line = try #require(index(rows, "字幕识别出错"))
-        #expect(rows[line].tone == .failed && rows[line].help == "字幕识别未能恢复：engine exited")
+        #expect(rows[line].tone == .failed && rows[line].help == "字幕识别未能恢复")
         #expect(rows[line + 1].kind == .action(.open(.recognition)) && rows[line + 1].indented)
         var idle = StatusMenuFacts()
         idle.asrFailure = "x"
@@ -402,12 +424,12 @@ import Testing
         f.meetingHintKind = .audioRestarting
         rows = StatusMenu.rows(f)
         #expect(row(rows, "音频系统重启中")?.tone == .warn && row(rows, "继续收听") == nil)
-        // An unconfirmed recording permission has the chip's 权限设置… (onboarding's permissions).
+        // An unconfirmed recording permission has the chip's 权限设置… (the system-audio grant).
         f.meetingHint = "x"
         f.meetingHintKind = .tccUnconfirmed
         rows = StatusMenu.rows(f)
         let tcc = index(rows, "录音权限未确认")
-        #expect(tcc.map { rows[$0 + 1].kind } == .action(.continueOnboarding) && tcc.map { rows[$0 + 1].title } == "权限设置…")
+        #expect(tcc.map { rows[$0 + 1].kind } == .action(.openPermissions) && tcc.map { rows[$0 + 1].title } == "权限设置…")
     }
 
     @Test func hiddenVideoSubtitlesHaveALineWithTheirSwitch() {

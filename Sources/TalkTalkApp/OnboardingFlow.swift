@@ -655,6 +655,15 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         w.makeKeyAndOrderFront(nil)
         NSApp.activate()
+        // As the settings window: a status-item menu's tracking loop may restore the previous
+        // app's ordering as it exits, so bring it forward once more after this turn.
+        w.orderFrontRegardless()
+        DispatchQueue.main.async { [weak w] in
+            guard let w, w.isVisible, !w.isMiniaturized else { return }
+            NSApp.activate()
+            w.makeKeyAndOrderFront(nil)
+            w.orderFrontRegardless()
+        }
         Task { await model.refresh() }
     }
 
@@ -668,6 +677,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 600),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         w.title = String(appLocalized: "欢迎使用 TalkTalk")
+        w.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         let host = NSHostingView(rootView: OnboardingView(model: model).appLanguage())
         host.sizingOptions = []          // same reason as the settings window
         w.contentView = host

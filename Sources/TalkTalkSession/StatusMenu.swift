@@ -41,6 +41,8 @@ public enum StatusMenuDestination: Sendable, Equatable {
 public enum StatusMenuCommand: Sendable, Equatable {
     /// Opens onboarding at its saved step.
     case continueOnboarding
+    /// 权限设置…: the system-audio grant (onboarding's step while it waits there, else System Settings).
+    case openPermissions
     case quickStart(MeetingMode)
     /// 开始会议同传 while last run's input record waits (恢复输入记录).
     case resumeFromRecord
@@ -161,6 +163,10 @@ public struct StatusMenuFacts: Sendable, Equatable {
     public var lastEndProblem: MeetingMode?
     /// The last session ended by itself: long silence, or no audio when the Mac woke or unlocked.
     public var lastEndAutomatic: MeetingMode?
+    /// The quick start opened this scene's page because several sources were open (确认应用…).
+    public var sourceChoicePending: MeetingMode?
+    /// The start waits for macOS's speech-asset download (正在准备…'s tooltip).
+    public var downloadingAssets = false
     /// TalkTalk Mic's driver is not loaded while a speaking session runs: its lines lead to
     /// 安装与维护 instead of 音频.
     public var driverMissing = false
@@ -247,7 +253,9 @@ public enum StatusMenu {
                  StatusMenuRow(.action(.settings), String(appLocalized: "设置…"), symbol: SubtitleTokens.ActionIcon.settings,
                                keyEquivalent: ","),
                  StatusMenuRow(.action(.about), "\(f.appName) \(f.appVersion)", symbol: "bubble.left.and.bubble.right"),
+                 // Quitting ends the session as 结束 does: the same consequence in its tooltip.
                  StatusMenuRow(.action(.quit), f.devBuild ? String(appLocalized: "退出 TalkTalk Dev") : String(appLocalized: "退出 TalkTalk"),
+                               help: f.inSession ? f.mode.scene.endHelp(systemInputSwitched: f.systemInputSwitched) : nil,
                                keyEquivalent: "q")]
         return rows
     }
@@ -257,7 +265,9 @@ public enum StatusMenu {
     private static func idle(_ f: StatusMenuFacts, issues: [StatusMenuRow]) -> [StatusMenuRow] {
         var rows: [StatusMenuRow] = []
         if f.phase == .starting {
-            rows.append(progress(f.mode, ending: false))
+            var row = progress(f.mode, ending: false)
+            if f.downloadingAssets { row.help = String(appLocalized: "下载中") }
+            rows.append(row)
         } else {
             let quick = MenuQuickStart.make(last: f.lastScenario, sourceName: f.quickStartSource,
                                             remoteLanguage: f.listenLanguage, targetLanguage: f.listenTargetLanguage)
@@ -276,9 +286,10 @@ public enum StatusMenu {
         return rows + toggles(f)
     }
 
-    /// Why the scene's start waits (§8.2); nil when it can start.
+    /// Why the scene's start waits (§8.2); nil when it can start. The scenario page's 开始 says
+    /// the same.
     private static func startBlocked(_ f: StatusMenuFacts) -> String? {
-        f.onboardingNeeded ? String(appLocalized: "完成引导后可用") : nil
+        ScenarioRunState.startBlocked(onboardingNeeded: f.onboardingNeeded, available: f.meetingAvailable)
     }
 
     // MARK: C 运行中
@@ -599,15 +610,19 @@ public enum StatusMenu {
                 ? [StatusMenuRow(.action(.stillInMeeting), String(appLocalized: "继续收听"), symbol: SubtitleTokens.VoiceIcon.listening)] : []
             // The chip's 权限设置… in the subtitle window's details, also here (视频 may show no window).
             if f.meetingHintKind == .tccUnconfirmed {
-                fixes.append(StatusMenuRow(.action(.continueOnboarding), String(appLocalized: "权限设置…"),
+                fixes.append(StatusMenuRow(.action(.openPermissions), String(appLocalized: "权限设置…"),
                                            symbol: SubtitleTokens.MenuIcon.onboarding))
             }
             list.append(Issue(tone, chip?.label ?? hint, symbol: chip?.symbol ?? warning?.symbol, help: chip?.detail ?? hint,
                               fixes: fixes))
         }
 
-        if f.phase == .running, f.mode != .phone, (f.meetingApp ?? "").isEmpty, !f.usesGlobalFallback {
-            list.append(Issue(.pending, action: StatusMenuRow(.action(.openScene(f.mode)), String(appLocalized: "确认应用…"),
+        // The quick start found several sources and opened the scene's page; or a session runs
+        // without a named source.
+        let choiceMode: MeetingMode? = f.phase == .idle ? f.sourceChoicePending
+            : f.phase == .running && f.mode != .phone && (f.meetingApp ?? "").isEmpty && !f.usesGlobalFallback ? f.mode : nil
+        if let choiceMode {
+            list.append(Issue(.pending, action: StatusMenuRow(.action(.openScene(choiceMode)), String(appLocalized: "确认应用…"),
                                                               symbol: SubtitleTokens.MenuIcon.audioUnconfirmed,
                                                               help: String(appLocalized: "选择要收听的应用"))))
         }

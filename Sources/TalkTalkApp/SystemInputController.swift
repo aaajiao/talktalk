@@ -94,6 +94,12 @@ final class SystemInputController {
         route.refresh()
     }
 
+    /// The menu's default-input line in the new interface language (its status is unchanged).
+    func refreshAppLanguage() {
+        state.systemInput = Self.text(switcher.status)
+        state.systemInputNotice = Self.menuNotice(switcher.status)
+    }
+
     /// App launch starts listeners. With SPEAK, takeover waits for the output owner's Feed.
     func start() {
         switcher.start()

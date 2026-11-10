@@ -20,6 +20,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         var quit: () -> Void
         var stillInMeeting: () -> Void = {}
         var openOnboarding: () -> Void = {}
+        /// 权限设置… for an unconfirmed system-audio grant (the titlebar chip's own).
+        var openPermissions: () -> Void = {}
         /// Whether onboarding is unfinished, and at which step (state A).
         var onboarding: () -> OnboardingProgressState = { .finished }
         var canPlayAnnouncement: () -> Bool = { false }
@@ -211,6 +213,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         f.meetingHintKind = state.meetingHintKind
         f.lastEndProblem = state.lastEndProblem
         f.lastEndAutomatic = state.lastEndAutomatic
+        f.sourceChoicePending = state.sourceChoicePending
+        f.downloadingAssets = state.downloadingSpeechAssets
         // Only a speaking session reads it: TalkTalk Mic's device is absent, its driver not loaded.
         f.driverMissing = state.meetingActive && state.meetingMode.supportsSpeaking
             && CoreAudioDriverHAL().device(uid: DriverIdentity.micUID) == nil
@@ -360,6 +364,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard commands.indices.contains(sender.tag) else { return }
         switch commands[sender.tag] {
         case .continueOnboarding: actions.openOnboarding()
+        case .openPermissions: actions.openPermissions()
         case let .quickStart(mode): actions.quickStart(mode)
         case .resumeFromRecord: actions.toggleMeeting()
         case let .openScene(mode):
@@ -379,7 +384,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .playAnnouncement: actions.playAnnouncement()
         case .settings: actions.openSettings(nil)
         // The app identity row also keeps access to the standard About panel.
-        case .about: NSApp.orderFrontStandardAboutPanel(nil)
+        case .about:
+            NSApp.activate()   // in front of the app that was active when the menu opened
+            NSApp.orderFrontStandardAboutPanel(nil)
         case .quit: actions.quit()
         }
     }

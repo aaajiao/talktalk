@@ -57,6 +57,17 @@ import TalkTalkCore
         #expect(stopping.runningSource(meetingApp: nil) == nil)
         #expect(ScenarioRunState(running: .phone, phase: .running, browsing: .phone).runningSource(meetingApp: nil) == "Phone")
         #expect(ScenarioRunState(running: .captions, phase: .starting, browsing: .captions).title == "准备中…")
+        // 准备中… on another scene's page names the scene that prepares; a download says so.
+        let preparing = ScenarioRunState(running: .phone, phase: .starting, browsing: .meeting)
+        #expect(preparing.help(systemInputSwitched: false) == "正在准备电话同传…")
+        #expect(ScenarioRunState(running: .phone, phase: .starting, browsing: .phone).help(systemInputSwitched: false) == nil)
+        #expect(preparing.help(systemInputSwitched: false, downloadingAssets: true) == "下载中")
+        #expect(stopping.help(systemInputSwitched: false, downloadingAssets: true) == "正在结束电话同传…")
+        // The menu's and the page's start wait for the same reasons.
+        #expect(ScenarioRunState.startBlocked(onboardingNeeded: true, available: false) == "完成引导后可用")
+        #expect(ScenarioRunState.startBlocked(onboardingNeeded: false, available: false)
+                == "请先结束正在运行的自检或说话测试，或等待语音资源维护完成。")
+        #expect(ScenarioRunState.startBlocked(onboardingNeeded: false, available: true) == nil)
     }
 
     @Test func phoneDeliverySaysWhereMyVoiceGoes() {
