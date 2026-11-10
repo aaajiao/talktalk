@@ -72,7 +72,9 @@ final class SpeakController {
     private var sessionTarget: Lang?
     private var sessionSource: Lang?
     private var sessionRecognitionEngine: SpeechRecognitionEngine?
-    private var translationRefusal: String?
+    private var translationRefusal: (text: String, settings: HUDLine.SettingsDestination?)?
+    /// Phone: Feed is ready but neither the default input nor Phone's own choice is TalkTalk Mic.
+    private var phoneInputHint: String?
     /// Start-up waits read "未发送", not "音频不可用", until ready or 3 s (SpeakStartupWait).
     private var startupWait = SpeakStartupWait()
     private var startupTimer: Timer?
@@ -480,7 +482,7 @@ final class SpeakController {
                         log.event("key.refused", ["reason": .tag(String(describing: reason))], at: at)
                         if self?.demoActive == true { self?.onDemoStatus?(Self.pressRefusal(reason)) }
                         else {
-                            self?.translationRefusal = Self.pressRefusal(reason)
+                            self?.translationRefusal = (Self.pressRefusal(reason), Self.refusalSettings(reason))
                             self?.refreshMeetingAudio()
                             self?.systemInput.retryGuardCue()
                         }
@@ -536,12 +538,20 @@ final class SpeakController {
                     }
                 }
             }
+            // A restart that succeeds clears an earlier failed start of this meeting.
+            if session?.mode == .meeting { hud.setSceneIssue(nil) }
         } catch {
             if demo { demoFailure = error.localizedDescription }
             await end()
             if !demo { meeting.phoneSpeechFailed(session) }
-            hud.show(String(appLocalized: "说话链路未能启动，请检查组件和输入监控权限。"), .yellow,
-                     label: titlebarLabel("说话链路未能启动"))
+            let sentence = String(appLocalized: "说话链路未能启动，请检查组件和输入监控权限。")
+            if let session, session.mode == .meeting, meeting.session === session, case .running = session.state {
+                // The meeting keeps listening without speech: a problem that stays until it ends.
+                hud.setSceneIssue(HUDChip(titlebarLabel("说话链路未能启动"), symbol: "exclamationmark.triangle",
+                                          tone: .warn, detail: sentence, settingsDestination: .permissions))
+            } else {
+                hud.show(sentence, .yellow, label: titlebarLabel("说话链路未能启动"))
+            }
         }
         warming = false; onChange?()
     }
@@ -642,13 +652,16 @@ final class SpeakController {
             if case .physicalMic = systemInput.micGuard.state.verdict {
                 detail = String(appLocalized: "请在 Phone 的“音频 › 麦克风”选择“使用系统设置”或 TalkTalk Mic。")
             } else if feedConfirmed, !inputReady {
-                detail = String(appLocalized: "请开启自动接入系统输入，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。")
+                detail = String(appLocalized: "请开启“同传时设为系统默认输入”，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。")
             } else if speaker == true {
                 detail = String(appLocalized: "请使用耳机；外放时，原声发送会受回声保护限制。")
             } else if state.phoneAudioActive, speaker == nil {
                 detail = String(appLocalized: "电话音频已接入，正在确认通话输出设备…")
             } else { detail = nil }
             meeting.updatePhoneReadiness(ready, detail: detail)
+            let hint = feedConfirmed && !inputReady ? detail : nil
+            if phoneInputHint != hint { phoneInputHint = hint }
+            if state.phoneInputHint != hint { state.phoneInputHint = hint }
         }
         keys.updateFacts(at: HostClock.now(), phoneLocalSpeechReady: facts.allowsPhoneLocalSpeech) {
             $0 = facts.passthrough
@@ -669,7 +682,9 @@ final class SpeakController {
         }
         let waitingForPhone = owner.mode == .phone && state.phoneReadyToDial
             && systemInput.micGuard.state.verdict == .noReader
-        if speaker != false && !waitingForPhone { hud.post(.speakerMode) } else { hud.clear(.speakerMode) }
+        // Unknown playback is still handled as speakers; only a known speaker route says so.
+        if speaker == true && !waitingForPhone { hud.post(.speakerMode) } else { hud.clear(.speakerMode) }
+        if speaker == nil && !waitingForPhone { hud.post(.playbackUnknown) } else { hud.clear(.playbackUnknown) }
         refreshMeetingAudio()
     }
 
@@ -728,9 +743,16 @@ final class SpeakController {
     private func refreshMeetingAudio() {
         guard !demoActive, let owner, let keys else { hud.meetingAudio(nil); return }
         let now = ProcessInfo.processInfo.systemUptime
-        func report(_ audio: HUDModel.MeetingAudio) {
+        func report(_ audio: HUDModel.MeetingAudio, translationKey: Bool = false,
+                    settings: HUDLine.SettingsDestination? = .audio) {
             startupWait.observe(audio)
-            hud.meetingAudio(audio)
+            hud.meetingAudio(audio, translationKey: translationKey, settings: settings)
+        }
+        func report(_ reason: PassthroughPolicy.DenyReason, translationKey: Bool = false) {
+            // Phone's missing reader has one actionable sentence; other reasons say their own.
+            if let phoneInputHint { report(.unavailable(reason: phoneInputHint), settings: .audio); return }
+            let unavailable = Self.unavailable(reason)
+            report(.unavailable(reason: unavailable.text), translationKey: translationKey, settings: unavailable.settings)
         }
         guard case .running = owner.state else {
             report(.unavailable(reason: String(appLocalized: "音频已暂停"))); return
@@ -750,9 +772,9 @@ final class SpeakController {
             report(startupWait.waiting(reason: String(appLocalized: "正在等待按键监听恢复"), now: now)); return
         }
         if case let .unavailable(reason) = audio.translationReadiness {
-            report(.unavailable(reason: reason.hudText ?? String(appLocalized: "正在等待音频就绪")))
-        } else if let reason = translationRefusal, audio.held == true {
-            report(.unavailable(reason: reason))
+            report(reason)
+        } else if let refusal = translationRefusal, audio.held == true {
+            report(.unavailable(reason: refusal.text), settings: refusal.settings)
         } else if audio.originalOpen {
             report(.original)
         } else if audio.recordingActive {
@@ -769,7 +791,10 @@ final class SpeakController {
             // This is normal progress, never a claim that raw audio is already flowing.
             report(.restoringOriginal)
         } else if case let .unavailable(reason) = audio.originalReadiness {
-            report(.unavailable(reason: reason.hudText ?? String(appLocalized: "正在等待音频就绪")))
+            // Translation is available in the same snapshot: the key still starts it.
+            report(reason, translationKey: true)
+        } else if let phoneInputHint {
+            report(.unavailable(reason: phoneInputHint))
         } else {
             report(.unavailable(reason: String(appLocalized: "正在等待音频就绪")))
         }
@@ -785,7 +810,7 @@ final class SpeakController {
             hud.pushToTalk(p)
             if demoActive {
                 switch p {
-                case .holding: onDemoStatus?(String(appLocalized: "翻译收音中，再按右⌥结束。"))
+                case .holding: onDemoStatus?(String(appLocalized: "翻译收音中，再点按右⌥完成发言。"))
                 case .idle: break
                 default: break
                 }
@@ -858,6 +883,8 @@ final class SpeakController {
         restartQueued = false; announcementEnabled = nil
         speaking = false; passthroughOpen = false; degraded = false; warming = false
         translationRefusal = nil
+        phoneInputHint = nil
+        if state.phoneInputHint != nil { state.phoneInputHint = nil }
         onChange?()
         if wasDemo, !state.meetingActive { hud.meetingEnded() }
     }
@@ -974,6 +1001,34 @@ final class SpeakController {
         case .noMeetingReader: String(appLocalized: "没有可用的实体麦克风，请在设置 › 音频中检查。")
         case .meetingUsesPhysicalMic: String(appLocalized: "会议 App 正在使用实体麦克风。")
         case .notInSession: String(appLocalized: "说话测试尚未启动。")
+        }
+    }
+
+    /// Where a refused press is fixed; nil: nothing in Settings changes it.
+    private static func refusalSettings(_ reason: PushToTalkKey.BlockReason) -> HUDLine.SettingsDestination? {
+        switch reason {
+        case .secureInput, .notInSession: nil
+        case .awaitingAudioConfirmation: .permissions
+        case .noMeetingReader, .meetingUsesPhysicalMic: .audio
+        }
+    }
+
+    /// "音频不可用"'s reason in the words already used for a refused press or a warning, and
+    /// where it is fixed (nil: nothing in Settings changes it, e.g. secure input).
+    private static func unavailable(_ reason: PassthroughPolicy.DenyReason)
+        -> (text: String, settings: HUDLine.SettingsDestination?) {
+        switch reason {
+        case .secureInput, .unknown(.secureInput): (pressRefusal(.secureInput), nil)
+        case .tapUnhealthy, .unknown(.tapHealthy): (pressRefusal(.awaitingAudioConfirmation), .permissions)
+        case .micNotAllowed, .unknown(.physicalMicPassesRule2): (pressRefusal(.noMeetingReader), .audio)
+        case .meetingUsesPhysicalMic: (pressRefusal(.meetingUsesPhysicalMic), .audio)
+        case .speakerMode: (HUDModel.Warning.speakerMode.text, .audio)
+        case .unknown(.speakerMode): (HUDModel.Warning.playbackUnknown.text, .audio)
+        case .selfTestRunning, .unknown(.selfTestRunning): (String(appLocalized: "自检进行中，原声暂不可用"), nil)
+        case .noReaderOfTalkTalkMic, .pushToTalkActive:
+            (reason.hudText ?? String(appLocalized: "正在等待音频就绪"), .audio)
+        case .meetingModeOff, .settingOff, .unknown, .awaitingAudioConfirmation:
+            (String(appLocalized: "正在等待音频就绪"), .audio)
         }
     }
 

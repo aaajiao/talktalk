@@ -349,7 +349,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
         }
         if let deliveryItem {
-            let delivery = voice.flatMap { PhoneDelivery($0.kind) }
+            let confirmed = ScenarioFacts(state: state, mode: .phone).phoneCheck.status == .ok
+            let delivery = voice.flatMap { PhoneDelivery($0.kind, phoneInputConfirmed: confirmed) }
             deliveryItem.isHidden = delivery == nil
             if let delivery {
                 deliveryItem.title = delivery.text

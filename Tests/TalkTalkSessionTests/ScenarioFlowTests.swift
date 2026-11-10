@@ -79,6 +79,9 @@ import TalkTalkCore
         #expect(PhoneDelivery(.phoneLocalTrial)?.symbol == SubtitleTokens.VoiceIcon.thisMac)
         // The risk capsule stands alone: no "仅本机" beside "对方能听到原声".
         #expect(PhoneDelivery(.remoteHearsOriginal) == nil)
+        // 松开确认 before Phone reads TalkTalk Mic stays on this Mac.
+        #expect(PhoneDelivery(.switching, phoneInputConfirmed: false) == .thisMacOnly)
+        #expect(PhoneDelivery(.switching, phoneInputConfirmed: true) == .sentToPhone)
     }
 
     @Test func browserNoteOnlyForBrowsers() {
@@ -112,5 +115,12 @@ import TalkTalkCore
         let stopping = PhoneChecklist.make(phoneSession: true, starting: false, stopping: true, active: true,
                                            readyToDial: true, dialing: false, callAudioActive: false)
         #expect(stopping.prepare == .inProgress && stopping.finish == .inProgress)
+        // Readiness lost after it was reached (barrier, physical mic) keeps ① and ② as they were.
+        let lost = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
+                                       readyToDial: false, dialing: false, callAudioActive: true, wasReady: true)
+        #expect(lost.prepare == .done && lost.dialEnabled && lost.dial == .done)
+        let neverReady = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
+                                             readyToDial: false, dialing: false, callAudioActive: false, wasReady: false)
+        #expect(neverReady.prepare == .inProgress && !neverReady.dialEnabled)
     }
 }

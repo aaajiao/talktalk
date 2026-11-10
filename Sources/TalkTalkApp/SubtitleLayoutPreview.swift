@@ -418,8 +418,10 @@ final class SubtitlePreviewCanvas: NSView {
 
     private func languageDetail(_ configuration: SubtitleLayoutPreview.Configuration) -> String {
         let listen = configuration.listeningLanguages
-        let detail = String(appLocalized: "原文：\(listen.source.title) → 译文：\(listen.target.title)")
-        guard configuration.scene != .video else { return detail }
+        guard configuration.scene != .video else {
+            return String(appLocalized: "原文：\(listen.source.title) → 字幕：\(listen.target.title)")
+        }
+        let detail = String(appLocalized: "对方说：\(listen.source.title) → 字幕：\(listen.target.title)")
         let speak = configuration.speakingLanguages
         return detail + "\n" + String(appLocalized: "我说：\(speak.source.lang.title) → 译音：\(speak.target.lang.title)")
     }

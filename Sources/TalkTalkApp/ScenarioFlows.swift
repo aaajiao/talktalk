@@ -130,7 +130,8 @@ struct ScenarioFacts {
             return SettingsProblem.mostSevere([missing, choice])
         case .phone:
             let check = phoneCheck.status == .warn ? phoneCheck : nil
-            return SettingsProblem.mostSevere([risk, noMic, check, state.phoneProblem.map { SettingsProblem(.warn, sentence: $0) }])
+            return SettingsProblem.mostSevere([risk, noMic, check, state.phoneProblem.map { SettingsProblem(.warn, sentence: $0) },
+                                               state.phoneInputHint.map { SettingsProblem(.warn, sentence: $0) }])
         }
     }
 
@@ -310,7 +311,7 @@ extension FlowGrid {
 
     private static var loop: LoopRow {
         LoopRow(key: TitlebarKey(action: String(appLocalized: "结束翻译"), drawsAction: false, style: .idle),
-                text: String(appLocalized: "播完回到原声"), spoken: String(appLocalized: "再点按右⌥结束；译音播完后回到原声"))
+                text: String(appLocalized: "播完回到原声"), spoken: String(appLocalized: "再点按右⌥完成发言；译音播完后回到原声"))
     }
 
     private static func listenLane(_ facts: ScenarioFacts, remote: FlowNode, links: ScenarioLinks?) -> FlowLane {

@@ -240,10 +240,13 @@ public enum PhoneDelivery: Sendable, Equatable {
     /// 未发送.
     case notSent
 
-    public init?(_ kind: VoiceState.Kind) {
+    /// `phoneInputConfirmed`: Phone reads TalkTalk Mic. The key-down 松开确认 alone does not
+    /// say where speech goes, so before Phone reads it stays on this Mac.
+    public init?(_ kind: VoiceState.Kind, phoneInputConfirmed: Bool = true) {
         switch kind {
         case .remoteHearsOriginal: return nil
-        case .original, .translating, .processing, .playingTranslation, .switching: self = .sentToPhone
+        case .switching: self = phoneInputConfirmed ? .sentToPhone : .thisMacOnly
+        case .original, .translating, .processing, .playingTranslation: self = .sentToPhone
         case .phoneLocalTrial, .phoneLocalOnly, .localPlayback: self = .thisMacOnly
         case .phoneNotConnected: self = .waitingForCall
         case .notSent, .restoring, .unavailable, .phoneReconnecting, .listening: self = .notSent
@@ -288,11 +291,15 @@ public struct PhoneChecklist: Sendable, Equatable {
     public var dialEnabled: Bool { prepare == .done }
 
     /// `phoneSession`: the running (or starting/stopping) session is the phone scenario.
+    /// `wasReady`: this session has been ready to dial. A readiness lost later (Phone reads the
+    /// physical microphone, the reader-change barrier) keeps ① done; the problem row and the
+    /// Phone node say what is wrong.
     public static func make(phoneSession: Bool, starting: Bool, stopping: Bool, active: Bool,
-                            readyToDial: Bool, dialing: Bool, callAudioActive: Bool) -> PhoneChecklist {
+                            readyToDial: Bool, dialing: Bool, callAudioActive: Bool,
+                            wasReady: Bool = false) -> PhoneChecklist {
         guard phoneSession else { return PhoneChecklist(prepare: .pending, dial: .pending, finish: .pending) }
         let prepare: Status
-        if active, readyToDial, !stopping { prepare = .done }
+        if active, readyToDial || wasReady || callAudioActive, !stopping { prepare = .done }
         else if starting || stopping || active { prepare = .inProgress }
         else { prepare = .pending }
         let dial: Status = prepare != .done ? .pending : callAudioActive ? .done : dialing ? .inProgress : .pending
