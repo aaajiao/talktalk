@@ -68,6 +68,9 @@ final class MyVoiceModel {
     var installerRunning: Bool { components.running }
     /// The same installed-resource facts used by 安装与维护; no engine is started to read them.
     var synthesisProblem: SettingsProblem? { components.synthesisProblem }
+    /// The installation, not the engine instance (dropped during maintenance): the scenario
+    /// pages' fact for 我的声音 vs 系统声音.
+    var engineInstalled: Bool { components.installed }
     var synthesisModelName: String? { components.modelName(role: "tts") }
     /// The chosen synthesis model's short name, as the chip on 识别与翻译 › 语音合成.
     var synthesisModelShortName: String? {
@@ -513,7 +516,7 @@ extension FlowGrid {
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
         // The profile controls are in this same graphic, so the satellite needs no self-link.
         // A profile without an installed engine is synthesized with the system voice, as the menu says.
-        let satellite = model.hasProfile && model.engineAvailable
+        let satellite = model.hasProfile && model.engineInstalled
             ? FlowSatellite(String(appLocalized: "我的声音"), symbol: Icon.myVoice, help: String(appLocalized: "用我的声音合成译音"))
             : FlowSatellite(String(appLocalized: "系统声音"), symbol: Icon.speech,
                             help: model.hasProfile ? String(appLocalized: "引擎未安装，声音档案暂不能用")

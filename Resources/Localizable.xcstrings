@@ -11025,6 +11025,22 @@
         }
       }
     },
+    "尚未读到 Phone 的播放设备": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone’s playback device has not been detected"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未读到 Phone 的播放设备"
+          }
+        }
+      }
+    },
     "尚未读到会议应用的播放设备": {
       "localizations": {
         "en": {

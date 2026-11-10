@@ -507,13 +507,15 @@ struct EngineControlRows: View {
                 }
                 .disabled(model.maintenanceBlocked)
             } else if model.needsRepair && !custom {
-                // No record (an unfinished run): no explicit profile, so the installer keeps the
-                // combination install.json.prev recorded instead of installing 标准.
-                Button { model.confirmAndRun(.install(profile: recorded)) } label: {
+                // An unfinished run: no explicit profile, so the installer keeps the combination
+                // install.json.prev recorded instead of installing 标准. An unreadable install.json
+                // has nothing to keep: the picker's profile, as before.
+                let repairing = recorded ?? (model.state == .unfinished ? nil : model.profile)
+                Button { model.confirmAndRun(.install(profile: repairing)) } label: {
                     Label("修复", systemImage: Icon.repair).labelStyle(.titleAndIcon)
                 }
                 .disabled(model.maintenanceBlocked)
-                .help(ifPresent: recorded.map { String(appLocalized: "重新安装 \(EngineComponentsModel.profileTitle($0))") })
+                .help(ifPresent: repairing.map { String(appLocalized: "重新安装 \(EngineComponentsModel.profileTitle($0))") })
             }
             if model.pendingPresetID != nil {
                 Button("换档") { model.confirmAndRun(installing) }
@@ -566,13 +568,18 @@ struct EngineControlRows: View {
         // The flow's ready badge and profile already describe a healthy installation. While a
         // run goes its progress row speaks, and after a failed run the result row already
         // says 未完成.
-        if model.progress != nil || (model.state == .unfinished && model.lastResult?.status == .failed) {
+        // A failed repair without a record may be a custom combination the installer cannot
+        // repeat: choosing a preset and 换档 is the way out.
+        let presetRepair = (model.customRepairRequiresPreset
+            || (model.record == nil && model.needsRepair && model.lastResult?.status == .failed))
+            && model.pendingPresetID == nil
+        if model.progress != nil || (model.state == .unfinished && model.lastResult?.status == .failed && !presetRepair) {
             EmptyView()
         } else if model.sessionInProgress {
             StatusLabel(String(appLocalized: "当前操作结束后可维护"), .waiting,
                         help: String(appLocalized: "结束当前会话、录音或试听后维护引擎"))
                 .padding(.leading, Ladder.rowTextInset)
-        } else if model.customRepairRequiresPreset && model.pendingPresetID == nil {
+        } else if presetRepair {
             StatusLabel(String(appLocalized: "选择组合以修复引擎"), .warn,
                         help: String(appLocalized: "请选择安装组合并点击“换档”；识别与合成模型将按所选组合配置。"))
                 .padding(.leading, Ladder.rowTextInset)

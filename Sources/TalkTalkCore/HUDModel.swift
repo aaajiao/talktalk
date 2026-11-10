@@ -3,7 +3,8 @@ import Foundation
 
 /// One line of the push-to-talk HUD (ARCHITECTURE.md §11 按键说话 HUD).
 public struct HUDLine: Sendable, Equatable {
-    public enum SettingsDestination: Sendable, Equatable { case audio, translation, permissions }
+    /// `permissions`: the system-audio grant; `inputMonitoring`: key listening (输入监控).
+    public enum SettingsDestination: Sendable, Equatable { case audio, translation, permissions, inputMonitoring }
     public enum Style: String, Sendable, Equatable {
         case normal
         /// Gray: hints, live preview, refusal reasons.
@@ -210,6 +211,11 @@ public struct HUDModel: Sendable, Equatable {
                 return HUDChip(titlebarLabel("Phone 在用实体麦"), symbol: chip.symbol, tone: chip.tone,
                                detail: String(appLocalized: "请在 Phone 的“音频 › 麦克风”选择“使用系统设置”或 TalkTalk Mic。"),
                                settingsDestination: chip.settingsDestination)
+            }
+            // Phone is the app whose playback is not read yet.
+            if scene == .phone, self == .playbackUnknown, var phone = chip {
+                phone.detail = String(appLocalized: "尚未读到 Phone 的播放设备")
+                return phone
             }
             guard scene == .video else { return chip }
             switch self {

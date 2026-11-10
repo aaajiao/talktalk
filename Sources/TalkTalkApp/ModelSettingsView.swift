@@ -133,12 +133,15 @@ extension FlowGrid {
         typealias Icon = SubtitleTokens.SettingsIcon
         let problem = SettingsProblem.mostSevere([engine.synthesisProblem,
                                                   engine.canSelectSynthesis ? nil : engine.problem])
-        let voice = state.voiceProfilePresent
+        // A profile without an installed engine is synthesized with the system voice, as on
+        // 我的声音, the scenario pages and the menu.
+        let voice = state.voiceProfilePresent && engine.installed
             ? FlowSatellite(String(appLocalized: "我的声音"), symbol: Icon.myVoice,
                             help: String(appLocalized: "用我的声音合成译音"),
                             link: links.node(String(appLocalized: "我的声音"), .voice))
             : FlowSatellite(String(appLocalized: "系统声音"), symbol: Icon.speech,
-                            help: String(appLocalized: "未录制时用系统声音"), dashed: true,
+                            help: state.voiceProfilePresent ? String(appLocalized: "引擎未安装，声音档案暂不能用")
+                                                            : String(appLocalized: "未录制时用系统声音"), dashed: true,
                             link: links.node(String(appLocalized: "我的声音"), .voice))
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
         return FlowGrid(String(appLocalized: "语音合成路径"), lanes: [

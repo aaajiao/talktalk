@@ -583,6 +583,8 @@ import Testing
         #expect(chip.label == "Phone 在用实体麦" && chip.tone == .risk && chip.settingsDestination == .audio)
         #expect(!chip.detail.contains("会议"))
         #expect(HUDModel.Warning.remoteHearsYourVoice.chip(scene: .meeting)?.label == "会议在用实体麦")
+        let playback = try #require(HUDModel.Warning.playbackUnknown.chip(scene: .phone))
+        #expect(playback.label == "播放设备未确认" && playback.detail == "尚未读到 Phone 的播放设备")
         let risk = VoiceState.resolve(audio: .original, scene: .phone, phoneInputConfirmed: true,
                                       risk: .remoteHearsYourVoice)
         #expect(MicDockPresentation.make(risk, scene: .phone).consequence == "Phone 没有使用 TalkTalk Mic")

@@ -58,7 +58,7 @@ EN_LABEL_MAX_WIDTH = 138.0
 # SF system font, 11 pt semibold: advance widths of the printable ASCII characters (U+0020...U+007E)
 # in tenths of a point, plus the few other characters English labels use. Anything else counts 11 pt.
 ASCII_WIDTHS = [30,38,60,73,73,110,81,37,46,46,53,73,37,53,37,36,74,55,70,73,74,72,74,66,75,74,37,37,73,73,73,60,102,79,75,81,82,68,65,84,85,34,64,77,65,99,84,87,73,87,75,73,72,83,78,110,79,76,74,46,36,46,73,68,56,64,71,64,71,66,44,70,68,31,31,64,31,101,68,68,70,70,46,61,44,68,63,91,62,64,62,46,32,46,73]
-OTHER_WIDTHS = {"·": 37, "…": 100, "’": 37, "⌥": 110, "–": 68}
+OTHER_WIDTHS = {"·": 37, "…": 100, "\u2019": 37, "⌥": 110, "–": 68}
 KEY_CALLEES = {"Text", "Button", "Toggle", "Label", "Picker", "LabeledContent", "Section", "Menu", "DisclosureGroup", "ProgressView",
                "alert", "confirmationDialog", "help", "navigationTitle"} | set(SHORT_LIMITS)
 CJK_CHAR = re.compile("[㐀-鿿豈-﫿]")

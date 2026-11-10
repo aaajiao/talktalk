@@ -123,10 +123,10 @@ struct ScenarioBottomBar: View {
                   || (!state.meetingActive && !state.meetingAvailable))
     }
 
-    /// A disabled 开始 says why, in the menu quick start's words.
+    /// A disabled 开始 says why, in the menu quick start's words. Unfinished onboarding blocks
+    /// only the menu's quick start: this page stays usable while onboarding is postponed.
     private func startBlocked(_ run: ScenarioRunState) -> String? {
         guard case .start = run.action, !state.meetingActive else { return nil }
-        return ScenarioRunState.startBlocked(onboardingNeeded: AppUIModels.shared.general.onboarding?.needsOnboarding == true,
-                                             available: state.meetingAvailable)
+        return ScenarioRunState.startBlocked(onboardingNeeded: false, available: state.meetingAvailable)
     }
 }

@@ -128,6 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settings?.navigation.openModel(.translation)
                 settings?.show(.translation)
             case .permissions: self?.openSystemAudioPermission()
+            // Key listening: the pane onboarding's 允许… opens for 输入监控.
+            case .inputMonitoring: self?.onboarding?.model.openPrivacy("Privacy_ListenEvent")
             }
         }
         meeting.onSpeechAssetsInstalled = { [weak self] in self?.refreshAppleCheck() }
@@ -208,10 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onboardingModel.voice.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
             settings.driver.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
         }
-        meeting.canStartMeeting = { [weak privacy, weak self] in
-            privacy?.diagnosticsStatus.isAudioSelfTestRunning != true && self?.speak?.isActive != true
-                && !AppUIModels.shared.engine.running && self?.engineHost.maintenanceActive != true
-        }
+        meeting.canStartMeeting = { [weak self] in self?.audioFree(speakBusy: self?.speak?.isActive == true) ?? true }
         meeting.beforeUserEnd = { [weak systemInput] in systemInput?.confirmUserEnd() }
         let status = StatusItemController(state: state, actions: .init(
             openSettings: { [weak self] section in self?.settings?.show(section) },
@@ -302,8 +301,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if isSmoke {
             runSmoke()
-        } else if onboardingModel.needsOnboarding {
-            onboarding.show()   // §11 首次引导, resumes at the saved step
+        } else if onboardingModel.needsOnboarding || onboardingModel.state.pendingRelaunch == .inputMonitoring {
+            // §11 首次引导, resumes at the saved step; a rerun relaunched for 输入监控 comes back too.
+            onboarding.show()
         }
         if !isSmoke {
             Task { await AppUIModels.shared.general.refreshNotifications() }
@@ -341,13 +341,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// What `canStartMeeting` reads: no self-test, speaking session, installer run or
+    /// maintenance holds the audio.
+    private func audioFree(speakBusy: Bool) -> Bool {
+        (isSmoke ? nil : PrivacySettings.shared)?.diagnosticsStatus.isAudioSelfTestRunning != true && !speakBusy
+            && !AppUIModels.shared.engine.running && !engineHost.maintenanceActive
+    }
+
     /// `state.meetingAvailable`: the menu's quick start and the scenario page's 开始 share one
-    /// answer, from the same facts `canStartMeeting` reads and the onboarding state (§8.2).
+    /// answer, from the same facts `canStartMeeting` reads (§8.2). Only the speaking test counts
+    /// as busy here: a session's own SPEAK still ending after it is not another holder (start()
+    /// keeps the full check). The menu adds its own onboarding condition.
     private func followStartAvailability() {
         let available = withObservationTracking {
-            _ = (state.speakSessionActive, onboarding?.model.step, onboarding?.model.steps,
-                 onboarding?.model.choosingScenarios, engineHost.maintenanceActive, AppUIModels.shared.engine.running)
-            return onboarding?.model.needsOnboarding != true && meeting?.canStartMeeting() != false
+            _ = (state.speakSessionActive, engineHost.maintenanceActive, AppUIModels.shared.engine.running)
+            return audioFree(speakBusy: speak?.demoActive == true)
         } onChange: { [weak self] in
             Task { @MainActor in self?.followStartAvailability() }
         }
@@ -506,7 +514,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             // A running session ends as 结束 does: meeting.end, the recordings' .json, the
             // transcript and the auto-end notification are finished before SPEAK goes.
-            await meeting?.session?.stop(.user)
+            // A session still starting is left to the teardown below, as 结束 leaves it.
+            if state.meetingActive { await meeting?.session?.stop(.user) }
             await speak?.shutdown()
             await engineHost.engine()?.stop()
             sender.reply(toApplicationShouldTerminate: true)

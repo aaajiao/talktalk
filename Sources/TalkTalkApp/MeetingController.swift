@@ -251,7 +251,8 @@ final class MeetingController {
         Task {
             do {
                 try await NativePhone.open()
-                // A later open that works clears its own earlier failure, not a preparation problem.
+                // A later open that works clears its own earlier failure, not a preparation problem
+                // (every other phoneProblem write resets the flag).
                 if phoneOpenFailed { phoneOpenFailed = false; state.phoneProblem = nil; refreshPhoneContext() }
             } catch {
                 state.phoneProblem = String(appLocalized: "无法打开 Phone，请从“应用程序”中打开后重试。")
@@ -275,6 +276,7 @@ final class MeetingController {
         guard let failedSession, session === failedSession, state.meetingMode == .phone else { return }
         state.phoneReadyToDial = false
         state.phoneProblem = String(appLocalized: "电话发言链路未能启动，同传已结束。请检查组件、麦克风和输入监控权限后重新准备。")
+        phoneOpenFailed = false
         refreshPhoneContext()
         Task {
             guard self.session === failedSession else { return }
@@ -505,6 +507,7 @@ final class MeetingController {
                 }
             } catch {
                 state.phoneProblem = String(appLocalized: "无法打开系统 Phone 应用，请确认它已安装并可正常启动。")
+                phoneOpenFailed = false
                 releaseEarlyEngine()
                 return
             }
@@ -614,6 +617,7 @@ final class MeetingController {
             session = nil
             if mode == .phone {
                 state.phoneProblem = String(appLocalized: "Phone 的音频尚未就绪。请打开 Phone 后重新准备电话同传。")
+                phoneOpenFailed = false
             } else if let selectedSource {
                 let name = MeetingApp.named(selectedSource)?.name ?? selectedSource
                 alert(String(appLocalized: "所选应用尚未就绪"), String(appLocalized: "\(name) 的声音来源已不可用，请打开应用后重试，或在当前场景中重新选择。"))
@@ -671,7 +675,7 @@ final class MeetingController {
             // localized sentence.
             session = nil
             let why = String(appLocalized: "字幕识别或声音采集没能启动。可重新开始。")
-            if mode == .phone { state.phoneProblem = why }
+            if mode == .phone { state.phoneProblem = why; phoneOpenFailed = false }
             alert(String(appLocalized: "无法开始收听"), why)
         }
     }

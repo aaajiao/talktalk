@@ -561,7 +561,8 @@ public enum StatusMenu {
 
         if f.inSession, let failure = f.asrFailure {
             failureLine = true
-            list.append(Issue(.failed, String(appLocalized: "字幕识别出错"), symbol: SubtitleTokens.MenuIcon.degraded,
+            // Orange, as the status item's `.degraded` triangle for the same fact.
+            list.append(Issue(.warn, String(appLocalized: "字幕识别出错"), symbol: SubtitleTokens.MenuIcon.degraded,
                               help: failure, fixes: [models(.recognition)]))
         }
         if f.inSession, f.asrFallback {

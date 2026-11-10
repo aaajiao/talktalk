@@ -734,7 +734,7 @@ final class PTTHUD {
                 let title = switch destination {
                 case .audio: String(appLocalized: "音频设置…")
                 case .translation: String(appLocalized: "翻译设置…")
-                case .permissions: String(appLocalized: "权限设置…")
+                case .permissions, .inputMonitoring: String(appLocalized: "权限设置…")
                 }
                 button(title, symbol: SubtitleTokens.ActionIcon.settings) { [weak self] in
                     self?.detailsPopover.close(); onOpenSettings(destination)

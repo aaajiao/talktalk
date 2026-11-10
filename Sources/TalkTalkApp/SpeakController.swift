@@ -80,7 +80,7 @@ final class SpeakController {
     private var startupTimer: Timer?
     private var announcementEnabled: Bool?
     private var restartQueued = false
-    private var demoActive = false
+    private(set) var demoActive = false
     private var demoReady = false
     private var demoStopRequested = false
     private var demoFailure: String?
@@ -548,7 +548,7 @@ final class SpeakController {
             if let session, session.mode == .meeting, meeting.session === session, case .running = session.state {
                 // The meeting keeps listening without speech: a problem that stays until it ends.
                 hud.setSceneIssue(HUDChip(titlebarLabel("说话链路未能启动"), symbol: "exclamationmark.triangle",
-                                          tone: .warn, detail: sentence, settingsDestination: .permissions))
+                                          tone: .warn, detail: sentence, settingsDestination: .inputMonitoring))
             } else {
                 hud.show(sentence, .yellow, label: titlebarLabel("说话链路未能启动"))
             }
@@ -1008,7 +1008,7 @@ final class SpeakController {
     private static func refusalSettings(_ reason: PushToTalkKey.BlockReason) -> HUDLine.SettingsDestination? {
         switch reason {
         case .secureInput, .notInSession: nil
-        case .awaitingAudioConfirmation: .permissions
+        case .awaitingAudioConfirmation: .inputMonitoring
         case .noMeetingReader, .meetingUsesPhysicalMic: .audio
         }
     }
@@ -1019,7 +1019,7 @@ final class SpeakController {
         -> (text: String, settings: HUDLine.SettingsDestination?) {
         switch reason {
         case .secureInput, .unknown(.secureInput): (pressRefusal(.secureInput), nil)
-        case .tapUnhealthy, .unknown(.tapHealthy): (pressRefusal(.awaitingAudioConfirmation), .permissions)
+        case .tapUnhealthy, .unknown(.tapHealthy): (pressRefusal(.awaitingAudioConfirmation), .inputMonitoring)
         case .micNotAllowed, .unknown(.physicalMicPassesRule2): (pressRefusal(.noMeetingReader), .audio)
         case .meetingUsesPhysicalMic: (pressRefusal(.meetingUsesPhysicalMic), .audio)
         case .speakerMode: (HUDModel.Warning.speakerMode.text, .audio)

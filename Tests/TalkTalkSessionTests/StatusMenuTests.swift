@@ -212,7 +212,7 @@ import Testing
         f.asrFailure = "字幕识别未能恢复"
         let rows = StatusMenu.rows(f)
         let line = try #require(index(rows, "字幕识别出错"))
-        #expect(rows[line].tone == .failed && rows[line].help == "字幕识别未能恢复")
+        #expect(rows[line].tone == .warn && rows[line].help == "字幕识别未能恢复")
         #expect(rows[line + 1].kind == .action(.open(.recognition)) && rows[line + 1].indented)
         var idle = StatusMenuFacts()
         idle.asrFailure = "x"

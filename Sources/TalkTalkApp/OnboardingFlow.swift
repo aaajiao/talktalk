@@ -826,7 +826,7 @@ struct OnboardingView: View {
                 .help(String(appLocalized: "关闭引导，可从菜单“视频字幕…”开始"))
         }
         Spacer()
-        // Step 7 follows step 5's rule: 继续 once the check is green, 稍后核验 until then.
+        // Step 7: 继续 once the check is green, 稍后核验 until then (step 5 always offers 稍后设置).
         let meetingMicVerified = model.facts.meetingMicVerified == true
         if model.step == .meetingMic, !meetingMicVerified {
             Button("稍后核验") { model.skip() }
