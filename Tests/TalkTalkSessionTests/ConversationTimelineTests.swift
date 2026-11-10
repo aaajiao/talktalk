@@ -141,7 +141,8 @@ import TalkTalkCore
         #expect(risky.label(scene: .meeting, hasTranslation: true) == .notSent)
 
         var phone = TurnDelivery()
-        #expect(phone.label(scene: .phone, hasTranslation: true) == nil)
+        #expect(phone.label(scene: .phone, hasTranslation: false) == nil)
+        #expect(phone.label(scene: .phone, hasTranslation: true) == .notSent)
         phone.observe(voice: .playingTranslation, playing: true, hasTranslation: true, live: true)
         #expect(phone.label(scene: .phone, hasTranslation: true) == .phoneSent)
         phone.observe(voice: .phoneLocalOnly, playing: true, hasTranslation: true, live: true)

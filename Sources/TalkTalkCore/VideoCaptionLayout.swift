@@ -16,8 +16,9 @@ public enum VideoCaptionStyle: String, Sendable, CaseIterable {
         reduceTransparency ? .plate : self
     }
 
-    /// Stroke draws no background, so the scene opacity does not apply to it.
-    public var usesBackgroundOpacity: Bool { self != .stroke }
+    /// Only fitted glass follows the scene opacity: stroke draws no background and plates keep
+    /// their fixed line-block alpha (`plateAlpha`).
+    public var usesBackgroundOpacity: Bool { self == .fittedGlass }
 
     /// Line-block alpha for plates: 0.62, or 0.85 under Reduce Transparency.
     public static func plateAlpha(reduceTransparency: Bool) -> Double { reduceTransparency ? 0.85 : 0.62 }

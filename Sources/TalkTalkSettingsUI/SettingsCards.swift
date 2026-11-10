@@ -342,6 +342,7 @@ public struct GlobalRow<Content: View>: View {
         }
         .labelStyle(.settingsRow)
         .toggleStyle(.switch)
+        .controlSize(.mini)
         .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
     }
 }

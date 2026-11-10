@@ -69,12 +69,14 @@ public struct SubtitlePreviewLayout: Sendable, Equatable {
 
 /// The opacity slider (§6 字幕样式, §2 可读性兜底). Reduce Transparency fixes every
 /// background (opaque meeting/phone window, video plates at 0.85); the stroke style draws
-/// no background at all.
+/// no background at all and plates keep a fixed alpha.
 public struct SubtitleOpacityControl: Sendable, Equatable {
     public enum Note: Sendable, Equatable {
         case reduceTransparency
         /// The stroke style draws no background ("描边样式没有背景").
         case strokeHasNoBackground
+        /// Plates use a fixed alpha ("实底样式背景固定").
+        case plateIsFixed
     }
 
     public let enabled: Bool
@@ -84,7 +86,7 @@ public struct SubtitleOpacityControl: Sendable, Equatable {
                             reduceTransparency: Bool) -> SubtitleOpacityControl {
         if reduceTransparency { return .init(enabled: false, note: .reduceTransparency) }
         if scene == .video, !videoStyle.usesBackgroundOpacity {
-            return .init(enabled: false, note: .strokeHasNoBackground)
+            return .init(enabled: false, note: videoStyle == .stroke ? .strokeHasNoBackground : .plateIsFixed)
         }
         return .init(enabled: true, note: nil)
     }

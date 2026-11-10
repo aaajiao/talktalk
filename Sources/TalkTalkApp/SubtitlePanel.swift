@@ -257,7 +257,7 @@ final class SubtitlePanel {
             self?.layoutVideoChrome()
             self?.updateTitlebarActions()
         }
-        if let screen = NSScreen.main ?? NSScreen.screens.first { loadSize(for: screen) }
+        if let screen = rememberedScreen() ?? NSScreen.main ?? NSScreen.screens.first { loadSize(for: screen) }
         setFontSize(22)
         updateBackground()
         applyWindowChrome()
@@ -338,9 +338,11 @@ final class SubtitlePanel {
     func setPresentation(_ value: Presentation) {
         guard value != presentation else { return }
         panel.cancelTitlebarInteraction()
-        let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let currentScreen = panel.screen ?? NSScreen.main ?? NSScreen.screens.first
         if panel.isVisible { savePosition() }
         presentation = value
+        // Each scene returns to the display it was last on while that display is connected.
+        let screen = rememberedScreen() ?? currentScreen
         sourceName = nil
         if value != .phone { phoneContext = nil }
         updateTitlebarActions()
@@ -1144,6 +1146,9 @@ final class SubtitlePanel {
             // An empty video reset must not discard the user's existing Dock miniwindow.
             // Ending the session still removes it below, as for the other scenes.
             if presentation == .video, presence.sessionOpen, isMiniaturized { return }
+            // A popover anchored here (the language chips reset the captions) keeps the window
+            // until it closes; popoverChanged then applies the usual "no content, no window" rule.
+            if presentation == .video, presence.sessionOpen, !heldPopovers.isEmpty { return }
             // Ending the last visible work removes its Dock thumbnail without flashing the
             // window on screen. Reusing this retained panel later starts a fresh presentation.
             if panel.isMiniaturized || panel.minimizationPending { panel.dismissMiniaturizedWindow() }
@@ -1319,7 +1324,7 @@ final class SubtitlePanel {
         if size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 { manualContentSize = size }
     }
     private func placeInitially(on preferredScreen: NSScreen? = nil) {
-        guard let screen = preferredScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        guard let screen = preferredScreen ?? rememberedScreen() ?? NSScreen.main ?? NSScreen.screens.first else { return }
         if let saved = savedGeometry("Origin", for: screen) {
             let point = NSPointFromString(saved)
             if point.x.isFinite, point.y.isFinite, screen.visibleFrame.insetBy(dx: -40, dy: -40).contains(point) {
@@ -1337,6 +1342,14 @@ final class SubtitlePanel {
     private func savePosition() {
         guard !isLayingOut, !isMiniaturized, let screen = panel.screen else { return }
         UserDefaults.standard.set(NSStringFromPoint(panel.frame.origin), forKey: key(for: screen))
+        UserDefaults.standard.set(screenID(screen), forKey: screenKey)
+    }
+    /// The display this scene's window was last on (same `ui.subtitleOrigin.<scene>` key family).
+    private var screenKey: String { "ui.subtitleOrigin.\(presentation.rawValue).screen" }
+    /// That display when it is still connected; otherwise nil, and the caller falls back.
+    private func rememberedScreen() -> NSScreen? {
+        guard let id = UserDefaults.standard.string(forKey: screenKey) else { return nil }
+        return NSScreen.screens.first { screenID($0) == id }
     }
 
     // MARK: video window chrome (§6 窗口 / 鼠标穿透, §1 长静默变暗)
@@ -1416,6 +1429,7 @@ final class SubtitlePanel {
         }
         hoverBar.setHeld(!heldPopovers.isEmpty, at: uptime)
         updateVideoChrome(animated: true)
+        if !shown, heldPopovers.isEmpty, presentation == .video { updateWindowVisibility() }
     }
 
     private func updateVideoChrome(animated: Bool) {
