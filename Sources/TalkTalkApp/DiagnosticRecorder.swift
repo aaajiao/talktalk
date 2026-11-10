@@ -7,7 +7,9 @@ import TalkTalkSession
 /// Per-meeting diagnostic recording (ARCHITECTURE.md §12.1, §12.4).
 ///
 /// - Off unless chosen for this meeting. The choice is made per meeting (before it starts, for
-///   the next one, or while it runs) and is cleared when the meeting ends.
+///   the next one, or while it runs) and is cleared when the meeting ends. Video captions have no
+///   speaking chain: they neither record mic + TTS nor clear that choice. A track stops at its
+///   size cap (达上限).
 /// - Default tracks: microphone and TTS (SPEAK, M2 feeds them). The remote side (meeting tap)
 ///   is recorded only after the user confirms *during this meeting* that all participants
 ///   agreed (German StGB §201). That confirmation is a `RemoteRecordingConsent`, which only
@@ -29,6 +31,11 @@ final class DiagnosticRecorder {
     /// Recording of mic + TTS chosen for the next meeting (or the running one).
     private(set) var micAndTTSArmed = false
     private(set) var meetingRunning = false
+    /// The running session has a speaking chain (not video captions), so mic + TTS can be
+    /// recorded in it; otherwise the mic + TTS choice waits for the next session that has one.
+    private(set) var meetingSpeaks = false
+    /// Tracks that reached `WriterSet.maxBytes` and stopped in this meeting (达上限).
+    private(set) var cappedTracks: Set<Track> = []
     private(set) var sessionDirectory: URL?
     private(set) var recordingTracks: Set<Track> = []
     private(set) var lastError: String?
@@ -43,12 +50,17 @@ final class DiagnosticRecorder {
         self.clock = clock
     }
 
+    /// The mic + TTS choice applies to the running session (本场), not the next one (下场).
+    var micAndTTSThisSession: Bool { meetingRunning && meetingSpeaks }
+
     // MARK: - choices
 
-    /// Mic + TTS for this meeting (or the next one when none runs).
+    /// Mic + TTS for this meeting (or the next one when none runs, or the running session has
+    /// no speaking chain).
     func setMicAndTTS(_ on: Bool) {
         micAndTTSArmed = on
-        guard meetingRunning else { return }
+        if !on { lastError = nil }
+        guard micAndTTSThisSession else { return }
         if on { open([.mic, .tts]) } else { close([.mic, .tts]) }
     }
 
@@ -59,12 +71,16 @@ final class DiagnosticRecorder {
         let alert = NSAlert()
         alert.messageText = String(appLocalized: "录下对方的声音？")
         alert.informativeText = String(appLocalized: "只在会议里所有参与者都已同意录音时才可以录（德国《刑法典》§201 把未经同意录下非公开谈话列为犯罪）。录音只存在这台 Mac 上，24 小时后自动删除，不进诊断包。")
-        let box = NSButton(checkboxWithTitle: String(appLocalized: "所有参与者都已同意录音"), target: nil, action: nil)
-        box.state = .off
-        alert.accessoryView = box
         alert.addButton(withTitle: String(appLocalized: "开始录音"))
         alert.addButton(withTitle: String(appLocalized: "取消"))
-        guard alert.runModal() == .alertFirstButtonReturn, box.state == .on else { return nil }
+        // "开始录音" (the Return key) stays unavailable until the box is ticked.
+        let consent = ConsentCheckbox(confirm: alert.buttons[0])
+        let box = NSButton(checkboxWithTitle: String(appLocalized: "所有参与者都已同意录音"),
+                           target: consent, action: #selector(ConsentCheckbox.toggled(_:)))
+        box.state = .off
+        alert.accessoryView = box
+        let response = withExtendedLifetime(consent) { alert.runModal() }
+        guard response == .alertFirstButtonReturn, box.state == .on else { return nil }
         return RemoteRecordingConsent(meeting: meetingCounter, at: Date())
     }
 
@@ -89,18 +105,24 @@ final class DiagnosticRecorder {
     /// Closes every track and lets go of this meeting's directory, leaving the files to the
     /// caller. A running meeting's choice ends too; one armed for the next meeting stands.
     func stopForDeletion() {
-        if meetingRunning { micAndTTSArmed = false }
+        if micAndTTSThisSession { micAndTTSArmed = false }
         close(Set(Track.allCases))
+        cappedTracks = []
         sessionDirectory = nil
     }
 
     // MARK: - lifecycle (MeetingEvents)
 
-    func meetingStarted(lang: Lang? = nil) {
+    /// `speaking`: the session has a speaking chain (`MeetingMode.supportsSpeaking`). Without
+    /// one (video captions) nothing feeds mic or TTS, so the mic + TTS choice stands for the
+    /// next session; the remote track can still be recorded.
+    func meetingStarted(lang: Lang? = nil, speaking: Bool = true) {
         meetingCounter += 1
         meetingRunning = true
+        meetingSpeaks = speaking
         sessionDirectory = nil
-        if micAndTTSArmed { open([.mic, .tts]) }
+        cappedTracks = []
+        if micAndTTSThisSession, micAndTTSArmed { open([.mic, .tts]) }
         if let lang { mark("meeting.start", ["lang": lang.rawValue]) }
     }
 
@@ -111,8 +133,10 @@ final class DiagnosticRecorder {
     func meetingEnded(_ reason: String) {
         mark("meeting.end", ["reason": reason])
         close(Set(Track.allCases))
+        if meetingSpeaks { micAndTTSArmed = false }
         meetingRunning = false
-        micAndTTSArmed = false
+        meetingSpeaks = false
+        lastError = nil
     }
 
     /// Subtitle marks: kind, sentence, lengths. The text itself is not written.
@@ -133,15 +157,31 @@ final class DiagnosticRecorder {
     // MARK: - audio (any thread)
 
     nonisolated func appendRemote(_ samples: [Float], host: HostTime, rate: Double = 16_000) {
-        writers.append(.remote, samples, host: host, rate: rate)
+        append(.remote, samples, host: host, rate: rate)
     }
 
     nonisolated func appendMic(_ samples: [Float], host: HostTime, rate: Double) {
-        writers.append(.mic, samples, host: host, rate: rate)
+        append(.mic, samples, host: host, rate: rate)
     }
 
     nonisolated func appendTTS(_ samples: [Float], host: HostTime, rate: Double) {
-        writers.append(.tts, samples, host: host, rate: rate)
+        append(.tts, samples, host: host, rate: rate)
+    }
+
+    /// A track that just reached its cap stops on the main actor (as SubtitleAnalysisRecorder's
+    /// limitReached), so the banner, card badge and menu stop saying 录音中 for it.
+    nonisolated private func append(_ t: Track, _ samples: [Float], host: HostTime, rate: Double) {
+        guard writers.append(t, samples, host: host, rate: rate) else { return }
+        Task { @MainActor [weak self] in self?.trackCapped(t) }
+    }
+
+    private func trackCapped(_ t: Track) {
+        // The track may have been closed (and reopened uncapped) since.
+        guard recordingTracks.contains(t), writers.isCapped(t) else { return }
+        close([t])
+        cappedTracks.insert(t)
+        // Both of my tracks stopped: this meeting's choice ends, as with stopForDeletion.
+        if micAndTTSThisSession, cappedTracks.isSuperset(of: [.mic, .tts]) { micAndTTSArmed = false }
     }
 
     // MARK: - internals
@@ -159,14 +199,21 @@ final class DiagnosticRecorder {
     }
 
     private func open(_ tracks: Set<Track>) {
+        var opened: Set<Track> = []
         do {
             let dir = try ensureSessionDirectory()
             for t in tracks.sorted(by: { $0.rawValue < $1.rawValue }) where !recordingTracks.contains(t) {
                 try writers.open(t, in: dir)
                 recordingTracks.insert(t)
+                opened.insert(t)
+                cappedTracks.remove(t)
             }
             lastError = nil
         } catch {
+            // All or nothing, and the switch does not stay on for a recording that never began:
+            // "诊断录音无法开始" is the one sign (the same rule as stopForDeletion).
+            close(opened)
+            if tracks.contains(.mic), micAndTTSThisSession { micAndTTSArmed = false }
             lastError = String(appLocalized: "诊断录音无法开始：\(String(describing: error))")
         }
     }
@@ -196,6 +243,20 @@ struct RemoteRecordingConsent: Sendable, Equatable {
     fileprivate init(meeting: Int, at: Date) { self.meeting = meeting; self.at = at }
 }
 
+/// The consent box's target: "开始录音" is enabled only while the box is ticked.
+@MainActor
+private final class ConsentCheckbox: NSObject {
+    private weak var confirm: NSButton?
+
+    init(confirm: NSButton) {
+        self.confirm = confirm
+        confirm.isEnabled = false
+        super.init()
+    }
+
+    @objc func toggled(_ sender: NSButton) { confirm?.isEnabled = sender.state == .on }
+}
+
 /// The open track files, behind one lock (audio arrives on worker threads).
 private final class WriterSet: @unchecked Sendable {
     /// Per-track cap; past it the track stops (≈ 2.3 h of 16 kHz mono, 45 min of 48 kHz).
@@ -220,18 +281,24 @@ private final class WriterSet: @unchecked Sendable {
         lock.withLock { open[t] = Writer(handle: h, meta: dir.appendingPathComponent("\(t.rawValue).json")) }
     }
 
-    func append(_ t: DiagnosticRecorder.Track, _ samples: [Float], host: HostTime, rate: Double) {
-        guard !samples.isEmpty else { return }
-        lock.withLock {
-            guard var w = open[t], !w.capped else { return }
+    /// True when this call capped the track (once per open track).
+    func append(_ t: DiagnosticRecorder.Track, _ samples: [Float], host: HostTime, rate: Double) -> Bool {
+        guard !samples.isEmpty else { return false }
+        return lock.withLock {
+            guard var w = open[t], !w.capped else { return false }
             if w.rate == nil { w.rate = rate; w.firstHost = host }
             let data = samples.withUnsafeBufferPointer { Data(buffer: $0) }   // native = little-endian on arm64
-            if w.bytes + data.count > Self.maxBytes { w.capped = true; open[t] = w; return }
+            if w.bytes + data.count > Self.maxBytes { w.capped = true; open[t] = w; return true }
             w.handle.write(data)
             w.frames += samples.count
             w.bytes += data.count
             open[t] = w
+            return false
         }
+    }
+
+    func isCapped(_ t: DiagnosticRecorder.Track) -> Bool {
+        lock.withLock { open[t]?.capped == true }
     }
 
     func close(_ t: DiagnosticRecorder.Track) {

@@ -104,9 +104,9 @@ final class MeetingController {
                     self?.state.meetingHint = h?.localizedDescription
                     self?.hud?.listen(h)
                 }
-            case .started(_, _, let lang, _):
+            case .started(_, _, let lang, let mode):
                 self?.hud?.meetingStarted()
-                self?.privacy?.recorder.meetingStarted(lang: lang)
+                self?.privacy?.recorder.meetingStarted(lang: lang, speaking: mode.supportsSpeaking)
             case .suspended(let reason): self?.privacy?.recorder.meetingSuspended(String(describing: reason))
             case .resumed: self?.privacy?.recorder.meetingResumed()
             case .ended(let reason):

@@ -140,7 +140,7 @@ struct GeneralSettingsView: View {
                             Text(verbatim: language.nativeName).tag(language)
                         }
                     } label: {
-                        Label("界面语言", systemImage: "globe")
+                        Label("界面语言", systemImage: Icon.interfaceLanguage)
                     }
                     .help("立即更改界面语言，不影响语音和字幕语言")
                 }

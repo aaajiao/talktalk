@@ -11713,6 +11713,22 @@
         }
       }
     },
+    "已达每轨 512 MiB 上限，已停止：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped at the 512 MiB per-track limit: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达每轨 512 MiB 上限，已停止：%@"
+          }
+        }
+      }
+    },
     "已还原其他麦克风": {
       "localizations": {
         "en": {
@@ -17549,6 +17565,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "检查中…"
+          }
+        }
+      }
+    },
+    "检查云端翻译": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check cloud translation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查云端翻译"
+          }
+        }
+      }
+    },
+    "检查本地引擎": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the local engine"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查本地引擎"
           }
         }
       }

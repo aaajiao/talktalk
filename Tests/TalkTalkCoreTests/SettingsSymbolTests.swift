@@ -32,7 +32,7 @@ import TalkTalkCore
                          S.backgroundSolid, S.reduceTransparency, S.captionArrangement, S.silenceDim,
                          S.subtitleWindow, S.windowMovable, S.windowNoFocus, S.windowMinimize,
                          S.windowNotShared, S.hoverOnly, S.callsInPhone]
-        let general = [S.launchAtLogin, S.notifications, S.allowNotifications, S.announcement, S.onboarding]
+        let general = [S.interfaceLanguage, S.launchAtLogin, S.notifications, S.allowNotifications, S.announcement, S.onboarding]
         let voice = [S.inputVolume, S.record, S.duration]
         let models = [S.apiKey, S.pasteKey, S.snapshots, S.cloudReminder, S.retiring, S.cloudOff, S.noSpeech]
         let components = [S.download, S.install, S.repair, S.restartEngine, S.inspectFile, S.audioRestart, S.results,
