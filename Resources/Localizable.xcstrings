@@ -689,6 +689,22 @@
         }
       }
     },
+    "%@已自动结束": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ended automatically"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@已自动结束"
+          }
+        }
+      }
+    },
     "%@正在说：%@": {
       "localizations": {
         "en": {
@@ -1649,6 +1665,22 @@
         }
       }
     },
+    "OpenAI 超时，这句改用 Apple 翻译": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenAI timed out; this sentence uses Apple Translation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenAI 超时，这句改用 Apple 翻译"
+          }
+        }
+      }
+    },
     "OpenAI 返回 HTTP %@%@。": {
       "localizations": {
         "en": {
@@ -1805,6 +1837,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Phone 已长时间没有通话音频，即将结束电话同传。"
+          }
+        }
+      }
+    },
+    "Phone 已长时间没有通话音频，即将结束电话同传；要继续，请在菜单栏选择“继续收听”": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No call audio from Phone for a while. Phone interpretation will end soon. Choose “Keep listening” in the menu bar to continue."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone 已长时间没有通话音频，即将结束电话同传；要继续，请在菜单栏选择“继续收听”"
           }
         }
       }
@@ -2769,18 +2817,18 @@
         }
       }
     },
-    "⚠︎ TalkTalk Mic 不见了，回来后切回": {
+    "TalkTalk Mic 不见了，回来后切回": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ TalkTalk Mic is missing; switching back when it returns"
+            "value": "TalkTalk Mic is missing; switching back when it returns"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ TalkTalk Mic 不见了，回来后切回"
+            "value": "TalkTalk Mic 不见了，回来后切回"
           }
         }
       }
@@ -2849,82 +2897,66 @@
         }
       }
     },
-    "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 %@": {
+    "会议应用长时间没有声音，会议同传即将自动结束；要继续，请在菜单栏选择“继续收听”": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ Could not switch back to TalkTalk Mic; the system default input is %@"
+            "value": "The meeting app has been silent for a while. Meeting interpretation will end automatically soon. Choose “Keep listening” in the menu bar to continue."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 %@"
+            "value": "会议应用长时间没有声音，会议同传即将自动结束；要继续，请在菜单栏选择“继续收听”"
           }
         }
       }
     },
-    "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 %@，正在重试": {
+    "没能切回 TalkTalk Mic，系统默认输入是 %@，正在重试": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ Could not switch back to TalkTalk Mic; the system default input is %@. Retrying"
+            "value": "Could not switch back to TalkTalk Mic; the system default input is %@. Retrying"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 %@，正在重试"
+            "value": "没能切回 TalkTalk Mic，系统默认输入是 %@，正在重试"
           }
         }
       }
     },
-    "⚠︎ 系统默认输入被改成了 %@": {
+    "上次的默认输入还没还原（原来是 %@）": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ The system default input was changed to %@"
+            "value": "The previous default input has not been restored (it was %@)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ 系统默认输入被改成了 %@"
+            "value": "上次的默认输入还没还原（原来是 %@）"
           }
         }
       }
     },
-    "⛔︎ 上次的默认输入还没还原（原来是 %@）": {
+    "没有可以还原到的实体麦克风": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⛔︎ The previous default input has not been restored (it was %@)"
+            "value": "No physical microphone is available to restore"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⛔︎ 上次的默认输入还没还原（原来是 %@）"
-          }
-        }
-      }
-    },
-    "⛔︎ 没有可以还原到的实体麦克风": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⛔︎ No physical microphone is available to restore"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⛔︎ 没有可以还原到的实体麦克风"
+            "value": "没有可以还原到的实体麦克风"
           }
         }
       }
@@ -6253,22 +6285,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "切换发言方式"
-          }
-        }
-      }
-    },
-    "切换麦克风失败": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Microphone switch failed"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换麦克风失败"
           }
         }
       }
@@ -19841,6 +19857,22 @@
         }
       }
     },
+    "离线，改用 Apple 翻译": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline; switching to Apple Translation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线，改用 Apple 翻译"
+          }
+        }
+      }
+    },
     "移除登录项": {
       "localizations": {
         "en": {
@@ -20301,22 +20333,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "系统麦克风尚未还原，等待设备就绪或重试"
-          }
-        }
-      }
-    },
-    "系统麦克风已变化": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System microphone changed"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系统麦克风已变化"
           }
         }
       }
@@ -25517,6 +25533,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "长时间没有声音"
+          }
+        }
+      }
+    },
+    "长时间没有声音，或解锁、唤醒时应用没有声音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No sound for a long time, or the app had no sound when the Mac woke or unlocked"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长时间没有声音，或解锁、唤醒时应用没有声音"
           }
         }
       }

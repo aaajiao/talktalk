@@ -681,13 +681,15 @@ import Testing
         #expect(over.label == "长时间没有声音" && over.symbol == "waveform.slash")
         #expect(over.detail.contains("视频字幕即将自动结束") && over.detail.contains("菜单栏选择“继续收听”"))
         #expect(!over.detail.contains("会议") && !over.label.contains("对方"))
-        // Meeting keeps its own wording.
+        // Meeting keeps its own wording; every scene says the end is near and how to continue.
         model.scene = .meeting
-        #expect(model.issueSlot(now: 0)?.chip?.label == "会议似乎已结束")
+        let meeting = try #require(model.issueSlot(now: 0)?.chip)
+        #expect(meeting.label == "会议似乎已结束")
+        #expect(meeting.detail.contains("会议同传即将自动结束") && meeting.detail.contains("菜单栏选择“继续收听”"))
         model.scene = .phone
         let phone = try #require(model.issueSlot(now: 0)?.chip)
         #expect(phone.label == "长时间无通话音频" && phone.symbol == "waveform.slash" && phone.tone == .info)
-        #expect(phone.detail == "Phone 已长时间没有通话音频，即将结束电话同传。")
+        #expect(phone.detail.hasPrefix("Phone 已长时间没有通话音频，即将结束电话同传") && phone.detail.contains("菜单栏选择“继续收听”"))
     }
 
     /// The empty meeting timeline already says "暂未听到对方声音": the gray chip yields to the

@@ -134,9 +134,9 @@ public struct HUDModel: Sendable, Equatable {
             case .remoteHearsYourVoice: String(appLocalized: "会议仍会发送原声 · 翻译已停用")
             case let .floorPaused(n): String(appLocalized: "对方在说话 · 已暂停 \(n) 段")
             case .numberMaybeWrong: String(appLocalized: "译文数字待核对")
-            case .defaultInputChanged: String(appLocalized: "系统麦克风已变化")
+            case .defaultInputChanged: String(appLocalized: "系统麦克风已改变")
             case .switchedBackAfterInsert: String(appLocalized: "已恢复 TalkTalk Mic")
-            case .switchBackFailed: String(appLocalized: "切换麦克风失败")
+            case .switchBackFailed: String(appLocalized: "未能切回 TalkTalk Mic")
             case .defaultInputRestored: String(appLocalized: "系统麦克风已还原")
             case .defaultInputRestoredElsewhere: String(appLocalized: "已还原到其他实体麦克风")
             case .defaultInputNotSwitched(let issue):
@@ -192,9 +192,15 @@ public struct HUDModel: Sendable, Equatable {
         /// Silence names the selected scene: Phone's call audio or the video's app sound,
         /// without claiming that a call ended just because no sound arrived.
         public func chip(scene: SubtitleScene) -> HUDChip? {
+            // The automatic end is near: every scene says so and how to keep listening (the
+            // notification's words, for users who allow none).
             if scene == .phone, self == .meetingSeemsOver {
                 return HUDChip(titlebarLabel("长时间无通话音频"), symbol: "waveform.slash", tone: .info,
-                               detail: String(appLocalized: "Phone 已长时间没有通话音频，即将结束电话同传。"))
+                               detail: String(appLocalized: "Phone 已长时间没有通话音频，即将结束电话同传；要继续，请在菜单栏选择“继续收听”"))
+            }
+            if scene == .meeting, self == .meetingSeemsOver, var meeting = chip {
+                meeting.detail = String(appLocalized: "会议应用长时间没有声音，会议同传即将自动结束；要继续，请在菜单栏选择“继续收听”")
+                return meeting
             }
             guard scene == .video else { return chip }
             switch self {
@@ -235,9 +241,9 @@ public struct HUDModel: Sendable, Equatable {
             case .meetingSilent: label = titlebarLabel("未听到对方")
             case .meetingSeemsOver: label = titlebarLabel("会议似乎已结束")
             case .tccUnconfirmed: label = titlebarLabel("录音权限未确认")
-            case .defaultInputChanged: label = titlebarLabel("系统麦克风已变化")
+            case .defaultInputChanged: label = titlebarLabel("系统麦克风已改变")
             case .switchedBackAfterInsert: label = noticeLabel("已恢复 TalkTalk Mic")
-            case .switchBackFailed: label = titlebarLabel("切换麦克风失败")
+            case .switchBackFailed: label = titlebarLabel("未能切回 TalkTalk Mic")
             case .defaultInputRestored: label = noticeLabel("系统麦克风已还原")
             case .defaultInputRestoredElsewhere: label = noticeLabel("已还原其他麦克风")
             case let .defaultInputNotSwitched(issue):

@@ -354,6 +354,9 @@ final class AppState {
     var speakSessionActive = false
     /// The last session ended on a failure (menu attention line); cleared at the next start.
     var lastEndProblem: MeetingMode?
+    /// The last session ended by itself (long silence, or no audio after sleep or unlock): the
+    /// idle menu's neutral line; cleared at the next start.
+    var lastEndAutomatic: MeetingMode?
     /// §7.5 item 6 summary when something Apple-side is missing (nil = all fine or not checked).
     var appleCheck: String?
     /// Where the running meeting's finals come from (nil: no meeting) and whether the network is

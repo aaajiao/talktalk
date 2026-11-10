@@ -103,6 +103,10 @@ struct SettingsNavigationBand: View {
     /// key is never read).
     private var translationBadge: CardBadge? {
         guard let model = translation.model else { return nil }
+        // The running session paused OpenAI (key or quota): the subtitle window's own words.
+        if case let .appleFallback(reason)? = state.listenTranslation, reason.hasPrefix("paused") {
+            return .status(.warn, String(appLocalized: "OpenAI key 或额度异常 · 已用 Apple"))
+        }
         let warning: String?
         if case .failed = model.verification {
             warning = String(appLocalized: "key 未通过验证")
