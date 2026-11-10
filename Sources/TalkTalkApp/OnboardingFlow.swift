@@ -679,6 +679,12 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         return w
     }
 
+    /// Back from System Settings (or another app): a grant changed there shows without leaving
+    /// the step.
+    func windowDidBecomeKey(_ notification: Notification) {
+        Task { await model.refresh() }
+    }
+
     func windowWillClose(_ notification: Notification) {
         model.voice.endRecording()
         model.stopActivities()
@@ -789,7 +795,7 @@ struct OnboardingView: View {
             if model.choosingScenarios {
                 Button("稍后设置") { model.onFinish?() }
                     .keyboardShortcut(.cancelAction)
-                    .help(String(appLocalized: "关闭引导，可从菜单开始视频字幕"))
+                    .help(String(appLocalized: "关闭引导，可从菜单“视频字幕…”开始"))
                 Spacer()
                 Button("继续") { model.confirmScenarios() }
                     .buttonStyle(.borderedProminent)
@@ -807,11 +813,13 @@ struct OnboardingView: View {
         if model.step == .permissions {
             Button("稍后设置") { model.onFinish?() }
                 .keyboardShortcut(.cancelAction)
-                .help(String(appLocalized: "关闭引导，可从菜单开始视频字幕"))
+                .help(String(appLocalized: "关闭引导，可从菜单“视频字幕…”开始"))
         }
         Spacer()
-        if let s = model.step, s.skippable, s != .openAI, s != .tryIt {
-            Button(s == .meetingMic ? String(appLocalized: "稍后核验") : String(appLocalized: "跳过")) { model.skip() }
+        // Step 7 follows step 5's rule: 继续 once the check is green, 稍后核验 until then.
+        let meetingMicVerified = model.facts.meetingMicVerified == true
+        if model.step == .meetingMic, !meetingMicVerified {
+            Button("稍后核验") { model.skip() }
         }
         switch model.step {
         case .tryIt?:
@@ -819,12 +827,17 @@ struct OnboardingView: View {
         case .openAI?:
             // Optional: 稍后设置 moves on without a key; 继续 once the key passed both checks.
             let verified = model.translation.model.map(OpenAIOnboardingStep.canContinue) ?? false
-            Button("稍后设置") { model.skip() }
+            Button("稍后设置") { Task { await model.refresh(); model.next() } }
                 .help(String(appLocalized: "没有 key 时两个方向都用 Apple"))
             Button("继续") { Task { await model.refresh(); model.next() } }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(verified ? .defaultAction : nil)
                 .disabled(!verified)
+        case .meetingMic?:
+            Button("继续") { model.next() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(meetingMicVerified ? .defaultAction : nil)
+                .disabled(!meetingMicVerified)
         case nil:
             Button("关闭") { model.onFinish?() }
                 .keyboardShortcut(.cancelAction)

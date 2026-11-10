@@ -94,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and runs finished onboarding again.
         AppUIModels.shared.general.onOpenOnboarding = { [weak onboarding] in
             guard let onboarding else { return }
-            if !onboarding.model.needsOnboarding { onboarding.model.restart() }
+            if onboarding.model.progress == nil { onboarding.model.restart() }
             onboarding.show()
         }
         self.onboarding = onboarding

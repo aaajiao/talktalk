@@ -3681,18 +3681,18 @@
         }
       }
     },
-    "云端不可用时由 Apple 翻译": {
+    "示例仅用 Apple 翻译": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When the cloud is unavailable, Apple translates"
+            "value": "The sample uses Apple translation only"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端不可用时由 Apple 翻译"
+            "value": "示例仅用 Apple 翻译"
           }
         }
       }
@@ -5777,18 +5777,18 @@
         }
       }
     },
-    "关闭引导，可从菜单开始视频字幕": {
+    "关闭引导，可从菜单“视频字幕…”开始": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close setup; start video subtitles from the menu"
+            "value": "Close setup; start from “Video Subtitles…” in the menu"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭引导，可从菜单开始视频字幕"
+            "value": "关闭引导，可从菜单“视频字幕…”开始"
           }
         }
       }
@@ -16545,7 +16545,7 @@
         }
       }
     },
-    "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 模型 › 文本翻译 中配置": {
+    "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 识别与翻译 › 文本翻译 中配置": {
       "localizations": {
         "en": {
           "stringUnit": {
@@ -16556,7 +16556,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 模型 › 文本翻译 中配置"
+            "value": "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 识别与翻译 › 文本翻译 中配置"
           }
         }
       }

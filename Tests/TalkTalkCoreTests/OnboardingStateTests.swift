@@ -259,6 +259,56 @@ private let allGranted = OnboardingFacts(microphone: true, speechRecognition: tr
         #expect(o.choosingScenarios && o.scenarios == nil && o.steps == OnboardingStep.allCases)
     }
 
+    /// Step 7 is about a meeting app's input: a path without 会议 does not ask for it.
+    @Test func pathsWithoutAMeetingDropTheMeetingMicStep() {
+        let withoutStep7 = OnboardingStep.allCases.filter { $0 != .meetingMic }
+        #expect(OnboardingStep.path(for: [.phone]) == withoutStep7)
+        #expect(OnboardingStep.path(for: [.phone, .video]) == withoutStep7)
+        #expect(OnboardingStep.path(for: [.meeting, .phone]) == OnboardingStep.allCases)
+        #expect(OnboardingStep.path(for: [.meeting, .video]) == OnboardingStep.allCases)
+        let o = DefaultsSuite().relaunch()
+        o.chooseScenarios([.phone])
+        #expect(o.steps.count == 7 && o.position(of: .meetingMic) == nil && o.position(of: .tryIt) == 7)
+        #expect(o.progress == OnboardingProgress(step: 1, count: 7))
+    }
+
+    /// 使用引导… on a finished run does not take back "引导已完成" (menu start, launch, Dock).
+    @Test func runningOnboardingAgainIsNotUnfinished() {
+        let s = DefaultsSuite()
+        let o = s.relaunch(steps: [.tryIt])
+        #expect(o.needsOnboarding)
+        #expect(o.complete(.tryIt, .init()))
+        #expect(!o.needsOnboarding && o.progress == nil)
+        o.restart()
+        #expect(!o.needsOnboarding && o.progress != nil)
+        let again = s.relaunch(steps: [.tryIt])      // quit and reopened mid-run
+        #expect(!again.needsOnboarding && again.progress != nil)
+    }
+
+    @Test func aRunFinishedBeforeTheMarkExistedCountsAsCompleted() {
+        let s = DefaultsSuite()
+        s.defaults.set(true, forKey: OnboardingState.Key.finished)
+        let o = s.relaunch()
+        #expect(!o.needsOnboarding)
+        o.restart()
+        #expect(!s.relaunch().needsOnboarding)
+    }
+
+    /// Quitting on the scenario page of a restarted run comes back to the scenario page.
+    @Test func restartedRunReopensOnTheScenarioPage() {
+        let s = DefaultsSuite()
+        let o = s.relaunch(steps: [.permissions, .tryIt])
+        o.chooseScenarios([.video])
+        o.recordSystemAudioProbe(.granted)
+        #expect(o.complete(.permissions, .init(speechRecognition: true)))
+        #expect(o.complete(.tryIt, .init()))
+        o.restart()
+        #expect(o.choosingScenarios && o.current == .permissions)
+        let again = s.relaunch(steps: [.permissions, .tryIt])
+        #expect(again.choosingScenarios && again.scenarios == nil && again.current == .permissions)
+        #expect(again.steps == [.permissions, .tryIt])
+    }
+
     @Test func onboardingBegunBeforeThePageKeepsItsSavedStep() {
         let s = DefaultsSuite()
         s.defaults.set(OnboardingStep.engine.rawValue, forKey: OnboardingState.Key.step)

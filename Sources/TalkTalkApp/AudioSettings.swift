@@ -437,7 +437,7 @@ struct AudioSettingsView: View {
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 FactChip(String(appLocalized: "不保存录音"), symbol: Icon.privacyPromise, help: String(appLocalized: "只测电平"))
-                Button("取消") { calibration.cancel() }
+                Button("取消") { calibration.cancel() }.keyboardShortcut(.cancelAction)
             }
             .padding(.leading, Ladder.rowTextInset)
         } else if let outcome = calibration.outcome, let problem = Self.problem(outcome) {
