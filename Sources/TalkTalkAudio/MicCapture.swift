@@ -3,7 +3,7 @@ import CoreAudio
 import Foundation
 import TalkTalkCore
 
-/// Microphone capture on one physical input device (ARCHITECTURE.md §3.2, §13).
+/// Microphone capture on one physical input device (ARCHITECTURE.md, "实时音频与生命周期约束").
 ///
 /// A C IOProc (`tt_mic_ioproc`, CAudioCore) is attached with `AudioDeviceCreateIOProcID` directly
 /// on the device and copies one input channel into an SPSC ring (`tt_ring`). A worker queue drains

@@ -4,7 +4,7 @@ import Foundation
 import TalkTalkAudio
 import TalkTalkCore
 
-/// `TalkTalk --sysinput-guard --lock-fd N [--sysinput-dir D]` (ARCHITECTURE.md §8.6 layer 2).
+/// `TalkTalk --sysinput-guard --lock-fd N [--sysinput-dir D]` (ARCHITECTURE.md, "实时音频与生命周期约束").
 ///
 /// Headless: no NSApplication, no single-instance lock, no mic, no tap. It must have inherited
 /// the record lock from the app (posix_spawn addinherit_np); without it, it exits 3 and changes

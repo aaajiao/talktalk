@@ -4,7 +4,7 @@ import Foundation
 import TalkTalkCore
 
 /// Switches the system default input to TalkTalk Mic for meeting mode and reliably puts it back
-/// (ARCHITECTURE.md §8.6, §3.6, §16 decision 4). The rules are `SystemInputPlan`; this class
+/// (ARCHITECTURE.md, "实时音频与生命周期约束"). The rules are `SystemInputPlan`; this class
 /// reads the HAL, owns the record, the lock and the guard, and carries the rules out. The default
 /// output is never written.
 ///

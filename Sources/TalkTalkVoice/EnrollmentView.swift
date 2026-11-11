@@ -4,7 +4,7 @@ import TalkTalkAudio
 import TalkTalkCore
 import TalkTalkSettingsUI
 
-/// The "我的声音" recording UI (ARCHITECTURE.md §9.2, settings visual system §7.7). Embeds
+/// The "我的声音" recording UI (ARCHITECTURE.md, "引擎、翻译与播放", settings visual system §7.7). Embeds
 /// anywhere: the dev window of `--bench enroll`, onboarding and the settings page. `onClose` is
 /// called by the "完成" / "关闭" buttons; the host decides what closing means. No title: the
 /// StepTrack says where the take is, each phase shows only its few words, and every check's

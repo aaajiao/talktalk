@@ -2,7 +2,7 @@ import Foundation
 import Synchronization
 import TalkTalkCore
 
-/// The OpenAI MT backend (ARCHITECTURE.md §4.1, §5.4, §6.4, §13): `MTEngine` with placement
+/// The OpenAI MT backend (ARCHITECTURE.md, "引擎、翻译与播放"): `MTEngine` with placement
 /// `.network`. One sentence = one `HedgedRequest` (A first; B per the hedge policy: SPEAK yes,
 /// LISTEN off by default, `listen.finalMT.hedge`). The deadline comes from the caller
 /// (`MTRequest.deadline`, host time); without one, the policy's `totalDeadlineMs` applies.

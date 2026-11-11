@@ -9,7 +9,7 @@ import TalkTalkCloudUI
 import TalkTalkSession
 import TalkTalkSettingsUI
 
-/// Menu ↔ MeetingSession ↔ SubtitlePanel (ARCHITECTURE.md §11). Starting asks only what the
+/// Menu ↔ MeetingSession ↔ SubtitlePanel (ARCHITECTURE.md, "三种使用场景"). Starting asks only what the
 /// user must decide: which meeting app when several are in a call, the system permission when
 /// it is missing, the speech-asset download when the locale is not installed.
 @MainActor

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pre-TTS normalisation (ARCHITECTURE.md §5.4), Swift ICU only (no num2words, §2.3):
+/// Pre-TTS normalisation (ARCHITECTURE.md), Swift ICU only (no num2words):
 /// - `NumberFormatter(.spellOut)` per en-US / de-DE for numbers, percentages, €/$/¥, common
 ///   units, years, decimals and English ordinals;
 /// - terminal_stop: add a sentence-final mark when missing (a trailing clause mark becomes ".");

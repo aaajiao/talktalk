@@ -1,4 +1,4 @@
-/// The passthrough key (ARCHITECTURE.md §3.8 "键", "打开条件" 1–2, "关闭"). Pure logic on the
+/// The passthrough key (ARCHITECTURE.md, "SPEAK：实体麦到会议输入"). Pure logic on the
 /// event times it is given: right ⌘ (0x36, device bit 0x10) or, for external keyboards, right ⌃
 /// (0x3E, 0x2000). PassthroughKey (TalkTalkSession) feeds it KeyTap events plus a 20 ms
 /// (`keyPollMs`) poll of the hardware key state while the key is held; PassthroughController

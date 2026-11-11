@@ -1,7 +1,7 @@
 import Foundation
 
 /// Drops LISTEN segments that are our own TTS (or passthrough) coming back through the meeting
-/// (ARCHITECTURE.md §3.5, `listen.echoFilter`). A segment is dropped only when
+/// (ARCHITECTURE.md, "实时音频与生命周期约束", `listen.echoFilter`). A segment is dropped only when
 ///   - its normalized tokens overlap a TTS target text played in the last `windowS` by ≥ `overlap`,
 ///     AND (the acoustic `echoScore` ≥ `echoScoreMax`, OR the segment started between that
 ///     clause's playback start and `afterPlayS` after its end);

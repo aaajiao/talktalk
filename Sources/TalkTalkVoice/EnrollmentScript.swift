@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-/// The fixed enrollment script and audition sentences (ARCHITECTURE.md §9.1, §9.2 step 7).
+/// The fixed enrollment script and audition sentences (ARCHITECTURE.md, "引擎、翻译与播放").
 /// `ref_text` must match the audio word for word. Each revised script gets its own id;
 /// saved profiles keep their original script and conditioning until the user replaces them.
 public struct EnrollmentScript: Sendable, Equatable {

@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 import TalkTalkCore
 
-/// Where the restore record and its lock live (ARCHITECTURE.md §8.6). TalkTalk.app and
+/// Where the restore record and its lock live (ARCHITECTURE.md, "实时音频与生命周期约束"). TalkTalk.app and
 /// TalkTalk-Dev.app share one record on purpose: the guard, the other build and the uninstaller
 /// all read it. So the path does not depend on the build flavor.
 public struct SysInputPaths: Sendable, Equatable {

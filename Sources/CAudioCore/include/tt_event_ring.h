@@ -1,8 +1,7 @@
 #ifndef TT_EVENT_RING_H
 #define TT_EVENT_RING_H
 
-/* tt_event_ring: lock-free host-time event ring (ARCHITECTURE.md §12.2 "实时线程把事件写进
- * 无锁事件环，由 worker 落盘"). Producers are real-time IOProcs (feed and monitor run on different
+/* tt_event_ring: lock-free host-time event ring (ARCHITECTURE.md, "实时音频与生命周期约束"). Producers are real-time IOProcs (feed and monitor run on different
  * IO threads, so several producers are allowed); the single consumer is the audio worker, which
  * converts host ticks with HostClock.nanos(fromMachTicks:) and writes EventLog lines.
  *

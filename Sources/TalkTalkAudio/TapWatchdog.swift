@@ -1,4 +1,4 @@
-/// The all-zero watchdog for the macOS 26.x tap bug (ARCHITECTURE.md §3.1). Pure; the meeting
+/// The all-zero watchdog for the macOS 26.x tap bug (ARCHITECTURE.md). Pure; the meeting
 /// session feeds it once per second (or faster) and acts on the result.
 ///
 ///  - The tap is rebuilt only after this meeting process already delivered non-zero audio in this

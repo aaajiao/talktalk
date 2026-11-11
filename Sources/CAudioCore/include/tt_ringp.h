@@ -1,7 +1,7 @@
 #ifndef TT_RINGP_H
 #define TT_RINGP_H
 
-/* tt_ringp: ringP, the passthrough ring (ARCHITECTURE.md §3.8). Its own type and functions, not
+/* tt_ringp: ringP, the passthrough ring (ARCHITECTURE.md, "实时音频与生命周期约束"). Its own type and functions, not
  * another tt_ring, so scripts/check-audio-paths.sh can name every reader and writer:
  *   tt_ringp_write  only in PassthroughStage (audio worker);
  *   tt_ringp_read / tt_ringp_flush / tt_ringp_discard_through  only in tt_ioproc_feed.c.

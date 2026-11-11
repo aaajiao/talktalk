@@ -2,7 +2,7 @@
 #define TT_RING_H
 
 /* tt_ring: single-producer / single-consumer ring of mono Float32 frames
- * (ARCHITECTURE.md §1.1, §3, §13). The producer is a Core Audio IOProc; the consumer is the
+ * (ARCHITECTURE.md, "实时音频与生命周期约束"). The producer is a Core Audio IOProc; the consumer is the
  * audio worker. Lock-free: one atomic write index, one atomic read index, both monotonically
  * increasing 64-bit frame counters (they never wrap in practice), capacity a power of two.
  *
@@ -54,7 +54,7 @@ uint64_t tt_ring_overrun_frames(const tt_ring *ring) TT_NONBLOCKING;
 /* Drops all unread frames. Call only while the producer is stopped. */
 void tt_ring_reset(tt_ring *ring);
 
-/* ---- Playout (ringO, ringO2; ARCHITECTURE.md §3.3) -----------------------------------------
+/* ---- Playout (ringO, ringO2; ARCHITECTURE.md, "实时音频与生命周期约束") -----------------------------------------
  *
  * Roles. One producer: PlayoutStage on the audio worker (writes with tt_ring_write_clause and
  * issues the control calls: pause, jump). One consumer: feedIOProc (ringO) or monitorIOProc

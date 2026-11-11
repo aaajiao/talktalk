@@ -1,6 +1,6 @@
 import CAudioCore
 
-/// The real-time IOProcs' host-time event ring (tt_event_ring.h, ARCHITECTURE.md §12.2): feedIOProc
+/// The real-time IOProcs' host-time event ring (tt_event_ring.h, ARCHITECTURE.md, "实时音频与生命周期约束"): feedIOProc
 /// and monitorIOProc push (several producers are allowed), the audio worker alone drains. One ring
 /// for both IOProcs, so the worker drains in one place and hands out.* events to
 /// `ClauseQueue.pump` (`PlayoutRingEvent(_:)`) and the rest to the EventLog. Events carry

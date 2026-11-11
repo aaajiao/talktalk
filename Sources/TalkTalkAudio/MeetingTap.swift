@@ -4,7 +4,7 @@ import CoreAudio
 import Foundation
 import TalkTalkCore
 
-/// The LISTEN capture (ARCHITECTURE.md §3.1, from cicada `SystemAudioTap`): an include tap of the
+/// The LISTEN capture (ARCHITECTURE.md, "实时音频与生命周期约束", from cicada `SystemAudioTap`): an include tap of the
 /// meeting's process objects by default. Explicit global fallback supplies an exclusion list.
 ///
 ///  1. `CATapDescription(stereoMixdownOfProcesses:)`, private, `.unmuted` (`.muted` for the TCC probe).

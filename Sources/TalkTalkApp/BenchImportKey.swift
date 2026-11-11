@@ -14,7 +14,7 @@ import AppKit
 }
 
 #if TALKTALK_DEV
-/// `--bench import-key` (ARCHITECTURE.md §7.7, §14 M0 day 1; user decision 2026-11-04). Dev build only.
+/// `--bench import-key` (ARCHITECTURE.md M0 day 1; user decision 2026-11-04). Dev build only.
 ///
 /// Copies the key that already exists in the login keychain (the bench item: service
 /// `com.aaajiao.talktalk.openai`, account = the macOS user name, written by the user with

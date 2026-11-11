@@ -1,6 +1,6 @@
 import Foundation
 
-/// The settings model picker (ARCHITECTURE.md §11): GPT-6 and later text models only.
+/// The settings model picker (ARCHITECTURE.md, "三种使用场景"): GPT-6 and later text models only.
 ///
 /// - id must match `^gpt-(major)(.minor)?-(tier)(-YYYY-MM-DD)?$` with major ≥ 6 (one-word tier;
 ///   multi-part names such as `gpt-7-luna-mini` are filtered out until the rule is widened);

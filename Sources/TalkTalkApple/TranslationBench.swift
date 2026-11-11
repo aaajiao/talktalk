@@ -2,7 +2,7 @@ import Foundation
 import TalkTalkCore
 import Translation
 
-/// T11 (ARCHITECTURE.md §14), the part that needs no engine: Apple Translation latency for the
+/// T11 (ARCHITECTURE.md), the part that needs no engine: Apple Translation latency for the
 /// SPEAK fallback directions zh→en/de and en→zh/de, cold and hot, 30 sentences each, p50 / p95, for
 /// each strategy (`lowLatency`, and `highFidelity` on macOS 26.4+); plus the LISTEN draft
 /// directions across zh/en/de. NumberGuard runs on every output (the F7 30万→3万

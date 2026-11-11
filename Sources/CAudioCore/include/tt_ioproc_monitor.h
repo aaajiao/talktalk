@@ -1,7 +1,7 @@
 #ifndef TT_IOPROC_MONITOR_H
 #define TT_IOPROC_MONITOR_H
 
-/* Monitor IOProc (ARCHITECTURE.md §3.4): optional self-monitoring on the current default output
+/* Monitor IOProc (ARCHITECTURE.md, "实时音频与生命周期约束"): optional self-monitoring on the current default output
  * device (we never change the default output). It reads ringO2, a playout tt_ring that
  * ClauseQueue fills with the same post-processed TTS as ringO (48 kHz mono; marks, pause and
  * jumps mirrored), applies an adjustable gain (default -10 dB, changes ramp over one cycle) and

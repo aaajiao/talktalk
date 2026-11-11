@@ -4,7 +4,7 @@ import TalkTalkCore
 import TalkTalkEngineHost
 import TalkTalkVoice
 
-// m1-engine: `TalkTalk --self-test [--engine] [--voice] … --out <file>` (ARCHITECTURE.md §12.3).
+// m1-engine: `TalkTalk --self-test [--engine] [--voice] … --out <file>` (ARCHITECTURE.md).
 // Headless (no NSApplication). One JSON line per part to --out (0600), in the order of
 // `selfTestParts`, each a SelfTestReport with its own `suite`; exit 0 when every part passes, 1 when
 // any fails or all its checks are skipped, 2 usage. No part flag = implemented local parts; cloud

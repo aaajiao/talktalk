@@ -5,7 +5,7 @@ import TalkTalkCore
 import TalkTalkEngineHost
 import TalkTalkVoice
 
-/// The app's EngineHost (ARCHITECTURE.md §1, §7.6): one `EngineProcess` per runtime flavour (v1:
+/// The app's EngineHost (ARCHITECTURE.md, "平台与模块"): one `EngineProcess` per runtime flavour (v1:
 /// only the default one), and the voice lifecycle and SPEAK routing built and torn down with it,
 /// so `VoiceLifecycle(engineProcess:)` follows exactly the instance SPEAK uses. Held by
 /// AppDelegate and passed down (no global, so tests can hand in a fake factory).

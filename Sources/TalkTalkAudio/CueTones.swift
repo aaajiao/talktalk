@@ -1,6 +1,6 @@
 import Foundation
 
-/// The cue tones (ARCHITECTURE.md §3.8 "提示", §8.6): short, quiet, rendered at the monitor
+/// The cue tones (ARCHITECTURE.md): short, quiet, rendered at the monitor
 /// device's rate and played only through MonitorOutput (`playCue`), never the Feed.
 ///  - `.passthroughOpen`: a rising sweep, requested before the gate opens (device output latency is not awaited);
 ///  - `.passthroughClose`: the same sweep falling, played after the close;

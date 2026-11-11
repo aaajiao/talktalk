@@ -1,10 +1,10 @@
 import Foundation
 
-/// T10 (ARCHITECTURE.md §14) pass rules that do not need the Speech framework, so they are unit
+/// T10 (ARCHITECTURE.md) pass rules that do not need the Speech framework, so they are unit
 /// tested: the per-sentence lag of ① (from the speech end, on the wall clock), its drift (rule C6;
 /// C5 reported only), and the MLX-loaded / idle split of ④.
 public enum T10Analysis {
-    /// C5, reported beside rule C6 (ARCHITECTURE §14 T10 ①), not judged: per-sentence lags are
+    /// C5, reported beside rule C6 (ARCHITECTURE.md T10 ①), not judged: per-sentence lags are
     /// bucketed per `bucketS` of feed time (from the common feed start); bucket 0 is warm-up; the
     /// baseline is `stat` over the samples of buckets 1...`baselineBuckets` pooled (not a median of
     /// bucket values: with two buckets a lower median is their minimum); every later bucket's
@@ -199,7 +199,7 @@ public enum T10Analysis {
         }
     }
 
-    /// ① rule C6 (ARCHITECTURE §14 T10 ①): the lag split into the parts that can drift, each
+    /// ① rule C6 (ARCHITECTURE.md T10 ①): the lag split into the parts that can drift, each
     /// judged on its own. lag = (hit range end − speech end: the wait for the next ~960 ms grid
     /// point, uniform, does not drift) + delivery delay + backlog + 960 × (late batch). Same buckets
     /// as C5: `bucketS` of feed time, bucket 0 warm-up, baseline = buckets 1...`baselineBuckets`

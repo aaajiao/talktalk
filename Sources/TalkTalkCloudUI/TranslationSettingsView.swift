@@ -15,7 +15,7 @@ public struct TranslationLanguageSummary {
     }
 }
 
-/// Settings › 模型 › 文本翻译 (settings visual system §7.9; ARCHITECTURE.md §11). The page opens
+/// Settings › 模型 › 文本翻译 (settings visual system §7.9; ARCHITECTURE.md, "三种使用场景"). The page opens
 /// with the two-lane diagram, each direction's engine node carrying its OpenAI switch, then
 /// DataBoundary; below it the API key (consent and key entry stay in Form rows, never in a
 /// popover, §0.2 #16) and, once OpenAI is chosen or a key exists, the OpenAI model rows.

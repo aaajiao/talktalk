@@ -5,7 +5,7 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkDriverSupport
 
-/// Meeting mode ↔ SystemInputSwitcher (sysinput, ARCHITECTURE.md §8.6, §16 decision 4): the
+/// Meeting mode ↔ SystemInputSwitcher (sysinput, ARCHITECTURE.md, "实时音频与生命周期约束"): the
 /// system default input goes to TalkTalk Mic while meeting mode runs and comes back afterwards;
 /// with the call still on, by default only when it ends. This file is the wiring only: the
 /// automatic end/quit restoration is wired by `SysInputDialogs` (Core `SysInputDialogPlan`),

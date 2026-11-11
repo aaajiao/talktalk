@@ -6,7 +6,7 @@ import Foundation
 import Synchronization
 import TalkTalkCore
 
-/// The monitor output (ARCHITECTURE.md §3.4): monitorIOProc (C, `tt_monitor_ioproc`) on the
+/// The monitor output (ARCHITECTURE.md, "实时音频与生命周期约束"): monitorIOProc (C, `tt_monitor_ioproc`) on the
 /// current default output device. It follows the default output (rebuilt when it changes) and
 /// never changes it: no rate, buffer size, volume or default-device writes.
 ///

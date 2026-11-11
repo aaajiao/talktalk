@@ -5,7 +5,7 @@ import Foundation
 import Observation
 import TalkTalkEngineHost
 
-/// Installs, uninstalls and reloads TalkTalkAudio.driver (ARCHITECTURE.md §8.4):
+/// Installs, uninstalls and reloads TalkTalkAudio.driver (ARCHITECTURE.md, "平台与模块"):
 ///
 /// 1. pre-checks (`DriverPreflight`): no meeting, nothing reading TalkTalk Mic, no restore record;
 /// 2. copy the bundled driver to `Caches/TalkTalk/installer-tmp/driver-<uuid>/` and check it

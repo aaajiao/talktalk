@@ -1,6 +1,6 @@
 import Foundation
 
-/// What a diagnostics bundle may contain (ARCHITECTURE.md §12.3 “导出诊断包”, §12.1, §9.5).
+/// What a diagnostics bundle may contain (ARCHITECTURE.md, "数据与隐私").
 ///
 /// Path whitelist, deny wins:
 ///

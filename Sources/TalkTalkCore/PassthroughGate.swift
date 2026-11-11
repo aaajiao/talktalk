@@ -294,7 +294,7 @@ public struct PassthroughFrames: Sendable {
 
 // MARK: - The gate
 
-/// Open/close state machine and the interval floor of the passthrough (ARCHITECTURE.md §3.8;
+/// Open/close state machine and the interval floor of the passthrough (ARCHITECTURE.md, "实时音频与生命周期约束";
 /// privacy invariants 1–7). Thread-safe: KeyTap's thread drives the hold, the control plane
 /// updates facts and system events, the audio worker calls `admit`. Every call takes the current
 /// host time; the gate never reads a clock, so tests run it on a virtual one.

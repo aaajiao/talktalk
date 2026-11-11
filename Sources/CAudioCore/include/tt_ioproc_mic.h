@@ -1,7 +1,7 @@
 #ifndef TT_IOPROC_MIC_H
 #define TT_IOPROC_MIC_H
 
-/* Microphone IOProc (ARCHITECTURE.md §3.2, §13). Attached with AudioDeviceCreateIOProcID
+/* Microphone IOProc (ARCHITECTURE.md, "实时音频与生命周期约束"). Attached with AudioDeviceCreateIOProcID
  * directly on the physical input device (never through AVAudioEngine). It copies one input
  * channel of the HAL's canonical Float32 buffers into a tt_ring and records timing; nothing
  * else (no downmix, no conversion, no allocation, no locks: TT_NONBLOCKING is checked by the

@@ -2,7 +2,7 @@ import Foundation
 import Synchronization
 import TalkTalkCore
 
-/// `/v1/playout` cadence (ARCHITECTURE.md §4.4, §6.1): during SPEAK one PlayoutReport every 100 ms,
+/// `/v1/playout` cadence (ARCHITECTURE.md): during SPEAK one PlayoutReport every 100 ms,
 /// and at once when the queue pauses or resumes, an underrun is counted, the tempo changes or the
 /// epoch moves (hard interrupt). The report comes from the queue's actual fill
 /// (`ClauseQueue.report(at:)`), so the engine's bufferedAhead already includes underruns, floor

@@ -2,10 +2,10 @@
 import Foundation
 
 /// Which microphone SPEAK reads, and which devices are physical enough to be a system default
-/// input restore target (ARCHITECTURE.md §3.2, §3.5, §8.6, §16 decision 3). Pure functions of
+/// input restore target (ARCHITECTURE.md, "实时音频与生命周期约束"). Pure functions of
 /// device values; every comparison is by UID (object IDs change across coreaudiod restarts).
 ///
-/// The five rules of §3.2:
+/// The five rules:
 ///   1. candidates: transport built-in, USB, Thunderbolt or PCI;
 ///   2. excluded: virtual, aggregate, our own UIDs (`com.aaajiao.talktalk.*`), Tuwa, Microsoft Teams Audio;
 ///   3. a UID the user picked in settings wins, but it must pass rule 2;

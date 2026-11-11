@@ -1,4 +1,4 @@
-/// Meeting-mode auto end (ARCHITECTURE.md §6.3, §16 决定 9). Pure; fed about once per second.
+/// Meeting-mode auto end (ARCHITECTURE.md). Pure; fed about once per second.
 ///  - Every resolved meeting process has had neither IsRunningInput nor IsRunningOutput for
 ///    `idleMinutes` (10): ask "会议似乎已结束"; no answer within `confirmSeconds` (60): end.
 ///  - Audio coming back, or the user saying "still in a meeting", cancels the question.

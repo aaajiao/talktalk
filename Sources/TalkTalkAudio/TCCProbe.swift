@@ -2,7 +2,7 @@ import CoreAudio
 import Foundation
 import TalkTalkCore
 
-/// System-audio-recording grant check (ARCHITECTURE.md §3.1 "TCC 探针"). Meeting clients output
+/// System-audio-recording grant check (ARCHITECTURE.md, "引擎、翻译与播放"). Meeting clients output
 /// exact digital silence in a lobby, muted, with DTX or alone, so silence never means "denied".
 /// Instead the app plays a short, quiet tone with `/usr/bin/afplay` (a PID we know), taps only that
 /// process with `.muted` (the user hears nothing once the tap is up), and decides:

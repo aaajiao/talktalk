@@ -6,7 +6,7 @@ import TalkTalkApple
 import TalkTalkAudio
 import TalkTalkCore
 
-/// Meeting mode, LISTEN half (ARCHITECTURE.md §3.1, §3.6, §6.3). Owns the meeting source, the
+/// Meeting mode, LISTEN half (ARCHITECTURE.md). Owns the meeting source, the
 /// include tap (only the meeting's process objects; global capture requires explicit opt-in), the TCC probe at start, the all-zero watchdog, rebuilds on device / process / service
 /// changes, auto end and sleep / lock suspend. Subtitles come out through `onSubtitle`; state,
 /// hints and lifecycle (start, end, sleep / wake, coreaudiod restart) through `events`, a hub

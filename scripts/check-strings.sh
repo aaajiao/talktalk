@@ -1,5 +1,5 @@
 #!/bin/bash
-# check-strings.sh: the zh-Hans string catalog gate (ARCHITECTURE.md §11: 文案用中文，开发语言
+# check-strings.sh: the zh-Hans string catalog gate (ARCHITECTURE.md, "界面语言": 文案用中文，开发语言
 # zh-Hans，用 String(localized:)).
 #
 #   scripts/check-strings.sh [--root DIR] [--update] [-q]

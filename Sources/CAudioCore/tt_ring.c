@@ -162,7 +162,7 @@ void tt_ring_reset(tt_ring *ring) {
     atomic_store_explicit(&ring->read_index, w, memory_order_release);
 }
 
-/* ---- Playout (ringO, ringO2; ARCHITECTURE.md §3.3) ------------------------------------------ */
+/* ---- Playout (ringO, ringO2; ARCHITECTURE.md, "实时音频与生命周期约束") ------------------------------------------ */
 
 #define MARK_MASK (TT_RING_MAX_MARKS - 1u)
 

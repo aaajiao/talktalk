@@ -4,7 +4,7 @@ import TalkTalkCloud
 import TalkTalkCore
 import TalkTalkSettingsUI
 
-/// State and actions behind Settings › 翻译 (ARCHITECTURE.md §7.7, §11). The key itself is only
+/// State and actions behind Settings › 翻译 (ARCHITECTURE.md, "三种使用场景"). The key itself is only
 /// held transiently: while saving, and inside the client's Authorization header. Existing items
 /// show “sk-…•••”; only a newly pasted key supplies a last-4 mask, without another secret read.
 /// Its words come from `TranslationSettingsText`: the shortest form to show, the sentence as help.

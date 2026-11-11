@@ -1,7 +1,7 @@
 #ifndef TT_IOPROC_FEED_H
 #define TT_IOPROC_FEED_H
 
-/* Feed IOProc (ARCHITECTURE.md §3.3, §3.8, §8.2). Attached with AudioDeviceCreateIOProcID on the
+/* Feed IOProc (ARCHITECTURE.md, "实时音频与生命周期约束"). Attached with AudioDeviceCreateIOProcID on the
  * hidden "TalkTalk Feed" device, resolved by UID: output only, 2 channels (1 = meeting →
  * TalkTalk Mic, 2 = self-test → Test Mic), 48 kHz Float32, 480-frame IO buffer; the driver's Mic
  * reads channel 1 at sample time T - 480 (docs/decisions/m0-t8-driver.md). No SRC, no

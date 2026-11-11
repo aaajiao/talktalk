@@ -7,7 +7,7 @@ import TalkTalkAudio
 import TalkTalkEngineHost
 import TalkTalkSettingsUI
 
-/// State behind settings › 组件 › 虚拟麦克风 (ARCHITECTURE.md §11: 状态、安装、自检、卸载、谁在用)
+/// State behind settings › 组件 › 虚拟麦克风 (ARCHITECTURE.md, "三种使用场景": 状态、安装、自检、卸载、谁在用)
 /// and the 完全卸载 button. The app's components page (TalkTalkApp's DriverComponentsPage) builds
 /// one with `forCurrentApp` and shows it:
 ///
