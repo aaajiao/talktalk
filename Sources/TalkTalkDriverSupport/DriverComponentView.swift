@@ -3,7 +3,7 @@ import SwiftUI
 import TalkTalkCore
 import TalkTalkSettingsUI
 
-// Settings › 组件 › 虚拟麦克风 (settings visual system §7.12; ARCHITECTURE.md §11): the driver's
+// Settings › 组件 › 虚拟麦克风 (settings visual system §7.12; ARCHITECTURE.md, "三种使用场景"): the driver's
 // flow (`FlowGrid.driver`, shared with onboarding step 3) and its 驱动 section rows. The model
 // holds every state; the views hold none.
 

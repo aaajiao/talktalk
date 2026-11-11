@@ -4,7 +4,7 @@ import Observation
 import TalkTalkAudio
 import TalkTalkCore
 
-/// Drives one "my voice" enrollment (ARCHITECTURE.md §9.2) for `EnrollmentView`. Owns the
+/// Drives one "my voice" enrollment (ARCHITECTURE.md, "引擎、翻译与播放") for `EnrollmentView`. Owns the
 /// MicCapture while recording, runs the checks, and saves through VoiceStore. The same
 /// controller backs the dev entry `--bench enroll` (M0), the first-run onboarding (M1) and the
 /// settings page (M2), so it knows nothing about windows or the bench.

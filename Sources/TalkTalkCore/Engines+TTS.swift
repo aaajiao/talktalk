@@ -1,11 +1,11 @@
 import Foundation
 
-// §4.1 protocol sketch, TTS subset (M2 SPEAK). Shapes as written in ARCHITECTURE.md §4.1; the
+// Protocol sketch, TTS subset (M2 SPEAK). Shapes as written in ARCHITECTURE.md; the
 // shared types (Lang, Priority, EngineID, StageTiming, HostTime, JobID) are in Engines.swift.
 //
-// These are the app-side (Core) types. The engine wire format (§4.4: `lang`, snake_case tail
+// These are the app-side (Core) types. The engine wire format (`lang`, snake_case tail
 // keys, ms timings) is mapped by RemoteQwenTTS in TalkTalkEngineHost, whose wire structs are
-// named EngineTTS*. Two additions to the §4.1 sketch, both needed to implement it as written:
+// named EngineTTS*. Two additions to the sketch, both needed to implement it as written:
 // - `TTSChunk.summary`: the stream "ends with a TTSSummary" (§4.1); it rides on the isLast chunk.
 // - `TTSChunk.clause` / `epoch` are not here: the app maps job → {clauseID, epoch} (§3.3).
 

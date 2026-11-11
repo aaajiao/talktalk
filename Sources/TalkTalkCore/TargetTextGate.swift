@@ -38,7 +38,7 @@ public struct NLLanguageIdentifier: LanguageIdentifying {
     }
 }
 
-/// TargetTextGate (ARCHITECTURE.md §5.4): speak only text suitable for the selected target,
+/// TargetTextGate (ARCHITECTURE.md, "引擎、翻译与播放"): speak only text suitable for the selected target,
 /// never empty text or meta-talk. Runs on every MT result (OpenAI, Apple, future backends) before TTS.
 public struct TargetTextGate: Sendable {
     public enum Verdict: Sendable, Equatable {

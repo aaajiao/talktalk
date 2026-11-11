@@ -2,9 +2,9 @@
 #define TT_VAD_H
 
 /* tt_vad: thin wrapper over the vendored libfvad (third_party/libfvad, BSD-3-Clause, pinned
- * commit in third_party/libfvad/VENDOR.md; ARCHITECTURE.md §2.3, §3.2). Runs on the audio
+ * commit in third_party/libfvad/VENDOR.md; ARCHITECTURE.md). Runs on the audio
  * worker, not in an IOProc (libfvad allocates in fvad_new). The adaptive energy gate, the
- * 3-frame onset rule and the 120 ms hangover of §3.2 live in the Swift segmenters; this layer
+ * 3-frame onset rule and the 120 ms hangover live in the Swift segmenters; this layer
  * only classifies one frame and reports its level. */
 
 #include <stddef.h>

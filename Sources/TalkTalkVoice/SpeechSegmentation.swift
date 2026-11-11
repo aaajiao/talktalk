@@ -1,7 +1,7 @@
 import Foundation
 
 /// Level helpers and an energy-based speech/silence segmentation for enrollment takes
-/// (ARCHITECTURE.md §9.1, §9.2). Pure functions on mono Float32 at any sample rate.
+/// (ARCHITECTURE.md). Pure functions on mono Float32 at any sample rate.
 public enum Levels {
     public static let floorDb = -120.0
 

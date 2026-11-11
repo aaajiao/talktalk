@@ -4,7 +4,7 @@ import Speech
 import TalkTalkCore
 import Translation
 
-/// Startup check item 6, "Apple 侧" (ARCHITECTURE.md §7.5): speech assets for zh-CN / en-US /
+/// Startup check item 6, "Apple 侧" (ARCHITECTURE.md): speech assets for zh-CN / en-US /
 /// de-DE (installed, reserved — 3 of the system's reservation slots), Translation availability
 /// per direction, and whether `.highFidelity` is usable. Runs no process, downloads nothing.
 /// `evaluate` is pure; the `StartupCheckItem` adapter (talktalk-m0's protocol) wraps `run`.

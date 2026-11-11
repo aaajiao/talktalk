@@ -2,7 +2,7 @@
 import TalkTalkAudio
 import TalkTalkCore
 
-/// The menu bar icon (ARCHITECTURE.md §11 菜单栏图标状态) from what is true now. Pure. A meeting
+/// The menu bar icon (ARCHITECTURE.md, "三种使用场景") from what is true now. Pure. A meeting
 /// app that reads the physical microphone (the other party hears the original voice) comes
 /// first, as in the titlebar's risk capsule; then the open microphone, conditions needing
 /// attention, speech, preparation and a meeting's degraded parts. Last-run default-input

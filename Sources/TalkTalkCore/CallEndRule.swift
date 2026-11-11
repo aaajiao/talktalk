@@ -1,6 +1,6 @@
 import Foundation
 
-/// "通话结束" (ARCHITECTURE.md §8.6): every resolved meeting process has had neither
+/// "通话结束" (ARCHITECTURE.md): every resolved meeting process has had neither
 /// `IsRunningInput` nor `IsRunningOutput` for 30 s in a row, or has exited. Every deferred restore
 /// waits for it. Shared by the app (`SystemInputSwitcher`) and the guard (`--sysinput-guard`).
 ///

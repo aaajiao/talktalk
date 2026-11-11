@@ -1,7 +1,7 @@
 import CoreAudio
 import Foundation
 
-/// Every audio device, inputs and outputs (ARCHITECTURE.md §3.6, §13). Our own private tap
+/// Every audio device, inputs and outputs (ARCHITECTURE.md, "实时音频与生命周期约束"). Our own private tap
 /// aggregates (`com.aaajiao.talktalk.tap.*`) are left out. Read-only, no TCC.
 public struct AudioDeviceInfo: Sendable, Equatable, Hashable, Codable {
     public let objectID: UInt32

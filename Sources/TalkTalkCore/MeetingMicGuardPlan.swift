@@ -1,5 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
-/// MeetingMicGuard's rules (ARCHITECTURE.md §8.6, §3.6, §3.8), pure: which microphone each
+/// MeetingMicGuard's rules (ARCHITECTURE.md, "实时音频与生命周期约束"), pure: which microphone each
 /// meeting app reads, the verdict for the current meeting source, and the "等确认" phase after a
 /// coreaudiod restart or wake. TalkTalkAudio's `MeetingMicGuard` reads Core Audio (process
 /// objects' `kAudioProcessPropertyDevices` input scope and `IsRunningInput`, device UIDs) and

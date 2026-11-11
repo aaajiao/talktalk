@@ -2,7 +2,7 @@ import CoreAudio
 import Foundation
 import TalkTalkCore
 
-/// The driver's meeting-mode switch `'ttmm'` (ARCHITECTURE.md §8.3, driver ≥ 0.2.0). Drivers
+/// The driver's meeting-mode switch `'ttmm'` (ARCHITECTURE.md, "实时音频与生命周期约束", driver ≥ 0.2.0). Drivers
 /// 0.2.0–0.2.2 tie selectability to it; 0.2.3 keeps the Mic selectable while listed and records
 /// session state separately. A protocol so tests use a fake (TalkTalkAudio
 /// cannot import TalkTalkDriverSupport: that target depends on this one). `meetingMode()` and

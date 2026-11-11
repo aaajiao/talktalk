@@ -3,7 +3,7 @@ import SwiftUI
 import TalkTalkCore
 import TalkTalkSettingsUI
 
-/// First-run onboarding step 5 (ARCHITECTURE.md §11, settings visual system §7.17): the sections
+/// First-run onboarding step 5 (ARCHITECTURE.md, "三种使用场景", settings visual system §7.17): the sections
 /// of 模型 › 文本翻译 for a grouped Form, without its flow and model sections. DataBoundary says
 /// what stays on this Mac and what goes to OpenAI; `OpenAIKeySection` holds the consent, the key
 /// and its verification; one chip says Apple translates without a key. Optional.

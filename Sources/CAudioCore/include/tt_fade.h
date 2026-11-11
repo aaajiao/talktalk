@@ -1,7 +1,7 @@
 #ifndef TT_FADE_H
 #define TT_FADE_H
 
-/* Fade shapes shared by every ring and IOProc in CAudioCore (ARCHITECTURE.md §3.3, §3.8).
+/* Fade shapes shared by every ring and IOProc in CAudioCore (ARCHITECTURE.md, "实时音频与生命周期约束").
  * Linear ramps, defined exactly so tests can compare sample by sample:
  *   fade-in  over len frames: gain(i) = i / len            (first frame 0, then 1 after the ramp)
  *   fade-out over len frames: gain(i) = (len - 1 - i) / len (last frame 0, then 0 after the ramp)

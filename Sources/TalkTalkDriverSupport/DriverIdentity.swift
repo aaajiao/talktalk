@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import TalkTalkCore
 
-/// Fixed facts about TalkTalkAudio.driver (ARCHITECTURE.md §8.2, §8.3). The pins come from
+/// Fixed facts about TalkTalkAudio.driver (ARCHITECTURE.md, "平台与模块"). The pins come from
 /// `DriverPins` (generated from scripts/lib/versions.sh by scripts/gen-pins.sh). The version is
 /// not here on purpose: the expected version is the one of the driver bundled with this app
 /// (`DriverResources.manifest.version`), so a rebuilt app never disagrees with its own driver.

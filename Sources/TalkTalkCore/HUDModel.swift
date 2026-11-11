@@ -1,7 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 
-/// One line of the push-to-talk HUD (ARCHITECTURE.md §11 按键说话 HUD).
+/// One line of the push-to-talk HUD (ARCHITECTURE.md, "LISTEN：对方音频到双语字幕").
 public struct HUDLine: Sendable, Equatable {
     /// `permissions`: the system-audio grant; `inputMonitoring`: key listening (输入监控).
     public enum SettingsDestination: Sendable, Equatable { case audio, translation, permissions, inputMonitoring }

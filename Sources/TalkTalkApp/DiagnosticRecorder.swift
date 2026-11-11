@@ -4,7 +4,7 @@ import Foundation
 import TalkTalkCore
 import TalkTalkSession
 
-/// Per-meeting diagnostic recording (ARCHITECTURE.md §12.1, §12.4).
+/// Per-meeting diagnostic recording (ARCHITECTURE.md, "数据与隐私").
 ///
 /// - Off unless chosen for this meeting. The choice is made per meeting (before it starts, for
 ///   the next one, or while it runs) and is cleared when the meeting ends. Video captions have no

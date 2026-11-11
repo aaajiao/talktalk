@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import TalkTalkCore
 
-/// `voice/profile.json` (ARCHITECTURE.md §9.3). Holds hashes, measurements and settings — never
+/// `voice/profile.json` (ARCHITECTURE.md, "引擎、翻译与播放"). Holds hashes, measurements and settings — never
 /// audio or text (the script text lives in `script.txt`).
 public struct VoiceProfile: Codable, Sendable, Equatable {
     public var version: Int = 1

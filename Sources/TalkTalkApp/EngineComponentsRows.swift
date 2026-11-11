@@ -5,7 +5,7 @@ import TalkTalkCore
 import TalkTalkEngineHost
 import TalkTalkSettingsUI
 
-/// Settings › 安装与维护 › 语音资源 (ARCHITECTURE.md §7.3–§7.5, §11), on top of M0's @Observable
+/// Settings › 安装与维护 › 语音资源 (ARCHITECTURE.md, "三种使用场景"), on top of M0's @Observable
 /// `EngineInstaller`. The engine itself belongs to EngineHost (AppDelegate), which hands in
 /// `restart` and `stopEngine`; AppUIModels.shared is built before it, so both are set later.
 @MainActor

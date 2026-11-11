@@ -1,7 +1,7 @@
 #ifndef TT_IOPROC_TAP_H
 #define TT_IOPROC_TAP_H
 
-/* Meeting-tap IOProc (ARCHITECTURE.md §3.1 step 4). Attached with AudioDeviceCreateIOProcID on
+/* Meeting-tap IOProc (ARCHITECTURE.md, "实时音频与生命周期约束"). Attached with AudioDeviceCreateIOProcID on
  * the private aggregate that holds the include tap. It only copies: the tap's stereo Float32
  * input goes into two mono tt_rings (left, right), and every callback's (mHostTime, frames)
  * goes into a small SPSC timestamp ring so the worker can build the TimeMap. It also remembers

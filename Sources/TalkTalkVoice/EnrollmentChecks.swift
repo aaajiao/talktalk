@@ -2,7 +2,7 @@
 import TalkTalkCore
 import Foundation
 
-/// The automatic checks of ARCHITECTURE.md §9.2 step 4, one pure function per table row.
+/// The automatic checks of ARCHITECTURE.md, "引擎、翻译与播放", one pure function per table row.
 /// Thresholds are the table's; the user-facing messages are the table's wording where it gives one.
 public enum CheckStatus: String, Codable, Sendable, Comparable {
     case pass, warn, reject

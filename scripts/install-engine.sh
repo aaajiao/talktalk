@@ -1,6 +1,6 @@
 #!/bin/bash
 # install-engine.sh: install, verify or remove the talktalk engine runtime and models
-# (ARCHITECTURE.md §7.3; derived from readread install-hq.sh's discipline).
+# (ARCHITECTURE.md, "引擎、翻译与播放"; derived from readread install-hq.sh's discipline).
 #
 #   install-engine.sh [--profile max|standard|compact24|compact16] [--json-progress]   install / update / repair
 #   install-engine.sh --check [--json-progress]                                        verify only, exit 0/1

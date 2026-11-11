@@ -5,7 +5,7 @@ import CoreAudio
 import Foundation
 import TalkTalkAudio
 
-/// The result of one driver self-test run (ARCHITECTURE.md §8.4 "校验").
+/// The result of one driver self-test run (ARCHITECTURE.md, "平台与模块").
 public struct DriverSelfTestReport: Codable, Sendable, Equatable {
     public struct Check: Codable, Sendable, Equatable {
         public enum Name: String, Codable, Sendable, CaseIterable {

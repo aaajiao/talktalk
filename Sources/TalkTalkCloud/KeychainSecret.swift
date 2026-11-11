@@ -2,7 +2,7 @@ import Foundation
 import Security
 import Synchronization
 
-/// The only code that reads or writes the OpenAI API key (ARCHITECTURE.md §7.7).
+/// The only code that reads or writes the OpenAI API key (ARCHITECTURE.md, "数据与隐私").
 ///
 /// Login (file-based) keychain, `kSecClassGenericPassword`, not synchronizable. No
 /// `kSecAttrAccessible` and no `kSecUseDataProtectionKeychain`: an ad-hoc signed app has no

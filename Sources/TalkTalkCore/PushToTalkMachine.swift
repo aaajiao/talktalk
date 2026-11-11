@@ -1,4 +1,4 @@
-/// The push-to-talk key, right ⌥ (ARCHITECTURE.md §5.2 rules 1, 8, 9, 10). Pure logic on the
+/// The push-to-talk key, right ⌥ (ARCHITECTURE.md, "SPEAK：实体麦到会议输入"). Pure logic on the
 /// event times it is given; PushToTalkKey (TalkTalkSession) feeds it the same KeyTap stream as
 /// PassthroughKeyMachine plus a flags poll, and tells it about VAD and the first commit.
 ///

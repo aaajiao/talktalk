@@ -3,7 +3,7 @@ import TalkTalkAudio
 import TalkTalkDriverSupport
 import TalkTalkEngineHost
 
-// m2 driver: `TalkTalk --self-test --driver --out <file>` (ARCHITECTURE.md §8.4 校验, §12.3).
+// m2 driver: `TalkTalk --self-test --driver --out <file>` (ARCHITECTURE.md, "平台与模块").
 // Reads Test Mic (and TalkTalk Mic for the isolation check), which is microphone access: run it
 // through LaunchServices so the TCC grant is the app's:
 //   open -W -n -a build/TalkTalk-Dev.app --args --self-test --driver --out <file>

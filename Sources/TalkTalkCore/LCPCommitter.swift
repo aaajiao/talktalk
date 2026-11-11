@@ -1,6 +1,6 @@
 import Foundation
 
-/// LCP-k commit of streaming ASR hypotheses (ARCHITECTURE.md §5.1, §5.3 "LCPCommitter 是通用组件").
+/// LCP-k commit of streaming ASR hypotheses (ARCHITECTURE.md, "LISTEN：对方音频到双语字幕").
 /// The stable prefix is the longest common prefix of the last `agreement` hypotheses (LCP-2 by
 /// default), by word for en/de and by character for zh. Committed tokens only grow: when a later
 /// hypothesis revises a committed token, the commit is kept (display never rewrites itself) and

@@ -2,7 +2,7 @@
 #define TT_PT_STATE_H
 
 /* tt_pt_state: the passthrough switch shared by PassthroughGate (writer) and feedIOProc and
- * PassthroughGate.admit (readers) (ARCHITECTURE.md §3.8 "feedIOProc 的切换"):
+ * PassthroughGate.admit (readers) (ARCHITECTURE.md, "实时音频与生命周期约束"):
  *   { open, generation, source, open time, lease until, hard deadline }.
  *
  * Times are host times in mach ticks (AudioTimeStamp.mHostTime units), so the IOProc compares

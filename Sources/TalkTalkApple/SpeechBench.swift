@@ -4,8 +4,8 @@ import Foundation
 import Speech
 import TalkTalkCore
 
-/// T10 (ARCHITECTURE.md §14) with Apple SpeechAnalyzer / SpeechTranscriber, configured as LISTEN
-/// uses it (§4.2 table: `.volatileResults + .fastResults`, `.processLifetime`, prepareToAnalyze,
+/// T10 (ARCHITECTURE.md) with Apple SpeechAnalyzer / SpeechTranscriber, configured as LISTEN
+/// uses it (`.volatileResults + .fastResults`, `.processLifetime`, prepareToAnalyze,
 /// 16 kHz Int16 mono).
 ///
 /// ④ finalizeToFinal: `say`-synthesized en-US / de-DE sentences are fed to one long-lived

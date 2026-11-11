@@ -1,7 +1,7 @@
 #ifndef TT_RT_H
 #define TT_RT_H
 
-/* Real-time annotations (ARCHITECTURE.md §2.2). CAudioCore is compiled with
+/* Real-time annotations (ARCHITECTURE.md, "实时音频与生命周期约束"). CAudioCore is compiled with
  * -Wfunction-effects -Werror=function-effects, so a function marked TT_NONBLOCKING that calls
  * anything not known to be nonblocking (malloc, locks, ObjC, logging) fails the build.
  * Clang requires the attribute on the declaration and on the definition. */

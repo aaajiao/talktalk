@@ -103,7 +103,7 @@ extension PlayoutRing {
 ///
 /// All methods take the time explicitly (virtual clock in tests). Thread-safe (one lock); the
 /// worker calls `pump` every few ms, the TTS consumer calls `ingest`. SpeakPipeline contract
-/// (yield forwarding, RingO lifetime, restart): ARCHITECTURE.md §3.3 实现补充.
+/// (yield forwarding, RingO lifetime, restart): ARCHITECTURE.md, "实时音频与生命周期约束".
 public final class ClauseQueue: @unchecked Sendable {
     public struct Config: Sendable, Equatable {
         public var ringOAheadMs: Int = 500

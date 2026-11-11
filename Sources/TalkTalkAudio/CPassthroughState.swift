@@ -1,7 +1,7 @@
 import CAudioCore
 import TalkTalkCore
 
-/// `PassthroughStateSink` over CAudioCore's tt_pt_state (ARCHITECTURE.md §3.8 "feedIOProc 的切换"):
+/// `PassthroughStateSink` over CAudioCore's tt_pt_state (ARCHITECTURE.md, "实时音频与生命周期约束"):
 /// the seqlock state feedIOProc reads once per IO cycle. The gate is the only writer and calls
 /// under its own lock (the protocol's contract), so writes never interleave; the IOProc only reads.
 ///

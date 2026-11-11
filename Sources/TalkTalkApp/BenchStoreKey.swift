@@ -4,7 +4,7 @@ import Foundation
 import TalkTalkCloud
 import TalkTalkCore
 
-/// `--bench store-key` (ARCHITECTURE.md §7.7, §14 M0 day 1). Dev build only.
+/// `--bench store-key` (ARCHITECTURE.md M0 day 1). Dev build only.
 ///
 /// Shows a minimal NSAlert with an NSSecureTextField; you paste the key and press Save. The app
 /// writes it with the same KeychainSecret code the M1 settings paste box will use, so the item is

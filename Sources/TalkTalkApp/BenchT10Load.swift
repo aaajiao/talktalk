@@ -5,7 +5,7 @@ import TalkTalkEngineHost
 import TalkTalkVoice
 
 #if TALKTALK_DEV
-/// T10's MLX load (ARCHITECTURE.md §14: "MLX 满载"): the installed engine, TTS role only,
+/// T10's MLX load (ARCHITECTURE.md): the installed engine, TTS role only,
 /// synthesizing clause after clause with nothing played, so the render horizon never parks it.
 /// Voice: the engine's synthetic warm-up reference (as BenchEngineRestart), never "my voice".
 actor EngineTTSLoad: BenchLoad {

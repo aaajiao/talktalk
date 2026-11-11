@@ -1,6 +1,6 @@
 import Foundation
 
-/// Transcript-vs-script comparison for the enrollment CER check (ARCHITECTURE.md §9.2 step 4:
+/// Transcript-vs-script comparison for the enrollment CER check (ARCHITECTURE.md:
 /// "去标点后算 CER；CER ≤8%，语种 zh，且不缺整个分句"). Pure functions.
 public enum TranscriptComparison {
     public struct Result: Sendable, Equatable {

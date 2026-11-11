@@ -14,7 +14,7 @@ import TalkTalkSession
 import TalkTalkSettingsUI
 import TalkTalkVoice
 
-/// First-run onboarding (ARCHITECTURE.md §11 首次引导). The step lives in OnboardingState
+/// First-run onboarding (ARCHITECTURE.md, "三种使用场景"). The step lives in OnboardingState
 /// (UserDefaults `onboarding.v2.*`), so quitting anywhere, including the relaunch macOS asks for
 /// after Input Monitoring is granted, comes back to the same place.
 ///

@@ -1,7 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 
-/// Settings › 通用 › 登录时启动 (ARCHITECTURE.md §11), the logic behind `LaunchAtLogin`
+/// Settings › 通用 › 登录时启动 (ARCHITECTURE.md, "三种使用场景"), the logic behind `LaunchAtLogin`
 /// (SMAppService.mainApp). A signed main app can register even before it has a system record.
 /// This policy is not for helper apps or agents, whose `.notFound` can mean a missing file.
 public enum LaunchAtLoginPolicy {

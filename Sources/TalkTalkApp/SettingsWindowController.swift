@@ -7,7 +7,7 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkSettingsUI
 
-/// The sections of the settings window, in the order of ARCHITECTURE.md §11 "设置".
+/// The sections of the settings window, in the order of ARCHITECTURE.md, "三种使用场景".
 enum SettingsSection: String, CaseIterable, Identifiable {
     case general, meeting, subtitles, audio, voice, translation, components, glossary, privacy
 

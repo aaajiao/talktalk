@@ -7,7 +7,7 @@ import TalkTalkCore
 import TalkTalkSettingsUI
 import TalkTalkVoice
 
-/// Settings › 我的声音 (ARCHITECTURE.md §11, §9.2–§9.4). An overview of the saved profile with
+/// Settings › 我的声音 (ARCHITECTURE.md, "三种使用场景"). An overview of the saved profile with
 /// 试听 / 重录 / 删除, and the recording flow itself, which is TalkTalkVoice's `EnrollmentView` +
 /// `EnrollmentController` from the app's one `VoiceLifecycle` (EngineHost's): every write goes through
 /// its queue, never VoiceStore directly. Saves to the real

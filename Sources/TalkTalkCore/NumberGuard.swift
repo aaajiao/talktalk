@@ -1,6 +1,6 @@
 import Foundation
 
-/// NumberGuard (ARCHITECTURE.md §5.4): a self-written Chinese numeral parser (no dependency)
+/// NumberGuard (ARCHITECTURE.md): a self-written Chinese numeral parser (no dependency)
 /// normalises the numbers in the source into a multiset of values (三十万 → 300000,
 /// 百分之二十 → 20 %, 两千零五 → 2005, 1.5 亿 → 150000000) and compares it with the numbers in
 /// the translation (digits, and en/de number words that can be read back). It also checks that

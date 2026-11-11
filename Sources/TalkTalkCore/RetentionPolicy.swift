@@ -1,6 +1,6 @@
 import Foundation
 
-/// How long local data is kept (ARCHITECTURE.md §7.1, §12.1):
+/// How long local data is kept (ARCHITECTURE.md, "数据与隐私"):
 ///
 /// | what | where | rule |
 /// |---|---|---|

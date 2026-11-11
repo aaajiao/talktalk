@@ -40,7 +40,7 @@ enum DiagnosticsSettingsTab: String, CaseIterable, Identifiable {
     }
 }
 
-/// Settings › 隐私与诊断 (ARCHITECTURE.md §11, §12; settings visual system §7.14–§7.16). View
+/// Settings › 隐私与诊断 (ARCHITECTURE.md, "三种使用场景"; settings visual system §7.14–§7.16). View
 /// state lives in `PrivacySettings` (an @Observable model): CLT has no SwiftUI macro plugin, so
 /// no @State here. The sub-page cards and `DiagnosticsBanners` sit in the window's fixed band.
 /// 数据与隐私 opens with DataBoundary, 字幕分析 is one flow, 故障检查 a flow whose nodes scroll to

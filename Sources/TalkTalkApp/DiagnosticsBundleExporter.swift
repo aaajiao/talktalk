@@ -3,7 +3,7 @@ import Foundation
 import TalkTalkAudio
 import TalkTalkCore
 
-/// Settings › 隐私与诊断 › 导出诊断包 (ARCHITECTURE.md §12.3). The bundle is
+/// Settings › 隐私与诊断 › 导出诊断包 (ARCHITECTURE.md, "数据与隐私"). The bundle is
 /// `DiagnosticsBundle.assemble` (whitelist + line filter, Core) plus two generated files —
 /// versions and audio device names — zipped with `/usr/bin/ditto`.
 ///

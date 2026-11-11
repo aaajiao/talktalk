@@ -8,7 +8,7 @@ import TalkTalkCloud
 import TalkTalkCore
 import TalkTalkEngineHost
 
-/// "完全卸载 TalkTalk" (ARCHITECTURE.md §8.4, settings › 组件). In this order:
+/// "完全卸载 TalkTalk" (ARCHITECTURE.md, "三种使用场景", settings › 组件). In this order:
 ///
 /// 1. the default input: with a restore record, restore now if the call has ended, refuse while
 ///    it goes on ("先离开会议"), refuse if another TalkTalk owns the record;

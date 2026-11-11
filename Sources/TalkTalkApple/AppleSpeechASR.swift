@@ -4,7 +4,7 @@ import Foundation
 import Speech
 import TalkTalkCore
 
-/// LISTEN streaming ASR (ARCHITECTURE.md §4.2): Apple `SpeechTranscriber` en-US / de-DE with
+/// LISTEN streaming ASR (ARCHITECTURE.md, "LISTEN：对方音频到双语字幕"): Apple `SpeechTranscriber` en-US / de-DE with
 /// `.volatileResults + .fastResults` and `.audioTimeRange`, analyzer `.processLifetime`,
 /// `prepareToAnalyze`, 16 kHz Int16 mono input. Speech assets are system-managed (AssetInventory);
 /// `open` refuses a locale whose assets are not installed — installing is the settings UI's call

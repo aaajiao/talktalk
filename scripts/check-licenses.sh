@@ -1,5 +1,5 @@
 #!/bin/bash
-# check-licenses.sh: license gate (ARCHITECTURE.md §2.3, C9).
+# check-licenses.sh: license gate (ARCHITECTURE.md, C9).
 #
 #   scripts/check-licenses.sh [--root DIR] [--venv DIR | --no-venv] [--require-venv]
 #                             [--models-dir DIR]... [--lgpl-allow "LIST"] [-q]

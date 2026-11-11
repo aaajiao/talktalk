@@ -1,8 +1,8 @@
 import Darwin
 
-/// The one host clock (ARCHITECTURE.md §12.2): nanoseconds of `CLOCK_UPTIME_RAW`, the same
+/// The one host clock (ARCHITECTURE.md, "实时音频与生命周期约束"): nanoseconds of `CLOCK_UPTIME_RAW`, the same
 /// source as `AudioTimeStamp.mHostTime` (in mach ticks) and Python's `CLOCK_UPTIME_RAW`.
-/// It stops during sleep, so timestamps across a sleep are not subtracted (§12.2 `sys.wake`).
+/// It stops during sleep, so timestamps across a sleep are not subtracted (`sys.wake`).
 public enum HostClock {
     public static func now() -> HostTime {
         clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
