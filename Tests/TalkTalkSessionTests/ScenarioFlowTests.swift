@@ -106,6 +106,10 @@ import TalkTalkCore
         let starting = PhoneChecklist.make(phoneSession: true, starting: true, stopping: false, active: false,
                                            readyToDial: false, callAudioActive: false)
         #expect(starting.prepare == .inProgress && !starting.dialEnabled)
+        // Prepared and no call audio yet: the dial step is open and waits (the app never dials).
+        let ready = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
+                                        readyToDial: true, callAudioActive: false)
+        #expect(ready.prepare == .done && ready.dialEnabled && ready.dial == .pending)
         let call = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
                                        readyToDial: true, callAudioActive: true)
         #expect(call.dial == .done && call.finish == .pending)
