@@ -6,7 +6,7 @@
 
 # Application identity; independent of engine API/recipe and model revisions.
 TT_APP_VERSION="1.0.16"
-TT_APP_BUILD="77"
+TT_APP_BUILD="78"
 
 # Standalone CPython (astral-sh/python-build-standalone). Size and sha256 checked against the
 # GitHub release asset digest on 2026-11-07; dedicated, ordinary (GIL) CPython build.
