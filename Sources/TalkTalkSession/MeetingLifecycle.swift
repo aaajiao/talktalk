@@ -1,4 +1,4 @@
-/// Meeting mode across sleep, screen lock and fast user switching (ARCHITECTURE.md §3.6, §6.3).
+/// Meeting mode across sleep, screen lock and fast user switching (ARCHITECTURE.md, "实时音频与生命周期约束").
 /// Pure. Any of them suspends (the tap stops). Resuming waits until every reason is gone (a
 /// Mac that wakes to a locked screen stays suspended until unlock). Then it continues only if
 /// the meeting process is still sending or receiving audio; otherwise meeting mode ends.

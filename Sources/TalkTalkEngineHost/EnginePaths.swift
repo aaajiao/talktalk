@@ -1,7 +1,7 @@
 import Foundation
 import TalkTalkCore
 
-/// Every path the engine host uses (ARCHITECTURE.md §7.1, §10). Only `~/Library/{Application
+/// Every path the engine host uses (ARCHITECTURE.md). Only `~/Library/{Application
 /// Support,Logs,Caches}/TalkTalk`; never a dot directory in HOME, never anything of readread.
 public struct EnginePaths: Sendable, Equatable {
     /// `~/Library/Application Support/TalkTalk` (`$TALKTALK_HOME` overrides it in dev builds only).

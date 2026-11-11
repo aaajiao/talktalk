@@ -1,7 +1,7 @@
 #ifndef TT_ENVELOPE_H
 #define TT_ENVELOPE_H
 
-/* tt_envelope: RMS envelope history for the acoustic echo score (ARCHITECTURE.md §3.5, §3.8
+/* tt_envelope: RMS envelope history for the acoustic echo score (ARCHITECTURE.md, "实时音频与生命周期约束"
  * "Feed 输出包络"). One producer pushes audio; every `window_frames` frames (10 ms) it publishes
  * one point {seq, host time of the window's first frame, RMS, peak}. The history keeps the
  * latest TT_ENVELOPE_POINTS points (> 3 s of 10 ms points); the oldest are overwritten, which is

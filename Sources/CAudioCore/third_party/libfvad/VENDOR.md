@@ -1,6 +1,6 @@
 # libfvad (vendored)
 
-Voice activity detector of WebRTC as a standalone C library (ARCHITECTURE.md §2.3, §3.2). Used
+Voice activity detector of WebRTC as a standalone C library (ARCHITECTURE.md). Used
 only through `tt_vad` (`Sources/CAudioCore/tt_vad.c`, `include/tt_vad.h`), on the audio worker.
 
 | | |

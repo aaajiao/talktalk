@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install / uninstall TalkTalkAudio.driver (ARCHITECTURE.md §8.4, §8.5).
+# Install / uninstall TalkTalkAudio.driver (ARCHITECTURE.md, "平台与模块").
 #
 #   sudo install-driver.sh [--json] install <staged TalkTalkAudio.driver> [--manifest FILE]
 #                                         [--strip-provenance] [--no-restart]

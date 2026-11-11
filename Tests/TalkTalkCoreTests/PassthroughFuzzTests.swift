@@ -7,7 +7,7 @@ import Testing
 private func ms(_ v: Int) -> HostTime { HostTime(v) * 1_000_000 }
 
 /// Seeded random simulations of the passthrough key, gate and push-to-talk on a virtual clock
-/// (ARCHITECTURE.md §3.8 "测试"). Each seed builds a physical timeline (key presses with lost
+/// (ARCHITECTURE.md, "实时音频与生命周期约束"). Each seed builds a physical timeline (key presses with lost
 /// key-ups, duplicate downs and non-HID sources, shortcuts, mouse buttons/scroll/moves, press-and-
 /// speak, push-to-talk interleavings, tap failures, key-thread stalls, sleep/lock/coreaudiod/device
 /// events, MeetingMicGuard and speaker-mode flips, unknown facts, the self-test source), delivers

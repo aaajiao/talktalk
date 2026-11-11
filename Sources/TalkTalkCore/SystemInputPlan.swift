@@ -1,6 +1,6 @@
 import Foundation
 
-/// The rules of the system default input switch (ARCHITECTURE.md §8.6, §3.6, §16 decision 4), as
+/// The rules of the system default input switch (ARCHITECTURE.md, "实时音频与生命周期约束"), as
 /// pure functions and small value-type state machines. `SystemInputSwitcher` (app) and
 /// `SysInputGuard` (`--sysinput-guard`) only read Core Audio, feed snapshots in, and carry out
 /// what comes back. Every comparison is by UID.

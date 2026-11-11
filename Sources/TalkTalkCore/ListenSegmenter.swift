@@ -1,6 +1,6 @@
 import Foundation
 
-/// LISTEN sentence segmentation (ARCHITECTURE.md §5.1, `listen.draft` / `listen.finalize`).
+/// LISTEN sentence segmentation (ARCHITECTURE.md, "LISTEN：对方音频到双语字幕", `listen.draft` / `listen.finalize`).
 /// Pure and clock-free: the pipeline feeds ASR events and audio ticks with a millisecond clock and
 /// performs the returned actions. Virtual-clock tests drive it directly.
 ///

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Reads `engine/install.json` and the files it points at, and decides the install state
-/// (ARCHITECTURE.md §7.3 states, §7.5 items 1 and 2). Never runs a process and never hashes:
+/// (ARCHITECTURE.md, "引擎、翻译与播放"). Never runs a process and never hashes:
 /// it uses `stat` only, so it is cheap enough for every app launch. sha256 is checked only when
 /// the user asks (`install-engine.sh --check`).
 public struct EngineInstallation: Sendable {

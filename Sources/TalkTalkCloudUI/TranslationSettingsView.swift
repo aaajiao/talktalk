@@ -15,7 +15,7 @@ public struct TranslationLanguageSummary {
     }
 }
 
-/// Settings › 模型 › 文本翻译 (settings visual system §7.9; ARCHITECTURE.md §11). The page opens
+/// Settings › 模型 › 文本翻译 (settings visual system §7.9; ARCHITECTURE.md, "三种使用场景"). The page opens
 /// with the two-lane diagram, each direction's engine node carrying its OpenAI switch, then
 /// DataBoundary; below it the API key (consent and key entry stay in Form rows, never in a
 /// popover, §0.2 #16) and, once OpenAI is chosen or a key exists, the OpenAI model rows.
@@ -202,6 +202,8 @@ public struct TranslationSettingsView: View {
                     StatusGlyph(.busy)
                 } else if let line = model.listing.line, line.status == .failed {
                     StatusLabel(line.text, line.status, help: line.help)
+                } else if let line = model.candidate.line {
+                    StatusLabel(line.text, line.status, help: line.help)
                 } else if waits {
                     StatusGlyph(.waiting)
                         .help(String(appLocalized: "下次开始生效"))
@@ -279,6 +281,8 @@ public struct TranslationSettingsView: View {
                 }
                 if let line = model.probe.line {
                     StatusLabel(line.text, line.status, help: line.help)
+                } else {
+                    StatusLabel(String(appLocalized: "未检查"), .pending)
                 }
                 IconButton(Icon.refresh, help: String(appLocalized: "再测一次"),
                            accessibilityLabel: String(appLocalized: "再测一次实时可用")) { Task { await model.reprobe() } }

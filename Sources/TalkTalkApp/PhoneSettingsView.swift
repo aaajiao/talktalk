@@ -25,8 +25,8 @@ struct PhoneSettingsView: View {
     private var checklist: PhoneChecklist {
         PhoneChecklist.make(phoneSession: facts.phoneSession, starting: state.meetingStarting,
                             stopping: state.meetingStopping, active: state.meetingActive,
-                            readyToDial: state.phoneReadyToDial, dialing: false,
-                            callAudioActive: state.phoneAudioActive)
+                            readyToDial: state.phoneReadyToDial,
+                            callAudioActive: state.phoneAudioActive, wasReady: state.phoneReadyThisSession)
     }
 
     var body: some View {
@@ -38,8 +38,8 @@ struct PhoneSettingsView: View {
             }
             VStack(alignment: .leading, spacing: 10) {
                 FlowGrid.phone(facts, driver: driver, links: links)
-                FlowGrid.phoneSteps(checklist, problem: state.phoneProblem,
-                                    dial: NodeLink(String(appLocalized: "打开 Phone")) { scrollTo(SettingsAnchor.phoneDial) })
+                FlowGrid.phoneSteps(checklist, problem: state.phoneProblem ?? state.phoneInputHint,
+                                    dial: NodeLink(String(appLocalized: "在 Phone 中拨号或接听")) { scrollTo(SettingsAnchor.phoneDial) })
                 if let problem = facts.problem {
                     StatusLabel(problem.text, problem.status, help: problem.help)
                 }
@@ -118,7 +118,7 @@ struct PhoneSettingsView: View {
     private func liveRow(_ voice: VoiceState) -> some View {
         HStack(spacing: 8) {
             VoiceCapsule(state: voice).accessibilityLabel(voice.accessibilityLabel)
-            if let delivery = PhoneDelivery(voice.kind) {
+            if let delivery = PhoneDelivery(voice.kind, phoneInputConfirmed: facts.phoneCheck.status == .ok) {
                 Image(systemName: delivery.symbol)
                     .font(.system(size: Ladder.inline, weight: .regular))
                     .foregroundStyle(.secondary)

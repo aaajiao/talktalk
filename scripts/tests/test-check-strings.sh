@@ -1,7 +1,7 @@
 #!/bin/bash
 # shellcheck disable=SC2015  # ok/no always return 0, so "A && ok || no" is a safe if-then-else
 # check-strings.sh against planted fixtures: a clean tree passes; a missing key, a bare zh-Hans
-# literal (also Text(verbatim:) and a multi-line literal), an over-long titlebar label, a stale
+# literal (also Text(verbatim:) and a multi-line literal), an over-long titlebar label (Chinese units and English width), a stale
 # key, a wrong sourceLanguage, invalid JSON and a missing catalog fail; interpolations match
 # %@ / %lld keys; comments, unmarked files and `// l10n-ignore` lines are not checked; manual
 # keys may be unused; --update adds and drops keys. Run: scripts/tests/test-check-strings.sh
@@ -138,6 +138,16 @@ run "$R"
   && ! /usr/bin/grep -q '"未接入 Phone"\|"已恢复 TalkTalk Mic"' "$work/out" \
   && /usr/bin/grep -q '2 problem(s)' "$work/out" \
   && ok "titlebar labels over 10 and notifications over 8 characters fail; Latin words count once" || no "short labels (rc=$rc)"
+
+R="$(fixture enwidth)"
+printf '%s\n' 'let a = titlebarLabel("对方听到原声")' 'let b = titlebarLabel("正在外放")' 'let c = noticeLabel("已还原麦克风")' >> "$R/Sources/App/View.swift"
+/usr/bin/sed -i '' 's|"A": {},|"A": {},\n    "对方听到原声": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Others can hear original audio" } } } },\n    "正在外放": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Speakers · Headphones" } } } },\n    "已还原麦克风": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "System microphone restored" } } } },|' "$R/Resources/Localizable.xcstrings"
+run "$R"
+[ "$rc" = 1 ] && /usr/bin/grep -q 'titlebarLabel English label is about 16[0-9] pt.*"对方听到原声" = "Others can hear original audio"' "$work/out" \
+  && /usr/bin/grep -q 'noticeLabel English label is about 15[0-9] pt.*"已还原麦克风"' "$work/out" \
+  && ! /usr/bin/grep -q '"正在外放"' "$work/out" \
+  && /usr/bin/grep -q '2 problem(s)' "$work/out" \
+  && ok "an English label wider than the capsule's 138 pt text fails; a short one passes" || no "english label width (rc=$rc)"
 
 R="$(fixture stale)"
 /usr/bin/sed -i '' 's|"A": {},|"A": {},\n    "没人用": {},|' "$R/Resources/Localizable.xcstrings"

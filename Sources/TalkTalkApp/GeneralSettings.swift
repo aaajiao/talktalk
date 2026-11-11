@@ -140,7 +140,7 @@ struct GeneralSettingsView: View {
                             Text(verbatim: language.nativeName).tag(language)
                         }
                     } label: {
-                        Label("界面语言", systemImage: "globe")
+                        Label("界面语言", systemImage: Icon.interfaceLanguage)
                     }
                     .help("立即更改界面语言，不影响语音和字幕语言")
                 }
@@ -170,6 +170,10 @@ struct GeneralSettingsView: View {
             .settingsAnchorTarget(navigation, proxy)
         }
         .onAppear { driver.load(); model.launch.refresh(); Task { await model.refreshNotifications() } }
+        // 完全卸载 unregisters the login item: show it once the run ends.
+        .onChange(of: driver.model?.fullUninstallRunning == true) { was, running in
+            if was && !running { model.launch.refresh() }
+        }
         // Approval can change in System Settings while this page remains mounted.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.launch.refresh()

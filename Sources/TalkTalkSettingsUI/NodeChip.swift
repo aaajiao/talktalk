@@ -53,7 +53,9 @@ public struct NodeChipItem {
 /// and the menu does not open ("会话中不可更换" is then the caller's `help`); disabled by its
 /// environment, it draws at half opacity, as a disabled control does. `width` fixes it
 /// (the 34 pt language chip "EN"); otherwise it is as wide as its text and the text truncates
-/// when the node is narrower. `help` carries the full name.
+/// when the node is narrower. `help` carries the full name. `iconOnly` (a chosen app that has
+/// its icon, in a node shared with another chip) draws the icon and the chevron without the
+/// name, which `help` and the VoiceOver value keep whole.
 /// The menu is AppKit's (an `NSMenu` popped from an overlay view), so every item keeps its
 /// image: a SwiftUI `Menu` on macOS flattens its label and its click area (step 1's measurement).
 public struct NodeChip: View {
@@ -69,20 +71,25 @@ public struct NodeChip: View {
     private let warn: Bool
     private let locked: Bool
     private let label: String
+    private let value: String
+    private let iconOnly: Bool
     private let help: String
     private let items: [NodeChipItem]
     @Environment(\.isEnabled) private var isEnabled
 
     /// `accessibilityLabel`: what the chip chooses ("声音来源", "对方语言", "我的译音"); its
-    /// value is `title`.
+    /// value is `accessibilityValue`, else `title` (a short code such as "EN" reads whole).
     public init(_ title: String, leading: Leading = .none, width: Double? = nil, warn: Bool = false,
-                locked: Bool = false, accessibilityLabel: String, help: String, items: [NodeChipItem]) {
+                locked: Bool = false, iconOnly: Bool = false, accessibilityLabel: String,
+                accessibilityValue: String? = nil, help: String, items: [NodeChipItem]) {
         self.title = title
         self.leading = leading
         self.width = width
         self.warn = warn
         self.locked = locked
         self.label = accessibilityLabel
+        self.value = accessibilityValue ?? title
+        self.iconOnly = iconOnly
         self.help = help
         self.items = items
     }
@@ -96,11 +103,13 @@ public struct NodeChip: View {
                     .foregroundStyle(.orange)
             }
             leadingGlyph
-            Text(verbatim: title)
-                .font(.system(size: Ladder.badge, weight: .medium))
-                .foregroundStyle(locked ? .secondary : .primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            if !iconOnly {
+                Text(verbatim: title)
+                    .font(.system(size: Ladder.badge, weight: .medium))
+                    .foregroundStyle(locked ? .secondary : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             Image(systemName: locked ? SubtitleTokens.SettingsIcon.locked : SubtitleTokens.VoiceIcon.chevron)
                 .font(.system(size: locked ? Ladder.micro : SubtitleTokens.Size.capsuleChevronSize, weight: .semibold))
                 .foregroundStyle(.tertiary)
@@ -110,7 +119,7 @@ public struct NodeChip: View {
         .background(Capsule().fill(.quinary))
         .opacity(isEnabled ? 1 : 0.5)
         .accessibilityHidden(true)
-        .overlay(NodeChipMenuTarget(value: title, label: label, help: help, enabled: !locked, items: items))
+        .overlay(NodeChipMenuTarget(value: value, label: label, help: help, enabled: !locked, items: items))
     }
 
     @ViewBuilder private var leadingGlyph: some View {

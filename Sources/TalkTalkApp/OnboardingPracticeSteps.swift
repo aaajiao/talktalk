@@ -188,7 +188,7 @@ struct TryItStep: View {
             return SettingsProblem(.busy, String(appLocalized: "准备中…"), help: String(appLocalized: "正在准备麦克风和耳机播放"))
         case .listening:
             return model.speakDemoStatus.map { SettingsProblem(.waiting, sentence: $0) }
-                ?? SettingsProblem(.ok, String(appLocalized: "就绪"), help: String(appLocalized: "点按右⌥开始，说完再点按结束，等待译音"))
+                ?? SettingsProblem(.ok, String(appLocalized: "就绪"), help: String(appLocalized: "点按右⌥开始，说完再点按完成发言，等待译音"))
         case .played:
             return SettingsProblem(.ok, String(appLocalized: "已播放译音"))
         case .failed(let reason):
@@ -319,7 +319,7 @@ extension FlowGrid {
                                state: demo.phase == .playing ? .live : .ready,
                                help: String(appLocalized: "从当前扬声器或耳机播放"))),
                 .node(FlowNode(String(appLocalized: "识别与翻译"), glyph: .symbol(Icon.translation),
-                               help: String(appLocalized: "云端不可用时由 Apple 翻译"))),
+                               help: String(appLocalized: "示例仅用 Apple 翻译"))),
                 .node(FlowNode(String(appLocalized: "双语字幕"), glyph: .symbol(Icon.subtitles), badge: captions?.0,
                                badgeReason: captions?.1, help: String(appLocalized: "原文与译文在字幕面板成对显示"))),
                 .empty
@@ -339,7 +339,7 @@ extension FlowGrid {
                                        Text(verbatim: appState.speakSourceLanguage.title).font(.caption2).foregroundStyle(.secondary)
                                        Keycap(key: TitlebarKey(action: String(appLocalized: "开始翻译"), style: .idle), showsAction: false)
                                    }
-                               }, help: String(appLocalized: "按选定语言识别；说完再点按右⌥结束"))),
+                               }, help: String(appLocalized: "按选定语言识别；说完再点按右⌥完成发言"))),
                 .node(FlowNode(String(appLocalized: "翻译与合成"), glyph: .symbol(Icon.translation),
                                help: String(appLocalized: "原文和译文显示在“我的发言”区"))),
                 .node(FlowNode(String(appLocalized: "耳机听译音"), glyph: .symbol(Icon.headphones),

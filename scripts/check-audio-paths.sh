@@ -1,5 +1,5 @@
 #!/bin/bash
-# check-audio-paths.sh: static rules for the only microphone -> output path (ARCHITECTURE.md §3.8
+# check-audio-paths.sh: static rules for the only microphone -> output path (ARCHITECTURE.md, "实时音频与生命周期约束"
 # "静态规则", privacy invariant 1). Microphone samples reach an output only through
 #   ringM -> PassthroughGate.admit -> PassthroughStage -> ringP -> feedIOProc -> Feed channel 1,
 # so the names on that path may appear only in the files that own each step.

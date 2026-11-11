@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build TalkTalkAudio.driver (ARCHITECTURE.md §2.2, §8.5).
+# Build TalkTalkAudio.driver (ARCHITECTURE.md, "平台与模块").
 #
 # CLT clang++ only (no CMake, no Xcode project): compiles vendored libASPL v3.1.2 and
 # Driver/Sources/*.cpp as a universal (arm64 + x86_64) bundle, assembles the .driver,

@@ -1,7 +1,7 @@
 #ifndef TT_SELFTEST_H
 #define TT_SELFTEST_H
 
-/* Driver self-test IOProcs (ARCHITECTURE.md §8.4 "校验"; the M0-T8 ttdrv writer/reader, in C).
+/* Driver self-test IOProcs (ARCHITECTURE.md, "平台与模块"; the M0-T8 ttdrv writer/reader, in C).
  *
  * A writer on TalkTalk Feed puts one signal on ONE channel (0-based; the product self-test uses
  * channel index 1 = Feed channel 2 → Test Mic) and zeros on every other channel. A recorder on an

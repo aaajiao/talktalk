@@ -8,7 +8,7 @@ extension MicPolicy.Device {
     }
 }
 
-/// The few HAL operations the default-input switch needs (ARCHITECTURE.md §8.6): read the input
+/// The few HAL operations the default-input switch needs (ARCHITECTURE.md, "实时音频与生命周期约束"): read the input
 /// device list and the default input, write the default input by UID, and two listeners
 /// (`kAudioHardwarePropertyDefaultInputDevice`, `kAudioHardwarePropertyDevices`). Thin on purpose,
 /// so `SystemInputSwitcher` and `SysInputGuard` run against a fake in tests. Never touches the

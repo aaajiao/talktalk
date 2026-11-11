@@ -1,4 +1,4 @@
-/// Audio time ↔ host time for one capture stream (ARCHITECTURE.md §3.1 "TimeMap").
+/// Audio time ↔ host time for one capture stream (ARCHITECTURE.md, "实时音频与生命周期约束").
 ///
 /// The stream's audio timeline counts frames delivered to consumers (including zeros we insert).
 /// Each IO callback reports the host time of its first frame. The map is piecewise: a new segment

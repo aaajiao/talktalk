@@ -120,7 +120,8 @@ final class SubtitlePreviewCanvas: NSView {
         opaqueBackground.wantsLayer = true
         titlebarTint.wantsLayer = true
         hoverStrip.wantsLayer = true
-        hoverStrip.layer?.cornerRadius = CGFloat(SubtitleTokens.Radius.window)
+        // Only the video scene shows this strip; it matches SubtitleChromeView's video styling.
+        hoverStrip.layer?.cornerRadius = CGFloat(SubtitleTokens.Radius.videoGlass)
         titlebarSeparator.wantsLayer = true
         videoCaption.glassBlendingMode = .withinWindow
         dock.setAccessibilityElement(false)
@@ -311,6 +312,7 @@ final class SubtitlePreviewCanvas: NSView {
                                 display: SubtitleStyle.Display) {
         let width = frame.width, height = frame.height
         lights.showsZoom = content.scene != .video
+        lights.firstCenterX = content.scene == .video ? 23 : 14
         lights.frame = NSRect(x: frame.minX, y: frame.minY, width: SubtitleTitlebarView.leadingTitleX, height: height)
         titleView.apply(scene: content.scene, source: content.sourceTitle)
         titlebar.trailingInset = content.scene == .video ? CGFloat(VideoStatusDot.reservedTrailingWidth) : 0
@@ -324,8 +326,7 @@ final class SubtitlePreviewCanvas: NSView {
         titlebar.frame = NSRect(x: frame.maxX - trailingMargin - barWidth, y: frame.minY, width: barWidth, height: height)
         titleView.frame = NSRect(x: frame.minX + SubtitleTitlebarView.leadingTitleX, y: frame.minY,
                                  width: titleView.frame.width, height: height)
-        titleView.setWidth(min(titleView.naturalWidth,
-                               max(titleView.minimumWidth, width - SubtitleTitlebarView.windowChrome - barWidth)))
+        titleView.fit(width - SubtitleTitlebarView.windowChrome - barWidth, compaction: compaction)
     }
 
     // MARK: meeting / phone
@@ -418,8 +419,10 @@ final class SubtitlePreviewCanvas: NSView {
 
     private func languageDetail(_ configuration: SubtitleLayoutPreview.Configuration) -> String {
         let listen = configuration.listeningLanguages
-        let detail = String(appLocalized: "原文：\(listen.source.title) → 译文：\(listen.target.title)")
-        guard configuration.scene != .video else { return detail }
+        guard configuration.scene != .video else {
+            return String(appLocalized: "原文：\(listen.source.title) → 字幕：\(listen.target.title)")
+        }
+        let detail = String(appLocalized: "对方说：\(listen.source.title) → 字幕：\(listen.target.title)")
         let speak = configuration.speakingLanguages
         return detail + "\n" + String(appLocalized: "我说：\(speak.source.lang.title) → 译音：\(speak.target.lang.title)")
     }
@@ -444,6 +447,8 @@ final class SubtitlePreviewCanvas: NSView {
         NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
             hoverStrip.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         }
+        hoverStrip.layer?.borderWidth = display.increaseContrast ? 1 : 0
+        hoverStrip.layer?.borderColor = SubtitleStyle.color(.controlStroke, display: display).cgColor
 
         let typography = VideoCaptionTypography(base: configuration.fontSize, width: Double(width))
         videoCaption.frame = root.bounds
@@ -474,7 +479,7 @@ final class SubtitlePreviewCanvas: NSView {
                                                      showsEnd: true, showsMore: true)
         titlebarContent.languageTitle = languageTitle(configuration)
         titlebarContent.languageDetail = languageDetail(configuration)
-        layoutTitlebar(titlebarContent, frame: barFrame, trailingMargin: 0, display: display)
+        layoutTitlebar(titlebarContent, frame: barFrame, trailingMargin: 16, display: display)
     }
 }
 
@@ -487,6 +492,8 @@ private final class FlippedView: NSView {
 @MainActor
 private final class PreviewTrafficLightsView: NSView {
     var showsZoom = true { didSet { if showsZoom != oldValue { needsDisplay = true } } }
+    /// Video: the real strip's buttons start at x = 16 (SubtitleChromeView), so the first centre is 23.
+    var firstCenterX: CGFloat = 14 { didSet { if firstCenterX != oldValue { needsDisplay = true } } }
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -494,7 +501,7 @@ private final class PreviewTrafficLightsView: NSView {
         let diameter: CGFloat = 12
         for (index, hex) in colors.enumerated() {
             SubtitleStyle.nsColor(SubtitleTokens.RGBA(hex: hex)).setFill()
-            let center = NSPoint(x: 14 + CGFloat(index) * 20, y: bounds.midY)
+            let center = NSPoint(x: firstCenterX + CGFloat(index) * 20, y: bounds.midY)
             NSBezierPath(ovalIn: NSRect(x: center.x - diameter / 2, y: center.y - diameter / 2,
                                         width: diameter, height: diameter)).fill()
         }

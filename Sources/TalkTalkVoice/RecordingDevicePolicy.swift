@@ -3,8 +3,7 @@ import Foundation
 import TalkTalkAudio
 import TalkTalkCore
 
-/// Which microphones may record the voice reference and bench takes (ARCHITECTURE.md §9.2 step 1,
-/// §3.2): only built-in or USB, nominal rate ≥ 44.1 kHz; never Bluetooth (HFP, 16–24 kHz),
+/// Which microphones may record the voice reference and bench takes (ARCHITECTURE.md): only built-in or USB, nominal rate ≥ 44.1 kHz; never Bluetooth (HFP, 16–24 kHz),
 /// virtual, aggregate, Continuity or TalkTalk's own devices. Pure function of the device values.
 ///
 /// The part shared with SPEAK's microphone choice — own UIDs, aggregate, virtual, the excluded

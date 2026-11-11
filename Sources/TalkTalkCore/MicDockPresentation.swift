@@ -136,7 +136,8 @@ public struct MicDockPresentation: Sendable, Equatable {
         case .phoneReconnecting:
             label = String(appLocalized: "当前发言已停止"); consequence = String(appLocalized: "等待 Phone")
         case .remoteHearsOriginal:
-            label = String(appLocalized: "对方能听到原声"); consequence = String(appLocalized: "会议没有使用 TalkTalk Mic")
+            label = String(appLocalized: "对方能听到原声")
+            consequence = phone ? String(appLocalized: "Phone 没有使用 TalkTalk Mic") : String(appLocalized: "会议没有使用 TalkTalk Mic")
             tone = .risk; wave = .none; emphasis = .risk; action = .fix
         case .unavailable:
             label = String(appLocalized: "音频不可用"); consequence = String(appLocalized: "未发送")

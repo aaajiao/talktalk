@@ -1,6 +1,6 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
-/// Passthrough availability (ARCHITECTURE.md §3.8 打开条件 3; privacy invariant 5). A pure
+/// Passthrough availability (ARCHITECTURE.md, "实时音频与生命周期约束"; privacy invariant 5). A pure
 /// function of facts gathered elsewhere, each optional: nil means unknown (a poll timed out, a
 /// device is being rebuilt, the source has not reported yet) and unknown is unavailable. The gate
 /// evaluates it when the hold arms, again right before opening, and on every fact change while

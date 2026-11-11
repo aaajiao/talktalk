@@ -18,7 +18,7 @@ struct GlossaryMT: MTEngine {
     func cancel(_ job: JobID) async { await base.cancel(job) }
 }
 
-/// The meeting's shared OpenAI backend (ARCHITECTURE.md §4.2, §6.4). LISTEN and SPEAK
+/// The meeting's shared OpenAI backend (ARCHITECTURE.md, "引擎、翻译与播放"). LISTEN and SPEAK
 /// share the breaker and A/B connections, while each direction keeps its own cloud switch.
 /// `make` still returns LISTEN's primary; `Box.speak` exposes SPEAK's backend to its controller.
 /// Its lifecycle follows MeetingEvents: keep-warm while the meeting runs, NetworkHealth changes

@@ -40,7 +40,7 @@ enum DiagnosticsSettingsTab: String, CaseIterable, Identifiable {
     }
 }
 
-/// Settings › 隐私与诊断 (ARCHITECTURE.md §11, §12; settings visual system §7.14–§7.16). View
+/// Settings › 隐私与诊断 (ARCHITECTURE.md, "三种使用场景"; settings visual system §7.14–§7.16). View
 /// state lives in `PrivacySettings` (an @Observable model): CLT has no SwiftUI macro plugin, so
 /// no @State here. The sub-page cards and `DiagnosticsBanners` sit in the window's fixed band.
 /// 数据与隐私 opens with DataBoundary, 字幕分析 is one flow, 故障检查 a flow whose nodes scroll to
@@ -53,6 +53,8 @@ struct DiagnosticsView: View {
     let translation: TranslationPage
     /// 技术详情 › 声音档案: the saved profile's numbers (moved here from 我的声音, §7.7).
     let voice: MyVoiceModel
+    /// The driver self-test, one reason the engine self-test waits.
+    let driver: DriverComponentsPage
 
     private typealias Icon = SubtitleTokens.SettingsIcon
     private typealias Ladder = SubtitleTokens.SettingsIcon.Size
@@ -99,10 +101,12 @@ struct DiagnosticsView: View {
         }
         .alert(String(appLocalized: "删除诊断数据？"), isPresented: $model.confirmDiscardRecording) {
             Button(String(appLocalized: "取消"), role: .cancel) {}
+            // Plain system buttons, as every other delete confirmation; 全部删除 stays the default.
+            Button(String(appLocalized: "全部删除")) { model.deleteAllDiagnostics() }
+                .keyboardShortcut(.defaultAction)
             if model.recorder.sessionDirectory != nil, model.storedDiagnostics.total > 1 {
                 Button(String(appLocalized: "只删本场录音")) { model.discardCurrentRecording() }
             }
-            Button(String(appLocalized: "全部删除"), role: .destructive) { model.deleteAllDiagnostics() }
         } message: {
             Text(String(appLocalized: "诊断录音 \(model.storedDiagnostics.recordings) 场，字幕分析 \(model.storedDiagnostics.analyses) 份。正在录制的会先停止，删除后无法撤销。"))
         }
@@ -417,41 +421,50 @@ struct DiagnosticsView: View {
         return nil
     }
 
-    /// Why the engine self-test cannot run; nil when it can (it stops the engine first).
+    /// Why the engine self-test cannot run; nil when it can (it stops the engine first). The
+    /// reasons follow `DiagnosticsStatus.canRunAudioSelfTest` (AppDelegate).
     private var engineBlocked: String? {
         let status = model.diagnosticsStatus
-        if model.recorder.meetingRunning { return String(appLocalized: "先结束会话") }
-        if status.runningPart == nil, !status.audioSelfTestAvailable { return String(appLocalized: "先结束说话测试、录音和试听") }
-        return nil
+        if model.recorder.meetingRunning || state.meetingStarting { return String(appLocalized: "先结束会话") }
+        guard status.runningPart == nil, !status.audioSelfTestAvailable else { return nil }
+        if AppUIModels.shared.engine.running { return String(appLocalized: "引擎安装中") }
+        if driver.model?.selfTestRunning == true { return String(appLocalized: "自检中") }
+        return String(appLocalized: "先结束说话测试、录音和试听")
+    }
+
+    /// A self-test row: the trailing verify button runs it, the busy glyph takes its place while
+    /// it runs.
+    private func selfTestRow<Extra: View>(_ title: String, symbol: String, part: String, blocked: String?,
+                                          help: String, run accessibilityLabel: String, running: String,
+                                          action: @escaping () -> Void,
+                                          @ViewBuilder extra: () -> Extra = { EmptyView() }) -> some View {
+        let status = model.diagnosticsStatus
+        return HStack(spacing: 8) {
+            Label(title, systemImage: symbol)
+            extra()
+            Spacer(minLength: 8)
+            if status.runningPart == part {
+                StatusGlyph(.busy)
+                    .frame(width: Ladder.hitArea, height: Ladder.hitArea)
+                    .accessibilityLabel(running)
+            } else {
+                IconButton(Icon.verify, help: blocked ?? help, accessibilityLabel: accessibilityLabel, action: action)
+                    .disabled(blocked != nil || status.runningPart != nil)
+            }
+        }
+        .help(blocked ?? help)
     }
 
     @ViewBuilder private var selfTestRows: some View {
         let status = model.diagnosticsStatus
-        HStack(spacing: 8) {
-            Button { status.runEngine() } label: {
-                Label("本地引擎", systemImage: Icon.engine).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(engineBlocked != nil || status.runningPart != nil)
-            Spacer(minLength: 8)
-            if status.runningPart == "--engine" {
-                StatusGlyph(.busy).accessibilityLabel(String(appLocalized: "正在检查本地引擎"))
-            }
-        }
-        .help(engineBlocked ?? String(appLocalized: "会先停止引擎"))
-        HStack(spacing: 8) {
-            Button { status.runCloud() } label: {
-                Label("云端翻译", systemImage: Icon.cloud).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(cloudBlocked != nil || status.runningPart != nil)
+        selfTestRow(String(appLocalized: "本地引擎"), symbol: Icon.engine, part: "--engine", blocked: engineBlocked,
+                    help: String(appLocalized: "会先停止引擎"), run: String(appLocalized: "检查本地引擎"),
+                    running: String(appLocalized: "正在检查本地引擎"), action: status.runEngine)
+        selfTestRow(String(appLocalized: "云端翻译"), symbol: Icon.cloud, part: "--cloud", blocked: cloudBlocked,
+                    help: String(appLocalized: "发送少量测试文字，产生费用"), run: String(appLocalized: "检查云端翻译"),
+                    running: String(appLocalized: "正在检查云端翻译"), action: status.runCloud) {
             FactChip(String(appLocalized: "计费"), symbol: Icon.cost, help: String(appLocalized: "发送少量测试文字，产生费用"))
-            Spacer(minLength: 8)
-            if status.runningPart == "--cloud" {
-                StatusGlyph(.busy).accessibilityLabel(String(appLocalized: "正在检查云端翻译"))
-            }
         }
-        .help(cloudBlocked ?? String(appLocalized: "发送少量测试文字，产生费用"))
     }
 
     @ViewBuilder private var selfTestResults: some View {
@@ -515,9 +528,10 @@ struct DiagnosticsView: View {
         let r = model.recorder
         LabeledContent {
             HStack(spacing: 8) {
-                FactChip(r.meetingRunning ? String(appLocalized: "仅本场") : String(appLocalized: "仅下一场"), symbol: Icon.oneSession,
-                         help: r.meetingRunning ? String(appLocalized: "本场会议正在进行，选择只对这一场有效，会议结束就恢复为不录")
-                                                : String(appLocalized: "现在没有会议，选择只对下一场会议有效"))
+                // Video captions have no speaking chain: the choice waits for the next session.
+                FactChip(r.micAndTTSThisSession ? String(appLocalized: "仅本场") : String(appLocalized: "仅下一场"), symbol: Icon.oneSession,
+                         help: r.micAndTTSThisSession ? String(appLocalized: "本场会议正在进行，选择只对这一场有效，会议结束就恢复为不录")
+                                                      : String(appLocalized: "现在没有会议，选择只对下一场会议有效"))
                 Toggle(String(appLocalized: "录我这边（麦克风＋译音）"),
                        isOn: Binding(get: { r.micAndTTSArmed }, set: { r.setMicAndTTS($0) }))
                     .labelsHidden()
@@ -580,6 +594,11 @@ struct DiagnosticsView: View {
                                bundleHelp: String(appLocalized: "诊断包不含诊断录音")), indented: true)
         if let e = r.lastError {
             StatusLabel(String(appLocalized: "诊断录音无法开始"), .failed, help: e)
+                .padding(.leading, Ladder.rowTextInset)
+        }
+        if !r.cappedTracks.isEmpty {
+            let tracks = DiagnosticRecorder.Track.allCases.filter(r.cappedTracks.contains).map(\.label).joined(separator: " · ")
+            StatusLabel(String(appLocalized: "达上限"), .warn, help: String(appLocalized: "已达每轨 512 MiB 上限，已停止：\(tracks)"))
                 .padding(.leading, Ladder.rowTextInset)
         }
     }
@@ -792,7 +811,7 @@ struct DiagnosticsBanners: View {
                                     .joined(separator: " · "),
                                 kind: .recording, link: link(.troubleshooting, String(appLocalized: "查看诊断录音")))
             } else if recorder.micAndTTSArmed {
-                RecordingBanner(recorder.meetingRunning ? String(appLocalized: "本场将录音") : String(appLocalized: "下场将录音"),
+                RecordingBanner(recorder.micAndTTSThisSession ? String(appLocalized: "本场将录音") : String(appLocalized: "下场将录音"),
                                 kind: .planned, link: link(.troubleshooting, String(appLocalized: "查看诊断录音")))
             }
             if analysis.isStarting || analysis.isRecording {
@@ -802,9 +821,12 @@ struct DiagnosticsBanners: View {
         }
     }
 
+    /// The same landing as the menu's recording rows: the sub-page, scrolled to its section,
+    /// which flashes once.
     private func link(_ tab: DiagnosticsSettingsTab, _ destination: String) -> NodeLink? {
         guard navigation.diagnosticsTab != tab else { return nil }
-        return NodeLink(destination) { navigation.diagnosticsTab = tab }
+        let anchor = tab == .subtitles ? SettingsAnchor.subtitleAnalysis : SettingsAnchor.diagnosticRecording
+        return NodeLink(destination) { navigation.reveal(.privacy, .diagnostics(tab), anchor: anchor) }
     }
 }
 

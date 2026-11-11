@@ -1,6 +1,6 @@
 import Foundation
 
-// Support for the dev-only `--bench record` (ARCHITECTURE.md §14 M0: T5 and T17 test segments).
+// Support for the dev-only `--bench record` (ARCHITECTURE.md M0: T5 and T17 test segments).
 // Kept here, next to the enrollment code it shares (MicCapture, segmentation, private files),
 // so it can be unit tested; only TalkTalk-Dev.app has an entry point that uses it.
 // It never touches `voice/`.

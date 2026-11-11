@@ -1,6 +1,6 @@
 import Foundation
 
-/// The enrollment flow of ARCHITECTURE.md §9.2 as a pure state machine. The controller
+/// The enrollment flow of ARCHITECTURE.md, "引擎、翻译与播放" as a pure state machine. The controller
 /// (`EnrollmentController`) performs the side effects each phase implies; this type only decides
 /// which transitions are legal, so the flow can be tested without audio.
 ///

@@ -4,7 +4,7 @@ import Foundation
 import Synchronization
 import TalkTalkCore
 
-/// The output to the meeting (ARCHITECTURE.md §3.3, §3.8, §8.2, §8.3): feedIOProc (C,
+/// The output to the meeting (ARCHITECTURE.md, "实时音频与生命周期约束"): feedIOProc (C,
 /// `tt_feed_ioproc`) attached with `AudioDeviceCreateIOProcID` on the hidden "TalkTalk Feed",
 /// found by `DriverPins.feedUID`. 48 kHz Float32, 2 output channels, no SRC. Channel 1 goes to
 /// TalkTalk Mic (the meeting), channel 2 to Test Mic (self-test only).

@@ -1,6 +1,6 @@
 import Foundation
 
-// §4.1 protocol sketch, ASR subset (M1 LISTEN). Shapes as written in ARCHITECTURE.md §4.1;
+// Protocol sketch, ASR subset (M1 LISTEN). Shapes as written in ARCHITECTURE.md;
 // the MT subset is in Engines.swift (talktalk-swift), TTS / E2E arrive with M2.
 
 public struct PCMClip16k: Sendable {

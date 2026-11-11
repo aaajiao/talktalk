@@ -1,7 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 
-/// The app's launch check (ARCHITECTURE.md §7.5). Every item runs without starting a process,
+/// The app's launch check (ARCHITECTURE.md). Every item runs without starting a process,
 /// without the network and without a permission prompt; it only stats, reads small files and asks
 /// status APIs. Items live next to what they check:
 ///   1–2 engine install   `EngineStartupCheck` (here, over EngineInstallation)
@@ -99,7 +99,7 @@ public struct EngineStartupCheck: StartupCheckItem {
             return StartupCheckResult(id: id, level: .action, summary: "unfinished install (re-run to resume)", details: d)
         case .damaged(let reason):
             d["reason"] = reason
-            return StartupCheckResult(id: id, level: .action, summary: String(appLocalized: "damaged (repair in 设置 › 组件)"), details: d)
+            return StartupCheckResult(id: id, level: .action, summary: String(appLocalized: "damaged (repair in 设置 › 安装与维护)"), details: d)
         }
     }
 }

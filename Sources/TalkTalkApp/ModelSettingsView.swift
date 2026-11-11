@@ -133,15 +133,20 @@ extension FlowGrid {
         typealias Icon = SubtitleTokens.SettingsIcon
         let problem = SettingsProblem.mostSevere([engine.synthesisProblem,
                                                   engine.canSelectSynthesis ? nil : engine.problem])
-        let voice = state.voiceProfilePresent
+        // A profile without an installed engine is synthesized with the system voice, as on
+        // 我的声音, the scenario pages and the menu.
+        let voice = state.voiceProfilePresent && engine.installed
             ? FlowSatellite(String(appLocalized: "我的声音"), symbol: Icon.myVoice,
                             help: String(appLocalized: "用我的声音合成译音"),
                             link: links.node(String(appLocalized: "我的声音"), .voice))
             : FlowSatellite(String(appLocalized: "系统声音"), symbol: Icon.speech,
-                            help: String(appLocalized: "未录制时用系统声音"), dashed: true,
+                            help: state.voiceProfilePresent ? String(appLocalized: "引擎未安装，声音档案暂不能用")
+                                                            : String(appLocalized: "未录制时用系统声音"), dashed: true,
                             link: links.node(String(appLocalized: "我的声音"), .voice))
+        let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
         return FlowGrid(String(appLocalized: "语音合成路径"), lanes: [
-            FlowLane(String(appLocalized: "译音"), gutter: .symbol(Icon.speech), cells: [
+            // The same 译音 label as 我的声音's synthesis lane.
+            FlowLane(String(appLocalized: "译音"), gutter: .voice(translating), cells: [
                 .node(FlowNode(String(appLocalized: "译文"), glyph: .symbol(Icon.translation))),
                 .node(FlowNode(String(appLocalized: "合成译音"), glyph: .symbol(Icon.speech),
                                badge: problem?.status, badgeReason: problem?.text,
@@ -167,7 +172,8 @@ extension FlowGrid {
         let missing = engine.record?.roles["asr"] == nil && !configuredForApple
         let qwen = state.effectiveListenASREngine == .qwen
         let fellBack = state.meetingActive && state.listenASRFallback
-        let manage = missing || configuredForApple
+        let unusable = engine.record?.roles["asr"] != nil && !engine.installed
+        let manage = missing || configuredForApple || unusable
             ? links.node(String(appLocalized: "安装与维护 · 语音资源"), .components, .components(.engine)) : nil
         let model = engine.modelName(role: "asr")
         let speakProblem = engine.recognitionProblem(state, speaking: true)
@@ -203,7 +209,7 @@ extension FlowGrid {
                                accessory: .display {
                                    Text(verbatim: state.speakSourceLanguage.title).font(.caption2).foregroundStyle(.secondary)
                                },
-                               help: String(appLocalized: "按选定语言识别；点按右⌥开始或结束翻译"))),
+                               help: String(appLocalized: "按选定语言识别；点按右⌥开始翻译或完成发言"))),
                 .node(speak), .node(source), .empty
             ])
         ])

@@ -1,9 +1,10 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 
-/// One line of the push-to-talk HUD (ARCHITECTURE.md §11 按键说话 HUD).
+/// One line of the push-to-talk HUD (ARCHITECTURE.md, "LISTEN：对方音频到双语字幕").
 public struct HUDLine: Sendable, Equatable {
-    public enum SettingsDestination: Sendable, Equatable { case audio, translation, permissions }
+    /// `permissions`: the system-audio grant; `inputMonitoring`: key listening (输入监控).
+    public enum SettingsDestination: Sendable, Equatable { case audio, translation, permissions, inputMonitoring }
     public enum Style: String, Sendable, Equatable {
         case normal
         /// Gray: hints, live preview, refusal reasons.
@@ -69,6 +70,8 @@ public struct HUDModel: Sendable, Equatable {
         case sentenceMaybeIncomplete
         case unsupportedTextNotSent
         case speakerMode
+        /// The meeting app's playback device is not known yet: treated as speakers for safety.
+        case playbackUnknown
         case audioRestarting
         case meetingSilent
         case meetingSeemsOver
@@ -100,6 +103,7 @@ public struct HUDModel: Sendable, Equatable {
             case .sentenceMaybeIncomplete: String(appLocalized: "该句可能不完整")
             case .unsupportedTextNotSent: String(appLocalized: "这段文字暂不支持，未发送")
             case .speakerMode: String(appLocalized: "正在外放，请戴耳机")
+            case .playbackUnknown: String(appLocalized: "尚未读到会议应用的播放设备")
             case .audioRestarting: String(appLocalized: "音频系统重启中")
             case .meetingSilent: String(appLocalized: "会议当前没有声音")
             case .meetingSeemsOver: String(appLocalized: "会议似乎已结束")
@@ -134,9 +138,9 @@ public struct HUDModel: Sendable, Equatable {
             case .remoteHearsYourVoice: String(appLocalized: "会议仍会发送原声 · 翻译已停用")
             case let .floorPaused(n): String(appLocalized: "对方在说话 · 已暂停 \(n) 段")
             case .numberMaybeWrong: String(appLocalized: "译文数字待核对")
-            case .defaultInputChanged: String(appLocalized: "系统麦克风已变化")
+            case .defaultInputChanged: String(appLocalized: "系统麦克风已改变")
             case .switchedBackAfterInsert: String(appLocalized: "已恢复 TalkTalk Mic")
-            case .switchBackFailed: String(appLocalized: "切换麦克风失败")
+            case .switchBackFailed: String(appLocalized: "未能切回 TalkTalk Mic")
             case .defaultInputRestored: String(appLocalized: "系统麦克风已还原")
             case .defaultInputRestoredElsewhere: String(appLocalized: "已还原到其他实体麦克风")
             case .defaultInputNotSwitched(let issue):
@@ -158,7 +162,7 @@ public struct HUDModel: Sendable, Equatable {
             switch self {
             // mic.slash means "original off"; these mean the remote side may hear raw audio.
             case .meetingNotUsingMic, .remoteHearsYourVoice: SubtitleTokens.VoiceIcon.originalRisk
-            case .speakerMode: "headphones"
+            case .speakerMode, .playbackUnknown: "headphones"
             case .audioRestarting: SubtitleTokens.VoiceIcon.reconnecting
             // Absence states are slashed, never the active-capture waveform.
             case .meetingSilent: "waveform.slash"
@@ -179,7 +183,7 @@ public struct HUDModel: Sendable, Equatable {
 
         public var line: HUDLine {
             let destination: HUDLine.SettingsDestination? = switch self {
-            case .meetingNotUsingMic, .remoteHearsYourVoice, .speakerMode, .defaultInputChanged,
+            case .meetingNotUsingMic, .remoteHearsYourVoice, .speakerMode, .playbackUnknown, .defaultInputChanged,
                  .switchBackFailed, .defaultInputNotSwitched: .audio
             case .openAIUnreachable, .openAIKeyInvalid, .modelRetired: .translation
             case .tccUnconfirmed: .permissions
@@ -192,9 +196,26 @@ public struct HUDModel: Sendable, Equatable {
         /// Silence names the selected scene: Phone's call audio or the video's app sound,
         /// without claiming that a call ended just because no sound arrived.
         public func chip(scene: SubtitleScene) -> HUDChip? {
+            // The automatic end is near: every scene says so and how to keep listening (the
+            // notification's words, for users who allow none).
             if scene == .phone, self == .meetingSeemsOver {
                 return HUDChip(titlebarLabel("长时间无通话音频"), symbol: "waveform.slash", tone: .info,
-                               detail: String(appLocalized: "Phone 已长时间没有通话音频，即将结束电话同传。"))
+                               detail: String(appLocalized: "Phone 已长时间没有通话音频，即将结束电话同传；要继续，请在菜单栏选择“继续收听”"))
+            }
+            if scene == .meeting, self == .meetingSeemsOver, var meeting = chip {
+                meeting.detail = String(appLocalized: "会议应用长时间没有声音，会议同传即将自动结束；要继续，请在菜单栏选择“继续收听”")
+                return meeting
+            }
+            // The microphone guard also covers Phone; the subject is Phone, not the meeting.
+            if scene == .phone, self == .remoteHearsYourVoice, let chip {
+                return HUDChip(titlebarLabel("Phone 在用实体麦"), symbol: chip.symbol, tone: chip.tone,
+                               detail: String(appLocalized: "请在 Phone 的“音频 › 麦克风”选择“使用系统设置”或 TalkTalk Mic。"),
+                               settingsDestination: chip.settingsDestination)
+            }
+            // Phone is the app whose playback is not read yet.
+            if scene == .phone, self == .playbackUnknown, var phone = chip {
+                phone.detail = String(appLocalized: "尚未读到 Phone 的播放设备")
+                return phone
             }
             guard scene == .video else { return chip }
             switch self {
@@ -231,13 +252,14 @@ public struct HUDModel: Sendable, Equatable {
             case .sentenceMaybeIncomplete: label = titlebarLabel("该句可能不完整")
             case .unsupportedTextNotSent: label = titlebarLabel("文字不支持 · 未发送")
             case .speakerMode: label = titlebarLabel("正在外放 · 请戴耳机")
+            case .playbackUnknown: label = titlebarLabel("播放设备未确认")
             case .audioRestarting: label = titlebarLabel("音频系统重启中")
             case .meetingSilent: label = titlebarLabel("未听到对方")
             case .meetingSeemsOver: label = titlebarLabel("会议似乎已结束")
             case .tccUnconfirmed: label = titlebarLabel("录音权限未确认")
-            case .defaultInputChanged: label = titlebarLabel("系统麦克风已变化")
+            case .defaultInputChanged: label = titlebarLabel("系统麦克风已改变")
             case .switchedBackAfterInsert: label = noticeLabel("已恢复 TalkTalk Mic")
-            case .switchBackFailed: label = titlebarLabel("切换麦克风失败")
+            case .switchBackFailed: label = titlebarLabel("未能切回 TalkTalk Mic")
             case .defaultInputRestored: label = noticeLabel("系统麦克风已还原")
             case .defaultInputRestoredElsewhere: label = noticeLabel("已还原其他麦克风")
             case let .defaultInputNotSwitched(issue):
@@ -270,7 +292,7 @@ public struct HUDModel: Sendable, Equatable {
             case .numberMaybeWrong: 17
             case .audioRestarting: 21
             case .tccUnconfirmed: 22
-            case .speakerMode: 23
+            case .speakerMode, .playbackUnknown: 23
             case .defaultInputChanged: 24
             case .floorPaused: 25
             case .openAIKeyInvalid: 26
@@ -284,7 +306,7 @@ public struct HUDModel: Sendable, Equatable {
         /// Conditions stay until cleared; notices fade after `noticeSeconds`.
         public var isCondition: Bool {
             switch self {
-            case .meetingNotUsingMic, .remoteHearsYourVoice, .floorPaused, .speakerMode, .audioRestarting,
+            case .meetingNotUsingMic, .remoteHearsYourVoice, .floorPaused, .speakerMode, .playbackUnknown, .audioRestarting,
                  .meetingSilent, .meetingSeemsOver, .tccUnconfirmed:
                 true
             default:
@@ -495,6 +517,8 @@ public struct HUDModel: Sendable, Equatable {
     public var pushToTalk: PushToTalk = .idle
     /// Push to talk is wired. Until then no idle shortcut instruction is shown.
     public var pushToTalkAvailable = false
+    /// Only original audio is unavailable (e.g. speakers): the key still starts translation.
+    public var translationKeyAvailable = false
     public private(set) var transcript: SpeakTranscript?
     public var speechWorkPending = false
     private var latestTranscriptPress: UInt64?
@@ -526,6 +550,7 @@ public struct HUDModel: Sendable, Equatable {
 
     public static func == (a: HUDModel, b: HUDModel) -> Bool {
         a.meetingActive == b.meetingActive && a.pushToTalk == b.pushToTalk && a.pushToTalkAvailable == b.pushToTalkAvailable
+            && a.translationKeyAvailable == b.translationKeyAvailable
             && a.meetingAudio == b.meetingAudio
             && a.transcript == b.transcript && a.transcriptUntil == b.transcriptUntil
             && a.speechWorkPending == b.speechWorkPending
@@ -547,7 +572,7 @@ public struct HUDModel: Sendable, Equatable {
         shownThisMeeting = []
         notices.removeAll { !$0.warning.isSysInput }
         pushToTalk = .idle
-        meetingAudio = nil
+        meetingAudio = nil; translationKeyAvailable = false
         transcript = nil; latestTranscriptPress = nil; transcriptUntil = nil; speechWorkPending = false
     }
 
@@ -556,7 +581,7 @@ public struct HUDModel: Sendable, Equatable {
     /// A draft disappears here; this transition never promotes it to a finished transcript.
     public mutating func speakingEnded() {
         pushToTalk = .idle; pushToTalkAvailable = false
-        meetingAudio = nil; outputPlaying = false; speechWorkPending = false
+        meetingAudio = nil; translationKeyAvailable = false; outputPlaying = false; speechWorkPending = false
         transcript = nil; latestTranscriptPress = nil; transcriptUntil = nil
         passthrough = .none
         for warning in [Warning.floorPaused(segments: 0), .numberMaybeWrong(""), .skipped(segments: 0),
@@ -576,7 +601,7 @@ public struct HUDModel: Sendable, Equatable {
         conditionOrder = []
         notices.removeAll { !$0.warning.isSysInput }
         pushToTalk = .idle
-        meetingAudio = nil
+        meetingAudio = nil; translationKeyAvailable = false
         transcript = nil; latestTranscriptPress = nil; transcriptUntil = nil; speechWorkPending = false
         passthrough = .none
     }
@@ -732,6 +757,8 @@ public struct HUDModel: Sendable, Equatable {
             case .idle: guard pushToTalkAvailable else { return nil }; audio = .original
             }
         }
+        // Original audio alone is unavailable: the key keeps .original's start action.
+        if case .unavailable = audio, translationKeyAvailable { audio = .original }
         let presentation = SpeechStatusPresentation(audio: audio,
             phoneInputConfirmed: scene == .phone ? phoneInputConfirmed : nil, playing: outputPlaying)
         return TitlebarKey.make(presentation, voice: voice)
@@ -854,11 +881,10 @@ public struct HUDModel: Sendable, Equatable {
             if queued > 0 { out.append(HUDLine(String(appLocalized: "待播 \(queued) 段"), .secondary)) }
             return out
         case let .playing(lang, voice, source, queued):
-            let code = lang.rawValue.uppercased()
-            var out = [HUDLine(String(appLocalized: "正在播放译音（\(code)）")), HUDLine(voice.text, .secondary)]
+            var out = [HUDLine(String(appLocalized: "正在播放译音（\(lang.title)）")), HUDLine(voice.text, .secondary)]
             switch source {
             case .openAI: out.append(HUDLine("OpenAI", .secondary))
-            case .apple: out.append(HUDLine(String(appLocalized: "Apple 本地翻译"), .secondary))
+            case .apple: out.append(HUDLine(String(appLocalized: "Apple 翻译"), .secondary))
             }
             if queued > 0 { out.append(HUDLine(String(appLocalized: "待播 \(queued) 段"), .secondary)) }
             return out

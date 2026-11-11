@@ -167,7 +167,7 @@ struct SubtitleSettingsView: View {
     }
 
     /// Greyed with the reason in help while Reduce Transparency fixes the background (and a
-    /// trailing accessibility glyph says so) or the stroke style draws none.
+    /// trailing accessibility glyph says so), the stroke style draws none or plates stay fixed.
     private var backgroundSection: some View {
         let control = opacityControl
         let defaultOpacity = SubtitleOpacityControl.defaultOpacity
@@ -176,6 +176,7 @@ struct SubtitleSettingsView: View {
         let reason: String? = switch control.note {
         case .reduceTransparency?: String(appLocalized: "系统已开启降低透明度")
         case .strokeHasNoBackground?: String(appLocalized: "描边样式没有背景")
+        case .plateIsFixed?: String(appLocalized: "实底样式背景固定")
         case nil: nil
         }
         return Section {
@@ -235,10 +236,25 @@ struct SubtitleSettingsView: View {
 
     private var styleSection: some View {
         Section {
-            ThumbnailChoice(String(appLocalized: "样式"), options: styleOptions,
-                            selection: $state.videoCaptionStyle, size: .wide)
-                .padding(.leading, Ladder.rowTextInset)
+            // Reduce Transparency forces plates (the stored choice stays), as it does the 背景 row.
+            LabeledContent {
+                HStack(spacing: 8) {
+                    if reduceTransparency {
+                        Image(systemName: Icon.reduceTransparency)
+                            .font(.system(size: Ladder.inline))
+                            .foregroundStyle(.secondary)
+                            .frame(width: Ladder.hitArea, height: Ladder.hitArea)
+                            .help(String(appLocalized: "系统已开启降低透明度"))
+                            .accessibilityLabel(String(appLocalized: "系统已开启“降低透明度”，改用实底"))
+                    }
+                    ThumbnailChoice(String(appLocalized: "样式"), options: styleOptions,
+                                    selection: $state.videoCaptionStyle, size: .wide)
+                        .disabled(reduceTransparency)
+                }
                 .padding(.vertical, 4)
+            } label: {
+                Label("样式", systemImage: Icon.subtitles)
+            }
             LabeledContent {
                 ThumbnailChoice(String(appLocalized: "排列"), options: arrangementOptions,
                                 selection: $state.videoCaptionArrangement, size: .compact)

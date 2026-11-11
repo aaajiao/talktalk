@@ -2,7 +2,7 @@
 import TalkTalkAudio
 import TalkTalkCore
 
-/// The menu bar icon (ARCHITECTURE.md §11 菜单栏图标状态) from what is true now. Pure. A meeting
+/// The menu bar icon (ARCHITECTURE.md, "三种使用场景") from what is true now. Pure. A meeting
 /// app that reads the physical microphone (the other party hears the original voice) comes
 /// first, as in the titlebar's risk capsule; then the open microphone, conditions needing
 /// attention, speech, preparation and a meeting's degraded parts. Last-run default-input
@@ -55,7 +55,9 @@ public enum MenuBarIcon: Sendable, Equatable, CaseIterable {
                                listenReady: Bool = false,
                                warming: Bool = false, speaking: Bool = false, passthroughOpen: Bool = false,
                                speakerMode: Bool? = false, systemVoice: Bool = false,
-                               speakTranslationDegraded: Bool = false) -> MenuBarIcon {
+                               speakTranslationDegraded: Bool = false,
+                               asrFallback: Bool = false, asrFailed: Bool = false,
+                               lastEndFailed: Bool = false) -> MenuBarIcon {
         // The other party hearing the raw microphone outranks everything, the open microphone
         // included: both draw a mic, so the open-mic fact stays visible.
         if meetingActive, mode.supportsSpeaking, case .physicalMic = micGuard.verdict { return .remoteHearsOriginal }
@@ -83,10 +85,21 @@ public enum MenuBarIcon: Sendable, Equatable, CaseIterable {
         if componentsMissing && !(meetingActive && listenReady) { return .missing }
         if warming { return .warming }
         if inputDegraded { return .degraded }
-        guard meetingActive else { return .standby }
+        // The last session ended on an error: the menu's line in the same glyph and colour.
+        guard meetingActive else { return lastEndFailed ? .degraded : .standby }
         let speakerNeedsCheck = speakerMode == true || (speakerMode == nil && !waitingForPhone)
         let voiceDegraded = mode.supportsSpeaking && (speakTranslationDegraded || systemVoice || speakerNeedsCheck)
-        return translationDegraded || voiceDegraded ? .degraded : .listening
+        // 识别：Apple 备用 and 字幕识别出错 draw the same triangle as their menu lines.
+        return translationDegraded || voiceDegraded || asrFallback || asrFailed ? .degraded : .listening
+    }
+
+    /// The status item's word when a failure, not a fallback, draws `.degraded`: that menu
+    /// line's own words instead of 使用备用. nil otherwise.
+    public static func failureText(_ icon: MenuBarIcon, meetingActive: Bool, mode: MeetingMode,
+                                   asrFailed: Bool, lastEndFailed: Bool) -> String? {
+        guard icon == .degraded else { return nil }
+        if meetingActive { return asrFailed ? String(appLocalized: "字幕识别出错") : nil }
+        return lastEndFailed ? String(appLocalized: "\(mode.scene.title)因错误已结束") : nil
     }
 
     /// A fact that turns the icon orange or red and has no menu line of its own: the meeting

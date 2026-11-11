@@ -39,7 +39,7 @@ final class PTTHUD {
     private var publishedPhoneInput = false
     private var subtitlesVisible = true
     private var listenHint: HUDModel.Warning?
-    private var cloudReminder: (apple: () -> Void, copy: () -> Void)?
+    private var cloudReminder: (apple: () -> Void, copy: (() -> Void)?)?
     private var cloudPopoverShown = false
     private var cloudPopoverScheduled = false
     /// Presses whose own translated audio is playing (SpeakUIEvent.outputPresses).
@@ -55,6 +55,8 @@ final class PTTHUD {
     private var speakingTimer: Timer?
     private var shownDock: MicStatusDock.Content?
     private var shownLocalSpeech = false
+    /// Where "音频不可用"'s reason is fixed; nil: nothing in Settings changes it (secure input).
+    private var unavailableDestination: HUDLine.SettingsDestination? = .audio
     /// Monotonic seconds; replaceable for a smoke run.
     var clock: () -> Double = { ProcessInfo.processInfo.systemUptime }
 
@@ -143,7 +145,8 @@ final class PTTHUD {
         render()
     }
 
-    func showCloudReminder(useApple: @escaping () -> Void, copyNotice: @escaping () -> Void) {
+    /// `copyNotice` nil: no chat notice to copy (视频字幕 has no other party).
+    func showCloudReminder(useApple: @escaping () -> Void, copyNotice: (() -> Void)?) {
         cloudReminder = (useApple, copyNotice)
         model.cloudPrivacyPending = true
         render()
@@ -208,17 +211,21 @@ final class PTTHUD {
 
     /// The controller calls this from actual raw-gate / translation-tail state changes. A
     /// failed translation press keeps raw closed; it must report unavailable, not original.
-    func meetingAudio(_ state: HUDModel.MeetingAudio?) {
+    /// `translationKey`: only original audio is unavailable, the key still starts translation.
+    /// `settings`: where an unavailable reason is fixed (nil: no settings button).
+    func meetingAudio(_ state: HUDModel.MeetingAudio?, translationKey: Bool = false,
+                      settings: HUDLine.SettingsDestination? = .audio) {
         let inputChanged = panel.presentation == .phone
             && (phoneInputIsConfirmed?() == true) != publishedPhoneInput
-        guard model.meetingAudio != state || inputChanged else { return }
+        unavailableDestination = settings
+        guard model.meetingAudio != state || model.translationKeyAvailable != translationKey || inputChanged else { return }
         if panel.presentation == .phone {
             // A stopped raw gate or lost Phone reader must not leave a green sending badge
             // behind the transcript's refresh limiter. Only mode/confirmation changes get this.
-            model.meetingAudio = state
+            model.meetingAudio = state; model.translationKeyAvailable = translationKey
             redrawTimer?.invalidate(); redrawTimer = nil
             redraw()
-        } else { change { $0.meetingAudio = state } }
+        } else { change { $0.meetingAudio = state; $0.translationKeyAvailable = translationKey } }
     }
 
     /// SPEAK wires this on once push to talk works; until then no idle shortcut instruction.
@@ -704,14 +711,18 @@ final class PTTHUD {
             button(String(appLocalized: "本场只用 Apple 翻译听到的话")) { [weak self] in
                 reminder.apple(); self?.closeCloudReminder()
             }
-            button(String(appLocalized: "复制聊天说明"), symbol: SubtitleTokens.ActionIcon.copy) { reminder.copy() }
+            if let copy = reminder.copy {
+                button(String(appLocalized: "复制聊天说明"), symbol: SubtitleTokens.ActionIcon.copy) { copy() }
+            }
             button(String(appLocalized: "本场不再提示"), symbol: SubtitleTokens.ActionIcon.dismissReminder) { [weak self] in
                 self?.closeCloudReminder()
             }
         }
         var destinations: [HUDLine.SettingsDestination] = []
-        if model.voiceState?.kind == .unavailable || model.voiceState?.kind == .remoteHearsOriginal {
+        if model.voiceState?.kind == .remoteHearsOriginal {
             destinations.append(.audio)
+        } else if model.voiceState?.kind == .unavailable, let unavailableDestination {
+            destinations.append(unavailableDestination)
         }
         for destination in chips.compactMap(\.settingsDestination) where !destinations.contains(destination) {
             destinations.append(destination)
@@ -723,7 +734,7 @@ final class PTTHUD {
                 let title = switch destination {
                 case .audio: String(appLocalized: "音频设置…")
                 case .translation: String(appLocalized: "翻译设置…")
-                case .permissions: String(appLocalized: "权限设置…")
+                case .permissions, .inputMonitoring: String(appLocalized: "权限设置…")
                 }
                 button(title, symbol: SubtitleTokens.ActionIcon.settings) { [weak self] in
                     self?.detailsPopover.close(); onOpenSettings(destination)

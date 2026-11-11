@@ -28,7 +28,7 @@ struct MainAppLoginItem: LoginItemService {
     func unregister() throws { try SMAppService.mainApp.unregister() }
 }
 
-/// Settings › 通用 › 登录时启动 (ARCHITECTURE.md §11) through SMAppService.mainApp. Registration
+/// Settings › 通用 › 登录时启动 (ARCHITECTURE.md, "三种使用场景") through SMAppService.mainApp. Registration
 /// needs a signed bundle (ad hoc counts as signed; a bare `swift run` binary does not).
 @MainActor
 @Observable

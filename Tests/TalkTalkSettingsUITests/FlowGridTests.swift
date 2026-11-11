@@ -18,6 +18,23 @@ import Testing
         let phone = SettingsProblem(.warn, sentence: "Phone 的音频尚未就绪。请打开 Phone 后重新准备电话同传。")
         #expect(phone.text == "Phone 的音频尚未就绪" && phone.help == "Phone 的音频尚未就绪。请打开 Phone 后重新准备电话同传。")
         #expect(SettingsProblem(.warn, sentence: "未发送").help == nil)
+        // English sentences end at ". " or "; "; a dot inside a word does not.
+        let english = SettingsProblem(.warn, sentence: "The relay is idle; open the demo app v1.2 and retry.")
+        #expect(english.text == "The relay is idle" && english.help == "The relay is idle; open the demo app v1.2 and retry.")
+        #expect(SettingsProblem(.warn, sentence: "Check the demo app v1.2").help == nil)
+        #expect(SettingsProblem(.warn, sentence: "First line\nSecond line").text == "First line")
+    }
+
+    /// A node title that fits one line in the 820 pt window keeps the compact height; a wider
+    /// one gets line space.
+    @MainActor @Test func nodeHeightFollowsTheRealContentWidth() {
+        func node(_ title: String) -> FlowNode {
+            FlowNode(title, glyph: .symbol("app.dashed"), accessory: .controls { EmptyView() })
+        }
+        let fits = FlowGrid.height(for: [node("Google Chrome")], columns: 4, gutter: true)
+        #expect(fits == FlowGrid.accessoryHeight)
+        let wide = FlowGrid.height(for: [node("Other party hears original")], columns: 4, gutter: true)
+        #expect(wide > FlowGrid.accessoryHeight)
     }
 
     @Test func nodesSayTheirStateAndWhereTheyLead() {

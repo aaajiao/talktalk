@@ -5,7 +5,7 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkVoice
 
-/// App-wide UI state (ARCHITECTURE.md §13 `AppState`). Holds only what the menu, the settings
+/// App-wide UI state (`AppState`; ARCHITECTURE.md, "三种使用场景"). Holds only what the menu, the settings
 /// window and (later) the subtitle panel share; the meeting session owns its own pipeline state.
 @MainActor
 @Observable
@@ -277,8 +277,15 @@ final class AppState {
         onLanguagePresentationChange?()
     }
 
-    /// Meeting mode (LISTEN) can be started from the menu.
+    /// A session can start now: onboarding is done and no self-test, speaking test, engine
+    /// installation or maintenance holds the audio (AppDelegate keeps it in step). The menu's
+    /// quick start and the scenario page's start read it alike.
     var meetingAvailable = true
+    /// The quick start found several sources and opened this scene's page instead (the page's
+    /// problem line and the menu's 确认应用…); cleared by choosing a source or the next start.
+    var sourceChoicePending: MeetingMode?
+    /// A start waits for macOS's speech-asset download (the 下载中 tooltip).
+    var downloadingSpeechAssets = false
     var meetingMode: MeetingMode = .meeting
     /// Settings selection only; choosing a scene never changes a running session. Persisted
     /// as `ui.requestedScenario` (redesign §7).
@@ -295,10 +302,16 @@ final class AppState {
     }
     var availableSources: [SourceOption] = []
     var meetingSourceID: String {
-        didSet { ListeningSourcePreferences.setSource(meetingSourceID, for: .meeting, defaults: defaults) }
+        didSet {
+            ListeningSourcePreferences.setSource(meetingSourceID, for: .meeting, defaults: defaults)
+            if sourceChoicePending == .meeting { sourceChoicePending = nil }
+        }
     }
     var videoSourceID: String {
-        didSet { ListeningSourcePreferences.setSource(videoSourceID, for: .captions, defaults: defaults) }
+        didSet {
+            ListeningSourcePreferences.setSource(videoSourceID, for: .captions, defaults: defaults)
+            if sourceChoicePending == .captions { sourceChoicePending = nil }
+        }
     }
     @ObservationIgnored var onRefreshSources: (() -> Void)?
 
@@ -319,9 +332,16 @@ final class AppState {
     }
     var phoneStatus: String?
     var phoneProblem: String?
+    /// Feed is ready but Phone cannot read TalkTalk Mic yet (SpeakController): the actionable sentence.
+    var phoneInputHint: String?
     var phoneReadyToDial = false {
-        didSet { if phoneReadyToDial, !phonePreparedOnce { phonePreparedOnce = true } }
+        didSet {
+            if phoneReadyToDial, !phonePreparedOnce { phonePreparedOnce = true }
+            if phoneReadyToDial, !phoneReadyThisSession { phoneReadyThisSession = true }
+        }
     }
+    /// This phone session has been ready to dial; reset when the next preparation starts.
+    var phoneReadyThisSession = false
     /// A phone session has been ready to dial once (`ui.phonePreparedOnce`): 首次连接 is then
     /// collapsed by default (§7.2).
     private(set) var phonePreparedOnce: Bool {
@@ -354,6 +374,9 @@ final class AppState {
     var speakSessionActive = false
     /// The last session ended on a failure (menu attention line); cleared at the next start.
     var lastEndProblem: MeetingMode?
+    /// The last session ended by itself (long silence, or no audio after sleep or unlock): the
+    /// idle menu's neutral line; cleared at the next start.
+    var lastEndAutomatic: MeetingMode?
     /// §7.5 item 6 summary when something Apple-side is missing (nil = all fine or not checked).
     var appleCheck: String?
     /// Where the running meeting's finals come from (nil: no meeting) and whether the network is

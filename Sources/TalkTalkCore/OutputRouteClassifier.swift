@@ -1,4 +1,4 @@
-/// Headphones or speakers (ARCHITECTURE.md §3.7). A pure lookup: TalkTalkAudio's OutputRouteProbe
+/// Headphones or speakers (ARCHITECTURE.md, "实时音频与生命周期约束"). A pure lookup: TalkTalkAudio's OutputRouteProbe
 /// reads the meeting process's output devices (`kAudioProcessPropertyDevices`, output scope), the
 /// self-monitor device and the default output, and re-asks on every device, DataSource or process
 /// device change. Everything not positively known to be headphones is a speaker.

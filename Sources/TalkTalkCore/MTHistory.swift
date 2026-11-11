@@ -1,6 +1,6 @@
 import Foundation
 
-/// The app-local conversation state for MT (ARCHITECTURE.md §5.4 "会话与历史"). One list per
+/// The app-local conversation state for MT (ARCHITECTURE.md). One list per
 /// direction of what the other side actually heard (spoken), followed by clauses that already
 /// have a translation but have not played yet (pending). Requests are stateless; this is the
 /// only state, shared by every MT backend.

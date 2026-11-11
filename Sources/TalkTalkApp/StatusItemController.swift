@@ -1,6 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import AppKit
 import TalkTalkCore
+import TalkTalkDriverSupport
 import TalkTalkSession
 import TalkTalkSettingsUI
 
@@ -19,6 +20,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         var quit: () -> Void
         var stillInMeeting: () -> Void = {}
         var openOnboarding: () -> Void = {}
+        /// 权限设置… for an unconfirmed system-audio grant (the titlebar chip's own).
+        var openPermissions: () -> Void = {}
         /// Whether onboarding is unfinished, and at which step (state A).
         var onboarding: () -> OnboardingProgressState = { .finished }
         var canPlayAnnouncement: () -> Bool = { false }
@@ -65,6 +68,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private weak var deliveryItem: NSMenuItem?
     private var shownMenuVoice: VoiceState?
     private var headerTimer: Timer?
+    /// The open menu and the session phase its rows were built for: a phase change while it
+    /// stays open rebuilds it, so 结束 never outlives its session.
+    private var menuOpen = false
+    private var shownPhase: ScenarioRunState.Phase?
 
     init(state: AppState, actions: Actions) {
         self.state = state
@@ -85,16 +92,28 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         if let menu = item.menu { menuNeedsUpdate(menu) }
     }
 
-    func setIcon(_ s: MenuBarIcon, reasons: [MenuBarIcon.Reason] = []) {
+    /// `words`: the status word when it is a menu line's own (`MenuBarIcon.failureText`).
+    func setIcon(_ s: MenuBarIcon, reasons: [MenuBarIcon.Reason] = [], words override: String? = nil) {
         iconState = s
         iconReasons = reasons
-        let words = s.statusText(mode: state.meetingMode)
+        let words = override ?? s.statusText(mode: state.meetingMode)
         item.button?.image = iconImage(s, accessibilityDescription: words)
         // Missing components dim the glyph (a shape difference from standby, not only words);
         // appearsDisabled changes appearance only, so the menu still opens to repair setup.
         item.button?.appearsDisabled = s == .missing
         let name = BuildFlavor.current == .dev ? "TalkTalk Dev" : "TalkTalk"
         item.button?.toolTip = "\(name) · \(words)"
+        if menuOpen, shownPhase != phase, let menu = item.menu {
+            menuNeedsUpdate(menu)
+            startLiveTimer()
+        }
+    }
+
+    /// The session's phase as the menu reads it (§8: A–C).
+    private var phase: ScenarioRunState.Phase {
+        state.meetingStopping ? .stopping
+            : state.meetingActive ? .running
+            : state.meetingStarting ? .starting : .idle
     }
 
     /// The status item's image. Normal states are template images; problems keep their colour:
@@ -122,7 +141,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     func menuWillOpen(_ menu: NSMenu) {
+        menuOpen = true
+        startLiveTimer()
+    }
+
+    private func startLiveTimer() {
         headerTimer?.invalidate()
+        headerTimer = nil
         guard sessionHeader != nil || voiceItem != nil || deliveryItem != nil else { return }
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshLiveRows() }
@@ -132,6 +157,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     func menuDidClose(_ menu: NSMenu) {
+        menuOpen = false
         headerTimer?.invalidate()
         headerTimer = nil
     }
@@ -145,6 +171,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         shownMenuVoice = nil
         let facts = currentFacts()
         shownMenuVoice = facts.voice
+        shownPhase = facts.phase
         for row in StatusMenu.rows(facts) {
             let mi = menuItem(row)
             switch row.live {
@@ -164,9 +191,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             f.onboardingNeeded = true
             f.onboardingProgress = progress
         }
-        f.phase = state.meetingStopping ? .stopping
-            : state.meetingActive ? .running
-            : state.meetingStarting ? .starting : .idle
+        f.phase = phase
         f.mode = state.meetingMode
         f.lastScenario = state.lastScenario
         f.quickStartSource = switch state.lastScenario ?? .meeting {
@@ -187,6 +212,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         f.meetingHint = state.meetingHint
         f.meetingHintKind = state.meetingHintKind
         f.lastEndProblem = state.lastEndProblem
+        f.lastEndAutomatic = state.lastEndAutomatic
+        f.sourceChoicePending = state.sourceChoicePending
+        f.downloadingAssets = state.downloadingSpeechAssets
+        // Only a speaking session reads it: TalkTalk Mic's device is absent, its driver not loaded.
+        f.driverMissing = state.meetingActive && state.meetingMode.supportsSpeaking
+            && CoreAudioDriverHAL().device(uid: DriverIdentity.micUID) == nil
         f.appleCheck = state.appleCheck
         f.systemInput = state.systemInputNotice.flatMap(notice)
         let input = actions.systemInputItems()
@@ -318,7 +349,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
         }
         if let deliveryItem {
-            let delivery = voice.flatMap { PhoneDelivery($0.kind) }
+            let confirmed = ScenarioFacts(state: state, mode: .phone).phoneCheck.status == .ok
+            let delivery = voice.flatMap { PhoneDelivery($0.kind, phoneInputConfirmed: confirmed) }
             deliveryItem.isHidden = delivery == nil
             if let delivery {
                 deliveryItem.title = delivery.text
@@ -333,6 +365,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard commands.indices.contains(sender.tag) else { return }
         switch commands[sender.tag] {
         case .continueOnboarding: actions.openOnboarding()
+        case .openPermissions: actions.openPermissions()
         case let .quickStart(mode): actions.quickStart(mode)
         case .resumeFromRecord: actions.toggleMeeting()
         case let .openScene(mode):
@@ -352,7 +385,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .playAnnouncement: actions.playAnnouncement()
         case .settings: actions.openSettings(nil)
         // The app identity row also keeps access to the standard About panel.
-        case .about: NSApp.orderFrontStandardAboutPanel(nil)
+        case .about:
+            NSApp.activate()   // in front of the app that was active when the menu opened
+            NSApp.orderFrontStandardAboutPanel(nil)
         case .quit: actions.quit()
         }
     }
@@ -366,6 +401,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .recognition: actions.openSettingsAt(.translation, .model(.recognition), SettingsAnchor.recognition)
         case .translation: actions.openSettingsAt(.translation, .model(.translation), SettingsAnchor.translation)
         case .components: actions.openSettingsAt(.components, .components(.engine), SettingsAnchor.engine)
+        case .driver: actions.openSettingsAt(.components, .components(.driver), SettingsAnchor.driver)
         case .onboarding: actions.openSettingsAt(.general, nil, SettingsAnchor.onboarding)
         case .diagnosticRecording:
             actions.openSettingsAt(.privacy, .diagnostics(.troubleshooting), SettingsAnchor.diagnosticRecording)

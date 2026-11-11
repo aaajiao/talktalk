@@ -1,6 +1,6 @@
 import Foundation
 
-/// Per-session latency events (ARCHITECTURE.md §12.1 "延迟事件", §12.2 "事件").
+/// Per-session latency events (ARCHITECTURE.md, "数据与隐私").
 ///
 ///     ~/Library/Logs/TalkTalk/sessions/<ISO>-<id>.jsonl     one JSON object per line
 ///     {"t": <host ns>, "ev": "listen.final", "sentence": 3, "chars": 41, ...}

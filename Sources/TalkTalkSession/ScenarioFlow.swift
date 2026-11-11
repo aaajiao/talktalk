@@ -180,13 +180,25 @@ public struct ScenarioRunState: Sendable, Equatable {
         }
     }
 
-    /// 结束: what the meeting or call receives afterwards; blocked: which scene to end first.
-    public func help(systemInputSwitched: Bool) -> String? {
+    /// 结束: what the meeting or call receives afterwards; blocked: which scene to end first;
+    /// 准备中… for another scene: which one prepares (the menu's words); while macOS downloads
+    /// the speech assets for the start: 下载中.
+    public func help(systemInputSwitched: Bool, downloadingAssets: Bool = false) -> String? {
         switch action {
         case let .end(mode): mode.scene.endHelp(systemInputSwitched: systemInputSwitched)
         case let .blocked(running): String(appLocalized: "先结束\(running.scene.title)")
-        case .start, .progress: nil
+        case let .progress(mode, ending):
+            !ending && downloadingAssets ? String(appLocalized: "下载中") : mode != browsing ? accessibilityLabel : nil
+        case .start: nil
         }
+    }
+
+    /// Why a start waits, for the menu's quick start and the page's 开始 alike (§8.2): onboarding
+    /// first, then a self-test, speaking test or maintenance that holds the audio (the alert's
+    /// sentence); nil when it can start.
+    public static func startBlocked(onboardingNeeded: Bool, available: Bool) -> String? {
+        if onboardingNeeded { return String(appLocalized: "完成引导后可用") }
+        return available ? nil : String(appLocalized: "请先结束正在运行的自检或说话测试，或等待语音资源维护完成。")
     }
 
     public var isEnabled: Bool {
@@ -228,10 +240,13 @@ public enum PhoneDelivery: Sendable, Equatable {
     /// 未发送.
     case notSent
 
-    public init?(_ kind: VoiceState.Kind) {
+    /// `phoneInputConfirmed`: Phone reads TalkTalk Mic. The key-down 松开确认 alone does not
+    /// say where speech goes, so before Phone reads it stays on this Mac.
+    public init?(_ kind: VoiceState.Kind, phoneInputConfirmed: Bool = true) {
         switch kind {
         case .remoteHearsOriginal: return nil
-        case .original, .translating, .processing, .playingTranslation, .switching: self = .sentToPhone
+        case .switching: self = phoneInputConfirmed ? .sentToPhone : .thisMacOnly
+        case .original, .translating, .processing, .playingTranslation: self = .sentToPhone
         case .phoneLocalTrial, .phoneLocalOnly, .localPlayback: self = .thisMacOnly
         case .phoneNotConnected: self = .waitingForCall
         case .notSent, .restoring, .unavailable, .phoneReconnecting, .listening: self = .notSent
@@ -276,14 +291,18 @@ public struct PhoneChecklist: Sendable, Equatable {
     public var dialEnabled: Bool { prepare == .done }
 
     /// `phoneSession`: the running (or starting/stopping) session is the phone scenario.
+    /// `wasReady`: this session has been ready to dial. A readiness lost later (Phone reads the
+    /// physical microphone, the reader-change barrier) keeps ① done; the problem row and the
+    /// Phone node say what is wrong.
     public static func make(phoneSession: Bool, starting: Bool, stopping: Bool, active: Bool,
-                            readyToDial: Bool, dialing: Bool, callAudioActive: Bool) -> PhoneChecklist {
+                            readyToDial: Bool, callAudioActive: Bool,
+                            wasReady: Bool = false) -> PhoneChecklist {
         guard phoneSession else { return PhoneChecklist(prepare: .pending, dial: .pending, finish: .pending) }
         let prepare: Status
-        if active, readyToDial, !stopping { prepare = .done }
+        if active, readyToDial || wasReady || callAudioActive, !stopping { prepare = .done }
         else if starting || stopping || active { prepare = .inProgress }
         else { prepare = .pending }
-        let dial: Status = prepare != .done ? .pending : callAudioActive ? .done : dialing ? .inProgress : .pending
+        let dial: Status = prepare != .done ? .pending : callAudioActive ? .done : .pending
         let finish: Status = stopping ? .inProgress : .pending
         return PhoneChecklist(prepare: prepare, dial: dial, finish: finish)
     }

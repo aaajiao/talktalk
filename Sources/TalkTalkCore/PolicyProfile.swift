@@ -1,6 +1,6 @@
 import Foundation
 
-/// Every policy threshold (ARCHITECTURE.md §5.3). Field names are exactly the JSON keys of
+/// Every policy threshold (ARCHITECTURE.md). Field names are exactly the JSON keys of
 /// `Resources/PolicyProfile.default.json`; there are no Swift defaults. PolicyProfileTests
 /// decodes the file, re-encodes it and requires the result to equal the file, so a key that
 /// the Swift types forget fails the test.

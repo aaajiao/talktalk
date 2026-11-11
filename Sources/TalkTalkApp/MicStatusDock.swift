@@ -246,7 +246,8 @@ final class MicStatusDock: NSView {
                 barColor = translate
             }
         }
-        let hasVisibleBackground = statusVisible || (content.expanded && content.turn != nil)
+        // From the translation latch on: before the first recognized word too (redesign §4).
+        let hasVisibleBackground = statusVisible || content.expanded
         fill.layer?.backgroundColor = fillColor?.cgColor
         fill.isHidden = fillColor == nil || !hasVisibleBackground
         bar.layer?.backgroundColor = barColor?.cgColor

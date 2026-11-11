@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import TalkTalkCore
 
-/// One running app per build flavor (ARCHITECTURE.md §13 "单实例"). TalkTalk.app and
+/// One running app per build flavor (ARCHITECTURE.md, "实时音频与生命周期约束": single instance). TalkTalk.app and
 /// TalkTalk-Dev.app have different bundle ids and lock files, so they may run side by side; two
 /// copies of the same flavor may not (`open -n` would otherwise start a second menu bar icon).
 ///

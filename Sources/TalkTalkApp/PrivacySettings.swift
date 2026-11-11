@@ -6,9 +6,9 @@ import TalkTalkEngineHost
 import TalkTalkSettingsUI
 import UniformTypeIdentifiers
 
-/// Model of Settings › 隐私与诊断 (ARCHITECTURE.md §11, §12): the transcript switch (§16
-/// decision 7, default off), retention (§12.1: run at launch and hourly), the per-meeting
-/// diagnostic recording (`DiagnosticRecorder`) and the diagnostics bundle export (§12.3).
+/// Model of Settings › 隐私与诊断 (ARCHITECTURE.md, "三种使用场景"): the transcript switch
+/// (default off), retention (run at launch and hourly), the per-meeting
+/// diagnostic recording (`DiagnosticRecorder`) and the diagnostics bundle export.
 ///
 /// One instance for the app (`shared`); creating it starts the retention scheduler, so the first
 /// touch at launch (the meeting wiring or this page) also runs the launch sweep.

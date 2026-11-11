@@ -13,7 +13,7 @@ import TalkTalkCore
 }
 
 #if TALKTALK_DEV
-/// `--bench cloud` (ARCHITECTURE.md §14 T4 ⓪–⑨). Dev build only.
+/// `--bench cloud` (ARCHITECTURE.md T4 ⓪–⑨). Dev build only.
 ///
 /// Runs the T4 measurement program with the production client (OpenAIClient, HedgedRequest,
 /// KeepWarm, CloudHealth, SessionResetPolicy, the real prompts and PolicyProfile). The key is

@@ -1,7 +1,7 @@
 import CoreAudio
 import Foundation
 
-/// One Core Audio input device, as read from its properties (ARCHITECTURE.md §3.2).
+/// One Core Audio input device, as read from its properties (ARCHITECTURE.md, "实时音频与生命周期约束").
 /// Values only; reading these never opens the device and needs no TCC permission.
 public struct InputDeviceInfo: Sendable, Equatable, Hashable {
     public let objectID: UInt32

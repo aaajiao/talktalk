@@ -7,7 +7,7 @@ import TalkTalkAudio
 import TalkTalkEngineHost
 import TalkTalkSettingsUI
 
-/// State behind settings › 组件 › 虚拟麦克风 (ARCHITECTURE.md §11: 状态、安装、自检、卸载、谁在用)
+/// State behind settings › 组件 › 虚拟麦克风 (ARCHITECTURE.md, "三种使用场景": 状态、安装、自检、卸载、谁在用)
 /// and the 完全卸载 button. The app's components page (TalkTalkApp's DriverComponentsPage) builds
 /// one with `forCurrentApp` and shows it:
 ///
@@ -46,6 +46,10 @@ public final class DriverComponentModel {
     /// The same outcome in the settings vocabulary, shortest words first (§7.12): the result row.
     public private(set) var result: SettingsProblem?
     public var confirmation: Confirmation?
+    /// Which `driverComponentLifecycle` asked for `confirmation`. Settings › 安装与维护 and
+    /// onboarding step 3 share this model, so only the asking window shows the alert.
+    public enum Host: Sendable { case settings, onboarding }
+    public private(set) var confirmationAskedBy: Host?
     /// FullUninstallSection's own confirmation (kept apart from `confirmation`, which the driver
     /// section's alert presents).
     public var confirmingFullUninstall = false
@@ -104,9 +108,15 @@ public final class DriverComponentModel {
     /// 完全卸载 cannot start: something above is running, or the engine installer is (the engine
     /// rows' install / check / models; review of 639f957 #2). Driver actions do not wait for the
     /// engine.
+    /// A session, recording or audition runs (the app supplies it, as for the engine rows):
+    /// 完全卸载 waits for it instead of being refused after its confirmation.
+    @ObservationIgnored public var sessionActive: @MainActor () -> Bool = { false }
+
     public var fullUninstallBlocked: Bool {
         guard let fullUninstaller else { return true }
-        return isBusy || fullUninstaller.isEngineBusy
+        // After a complete run there is nothing left to remove: quit and move the app to the Trash.
+        return isBusy || fullUninstaller.isEngineBusy || sessionActive()
+            || fullUninstallSummary?.outcome == .complete
     }
 
     /// 完全卸载 is running: the engine rows wait for it (DriverComponentsPage hands this to
@@ -135,22 +145,37 @@ public final class DriverComponentModel {
 
     // MARK: actions
 
-    public func requestInstall() {
+    public func requestInstall(from host: Host = .settings) {
         let pre = installer.preflight()
         guard pre.canProceed else { return blocked(pre) }
-        confirmation = .install(warnings: pre.warnings, update: state != .notInstalled)
+        ask(.install(warnings: pre.warnings, update: state != .notInstalled), host)
     }
 
-    public func requestUninstall() {
+    public func requestUninstall(from host: Host = .settings) {
         let pre = installer.preflight()
         guard pre.canProceed else { return blocked(pre) }
-        confirmation = .uninstall(warnings: pre.warnings)
+        ask(.uninstall(warnings: pre.warnings), host)
     }
 
-    public func requestRestartAudio() {
+    public func requestRestartAudio(from host: Host = .settings) {
         let pre = installer.preflight()
         guard pre.canProceed else { return blocked(pre) }
-        confirmation = .restartAudio(warnings: pre.warnings)
+        ask(.restartAudio(warnings: pre.warnings), host)
+    }
+
+    private func ask(_ c: Confirmation, _ host: Host) {
+        confirmationAskedBy = host
+        confirmation = c
+    }
+
+    /// `confirmation` as the given window's alert item: nil in the other window.
+    public func confirmation(for host: Host) -> Confirmation? {
+        confirmationAskedBy == host ? confirmation : nil
+    }
+
+    public func dismissConfirmation() {
+        confirmation = nil
+        confirmationAskedBy = nil
     }
 
     public func requestFullUninstall() {
@@ -171,7 +196,7 @@ public final class DriverComponentModel {
     }
 
     public func confirm(_ c: Confirmation) async {
-        confirmation = nil
+        dismissConfirmation()
         notice = nil
         result = nil
         switch c {
@@ -201,6 +226,8 @@ public final class DriverComponentModel {
         guard !isBusy, state.isUsable || state.isLoadedButOutdated else { return }
         selfTestRunning = true
         defer { selfTestRunning = false }
+        // The last pass belongs to that run: a new one must not keep saying 自检通过.
+        if result == Self.selfTestPassed { result = nil }
         var options = selfTestOptions()
         options.requestPermission = true
         options.includeMeetingPath = includeMeetingPath
@@ -213,9 +240,14 @@ public final class DriverComponentModel {
             result = SettingsProblem.mostSevere([result, SettingsProblem(.warn, sentence: line)]) ?? result
         } else {
             _ = try? installer.installation.record(report)
+            // A pass changes nothing else on the page: say so, unless the install's own result
+            // (已安装 v) is still showing. A failure is the status row's 自检未通过.
+            if report.passed, result == nil { result = Self.selfTestPassed }
         }
         refresh()
     }
+
+    private static var selfTestPassed: SettingsProblem { SettingsProblem(.ok, String(appLocalized: "自检通过")) }
 
     /// The self-test with this model's HAL, version and restore-record check.
     func makeSelfTest() -> DriverSelfTest {

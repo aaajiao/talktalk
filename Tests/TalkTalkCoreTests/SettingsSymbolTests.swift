@@ -23,7 +23,7 @@ import TalkTalkCore
         let actions = [S.refresh, S.reset, S.add, S.remove, S.close, S.copy, S.finder, S.delete, S.cancel, S.more,
                        S.flowArrow, S.back]
         let flow = [S.link, S.loopBack, S.unknownApp, S.browserTabs, S.noMicrophone, S.iPhone, S.sameAccount,
-                    S.sameNetwork, S.handoff, S.subtitlesHidden, S.start, S.stop, S.dial, S.callContinues]
+                    S.sameNetwork, S.handoff, S.languageSwap, S.subtitlesHidden, S.start, S.stop, S.dial, S.callContinues]
         // StepTrack draws the numbered circles of the system set.
         let steps = (1...3).map { "\($0).circle" }
         let status = [S.statusWarn, S.statusFailed, S.statusOK, S.statusPending, S.statusWaiting,
@@ -32,7 +32,7 @@ import TalkTalkCore
                          S.backgroundSolid, S.reduceTransparency, S.captionArrangement, S.silenceDim,
                          S.subtitleWindow, S.windowMovable, S.windowNoFocus, S.windowMinimize,
                          S.windowNotShared, S.hoverOnly, S.callsInPhone]
-        let general = [S.launchAtLogin, S.notifications, S.allowNotifications, S.announcement, S.onboarding]
+        let general = [S.interfaceLanguage, S.launchAtLogin, S.notifications, S.allowNotifications, S.announcement, S.onboarding]
         let voice = [S.inputVolume, S.record, S.duration]
         let models = [S.apiKey, S.pasteKey, S.snapshots, S.cloudReminder, S.retiring, S.cloudOff, S.noSpeech]
         let components = [S.download, S.install, S.repair, S.restartEngine, S.inspectFile, S.audioRestart, S.results,

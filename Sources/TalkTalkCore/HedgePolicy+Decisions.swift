@@ -1,6 +1,6 @@
 import Foundation
 
-// The pure decisions behind HedgedRequest (ARCHITECTURE.md §4.1, §5.3, §6.4, §16 decision 13):
+// The pure decisions behind HedgedRequest (ARCHITECTURE.md, "引擎、翻译与播放"):
 // when to send B, the deadline and its extension to the playout queue, who wins, whether the
 // sentence counts as a breaker failure, and when to rebuild a connection. HedgedRequest only
 // sends and cancels. All times are integer milliseconds since request A was sent (virtual

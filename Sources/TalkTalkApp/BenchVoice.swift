@@ -1,7 +1,7 @@
 import Foundation
 
-// Dispatch targets of `--bench enroll` and `--bench record` (ARCHITECTURE.md §9.2, §14 M0).
-// Both exist only in the dev build. Like every entry that touches TCC (§2.2), start them through
+// Dispatch targets of `--bench enroll` and `--bench record` (ARCHITECTURE.md M0).
+// Both exist only in the dev build. Like every entry that touches TCC, start them through
 // LaunchServices so the microphone prompt and grant belong to TalkTalk-Dev.app:
 //
 //   open -W -n -a "$PWD/build/TalkTalk-Dev.app" --args --bench enroll [--out <file>] [--smoke]

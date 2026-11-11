@@ -112,6 +112,28 @@ import Testing
         // 通用's 使用引导… row, which carries the same status and downloads again.
         #expect(row(done, "通用设置…")?.kind == .action(.open(.onboarding)))
         #expect(row(done, "Apple 资源待配置")?.help == "Apple：缺少英语识别资源")
+        // A self-test or maintenance holds the start too, with the alert's reason as its tooltip.
+        f.meetingAvailable = false
+        let busy = StatusMenu.rows(f)
+        #expect(!busy[0].isEnabled && busy[0].help == "请先结束正在运行的自检或说话测试，或等待语音资源维护完成。")
+    }
+
+    /// The quick start opened the scene's page for a choice: the idle menu leads back to it;
+    /// a speech-asset download says so on 正在准备…; quitting a session names its consequence.
+    @Test func sourceChoiceDownloadAndQuitRows() {
+        var f = StatusMenuFacts()
+        f.sourceChoicePending = .captions
+        #expect(row(StatusMenu.rows(f), "确认应用…")?.kind == .action(.openScene(.captions)))
+        var starting = StatusMenuFacts()
+        starting.phase = .starting
+        starting.mode = .captions
+        starting.sourceChoicePending = .captions
+        #expect(row(StatusMenu.rows(starting), "确认应用…") == nil)
+        #expect(row(StatusMenu.rows(starting), "正在准备视频字幕…")?.help == nil)
+        starting.downloadingAssets = true
+        #expect(row(StatusMenu.rows(starting), "正在准备视频字幕…")?.help == "下载中")
+        #expect(StatusMenu.rows(StatusMenuFacts()).last?.help == nil)
+        #expect(StatusMenu.rows(running(.phone)).last?.help == SubtitleScene.phone.endHelp(systemInputSwitched: false))
     }
 
     @Test func noStateHasTheMoreSubmenuOrTheEntriesThatMovedToSettings() {
@@ -187,10 +209,10 @@ import Testing
     @Test func aRecognitionFailureHasItsLine() throws {
         var f = running()
         f.voice = voice(.original)
-        f.asrFailure = "字幕识别未能恢复：engine exited"
+        f.asrFailure = "字幕识别未能恢复"
         let rows = StatusMenu.rows(f)
         let line = try #require(index(rows, "字幕识别出错"))
-        #expect(rows[line].tone == .failed && rows[line].help == "字幕识别未能恢复：engine exited")
+        #expect(rows[line].tone == .warn && rows[line].help == "字幕识别未能恢复")
         #expect(rows[line + 1].kind == .action(.open(.recognition)) && rows[line + 1].indented)
         var idle = StatusMenuFacts()
         idle.asrFailure = "x"
@@ -264,7 +286,8 @@ import Testing
         #expect(fix.help == risk.help)
         #expect(rows[3].tone == .warn && rows[3].help == f.asrStatus)
         #expect(rows[4].kind == .action(.open(.recognition)) && rows[4].indented)
-        #expect(rows[5].help == "⚠︎ 字幕翻译：Apple 翻译（超时）")
+        // The tooltip gives the reason in one sentence, without a status sign or the line's words.
+        #expect(rows[5].help == "OpenAI 超时，这句改用 Apple 翻译")
         #expect(rows[6].kind == .action(.open(.translation)))
         // The status item's word is not repeated when a line explains its glyph.
         #expect(row(rows, "对方能听到原声")?.kind == .status && rows.filter { $0.title == "对方能听到原声" }.count == 1)
@@ -358,37 +381,85 @@ import Testing
         f.asrFallback = true
         rows = StatusMenu.rows(f)
         #expect(row(rows, "使用备用") == nil && row(rows, "识别：Apple 备用") != nil)
+        f.asrFallback = false
+        f.asrFailure = "x"
+        rows = StatusMenu.rows(f)
+        #expect(row(rows, "使用备用") == nil && row(rows, "字幕识别出错") != nil)
         var idle = StatusMenuFacts()
         idle.icon = .warming
-        #expect(row(StatusMenu.rows(idle), "准备中")?.symbol == MenuBarIcon.warming.symbol)
+        let warming = row(StatusMenu.rows(idle), "准备中")
+        #expect(warming?.symbol == MenuBarIcon.warming.symbol && warming?.help != nil)
         idle.phase = .starting
         rows = StatusMenu.rows(idle)
         #expect(rows[0].title == "正在准备会议同传…" && rows[0].kind == .status && row(rows, "准备中") == nil)
         #expect(row(rows, "开始会议同传 · 自动") == nil && row(rows, "会议同传…") != nil)
     }
 
-    @Test func hintsKeepTheirChipGlyphAndOfferToKeepListening() {
+    @Test func hintsKeepTheirChipWordsGlyphAndOfferToKeepListening() {
         var f = running()
-        // Display copy deliberately differs from the stable raw identifier, as it does in English.
+        // The line takes the chip's words, never the hint's display text (which is Phone's context).
         let silentText = "The app has been silent for a while"
         f.meetingHint = silentText
         f.meetingHintKind = .meetingSeemsOver
         var rows = StatusMenu.rows(f)
-        let hint = row(rows, silentText)
-        #expect(hint?.kind == .status && hint?.tone == nil)
-        #expect(hint?.symbol == HUDModel.Warning.meetingSeemsOver.chip(scene: .meeting)?.symbol)
+        #expect(row(rows, silentText) == nil)
+        let chip = HUDModel.Warning.meetingSeemsOver.chip(scene: .meeting)
+        let hint = row(rows, "会议似乎已结束")
+        #expect(hint?.kind == .status && hint?.tone == nil && hint?.symbol == chip?.symbol)
+        #expect(hint?.help == chip?.detail && hint?.help?.contains("继续收听") == true)
         let keep = row(rows, "继续收听")
         #expect(keep?.kind == .action(.stillInMeeting) && keep?.indented == true
                 && keep?.symbol == SubtitleTokens.VoiceIcon.listening)
         // 视频字幕's chip: the app's sound, not people.
         f.mode = .captions
         rows = StatusMenu.rows(f)
-        #expect(row(rows, silentText)?.symbol == "waveform.slash")
-        let restartingText = "Restarting audio"
-        f.meetingHint = restartingText
+        #expect(row(rows, "长时间没有声音")?.symbol == "waveform.slash")
+        // Phone: the chip's short words, the whole sentence in the tooltip.
+        var phone = running(.phone)
+        phone.meetingHint = "Phone 已长时间没有通话音频，即将结束电话同传。"
+        phone.meetingHintKind = .meetingSeemsOver
+        let call = row(StatusMenu.rows(phone), "长时间无通话音频")
+        #expect(call?.help == HUDModel.Warning.meetingSeemsOver.chip(scene: .phone)?.detail)
+        f.meetingHint = "Restarting audio"
         f.meetingHintKind = .audioRestarting
         rows = StatusMenu.rows(f)
-        #expect(row(rows, restartingText)?.tone == .warn && row(rows, "继续收听") == nil)
+        #expect(row(rows, "音频系统重启中")?.tone == .warn && row(rows, "继续收听") == nil)
+        // An unconfirmed recording permission has the chip's 权限设置… (the system-audio grant).
+        f.meetingHint = "x"
+        f.meetingHintKind = .tccUnconfirmed
+        rows = StatusMenu.rows(f)
+        let tcc = index(rows, "录音权限未确认")
+        #expect(tcc.map { rows[$0 + 1].kind } == .action(.openPermissions) && tcc.map { rows[$0 + 1].title } == "权限设置…")
+    }
+
+    @Test func hiddenVideoSubtitlesHaveALineWithTheirSwitch() {
+        var video = running(.captions)
+        video.subtitlesVisible = false
+        let rows = StatusMenu.rows(video)
+        let hidden = index(rows, "字幕已隐藏")
+        #expect(hidden.map { rows[$0].tone } == .warn && hidden.map { rows[$0].symbol } == SubtitleTokens.SettingsIcon.subtitlesHidden)
+        #expect(hidden.map { rows[$0 + 1].kind } == .action(.toggleSubtitles))
+        // Meeting and Phone keep their window (controls and status strip): no line.
+        var meeting = running()
+        meeting.subtitlesVisible = false
+        #expect(row(StatusMenu.rows(meeting), "字幕已隐藏") == nil)
+    }
+
+    @Test func aSpeakingSessionWithoutTheDriverLeadsToItsInstallation() {
+        var f = running()
+        f.micCheck = .init(.warn, "会议尚未使用 TalkTalk Mic")
+        f.systemInput = .init(.warn, "TalkTalk Mic 暂不可用")
+        f.driverMissing = true
+        let rows = StatusMenu.rows(f)
+        let check = index(rows, "会议尚未使用 TalkTalk Mic"), input = index(rows, "TalkTalk Mic 暂不可用")
+        #expect(check.map { rows[$0 + 1].kind } == .action(.open(.driver)))
+        #expect(input.map { rows[$0 + 1].kind } == .action(.open(.driver)))
+        #expect(!rows.contains { $0.kind == .action(.open(.talkTalkMic)) })
+        // 视频字幕 never uses TalkTalk Mic.
+        var video = running(.captions)
+        video.driverMissing = true
+        video.systemInput = .init(.warn, "TalkTalk Mic 暂不可用")
+        #expect(!StatusMenu.rows(video).contains { $0.kind == .action(.open(.driver)) })
     }
 
     @Test func automaticSourceAndFailedEndHaveTheirRows() throws {
@@ -402,6 +473,16 @@ import Testing
         let rows = StatusMenu.rows(idle)
         let ended = try #require(index(rows, "电话同传因错误已结束"))
         #expect(rows[ended].tone == .warn && rows[ended + 1].kind == .action(.openScene(.phone)) && rows[ended + 1].indented)
+        // The icon's triangle is this line's: no extra 使用备用.
+        idle.icon = .degraded
+        #expect(row(StatusMenu.rows(idle), "使用备用") == nil)
+        // Ending by itself leaves a neutral line with the same fix.
+        var auto = StatusMenuFacts()
+        auto.lastEndAutomatic = .captions
+        let autoRows = StatusMenu.rows(auto)
+        let automatic = try #require(index(autoRows, "视频字幕已自动结束"))
+        #expect(autoRows[automatic].tone == nil && autoRows[automatic].help != nil)
+        #expect(autoRows[automatic + 1].kind == .action(.openScene(.captions)))
     }
 
     @Test func statusWordsAreTheShortOnes() {
@@ -440,6 +521,7 @@ import Testing
         meeting.asrFallback = true; meeting.translation = .openAI; meeting.meetingApp = ""
         var video = running(.captions)
         video.icon = .degraded
+        video.subtitlesVisible = false
         var facts = running()
         facts.iconReasons = MenuBarIcon.Reason.allCases
         facts.recording = .recording(tracks: "我")

@@ -4,7 +4,7 @@ import TalkTalkAudio
 import TalkTalkCore
 import TalkTalkSettingsUI
 
-/// The "我的声音" recording UI (ARCHITECTURE.md §9.2, settings visual system §7.7). Embeds
+/// The "我的声音" recording UI (ARCHITECTURE.md, "引擎、翻译与播放", settings visual system §7.7). Embeds
 /// anywhere: the dev window of `--bench enroll`, onboarding and the settings page. `onClose` is
 /// called by the "完成" / "关闭" buttons; the host decides what closing means. No title: the
 /// StepTrack says where the take is, each phase shows only its few words, and every check's
@@ -186,6 +186,11 @@ public struct EnrollmentView: View {
 
     private var devicePicker: some View {
         HStack(spacing: 8) {
+            // Nothing acceptable to pick: say why 开始录制 is gray, as 音频 does.
+            if !controller.devices.contains(where: { $0.verdict.isAccepted }) {
+                StatusLabel(String(appLocalized: "无可用麦克风"), .failed,
+                            help: String(appLocalized: "没有可用的麦克风（只支持内建麦克风或 USB 麦克风）"))
+            }
             Picker(selection: $controller.selectedUID) {
                 ForEach(controller.devices) { row in
                     Text(verbatim: row.verdict.isAccepted
@@ -212,14 +217,19 @@ public struct EnrollmentView: View {
 
     private var meter: some View {
         let fraction = max(0, min(1, (controller.levelDb + 60) / 60))
+        let clipping = controller.levelDb > -3
         return HStack(spacing: 8) {
             Image(systemName: Icon.physicalMic)
                 .font(.system(size: Ladder.row))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             ProgressView(value: fraction)
-                .tint(controller.levelDb > -3 ? Color.red : Color.green)
+                .tint(clipping ? Color.red : Color.green)
                 .accessibilityLabel(String(appLocalized: "输入音量"))
+                .accessibilityValue(Text(verbatim: clipping ? String(appLocalized: "削波")
+                                                            : fraction.formatted(.percent.precision(.fractionLength(0)))))
+            // Not by color alone: the shape and the word for those who cannot tell red from green.
+            if clipping { StatusGlyph(.warn).accessibilityHidden(true) }
         }
     }
 
@@ -257,9 +267,13 @@ public struct EnrollmentView: View {
             if let failed = summary.clips.first(where: { $0.failure != nil }), let failure = failed.failure {
                 StatusLabel(String(appLocalized: "未通过：\(Self.code(failed.lang)) \(failure.text) · 建议重录"), .failed,
                             help: String(appLocalized: "已自动重新生成一次"))
-            } else {
+            } else if controller.auditionUnavailableReason == nil {
                 FactRow([FactChip(String(appLocalized: "戴耳机试听"), symbol: Icon.headphones,
                                   help: String(appLocalized: "满意就保存"))])
+            }
+            // The monitor output cannot play now (meeting mode, no output): saving still works.
+            if let reason = controller.auditionUnavailableReason {
+                StatusLabel(String(appLocalized: "自听输出不可用"), .warn, help: reason)
             }
             ForEach(summary.clips, id: \.lang) { clip in
                 let playing = controller.playingAudition == clip.lang
@@ -268,11 +282,13 @@ public struct EnrollmentView: View {
                     StatusGlyph(clip.failure == nil ? .ok : .failed)
                         .accessibilityLabel(clip.failure.map(\.text) ?? SettingsStatus.ok.spokenName)
                     Text(verbatim: Self.code(clip.lang)).font(.body.weight(.medium))
-                    IconButton(playing ? Icon.stop : Icon.start, help: playing ? String(appLocalized: "停止") : name,
+                    IconButton(playing ? Icon.stop : Icon.start,
+                               help: playing ? String(appLocalized: "停止") : controller.auditionUnavailableReason ?? name,
                                accessibilityLabel: playing ? String(appLocalized: "停止\(name)") : name) {
                         if playing { controller.stopAudition() } else { controller.playAudition(clip.lang) }
                     }
-                    .disabled(!playing && (controller.audition?.clip(clip.lang)?.samples.isEmpty ?? true))
+                    .disabled(!playing && (controller.auditionUnavailableReason != nil
+                                           || (controller.audition?.clip(clip.lang)?.samples.isEmpty ?? true)))
                 }
                 .padding(.leading, Ladder.rowTextInset - Ladder.rowColumn)
             }
@@ -293,17 +309,22 @@ public struct EnrollmentView: View {
             switch controller.phase {
             case .idle:
                 Button("关闭") { onClose?() }
+                let canStart = controller.selectedDevice?.verdict.isAccepted ?? false
                 Button("开始录制") { controller.start() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!(controller.selectedDevice?.verdict.isAccepted ?? false))
+                    .disabled(!canStart)
+                    .help(ifPresent: canStart ? nil : String(appLocalized: "没有可用的麦克风（只支持内建麦克风或 USB 麦克风）"))
             case .measuringNoise, .countdown:
-                Button("取消") { controller.cancel() }
+                Button("取消") { controller.cancel() }.keyboardShortcut(.cancelAction)
             case .recording:
-                Button("取消") { controller.cancel() }
+                Button("取消") { controller.cancel() }.keyboardShortcut(.cancelAction)
                 Button("完成录制") { controller.finishRecording() }.keyboardShortcut(.defaultAction)
-            case .analyzing, .saving, .auditioning:
+            case .analyzing, .saving:
                 EmptyView()
+            case .auditioning:
+                // Generating the audition can take a while: leaving restores the saved voice.
+                Button("取消") { controller.cancel() }
             case let .auditionReview(summary):
                 Button("放弃") { controller.cancel() }
                 Button("重录") { controller.retake() }
@@ -323,7 +344,11 @@ public struct EnrollmentView: View {
                 Button("完成") { onClose?() }.keyboardShortcut(.defaultAction)
             case .failed:
                 Button("关闭") { onClose?() }
-                Button("再试一次") { controller.start() }.keyboardShortcut(.defaultAction)
+                // A microphone failure goes back to choosing the microphone; the rest record again.
+                Button("再试一次") {
+                    if controller.failureNeedsDeviceChoice { controller.cancel() } else { controller.start() }
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
     }

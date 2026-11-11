@@ -35,6 +35,8 @@ final class DiagnosticsStatus {
     private(set) var report: SelfTestReport?
     /// An offline command is on the pasteboard (故障检查 › 离线命令 shows "已复制").
     private(set) var copied = false
+    /// Clears "已复制" shortly after a copy; a new copy restarts it (as FlowInteraction.flash).
+    @ObservationIgnored private var copiedClearing: Task<Void, Never>?
     @ObservationIgnored var canRunAudioSelfTest: @MainActor () -> Bool = { true }
     @ObservationIgnored var beforeAudioSelfTest: (@MainActor () async -> Void)?
 
@@ -80,6 +82,12 @@ final class DiagnosticsStatus {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
         copied = true
+        copiedClearing?.cancel()
+        copiedClearing = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.copied = false
+        }
     }
 
     func percentile(_ kind: Latency.Kind, _ fraction: Double) -> Double? {

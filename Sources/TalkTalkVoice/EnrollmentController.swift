@@ -4,7 +4,7 @@ import Observation
 import TalkTalkAudio
 import TalkTalkCore
 
-/// Drives one "my voice" enrollment (ARCHITECTURE.md §9.2) for `EnrollmentView`. Owns the
+/// Drives one "my voice" enrollment (ARCHITECTURE.md, "引擎、翻译与播放") for `EnrollmentView`. Owns the
 /// MicCapture while recording, runs the checks, and saves through VoiceStore. The same
 /// controller backs the dev entry `--bench enroll` (M0), the first-run onboarding (M1) and the
 /// settings page (M2), so it knows nothing about windows or the bench.
@@ -43,6 +43,12 @@ public final class EnrollmentController {
     /// Set while an audition clip plays (the monitor output, never TalkTalk Mic).
     public private(set) var playingAudition: Lang?
     public private(set) var auditionPlaybackError: String?
+    /// Why the monitor output cannot play the audition (read once when the review opens, e.g.
+    /// meeting mode); nil: it can.
+    public private(set) var auditionUnavailableReason: String?
+    /// The failure came from the microphone (gone, changed, not openable): 再试一次 goes back to the
+    /// choice of microphone instead of recording again with whichever is picked automatically.
+    public private(set) var failureNeedsDeviceChoice = false
     public let script: EnrollmentScript
     public let store: VoiceStore
 
@@ -184,6 +190,7 @@ public final class EnrollmentController {
                 }
                 self.candidate = c
                 self.audition = c.audition
+                self.refreshAuditionAvailability()
             case let .saveWithoutAudition(c):
                 guard current else {
                     Self.dropLate(c.staging, store: store, engine: engine, routing: routing, queue: queue)
@@ -255,6 +262,15 @@ public final class EnrollmentController {
         }
     }
 
+    /// Reads the monitor output once for the review that just opened (`MyVoiceModel.refreshMonitorAvailability`).
+    private func refreshAuditionAvailability() {
+        let monitor = self.monitor
+        Task {
+            let reason = await monitor.unavailableReason
+            if case .auditionReview = self.phase { self.auditionUnavailableReason = reason }
+        }
+    }
+
     public func stopAudition() {
         let monitor = self.monitor
         playingAudition = nil
@@ -262,6 +278,7 @@ public final class EnrollmentController {
     }
 
     public func cancel() {
+        failureNeedsDeviceChoice = false
         countdownTask?.cancel()
         countdownTask = nil
         capture?.stop()
@@ -328,6 +345,7 @@ public final class EnrollmentController {
     private func dropCandidate() {
         stopAudition()
         audition = nil
+        auditionUnavailableReason = nil
         guard let c = candidate else { return }
         candidate = nil
         store.discard(c.staging)
@@ -352,6 +370,7 @@ public final class EnrollmentController {
     // MARK: - capture
 
     private func beginTake() {
+        failureNeedsDeviceChoice = false
         hook { await $0.enrollmentStarted() }
         noise = []
         take = []
@@ -371,11 +390,11 @@ public final class EnrollmentController {
             guard phase == .measuringNoise else { return }
             refreshDevices()
             guard let row = selectedDevice else {
-                fail(String(appLocalized: "没有可用的麦克风（只支持内建麦克风或 USB 麦克风）"))
+                fail(String(appLocalized: "没有可用的麦克风（只支持内建麦克风或 USB 麦克风）"), device: true)
                 return
             }
             if let reason = row.verdict.reason {
-                fail(String(appLocalized: "这个麦克风不能用来录声音：\(reason)"))
+                fail(String(appLocalized: "这个麦克风不能用来录声音：\(reason)"), device: true)
                 return
             }
             openCapture(row.info)
@@ -395,7 +414,7 @@ public final class EnrollmentController {
             self.capture = capture
             self.captureDevice = device
         } catch {
-            fail(String(appLocalized: "打不开麦克风：\(String(describing: error))"))
+            fail(String(appLocalized: "打不开麦克风：\(String(describing: error))"), device: true)
         }
     }
 
@@ -464,16 +483,16 @@ public final class EnrollmentController {
         countdownTask?.cancel()
         switch interruption {
         case .sampleRateChanged, .formatChanged:
-            fail(String(appLocalized: "麦克风的采样率变了（可能有别的 App 打开了它），这一遍作废，请重录"))
+            fail(String(appLocalized: "麦克风的采样率变了（可能有别的 App 打开了它），这一遍作废，请重录"), device: true)
         case .deviceDied:
-            fail(String(appLocalized: "麦克风断开了，请重新选择后重录"))
+            fail(String(appLocalized: "麦克风断开了，请重新选择后重录"), device: true)
         }
     }
 
-    private func fail(_ message: String) {
+    private func fail(_ message: String, device: Bool = false) {
         capture?.stop()
         capture = nil
-        machine.send(.failed(message))
+        if machine.send(.failed(message)) { failureNeedsDeviceChoice = device }
     }
 
     // MARK: - work off the main actor

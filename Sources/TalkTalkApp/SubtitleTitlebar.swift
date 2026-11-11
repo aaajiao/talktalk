@@ -353,6 +353,25 @@ final class SubtitleTitleView: NSView {
 
     var naturalWidth: CGFloat { Self.iconWidth + ceil(label.attributedStringValue.size().width) + 4 }
 
+    /// The narrowest the title gets: the icon and a few characters of the scene title, which
+    /// truncates only when the trailing group does not fit even at its most compact level (long
+    /// English scene names at the minimum width). The full title stays in the tooltip and the
+    /// window title.
+    private var floorWidth: CGFloat {
+        let head = String(scene.title.prefix(3)) + "…"
+        let width = (head as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: ControlTypography.titleScene, weight: .semibold)]).width
+        return min(minimumWidth, Self.iconWidth + ceil(width) + 4)
+    }
+
+    /// The title beside the trailing group `compaction` chose (§3): the source name yields
+    /// first and the title takes the remaining width; at the most compact level the scene title
+    /// gives up only as much as the group still needs, down to `floorWidth`.
+    func fit(_ available: CGFloat, compaction: TitlebarCompaction) {
+        let floor = compaction.level == TitlebarCompaction.maxLevel ? floorWidth : minimumWidth
+        setWidth(min(naturalWidth, max(floor, available)))
+    }
+
     override func layout() {
         super.layout()
         setWidth(frame.width)
@@ -360,7 +379,7 @@ final class SubtitleTitleView: NSView {
 
     func setWidth(_ width: CGFloat) {
         let height = bounds.height > 0 ? bounds.height : SubtitleTokens.Size.titlebarHeight
-        let target = max(minimumWidth, width)
+        let target = max(floorWidth, width)
         if abs(frame.width - target) > 0.5 { setFrameSize(NSSize(width: target, height: height)) }
         let size = NSSize(width: target, height: height)
         icon.frame = NSRect(x: 0, y: (height - 16) / 2, width: 18, height: 16)

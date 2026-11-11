@@ -1,7 +1,7 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
 import Foundation
 
-/// The eight onboarding steps (ARCHITECTURE.md §11 首次引导), in order.
+/// The eight onboarding steps (ARCHITECTURE.md, "三种使用场景"), in order.
 public enum OnboardingStep: String, CaseIterable, Codable, Sendable, Comparable {
     case permissions      // 1 麦克风、语音识别、输入监控（+ 系统录音探针）
     case speechAssets     // 2 zh-CN / en-US / de-DE 语音资源
@@ -42,9 +42,12 @@ public enum OnboardingStep: String, CaseIterable, Codable, Sendable, Comparable 
     }
 
     /// The steps for the chosen scenarios (redesign §7 首次引导). Video alone needs only app
-    /// audio and speech recognition, the speech assets and the try-out ("准备视频字幕").
+    /// audio and speech recognition, the speech assets and the try-out ("准备视频字幕"). Step 7
+    /// is about a meeting app's input, so a path without 会议 (phone, or phone and video) drops
+    /// it: the phone follows the system default input.
     public static func path(for scenarios: Set<OnboardingScenario>) -> [OnboardingStep] {
-        OnboardingScenario.isVideoOnly(scenarios) ? [.permissions, .speechAssets, .tryIt] : allCases
+        if OnboardingScenario.isVideoOnly(scenarios) { return [.permissions, .speechAssets, .tryIt] }
+        return scenarios.contains(.meeting) ? allCases : allCases.filter { $0 != .meetingMic }
     }
 }
 
@@ -150,6 +153,9 @@ public final class OnboardingState {
         public static let prefix = "onboarding.v2."
         public static let step = "onboarding.v2.step"
         public static let finished = "onboarding.v2.finished"
+        /// Set once the last step was passed, kept by 使用引导… (restart): a run again is not
+        /// "引导未完成" (the menu's start, the launch and Dock opening keep working meanwhile).
+        public static let completedOnce = "onboarding.v2.completedOnce"
         public static let skipped = "onboarding.v2.skipped"
         public static let pendingRelaunch = "onboarding.v2.pendingRelaunch"
         /// Last afplay probe verdict; absent: never run. Survives the Input Monitoring relaunch.
@@ -173,6 +179,9 @@ public final class OnboardingState {
     }
     public private(set) var finished: Bool {
         didSet { defaults.set(finished, forKey: Key.finished) }
+    }
+    public private(set) var completedOnce: Bool {
+        didSet { defaults.set(completedOnce, forKey: Key.completedOnce) }
     }
     public private(set) var skipped: Set<OnboardingStep> {
         didSet { defaults.set(skipped.map(\.rawValue).sorted(), forKey: Key.skipped) }
@@ -203,6 +212,9 @@ public final class OnboardingState {
         Self.removeLegacyKeys(defaults)
         let saved = OnboardingStep(rawValue: defaults.string(forKey: Key.step) ?? "")
         finished = defaults.bool(forKey: Key.finished)
+        // A finished run from before the mark existed counts as completed.
+        completedOnce = defaults.bool(forKey: Key.completedOnce) || finished
+        if completedOnce { defaults.set(true, forKey: Key.completedOnce) }
         let chosen = defaults.stringArray(forKey: Key.scenarios).map { Set($0.compactMap(OnboardingScenario.init(rawValue:))) }
         let kept = chosen?.isEmpty == true ? nil : chosen
         scenarios = kept
@@ -224,7 +236,9 @@ public final class OnboardingState {
         }
     }
 
-    public var needsOnboarding: Bool { !finished }
+    /// "引导未完成": never finished. A run again from 使用引导… does not take back what was
+    /// already set up, so it is not "needed" (its progress still shows in Settings › 通用).
+    public var needsOnboarding: Bool { !finished && !completedOnce }
 
     /// 1-based position of `step` in the chosen path ("第 2 步，共 3 步").
     public func position(of step: OnboardingStep) -> Int? { steps.firstIndex(of: step).map { $0 + 1 } }
@@ -331,6 +345,9 @@ public final class OnboardingState {
         steps = buildSteps
         choosingScenarios = true
         current = steps.first
+        // Not persisted: a quit on the scenario page comes back to it (a saved step with no
+        // scenarios would read as onboarding begun before the page existed).
+        defaults.removeObject(forKey: Key.step)
     }
 
     private func advance(from step: OnboardingStep) {
@@ -340,6 +357,7 @@ public final class OnboardingState {
         } else {
             current = nil
             finished = true
+            completedOnce = true
         }
     }
 }

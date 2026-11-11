@@ -4,7 +4,7 @@ import Foundation
 import Observation
 import TalkTalkDriverSupport
 
-/// Settings › 组件 › 虚拟麦克风 and 通用 › 完全卸载… (ARCHITECTURE.md §8.4, §11): m0-t8's
+/// Settings › 组件 › 虚拟麦克风 and 通用 › 完全卸载… (ARCHITECTURE.md, "三种使用场景"): m0-t8's
 /// DriverComponentModel wired to this app's SystemInputSwitcher. It is built the first time the
 /// page appears, not at launch, because its refresh reads the HAL and the installed bundle.
 ///
@@ -56,6 +56,8 @@ final class DriverComponentsPage {
         // Both use the same EngineInstaller: the engine rows wait while 完全卸载 runs, and
         // 完全卸载 waits while the engine installer runs (FullUninstaller's engineBusy).
         engine.blockedBy = { [weak model, weak self] in model?.fullUninstallRunning == true || self?.externalBusy() == true }
+        // The engine rows' own session check (AppDelegate): 完全卸载 is disabled beforehand too.
+        model.sessionActive = { [weak engine] in engine?.sessionInProgress == true }
         if let full = model.fullUninstaller { follow(full) }
     }
 

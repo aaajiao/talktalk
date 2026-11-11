@@ -3,7 +3,7 @@ import TalkTalkCore
 import Darwin
 import Foundation
 
-/// Decides the driver's install state (ARCHITECTURE.md §8.4 "状态") from the bundle on disk, the
+/// Decides the driver's install state (ARCHITECTURE.md, "平台与模块") from the bundle on disk, the
 /// HAL and `driver.json`. Cheap enough for every launch: `lstat`, one Info.plist read and HAL
 /// property reads; no hashing (sha256 runs only when installing), no process, no IO.
 public struct DriverInstallation: Sendable {

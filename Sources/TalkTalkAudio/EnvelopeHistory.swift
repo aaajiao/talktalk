@@ -17,8 +17,7 @@ public struct EnvelopePoint: Sendable, Equatable {
     }
 }
 
-/// The RMS envelope history for the acoustic echo score (tt_envelope.h, ARCHITECTURE.md §3.5,
-/// §3.8 "Feed 输出包络"): a real-time producer publishes a point per 10 ms window, the history
+/// The RMS envelope history for the acoustic echo score (tt_envelope.h, ARCHITECTURE.md, "实时音频与生命周期约束"): a real-time producer publishes a point per 10 ms window, the history
 /// keeps the latest 512 (5.12 s). One consumer (EchoScorer on the audio worker) reads it.
 public final class EnvelopeHistory: @unchecked Sendable {
     /// For the IOProc context that pushes (tt_feed_ctx) in this module.

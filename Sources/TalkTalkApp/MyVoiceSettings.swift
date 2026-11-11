@@ -7,7 +7,7 @@ import TalkTalkCore
 import TalkTalkSettingsUI
 import TalkTalkVoice
 
-/// Settings › 我的声音 (ARCHITECTURE.md §11, §9.2–§9.4). An overview of the saved profile with
+/// Settings › 我的声音 (ARCHITECTURE.md, "三种使用场景"). An overview of the saved profile with
 /// 试听 / 重录 / 删除, and the recording flow itself, which is TalkTalkVoice's `EnrollmentView` +
 /// `EnrollmentController` from the app's one `VoiceLifecycle` (EngineHost's): every write goes through
 /// its queue, never VoiceStore directly. Saves to the real
@@ -27,6 +27,8 @@ final class MyVoiceModel {
     /// 试听: which language is being prepared or played, and why it could not play.
     private(set) var auditioning: Lang?
     private(set) var auditionProblem: String?
+    /// The saved profile's audition is being made (engine start and synthesis): nothing plays yet.
+    private(set) var auditionGenerating = false
     /// 停止 was pressed: a play still being generated is skipped. Observed, so the button shows
     /// play (disabled) at once instead of waiting for the generation to end.
     private(set) var auditionStopped = false
@@ -45,6 +47,10 @@ final class MyVoiceModel {
     /// The lifecycle the open recording flow was made from (item 4 of the listen review).
     @ObservationIgnored private var enrollmentSource: VoiceLifecycle?
     @ObservationIgnored private var monitorReadFor: VoiceLifecycle?
+    /// The other window's model (settings ↔ onboarding): re-reads the profile when this one saved
+    /// or deleted it.
+    @ObservationIgnored weak var peer: MyVoiceModel?
+    @ObservationIgnored private var savedAnnounced = false
     private let onChange: () -> Void
     /// Settings › 安装与维护's installer; while it runs no audition and no new take.
     private let components: EngineComponentsModel
@@ -62,7 +68,15 @@ final class MyVoiceModel {
     var installerRunning: Bool { components.running }
     /// The same installed-resource facts used by 安装与维护; no engine is started to read them.
     var synthesisProblem: SettingsProblem? { components.synthesisProblem }
+    /// The installation, not the engine instance (dropped during maintenance): the scenario
+    /// pages' fact for 我的声音 vs 系统声音.
+    var engineInstalled: Bool { components.installed }
     var synthesisModelName: String? { components.modelName(role: "tts") }
+    /// The chosen synthesis model's short name, as the chip on 识别与翻译 › 语音合成.
+    var synthesisModelShortName: String? {
+        components.synthesisModels.first { $0.key == components.synthesisSelectionID }
+            .map { EngineSynthesisSelection.compactTitle(for: $0) }
+    }
     func refreshSynthesisResources() { components.reload() }
     /// The installer runs and the take is past capture: the flow is held (no save starts).
     var saveBlocked: Bool { installerRunning && !recordingActive }
@@ -82,8 +96,27 @@ final class MyVoiceModel {
     func beginRecording() {
         guard enrollment == nil, !deleting, !installerRunning, !externalBusy(), let lifecycle else { return }
         auditionProblem = nil
+        savedAnnounced = false
         enrollment = lifecycle.makeEnrollment()
         enrollmentSource = lifecycle
+    }
+
+    /// A take is being recorded, checked, auditioned or saved: engine maintenance and the audio
+    /// self-test wait. A prepare page, a finished take and a failure hold nothing.
+    var recordingBusy: Bool {
+        guard let phase = enrollment?.phase else { return false }
+        switch phase {
+        case .idle, .saved, .failed: return false
+        default: return true
+        }
+    }
+
+    /// The profile on disk changed (a take saved, or deleted): this window and the other one
+    /// read it again and the app's facts follow.
+    private func profileChanged() {
+        reload()
+        onChange()
+        peer?.reload()
     }
 
     /// The view's "关闭" / "完成", the settings window closing, or the app quitting.
@@ -92,8 +125,8 @@ final class MyVoiceModel {
         enrollment = nil
         enrollmentSource = nil
         recordingNote = nil
-        reload()
-        onChange()
+        savedAnnounced = false
+        profileChanged()
     }
 
     /// §9.4 through the lifecycle: SPEAK switches to the system voice first, queued voice work is
@@ -101,11 +134,11 @@ final class MyVoiceModel {
     func deleteProfile() {
         guard !deleting, !externalBusy(), let lifecycle else { return }
         deleting = true
+        auditionProblem = nil
         Task {
             await lifecycle.delete()
             deleting = false
-            reload()
-            onChange()
+            profileChanged()
         }
     }
 
@@ -122,16 +155,25 @@ final class MyVoiceModel {
             do {
                 if lifecycle.savedAudition == nil {
                     // The audition starts the engine: let it idle out afterwards (§7.6), also on failure.
-                    do { _ = try await lifecycle.audition() } catch { await engine?.enrollmentFinished(); throw error }
+                    auditionGenerating = true
+                    do { _ = try await lifecycle.audition() } catch {
+                        auditionGenerating = false
+                        await engine?.enrollmentFinished()
+                        throw error
+                    }
+                    auditionGenerating = false
                     await engine?.enrollmentFinished()
                 }
                 if !auditionStopped { try await lifecycle.play(lang) }
             } catch let e as AuditionMonitorError {
                 auditionProblem = e.description
+            } catch is VoiceSlotQueue.Cancelled {
+                // A deletion cancelled the queued generation: stopped, not failed.
             } catch {
                 auditionProblem = String(appLocalized: "试听没有生成：\(String(describing: error))")
             }
             auditioning = nil
+            auditionGenerating = false
             reload()
             refreshMonitorAvailability()
         }
@@ -164,6 +206,7 @@ final class MyVoiceModel {
             saved && !engineAvailable ? SettingsProblem(.waiting, String(appLocalized: "引擎就绪后可试听"),
                                                           help: String(appLocalized: "试听经自听输出播到耳机，不进 TalkTalk Mic")) : nil,
             installerRunning ? SettingsProblem(.waiting, String(appLocalized: "组件安装中")) : nil,
+            auditionGenerating ? SettingsProblem(.waiting, String(appLocalized: "生成试听…")) : nil,
             saved && engineAvailable ? monitorUnavailableReason.map {
                 SettingsProblem(.warn, String(appLocalized: "自听输出不可用"), help: $0)
             } : nil,
@@ -199,6 +242,12 @@ final class MyVoiceModel {
             monitorAvailable = false
             monitorUnavailableReason = nil
         }
+        // Saved: the profile and the facts that follow it (scenes, the synthesis graphic, engine
+        // maintenance) change now, not when 完成 is pressed.
+        if enrollment?.phase == .saved, !savedAnnounced {
+            savedAnnounced = true
+            profileChanged()
+        }
         // An open take from a lifecycle that was dropped must not commit through its engine,
         // routing and queue: start again from the current one.
         guard let e = enrollment, let from = enrollmentSource, from !== lifecycle else { return }
@@ -223,8 +272,12 @@ final class MyVoiceModel {
         beginRecording()
     }
 
-    /// The page appeared: read the monitor again (it may have been plugged in meanwhile).
-    func refreshMonitor() { refreshMonitorAvailability() }
+    /// The page appeared: read the monitor again (it may have been plugged in meanwhile). A
+    /// failed audition belonged to the previous visit.
+    func refreshMonitor() {
+        if auditioning == nil { auditionProblem = nil }
+        refreshMonitorAvailability()
+    }
 
     /// Called by the app on meeting/route changes, and after audition playback finishes or fails.
     func refreshMonitorAvailability() {
@@ -462,14 +515,27 @@ extension FlowGrid {
         let driverProblem = driver?.driverProblem
         let translating = VoiceState.resolve(audio: .translating, scene: .meeting, phoneInputConfirmed: true)
         // The profile controls are in this same graphic, so the satellite needs no self-link.
-        let satellite = model.hasProfile
+        // A profile without an installed engine is synthesized with the system voice, as the menu says.
+        let satellite = model.hasProfile && model.engineInstalled
             ? FlowSatellite(String(appLocalized: "我的声音"), symbol: Icon.myVoice, help: String(appLocalized: "用我的声音合成译音"))
             : FlowSatellite(String(appLocalized: "系统声音"), symbol: Icon.speech,
-                            help: String(appLocalized: "未录制时用系统声音"), dashed: true)
+                            help: model.hasProfile ? String(appLocalized: "引擎未安装，声音档案暂不能用")
+                                                   : String(appLocalized: "未录制时用系统声音"),
+                            dashed: true)
         let speech = FlowNode(String(appLocalized: "合成译音"), glyph: .symbol(Icon.speech),
                               badge: problem?.status, badgeReason: problem?.text,
                               link: problem == nil ? nil
                                   : links?.node(String(appLocalized: "安装与维护 · 语音资源"), .components, .components(.engine)),
+                              // Read-only: the model is chosen on 识别与翻译 › 语音合成.
+                              accessory: model.synthesisModelShortName.map { name in
+                                  .display {
+                                      Text(verbatim: name)
+                                          .font(.caption2)
+                                          .foregroundStyle(.secondary)
+                                          .lineLimit(1)
+                                          .truncationMode(.tail)
+                                  }
+                              },
                               satellite: satellite, help: model.synthesisModelName)
         return FlowLane(String(appLocalized: "译音"), gutter: .voice(translating), cells: [
             .node(FlowNode(String(appLocalized: "译文"), glyph: .symbol(Icon.translation))),

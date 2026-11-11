@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-/// Microphone TCC state (ARCHITECTURE.md §2.2, §3.2). The first request shows the system prompt
+/// Microphone TCC state (ARCHITECTURE.md). The first request shows the system prompt
 /// for the responsible app (TalkTalk-Dev.app when started through `open -n -a`). When the
 /// microphone is denied, a Core Audio IOProc still runs but reads exact zeros, so callers check
 /// this before recording instead of trusting the data.

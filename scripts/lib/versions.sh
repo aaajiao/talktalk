@@ -1,12 +1,12 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034  # sourced: every variable here is read by install-engine.sh / gen-pins.sh
-# talktalk pins: the single source of truth (ARCHITECTURE.md §7.2). Sourced, never executed.
+# talktalk pins: the single source of truth (ARCHITECTURE.md, "构建与验证边界"). Sourced, never executed.
 # Regenerate model blocks with scripts/pin-model.sh, lock hashes with scripts/lock-deps.sh,
 # then run scripts/gen-pins.sh (check.sh fails when EnginePins.swift is out of sync).
 
 # Application identity; independent of engine API/recipe and model revisions.
 TT_APP_VERSION="1.0.16"
-TT_APP_BUILD="77"
+TT_APP_BUILD="78"
 
 # Standalone CPython (astral-sh/python-build-standalone). Size and sha256 checked against the
 # GitHub release asset digest on 2026-11-07; dedicated, ordinary (GIL) CPython build.

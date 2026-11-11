@@ -1,5 +1,5 @@
 /// The input-event model shared by PushToTalkMachine, PassthroughKeyMachine and the future KeyTap
-/// (ARCHITECTURE.md §3.8 "键", §5.2). Pure values: KeyTap (TalkTalkSession, one listen-only
+/// (ARCHITECTURE.md, "SPEAK：实体麦到会议输入"). Pure values: KeyTap (TalkTalkSession, one listen-only
 /// `CGEventTap` on its own thread) turns each `CGEvent` into a `KeyInputEvent`, and the poll timer
 /// turns `CGEventSourceKeyState` / `CGEventSourceFlagsState` / `CGEventSourceButtonState` into a
 /// `KeyStateSnapshot`. Nothing here imports CoreGraphics, so the machines run on a virtual clock.

@@ -64,6 +64,7 @@ import Testing
         (.sentenceMaybeIncomplete, "该句可能不完整", .yellow),
         (.unsupportedTextNotSent, "这段文字暂不支持，未发送", .yellow),
         (.speakerMode, "正在外放，请戴耳机", .yellow),
+        (.playbackUnknown, "尚未读到会议应用的播放设备", .yellow),
         (.audioRestarting, "音频系统重启中", .yellow),
         (.meetingSilent, "会议当前没有声音", .normal),
         (.meetingSeemsOver, "会议似乎已结束", .normal),
@@ -282,11 +283,11 @@ import Testing
         #expect(m.lines(now: 0) == [HUDLine("正在识别中文", .normal, level: 0.5), HUDLine("✓ 我们先看", .check),
                                     HUDLine("明年的预算", .secondary), HUDLine("待播 2 段", .secondary)])
         m.pushToTalk = .playing(lang: .de, voice: .mine, source: .openAI, queued: 0)
-        #expect(m.lines(now: 0) == [HUDLine("正在播放译音（DE）"), HUDLine("我的声音", .secondary),
+        #expect(m.lines(now: 0) == [HUDLine("正在播放译音（德语）"), HUDLine("我的声音", .secondary),
                                     HUDLine("OpenAI", .secondary)])
         m.pushToTalk = .playing(lang: .en, voice: .system, source: .apple, queued: 1)
-        #expect(m.lines(now: 0) == [HUDLine("正在播放译音（EN）"), HUDLine("系统声音", .secondary),
-                                    HUDLine("Apple 本地翻译", .secondary), HUDLine("待播 1 段", .secondary)])
+        #expect(m.lines(now: 0) == [HUDLine("正在播放译音（英语）"), HUDLine("系统声音", .secondary),
+                                    HUDLine("Apple 翻译", .secondary), HUDLine("待播 1 段", .secondary)])
         m.pushToTalk = .playing(lang: .en, voice: .fallbackModel, source: .openAI, queued: 0)
         #expect(m.lines(now: 0)[1] == HUDLine("备用模型", .secondary))
     }
@@ -352,7 +353,7 @@ import Testing
         let activity = model.activityDetails(now: 0.2)
         #expect(activity.contains { $0.text == "待播 2 段" })
         #expect(activity.contains { $0.text == "我的声音" })
-        #expect(activity.contains { $0.text == "Apple 本地翻译" })
+        #expect(activity.contains { $0.text == "Apple 翻译" })
         #expect(!activity.contains { $0.text.contains("开头") || $0.text.contains("已提交") })
         model.meetingAudio = .draining
         #expect(model.voiceState?.kind == .processing)
@@ -552,6 +553,65 @@ import Testing
         #expect(VoiceState.make(.switching, phone: false, risk: nil, reason: nil).announcement == nil)
     }
 
+    /// A tap passes through the unannounced 松开确认: original → switching → translating still
+    /// announces the latch (PTTHUD.announce's rule), and Phone's local trial keeps its sentence.
+    @Test func latchAfterSwitchingIsAnnounced() {
+        func announced(_ kinds: [VoiceState.Kind], phone: Bool) -> [String] {
+            var group: Int?
+            var out: [String] = []
+            for kind in kinds {
+                let voice = VoiceState.make(kind, phone: phone, risk: nil, reason: nil)
+                if let previous = group, previous != voice.announcementGroup, let text = voice.announcement {
+                    out.append(text)
+                }
+                group = voice.announcementGroup
+            }
+            return out
+        }
+        #expect(announced([.original, .switching, .translating], phone: false) == ["原声已关，翻译中"])
+        #expect(announced([.phoneNotConnected, .switching, .phoneLocalTrial], phone: true) == ["本机试说，Phone 未接收"])
+    }
+
+    @Test func narrowestCapsuleKeepsNotSentAndUnavailable() {
+        #expect(VoiceState.make(.notSent, phone: false, risk: nil, reason: nil).compactTitle == "未发送")
+        #expect(VoiceState.make(.unavailable, phone: false, risk: nil, reason: "设备断开").compactTitle == "不可用")
+        #expect(VoiceState.make(.restoring, phone: false, risk: nil, reason: nil).compactTitle == "恢复中")
+    }
+
+    @Test func phoneRiskNamesPhoneNotTheMeeting() throws {
+        let chip = try #require(HUDModel.Warning.remoteHearsYourVoice.chip(scene: .phone))
+        #expect(chip.label == "Phone 在用实体麦" && chip.tone == .risk && chip.settingsDestination == .audio)
+        #expect(!chip.detail.contains("会议"))
+        #expect(HUDModel.Warning.remoteHearsYourVoice.chip(scene: .meeting)?.label == "会议在用实体麦")
+        let playback = try #require(HUDModel.Warning.playbackUnknown.chip(scene: .phone))
+        #expect(playback.label == "播放设备未确认" && playback.detail == "尚未读到 Phone 的播放设备")
+        let risk = VoiceState.resolve(audio: .original, scene: .phone, phoneInputConfirmed: true,
+                                      risk: .remoteHearsYourVoice)
+        #expect(MicDockPresentation.make(risk, scene: .phone).consequence == "Phone 没有使用 TalkTalk Mic")
+        #expect(MicDockPresentation.make(risk, scene: .meeting).consequence == "会议没有使用 TalkTalk Mic")
+    }
+
+    /// Speakers close only the original-audio gate; the key still starts translation.
+    @Test func translationKeyStaysWhenOnlyOriginalIsUnavailable() {
+        var model = HUDModel()
+        model.meetingStarted(); model.pushToTalkAvailable = true
+        model.meetingAudio = .unavailable(reason: "正在外放，请戴耳机")
+        #expect(model.voiceState?.kind == .unavailable && model.titlebarKey == nil)
+        model.translationKeyAvailable = true
+        #expect(model.voiceState?.kind == .unavailable)
+        #expect(model.titlebarKey?.action == "开始翻译")
+        model.speakingEnded()
+        #expect(!model.translationKeyAvailable)
+    }
+
+    @Test func unknownPlaybackIsItsOwnCondition() throws {
+        var model = HUDModel()
+        model.meetingStarted(); model.meetingAudio = .original
+        model.post(.playbackUnknown, now: 0)
+        let chip = try #require(model.issueSlot(now: 10)?.chip)
+        #expect(chip.label == "播放设备未确认" && chip.tone == .warn && chip.settingsDestination == .audio)
+    }
+
     @Test func speechTranscriptSurvivesReleaseAndDrainThenExpiresOrIsReplaced() {
         var model = HUDModel()
         model.meetingStarted(); model.pushToTalkAvailable = true; model.speechWorkPending = true
@@ -681,13 +741,15 @@ import Testing
         #expect(over.label == "长时间没有声音" && over.symbol == "waveform.slash")
         #expect(over.detail.contains("视频字幕即将自动结束") && over.detail.contains("菜单栏选择“继续收听”"))
         #expect(!over.detail.contains("会议") && !over.label.contains("对方"))
-        // Meeting keeps its own wording.
+        // Meeting keeps its own wording; every scene says the end is near and how to continue.
         model.scene = .meeting
-        #expect(model.issueSlot(now: 0)?.chip?.label == "会议似乎已结束")
+        let meeting = try #require(model.issueSlot(now: 0)?.chip)
+        #expect(meeting.label == "会议似乎已结束")
+        #expect(meeting.detail.contains("会议同传即将自动结束") && meeting.detail.contains("菜单栏选择“继续收听”"))
         model.scene = .phone
         let phone = try #require(model.issueSlot(now: 0)?.chip)
         #expect(phone.label == "长时间无通话音频" && phone.symbol == "waveform.slash" && phone.tone == .info)
-        #expect(phone.detail == "Phone 已长时间没有通话音频，即将结束电话同传。")
+        #expect(phone.detail.hasPrefix("Phone 已长时间没有通话音频，即将结束电话同传") && phone.detail.contains("菜单栏选择“继续收听”"))
     }
 
     /// The empty meeting timeline already says "暂未听到对方声音": the gray chip yields to the

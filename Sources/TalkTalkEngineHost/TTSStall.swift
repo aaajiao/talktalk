@@ -2,7 +2,7 @@ import Foundation
 import Synchronization
 import TalkTalkCore
 
-/// SPEAK stall rule (ARCHITECTURE.md §5.7 "SPEAK 专用的停顿检测"):
+/// SPEAK stall rule (ARCHITECTURE.md):
 /// - the engine renders TTS jobs one at a time, in its own job order (`Job.seq`, numbered on HTTP
 ///   arrival and sent back in the head frame), so only the **oldest open stream** in that order
 ///   (the head of `TTSStallBoard`) can stall; a stream queued behind it starts its window when it

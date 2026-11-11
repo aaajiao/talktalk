@@ -388,6 +388,8 @@ public enum SubtitleTokens {
         public static let unavailable = "xmark.circle"
 
         // 通用 (§7.5): one row each, the menu's glyph where the menu has the same item.
+        /// 界面语言.
+        public static let interfaceLanguage = "globe"
         public static let launchAtLogin = "power"
         /// 会议结束通知 (the menu has no 通知设置…: §8.6).
         public static let notifications = "bell"
@@ -480,6 +482,8 @@ public enum SubtitleTokens {
         public static let sameAccount = "person.crop.circle"
         public static let sameNetwork = "wifi"
         public static let handoff = "arrow.left.arrow.right"
+        /// 双语字幕's swap of the source and target language.
+        public static let languageSwap = "arrow.left.arrow.right"
         /// The subtitle window is hidden for every scene (the bottom bar's tag).
         public static let subtitlesHidden = "eye.slash"
         /// The bottom bar's primary action: start or prepare, and end.

@@ -4,7 +4,7 @@ import TalkTalkCore
 import TalkTalkEngineHost
 import TalkTalkVoice
 
-// voice-m2: the `--voice` part of `TalkTalk --self-test` (ARCHITECTURE.md §12.3, §9). The entry
+// voice-m2: the `--voice` part of `TalkTalk --self-test` (ARCHITECTURE.md). The entry
 // point and the JSON line are talktalk-m0's SelfTest.swift; this file only produces the checks.
 // Reads file metadata and profile.json; with an installed engine it also generates the en/de
 // audition (GPU, a few seconds) and reports read-back WER, the PlayoutStage gain and the speaker

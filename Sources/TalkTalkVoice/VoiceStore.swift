@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// The one "my voice" profile on disk (ARCHITECTURE.md §9.2 steps 6 and 8, §9.3, §9.4, §9.5).
+/// The one "my voice" profile on disk (ARCHITECTURE.md, "引擎、翻译与播放").
 ///
 ///     ~/Library/Application Support/TalkTalk/
 ///       voice/                       0700, excluded from backup, contains .metadata_never_index

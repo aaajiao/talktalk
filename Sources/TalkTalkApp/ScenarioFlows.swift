@@ -1,4 +1,5 @@
 // l10n: zh-Hans (scripts/check-strings.sh)
+import AppKit
 import SwiftUI
 import TalkTalkAudio
 import TalkTalkCloudUI
@@ -20,6 +21,8 @@ enum SettingsAnchor {
     static let talkTalkMic = "audio.meetingInput"
     static let playback = "audio.playback"
     static let phoneDial = "phone.dial"
+    /// The meeting and video scenes' source chip (the menu's quick start that needs a choice).
+    static let scenarioSource = "scenario.source"
     /// 模型 › 语音识别's diagram and problem line.
     static let recognition = "model.recognition"
     /// 模型 › 文本翻译's diagram and problem line (TalkTalkCloudUI draws it).
@@ -90,6 +93,18 @@ struct ScenarioFacts {
         return Self.name(sourceID, in: state.availableSources)
     }
 
+    /// The chosen app runs, though it has no audio process now (`availableSources` lists audio
+    /// processes only).
+    var missingSourceRunning: Bool {
+        missingSource != nil && Self.isRunning(sourceID)
+    }
+
+    /// An app with this bundle id runs now, whether or not it has an audio process object (the
+    /// page's problem line and the start alert tell "未打开" from "没有声音" by it).
+    static func isRunning(_ bundleID: String) -> Bool {
+        !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty
+    }
+
     /// The app this scene listens to: the chosen one, else the running session's own; nil while
     /// automatic selection has not picked one.
     var sourceApp: (id: String, name: String)? {
@@ -111,9 +126,15 @@ struct ScenarioFacts {
                                           help: mode == .phone ? String(appLocalized: "Phone 麦克风选“使用系统设置”")
                                               : String(appLocalized: "在 \(app) 的音频设置里选 TalkTalk Mic")) : nil
         let noMic = noMicrophone ? SettingsProblem(.failed, String(appLocalized: "无可用麦克风")) : nil
+        // The chosen app is running but has no audio process object yet: not "未打开".
         let missing = missingSource.map {
-            SettingsProblem(.warn, String(appLocalized: "\($0) 未打开"), help: String(appLocalized: "不会自动换用其他来源"))
+            SettingsProblem(.warn, missingSourceRunning ? String(appLocalized: "所选应用当前没有声音") : String(appLocalized: "\($0) 未打开"),
+                            help: String(appLocalized: "不会自动换用其他来源"))
         }
+        // The menu's quick start opened this page because automatic selection found several apps.
+        let choice = state.sourceChoicePending == mode && !sessionBusy
+            ? SettingsProblem(.pending, String(appLocalized: "选择要收听的应用"),
+                              help: String(appLocalized: "有多个可用应用，请为当前场景选择一个来源。这个场景会记住你的选择。")) : nil
         switch mode {
         case .meeting:
             let check: SettingsProblem? = switch micCheck {
@@ -121,12 +142,13 @@ struct ScenarioFacts {
             case .notChecked where running: SettingsProblem(.pending, String(appLocalized: "会议麦克风待确认"))
             default: nil
             }
-            return SettingsProblem.mostSevere([risk, noMic, missing, check])
+            return SettingsProblem.mostSevere([risk, noMic, missing, check, choice])
         case .captions:
-            return SettingsProblem.mostSevere([missing])
+            return SettingsProblem.mostSevere([missing, choice])
         case .phone:
             let check = phoneCheck.status == .warn ? phoneCheck : nil
-            return SettingsProblem.mostSevere([risk, noMic, check, state.phoneProblem.map { SettingsProblem(.warn, sentence: $0) }])
+            return SettingsProblem.mostSevere([risk, noMic, check, state.phoneProblem.map { SettingsProblem(.warn, sentence: $0) },
+                                               state.phoneInputHint.map { SettingsProblem(.warn, sentence: $0) }])
         }
     }
 
@@ -165,7 +187,8 @@ extension EngineComponentsModel {
                 ? SettingsProblem(.warn, String(appLocalized: "已转 Apple 备用")) : nil,
             qwenRequired && record?.roles["asr"] == nil && !appleProfile
                 ? SettingsProblem(.pending, String(appLocalized: "识别模型未安装")) : nil,
-            qwenRequired && appleProfile && !installed ? problem : nil
+            // An asr role that cannot start (missing files, runtime to update, damaged record).
+            qwenRequired && record?.roles["asr"] != nil && !installed ? problem : nil
         ])
     }
 
@@ -207,6 +230,8 @@ extension SpeakTargetLanguage {
 /// What the scene diagrams link to: another page (with ReturnPill) and a section of it.
 @MainActor
 struct ScenarioLinks {
+    /// The scene page's flash state: the source chip flashes `SettingsAnchor.scenarioSource`.
+    var flash: FlowInteraction? = nil
     let open: (SettingsSection, SettingsSubpage?, String?) -> Void
 
     func node(_ destination: String, _ section: SettingsSection, _ subpage: SettingsSubpage? = nil,
@@ -224,7 +249,7 @@ extension FlowGrid {
         let state = facts.state
         let remote = FlowNode(String(appLocalized: "对方"), glyph: .symbol(Icon.remote), accessory: links == nil ? nil : .controls {
             HStack(spacing: 4) {
-                SourceChip(facts: facts)
+                SourceChip(facts: facts, flash: links?.flash)
                 SceneLanguageChip(state: state, mode: facts.mode, role: .listenSource, compact: true)
             }
         })
@@ -238,7 +263,7 @@ extension FlowGrid {
     static func phone(_ facts: ScenarioFacts, driver: DriverComponentsPage, links: ScenarioLinks) -> FlowGrid {
         let remote = FlowNode(String(appLocalized: "对方"), glyph: .symbol(SubtitleTokens.ConversationIcon.phoneRemote),
                               accessory: .controls {
-                                  SceneLanguageChip(state: facts.state, mode: facts.mode, role: .listenSource)
+                                  SceneLanguageChip(state: facts.state, mode: facts.mode, role: .listenSource, compact: true)
                               })
         return FlowGrid(String(appLocalized: "电话同传声音路径"), lanes: [
             listenLane(facts, remote: remote, links: links),
@@ -252,7 +277,7 @@ extension FlowGrid {
         let source = FlowNode(String(appLocalized: "应用声音"), glyph: .app(bundleID: app?.id, fallback: Icon.speech),
                               accessory: .controls {
                                   HStack(spacing: 4) {
-                                      SourceChip(facts: facts)
+                                      SourceChip(facts: facts, flash: links.flash)
                                       SceneLanguageChip(state: facts.state, mode: facts.mode, role: .listenSource, compact: true)
                                   }
                               })
@@ -306,7 +331,7 @@ extension FlowGrid {
 
     private static var loop: LoopRow {
         LoopRow(key: TitlebarKey(action: String(appLocalized: "结束翻译"), drawsAction: false, style: .idle),
-                text: String(appLocalized: "播完回到原声"), spoken: String(appLocalized: "再点按右⌥结束；译音播完后回到原声"))
+                text: String(appLocalized: "播完回到原声"), spoken: String(appLocalized: "再点按右⌥完成发言；译音播完后回到原声"))
     }
 
     private static func listenLane(_ facts: ScenarioFacts, remote: FlowNode, links: ScenarioLinks?) -> FlowLane {
@@ -354,20 +379,24 @@ extension FlowGrid {
         let targetControl: NodeAccessory = links == nil ? .display {
             Text(verbatim: state.speakLanguages(for: facts.mode).target.title).font(.caption2).foregroundStyle(.secondary)
         } : .controls {
-            SceneLanguageChip(state: state, mode: facts.mode, role: .speakTarget)
+            SceneLanguageChip(state: state, mode: facts.mode, role: .speakTarget, compact: true)
         }
         return FlowLane(String(appLocalized: "我说话 · 译音"), gutter: .voice(translating), cells: [
             .node(FlowNode(String(appLocalized: "我说"), glyph: .symbol(Icon.me),
                            accessory: sourceControl,
-                           help: String(appLocalized: "按选定语言识别；点按右⌥开始或结束翻译"))),
+                           help: String(appLocalized: "按选定语言识别；点按右⌥开始翻译或完成发言"))),
             .node(FlowNode(String(appLocalized: "识别与翻译"), glyph: .symbol(Icon.translation),
                            link: links?.node(String(appLocalized: "识别与翻译 · 文本翻译"), .translation, .model(.translation)))),
             .node(FlowNode(String(appLocalized: "我的声音"), glyph: .symbol(Icon.myVoice),
                            badge: profile ? nil : .pending, badgeReason: profile ? nil : String(appLocalized: "未录制"),
                            link: links?.node(String(appLocalized: "我的声音"), .voice),
-                           satellite: profile ? nil : FlowSatellite(String(appLocalized: "系统声音"), symbol: Icon.speech,
-                                                                    help: String(appLocalized: "未录制时用系统声音"),
-                                                                    dashed: true))),
+                           // A profile without an installed engine is synthesized with the system voice,
+                           // as the menu says.
+                           satellite: profile && facts.engine.installed ? nil
+                               : FlowSatellite(String(appLocalized: "系统声音"), symbol: Icon.speech,
+                                               help: profile ? String(appLocalized: "引擎未安装，声音档案暂不能用")
+                                                             : String(appLocalized: "未录制时用系统声音"),
+                                               dashed: true))),
             .node(FlowNode(String(appLocalized: "对方听到译音"), glyph: .symbol(remoteSymbol), accessory: targetControl))
         ])
     }
@@ -398,7 +427,7 @@ extension FlowGrid {
         let app = facts.sourceApp
         let check = facts.micCheck
         let badge: (SettingsStatus, String) = switch check {
-        case .notChecked: (.pending, String(appLocalized: "会议麦克风待确认"))
+        case .notChecked: (.pending, facts.running ? String(appLocalized: "会议麦克风待确认") : String(appLocalized: "未检查"))
         case .green: (.ok, check.text)
         case let .physicalMic(app, _): (.risk, String(appLocalized: "\(app) 正在使用实体麦克风"))
         case .nobodyReads: (.warn, String(appLocalized: "会议尚未使用 TalkTalk Mic"))
@@ -434,8 +463,13 @@ extension StepState {
 /// open (triangle), 刷新列表. Locked during a session.
 private struct SourceChip: View {
     let facts: ScenarioFacts
+    let flash: FlowInteraction?
 
     var body: some View {
+        if let flash { chip.flowFlash(SettingsAnchor.scenarioSource, in: flash) } else { chip }
+    }
+
+    private var chip: some View {
         let state = facts.state
         let selected = facts.sourceID
         let missing = facts.missingSource
@@ -457,10 +491,22 @@ private struct SourceChip: View {
                                   isEnabled: state.onRefreshSources != nil) {
             state.onRefreshSources?()
         })
-        // "自动 ▾" is its word alone; a chosen app shows its icon and (truncated) name.
+        // "自动 ▾" is its word alone; a chosen app with an icon shows the icon alone, as the
+        // chip shares its node with the language chip (the name stays in help and VoiceOver).
         return NodeChip(title, leading: selected.isEmpty ? .none : .app(bundleID: selected),
-                        warn: missing != nil, locked: locked, accessibilityLabel: String(appLocalized: "声音来源"),
-                        help: locked ? String(appLocalized: "\(title) · 会话中不可更换") : title, items: items)
+                        warn: missing != nil, locked: locked, iconOnly: !selected.isEmpty && AppIcon.image(selected) != nil,
+                        accessibilityLabel: String(appLocalized: "声音来源"),
+                        help: help(locked: locked, title: title, selected: selected), items: items)
+    }
+
+    /// Locked: another scene's session says which to end; this scene's own also names the app an
+    /// automatic source listens to.
+    private func help(locked: Bool, title: String, selected: String) -> String {
+        guard locked else { return title }
+        if facts.anotherRunning { return String(appLocalized: "先结束\(facts.state.meetingMode.scene.title)") }
+        let app = selected.isEmpty && facts.running ? facts.sourceApp?.name : nil
+        let head = ([title] + [app].compactMap { $0 }).joined(separator: " · ")
+        return String(appLocalized: "\(head) · 会话中不可更换")
     }
 
     private func select(_ id: String) {

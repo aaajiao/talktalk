@@ -14,7 +14,7 @@ import TalkTalkSession
 import TalkTalkSettingsUI
 import TalkTalkVoice
 
-/// First-run onboarding (ARCHITECTURE.md §11 首次引导). The step lives in OnboardingState
+/// First-run onboarding (ARCHITECTURE.md, "三种使用场景"). The step lives in OnboardingState
 /// (UserDefaults `onboarding.v2.*`), so quitting anywhere, including the relaunch macOS asks for
 /// after Input Monitoring is granted, comes back to the same place.
 ///
@@ -655,6 +655,15 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         w.makeKeyAndOrderFront(nil)
         NSApp.activate()
+        // As the settings window: a status-item menu's tracking loop may restore the previous
+        // app's ordering as it exits, so bring it forward once more after this turn.
+        w.orderFrontRegardless()
+        DispatchQueue.main.async { [weak w] in
+            guard let w, w.isVisible, !w.isMiniaturized else { return }
+            NSApp.activate()
+            w.makeKeyAndOrderFront(nil)
+            w.orderFrontRegardless()
+        }
         Task { await model.refresh() }
     }
 
@@ -668,6 +677,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 600),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         w.title = String(appLocalized: "欢迎使用 TalkTalk")
+        w.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         let host = NSHostingView(rootView: OnboardingView(model: model).appLanguage())
         host.sizingOptions = []          // same reason as the settings window
         w.contentView = host
@@ -677,6 +687,12 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         w.setContentSize(NSSize(width: 760, height: 600))
         w.center()
         return w
+    }
+
+    /// Back from System Settings (or another app): a grant changed there shows without leaving
+    /// the step.
+    func windowDidBecomeKey(_ notification: Notification) {
+        Task { await model.refresh() }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -732,6 +748,8 @@ struct OnboardingView: View {
                                 .foregroundStyle(status.foreground)
                                 .background(Circle().fill(status.fill))
                             Text(step.guideTitle).font(.caption)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
                                 .foregroundStyle(step == model.step ? Color.primary : Color.secondary)
                         }
                         .frame(maxWidth: .infinity)
@@ -789,7 +807,7 @@ struct OnboardingView: View {
             if model.choosingScenarios {
                 Button("稍后设置") { model.onFinish?() }
                     .keyboardShortcut(.cancelAction)
-                    .help(String(appLocalized: "关闭引导，可从菜单开始视频字幕"))
+                    .help(String(appLocalized: "关闭引导，可从菜单“视频字幕…”开始"))
                 Spacer()
                 Button("继续") { model.confirmScenarios() }
                     .buttonStyle(.borderedProminent)
@@ -807,11 +825,13 @@ struct OnboardingView: View {
         if model.step == .permissions {
             Button("稍后设置") { model.onFinish?() }
                 .keyboardShortcut(.cancelAction)
-                .help(String(appLocalized: "关闭引导，可从菜单开始视频字幕"))
+                .help(String(appLocalized: "关闭引导，可从菜单“视频字幕…”开始"))
         }
         Spacer()
-        if let s = model.step, s.skippable, s != .openAI, s != .tryIt {
-            Button(s == .meetingMic ? String(appLocalized: "稍后核验") : String(appLocalized: "跳过")) { model.skip() }
+        // Step 7: 继续 once the check is green, 稍后核验 until then (step 5 always offers 稍后设置).
+        let meetingMicVerified = model.facts.meetingMicVerified == true
+        if model.step == .meetingMic, !meetingMicVerified {
+            Button("稍后核验") { model.skip() }
         }
         switch model.step {
         case .tryIt?:
@@ -819,12 +839,17 @@ struct OnboardingView: View {
         case .openAI?:
             // Optional: 稍后设置 moves on without a key; 继续 once the key passed both checks.
             let verified = model.translation.model.map(OpenAIOnboardingStep.canContinue) ?? false
-            Button("稍后设置") { model.skip() }
+            Button("稍后设置") { Task { await model.refresh(); model.next() } }
                 .help(String(appLocalized: "没有 key 时两个方向都用 Apple"))
             Button("继续") { Task { await model.refresh(); model.next() } }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(verified ? .defaultAction : nil)
                 .disabled(!verified)
+        case .meetingMic?:
+            Button("继续") { model.next() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(meetingMicVerified ? .defaultAction : nil)
+                .disabled(!meetingMicVerified)
         case nil:
             Button("关闭") { model.onFinish?() }
                 .keyboardShortcut(.cancelAction)
@@ -1041,7 +1066,7 @@ private struct DriverStep: View {
         // on its Form; never on a Section, which would hand them to every row.
         if let driver = model.driverPage?.model {
             page
-                .driverComponentLifecycle(driver)
+                .driverComponentLifecycle(driver, host: .onboarding)
                 .onChange(of: driver.state, initial: true) { _, _ in model.refreshDriver() }
         } else {
             page

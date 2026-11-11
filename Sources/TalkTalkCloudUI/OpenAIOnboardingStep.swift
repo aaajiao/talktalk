@@ -3,7 +3,7 @@ import SwiftUI
 import TalkTalkCore
 import TalkTalkSettingsUI
 
-/// First-run onboarding step 5 (ARCHITECTURE.md §11, settings visual system §7.17): the sections
+/// First-run onboarding step 5 (ARCHITECTURE.md, "三种使用场景", settings visual system §7.17): the sections
 /// of 模型 › 文本翻译 for a grouped Form, without its flow and model sections. DataBoundary says
 /// what stays on this Mac and what goes to OpenAI; `OpenAIKeySection` holds the consent, the key
 /// and its verification; one chip says Apple translates without a key. Optional.
@@ -35,7 +35,7 @@ public struct OpenAIOnboardingStep: View {
                 DataBoundary(cloudEnabled: model.flowFacts.cloudConnected, info: [TranslationSettingsText.cloudNotice])
                 FactRow([FactChip(String(appLocalized: "不配也能用 Apple"), symbol: Icon.thisMac,
                                   help: String(appLocalized: "没有 key 时两个方向都用 Apple"),
-                                  spoken: String(appLocalized: "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 模型 › 文本翻译 中配置"))])
+                                  spoken: String(appLocalized: "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 识别与翻译 › 文本翻译 中配置"))])
             }
             .padding(.vertical, 4)
         }

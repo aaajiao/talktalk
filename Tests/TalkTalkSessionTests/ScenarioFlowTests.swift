@@ -57,6 +57,17 @@ import TalkTalkCore
         #expect(stopping.runningSource(meetingApp: nil) == nil)
         #expect(ScenarioRunState(running: .phone, phase: .running, browsing: .phone).runningSource(meetingApp: nil) == "Phone")
         #expect(ScenarioRunState(running: .captions, phase: .starting, browsing: .captions).title == "准备中…")
+        // 准备中… on another scene's page names the scene that prepares; a download says so.
+        let preparing = ScenarioRunState(running: .phone, phase: .starting, browsing: .meeting)
+        #expect(preparing.help(systemInputSwitched: false) == "正在准备电话同传…")
+        #expect(ScenarioRunState(running: .phone, phase: .starting, browsing: .phone).help(systemInputSwitched: false) == nil)
+        #expect(preparing.help(systemInputSwitched: false, downloadingAssets: true) == "下载中")
+        #expect(stopping.help(systemInputSwitched: false, downloadingAssets: true) == "正在结束电话同传…")
+        // The menu's and the page's start wait for the same reasons.
+        #expect(ScenarioRunState.startBlocked(onboardingNeeded: true, available: false) == "完成引导后可用")
+        #expect(ScenarioRunState.startBlocked(onboardingNeeded: false, available: false)
+                == "请先结束正在运行的自检或说话测试，或等待语音资源维护完成。")
+        #expect(ScenarioRunState.startBlocked(onboardingNeeded: false, available: true) == nil)
     }
 
     @Test func phoneDeliverySaysWhereMyVoiceGoes() {
@@ -68,6 +79,9 @@ import TalkTalkCore
         #expect(PhoneDelivery(.phoneLocalTrial)?.symbol == SubtitleTokens.VoiceIcon.thisMac)
         // The risk capsule stands alone: no "仅本机" beside "对方能听到原声".
         #expect(PhoneDelivery(.remoteHearsOriginal) == nil)
+        // 松开确认 before Phone reads TalkTalk Mic stays on this Mac.
+        #expect(PhoneDelivery(.switching, phoneInputConfirmed: false) == .thisMacOnly)
+        #expect(PhoneDelivery(.switching, phoneInputConfirmed: true) == .sentToPhone)
     }
 
     @Test func browserNoteOnlyForBrowsers() {
@@ -87,19 +101,27 @@ import TalkTalkCore
 
     @Test func phoneChecklistDimsDialingUntilPrepared() {
         let idle = PhoneChecklist.make(phoneSession: false, starting: false, stopping: false, active: false,
-                                       readyToDial: false, dialing: false, callAudioActive: false)
+                                       readyToDial: false, callAudioActive: false)
         #expect(idle.prepare == .pending && !idle.dialEnabled)
         let starting = PhoneChecklist.make(phoneSession: true, starting: true, stopping: false, active: false,
-                                           readyToDial: false, dialing: false, callAudioActive: false)
+                                           readyToDial: false, callAudioActive: false)
         #expect(starting.prepare == .inProgress && !starting.dialEnabled)
+        // Prepared and no call audio yet: the dial step is open and waits (the app never dials).
         let ready = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
-                                        readyToDial: true, dialing: true, callAudioActive: false)
-        #expect(ready.prepare == .done && ready.dialEnabled && ready.dial == .inProgress)
+                                        readyToDial: true, callAudioActive: false)
+        #expect(ready.prepare == .done && ready.dialEnabled && ready.dial == .pending)
         let call = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
-                                       readyToDial: true, dialing: false, callAudioActive: true)
+                                       readyToDial: true, callAudioActive: true)
         #expect(call.dial == .done && call.finish == .pending)
         let stopping = PhoneChecklist.make(phoneSession: true, starting: false, stopping: true, active: true,
-                                           readyToDial: true, dialing: false, callAudioActive: false)
+                                           readyToDial: true, callAudioActive: false)
         #expect(stopping.prepare == .inProgress && stopping.finish == .inProgress)
+        // Readiness lost after it was reached (barrier, physical mic) keeps ① and ② as they were.
+        let lost = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
+                                       readyToDial: false, callAudioActive: true, wasReady: true)
+        #expect(lost.prepare == .done && lost.dialEnabled && lost.dial == .done)
+        let neverReady = PhoneChecklist.make(phoneSession: true, starting: false, stopping: false, active: true,
+                                             readyToDial: false, callAudioActive: false, wasReady: false)
+        #expect(neverReady.prepare == .inProgress && !neverReady.dialEnabled)
     }
 }

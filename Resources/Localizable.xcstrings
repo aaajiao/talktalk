@@ -646,7 +646,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ unavailable · Using Auto for now"
+            "value": "%@ unavailable · Using Automatic"
           }
         },
         "zh-Hans": {
@@ -685,6 +685,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@已结束"
+          }
+        }
+      }
+    },
+    "%@已自动结束": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ended automatically"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@已自动结束"
           }
         }
       }
@@ -1153,18 +1169,18 @@
         }
       }
     },
-    "Apple 本地翻译": {
+    "Apple 翻译": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple on-device translation"
+            "value": "Apple Translation"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple 本地翻译"
+            "value": "Apple 翻译"
           }
         }
       }
@@ -1446,7 +1462,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenAI key issue · Using Apple"
+            "value": "OpenAI key issue · Apple"
           }
         },
         "zh-Hans": {
@@ -1590,7 +1606,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenAI unavailable · Using Apple"
+            "value": "OpenAI down · Apple"
           }
         },
         "zh-Hans": {
@@ -1645,6 +1661,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "OpenAI 超时或出错时接管"
+          }
+        }
+      }
+    },
+    "OpenAI 超时，这句改用 Apple 翻译": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenAI timed out; this sentence uses Apple Translation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenAI 超时，这句改用 Apple 翻译"
           }
         }
       }
@@ -1709,6 +1741,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Phone 会直接用实体麦克风"
+          }
+        }
+      }
+    },
+    "Phone 在用实体麦": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone on physical mic"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone 在用实体麦"
           }
         }
       }
@@ -1809,6 +1857,22 @@
         }
       }
     },
+    "Phone 已长时间没有通话音频，即将结束电话同传；要继续，请在菜单栏选择“继续收听”": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No call audio from Phone for a while. Phone interpretation will end soon. Choose “Keep listening” in the menu bar to continue."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone 已长时间没有通话音频，即将结束电话同传；要继续，请在菜单栏选择“继续收听”"
+          }
+        }
+      }
+    },
     "Phone 已长时间没有音频。若还在等待电话，请在 TalkTalk 菜单中选择“继续收听”；60 秒后将结束同传并还原麦克风。": {
       "localizations": {
         "en": {
@@ -1869,6 +1933,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Phone 正在使用实体麦克风"
+          }
+        }
+      }
+    },
+    "Phone 没有使用 TalkTalk Mic": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone is not using TalkTalk Mic"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone 没有使用 TalkTalk Mic"
           }
         }
       }
@@ -2353,7 +2433,7 @@
         }
       }
     },
-    "damaged (repair in 设置 › 组件)": {
+    "damaged (repair in 设置 › 安装与维护)": {
       "localizations": {
         "en": {
           "stringUnit": {
@@ -2364,7 +2444,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "damaged (repair in 设置 › 组件)"
+            "value": "damaged (repair in 设置 › 安装与维护)"
           }
         }
       }
@@ -2385,7 +2465,7 @@
         }
       }
     },
-    "engine FATAL: %@ (去设置 › 组件 修复)": {
+    "engine FATAL: %@ (去设置 › 安装与维护 修复)": {
       "localizations": {
         "en": {
           "stringUnit": {
@@ -2396,7 +2476,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "engine FATAL: %@ (去设置 › 组件 修复)"
+            "value": "engine FATAL: %@ (去设置 › 安装与维护 修复)"
           }
         }
       }
@@ -2461,22 +2541,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "key 无效、已撤销，或不属于任何组织（HTTP 401）。"
-          }
-        }
-      }
-    },
-    "key 未通过验证": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Key verification failed"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "key 未通过验证"
           }
         }
       }
@@ -2769,18 +2833,18 @@
         }
       }
     },
-    "⚠︎ TalkTalk Mic 不见了，回来后切回": {
+    "TalkTalk Mic 不见了，回来后切回": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ TalkTalk Mic is missing; switching back when it returns"
+            "value": "TalkTalk Mic is missing; switching back when it returns"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ TalkTalk Mic 不见了，回来后切回"
+            "value": "TalkTalk Mic 不见了，回来后切回"
           }
         }
       }
@@ -2849,82 +2913,146 @@
         }
       }
     },
-    "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 %@": {
+    "会议应用长时间没有声音，会议同传即将自动结束；要继续，请在菜单栏选择“继续收听”": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ Could not switch back to TalkTalk Mic; the system default input is %@"
+            "value": "The meeting app has been silent for a while. Meeting interpretation will end automatically soon. Choose “Keep listening” in the menu bar to continue."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 %@"
+            "value": "会议应用长时间没有声音，会议同传即将自动结束；要继续，请在菜单栏选择“继续收听”"
           }
         }
       }
     },
-    "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 %@，正在重试": {
+    "引擎 2 分钟内崩溃 3 次（最后一次：%@），详见 engine.log": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ Could not switch back to TalkTalk Mic; the system default input is %@. Retrying"
+            "value": "The engine crashed 3 times within 2 minutes (last: %@); see engine.log"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 %@，正在重试"
+            "value": "引擎 2 分钟内崩溃 3 次（最后一次：%@），详见 engine.log"
           }
         }
       }
     },
-    "⚠︎ 系统默认输入被改成了 %@": {
+    "引擎 READY 与 install.json 不一致：%@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ The system default input was changed to %@"
+            "value": "Engine READY does not match install.json: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠︎ 系统默认输入被改成了 %@"
+            "value": "引擎 READY 与 install.json 不一致：%@"
           }
         }
       }
     },
-    "⛔︎ 上次的默认输入还没还原（原来是 %@）": {
+    "引擎握手出错：%@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⛔︎ The previous default input has not been restored (it was %@)"
+            "value": "Engine handshake error: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⛔︎ 上次的默认输入还没还原（原来是 %@）"
+            "value": "引擎握手出错：%@"
           }
         }
       }
     },
-    "⛔︎ 没有可以还原到的实体麦克风": {
+    "引擎无法启动：%@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⛔︎ No physical microphone is available to restore"
+            "value": "The engine could not be started: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⛔︎ 没有可以还原到的实体麦克风"
+            "value": "引擎无法启动：%@"
+          }
+        }
+      }
+    },
+    "引擎没有在限定时间内就绪": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The engine did not become ready in time"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引擎没有在限定时间内就绪"
+          }
+        }
+      }
+    },
+    "没能切回 TalkTalk Mic，系统默认输入是 %@，正在重试": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not switch back to TalkTalk Mic; the system default input is %@. Retrying"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没能切回 TalkTalk Mic，系统默认输入是 %@，正在重试"
+          }
+        }
+      }
+    },
+    "上次的默认输入还没还原（原来是 %@）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The previous default input has not been restored (it was %@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次的默认输入还没还原（原来是 %@）"
+          }
+        }
+      }
+    },
+    "没有可以还原到的实体麦克风": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No physical microphone is available to restore"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可以还原到的实体麦克风"
           }
         }
       }
@@ -3190,7 +3318,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Download and Use"
+            "value": "Download and use"
           }
         },
         "zh-Hans": {
@@ -3681,18 +3809,18 @@
         }
       }
     },
-    "云端不可用时由 Apple 翻译": {
+    "示例仅用 Apple 翻译": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When the cloud is unavailable, Apple translates"
+            "value": "The sample uses Apple translation only"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端不可用时由 Apple 翻译"
+            "value": "示例仅用 Apple 翻译"
           }
         }
       }
@@ -4022,7 +4150,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Offline exclusive test only; in-session checks are on the Installation & Maintenance page"
+            "value": "Offline exclusive test only; in-session checks are on the Components page"
           }
         },
         "zh-Hans": {
@@ -4326,7 +4454,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Meeting seems to have ended"
+            "value": "Meeting seems over"
           }
         },
         "zh-Hans": {
@@ -4438,7 +4566,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Meeting using physical mic"
+            "value": "Meeting on physical mic"
           }
         },
         "zh-Hans": {
@@ -4582,7 +4710,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Meeting not using TalkTalk Mic"
+            "value": "Meeting off TalkTalk Mic"
           }
         },
         "zh-Hans": {
@@ -5702,7 +5830,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete All"
+            "value": "Delete all"
           }
         },
         "zh-Hans": {
@@ -5777,18 +5905,18 @@
         }
       }
     },
-    "关闭引导，可从菜单开始视频字幕": {
+    "关闭引导，可从菜单“视频字幕…”开始": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close setup; start video subtitles from the menu"
+            "value": "Close setup; start from “Video Subtitles…” in the menu"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭引导，可从菜单开始视频字幕"
+            "value": "关闭引导，可从菜单“视频字幕…”开始"
           }
         }
       }
@@ -5921,6 +6049,22 @@
         }
       }
     },
+    "再点按一次完成发言；译音播完后回到原声，同传继续。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap again to finish speaking. Original audio returns after translated speech finishes playing; interpretation continues."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再点按一次完成发言；译音播完后回到原声，同传继续。"
+          }
+        }
+      }
+    },
     "再点按右⌥完成发言": {
       "localizations": {
         "en": {
@@ -5953,18 +6097,18 @@
         }
       }
     },
-    "再点按右⌥结束；译音播完后回到原声": {
+    "再点按右⌥完成发言；译音播完后回到原声": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap right ⌥ again to finish; original audio returns after translated speech finishes playing"
+            "value": "Tap right ⌥ again to finish speaking; original audio returns after translated speech finishes playing"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "再点按右⌥结束；译音播完后回到原声"
+            "value": "再点按右⌥完成发言；译音播完后回到原声"
           }
         }
       }
@@ -6253,22 +6397,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "切换发言方式"
-          }
-        }
-      }
-    },
-    "切换麦克风失败": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Microphone switch failed"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换麦克风失败"
           }
         }
       }
@@ -7281,18 +7409,18 @@
         }
       }
     },
-    "原文：%@ → 译文：%@": {
+    "原文：%@ → 字幕：%@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Original: %@ → Translation: %@"
+            "value": "Original: %@ → Subtitles: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "原文：%@ → 译文：%@"
+            "value": "原文：%@ → 字幕：%@"
           }
         }
       }
@@ -7558,7 +7686,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete This Session Only"
+            "value": "Delete this session only"
           }
         },
         "zh-Hans": {
@@ -7926,7 +8054,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drag outside the shared area, or lock from the menu"
+            "value": "Drag it off the video, or lock it from the menu"
           }
         },
         "zh-Hans": {
@@ -9398,7 +9526,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Headphone translation and original meeting audio are disabled when using speakers to prevent echo."
+            "value": "Translated speech in headphones and original meeting audio are disabled when using speakers to prevent echo."
           }
         },
         "zh-Hans": {
@@ -9729,18 +9857,34 @@
         }
       }
     },
-    "字幕识别切换未完成：%@": {
+    "字幕识别切换未完成": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not finish switching subtitle recognition: %@"
+            "value": "Could not finish switching subtitle recognition"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "字幕识别切换未完成：%@"
+            "value": "字幕识别切换未完成"
+          }
+        }
+      }
+    },
+    "字幕识别或声音采集没能启动。可重新开始。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subtitle recognition or audio capture couldn't start. You can start again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字幕识别或声音采集没能启动。可重新开始。"
           }
         }
       }
@@ -9761,18 +9905,18 @@
         }
       }
     },
-    "字幕识别未能恢复：%@": {
+    "字幕识别未能恢复": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subtitle recognition could not recover: %@"
+            "value": "Subtitle recognition could not recover"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "字幕识别未能恢复：%@"
+            "value": "字幕识别未能恢复"
           }
         }
       }
@@ -9942,7 +10086,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installation & Maintenance · TalkTalk Mic"
+            "value": "Components · TalkTalk Mic"
           }
         },
         "zh-Hans": {
@@ -9958,7 +10102,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installation & Maintenance · Speech resources"
+            "value": "Components · Speech resources"
           }
         },
         "zh-Hans": {
@@ -9974,7 +10118,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installation & Maintenance ›"
+            "value": "Components ›"
           }
         },
         "zh-Hans": {
@@ -9990,7 +10134,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installation & Maintenance…"
+            "value": "Components…"
           }
         },
         "zh-Hans": {
@@ -10374,7 +10518,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Others hear original audio"
+            "value": "Others hear original"
           }
         },
         "zh-Hans": {
@@ -10470,7 +10614,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Others are speaking · Translated speech paused"
+            "value": "Others talking · Paused"
           }
         },
         "zh-Hans": {
@@ -10550,7 +10694,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Others can hear original audio"
+            "value": "Others hear original"
           }
         },
         "zh-Hans": {
@@ -10621,6 +10765,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "对方说"
+          }
+        }
+      }
+    },
+    "对方说：%@ → 字幕：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Others speak: %@ → Subtitles: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对方说：%@ → 字幕：%@"
           }
         }
       }
@@ -10861,6 +11021,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "尚未确认通话输入，不能确认原声已送入 Phone。"
+          }
+        }
+      }
+    },
+    "尚未读到 Phone 的播放设备": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone’s playback device has not been detected"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未读到 Phone 的播放设备"
           }
         }
       }
@@ -11633,12 +11809,28 @@
         }
       }
     },
+    "已达每轨 512 MiB 上限，已停止：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped at the 512 MiB per-track limit: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达每轨 512 MiB 上限，已停止：%@"
+          }
+        }
+      }
+    },
     "已还原其他麦克风": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Another microphone restored"
+            "value": "Other mic restored"
           }
         },
         "zh-Hans": {
@@ -12486,7 +12678,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The engine is being installed or verified. Cancel it on the Installation & Maintenance page or wait for it to finish before uninstalling completely."
+            "value": "The engine is being installed or verified. Cancel it on the Components page or wait for it to finish before uninstalling completely."
           }
         },
         "zh-Hans": {
@@ -12678,7 +12870,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This configuration includes only a speech synthesis model; recognition uses Apple Speech. For Qwen3-ASR, choose a local model combination under Speech resources in Installation & Maintenance."
+            "value": "This configuration includes only a speech synthesis model; recognition uses Apple Speech. For Qwen3-ASR, choose a local model combination under Speech resources in Components."
           }
         },
         "zh-Hans": {
@@ -12982,7 +13174,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recording permission not confirmed"
+            "value": "Permission unconfirmed"
           }
         },
         "zh-Hans": {
@@ -13462,7 +13654,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "My speech · Original and translated audio"
+            "value": "My speech · Original and translated speech"
           }
         },
         "zh-Hans": {
@@ -13734,7 +13926,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selected device unavailable · Using automatic selection"
+            "value": "Selected device unavailable · Using Automatic"
           }
         },
         "zh-Hans": {
@@ -13750,7 +13942,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selected device disconnected · Using automatic selection"
+            "value": "Selected device missing · Using Automatic"
           }
         },
         "zh-Hans": {
@@ -13942,7 +14134,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Installation & Maintenance"
+            "value": "Open Components"
           }
         },
         "zh-Hans": {
@@ -13958,7 +14150,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open the Installation & Maintenance page"
+            "value": "Open the Components page"
           }
         },
         "zh-Hans": {
@@ -14337,34 +14529,34 @@
         }
       }
     },
-    "按选定语言识别；点按右⌥开始或结束翻译": {
+    "按选定语言识别；点按右⌥开始翻译或完成发言": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recognize the selected language; tap right ⌥ to start or finish translating"
+            "value": "Recognize the selected language; tap right ⌥ to start translating or finish speaking"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按选定语言识别；点按右⌥开始或结束翻译"
+            "value": "按选定语言识别；点按右⌥开始翻译或完成发言"
           }
         }
       }
     },
-    "按选定语言识别；说完再点按右⌥结束": {
+    "按选定语言识别；说完再点按右⌥完成发言": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recognize the selected language; tap right ⌥ again when you finish speaking"
+            "value": "Recognize the selected language; tap right ⌥ again to finish speaking"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按选定语言识别；说完再点按右⌥结束"
+            "value": "按选定语言识别；说完再点按右⌥完成发言"
           }
         }
       }
@@ -14641,6 +14833,22 @@
         }
       }
     },
+    "实底样式背景固定": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plate style has a fixed background"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实底样式背景固定"
+          }
+        }
+      }
+    },
     "提交 → 首声": {
       "localizations": {
         "en": {
@@ -14742,7 +14950,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Play disclosure"
+            "value": "Play announcement"
           }
         },
         "zh-Hans": {
@@ -14774,7 +14982,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Playback device not confirmed"
+            "value": "Playback unconfirmed"
           }
         },
         "zh-Hans": {
@@ -14886,7 +15094,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continue after closing"
+            "value": "Continue when minimized"
           }
         },
         "zh-Hans": {
@@ -15078,7 +15286,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unsupported text · Not sent"
+            "value": "Unsupported · Not sent"
           }
         },
         "zh-Hans": {
@@ -15110,7 +15318,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Text records"
+            "value": "Transcripts"
           }
         },
         "zh-Hans": {
@@ -15462,7 +15670,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Display"
+            "value": "Show"
           }
         },
         "zh-Hans": {
@@ -15526,7 +15734,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Display time is when the subtitle panel submits an update; hidden panels are marked separately. Without a reference transcript, timings and text records do not measure translation accuracy. Analysis must be enabled separately for each session."
+            "value": "Display time is when the subtitle panel submits an update; hidden panels are marked separately. Without a reference transcript, timings and transcripts do not measure translation accuracy. Analysis must be enabled separately for each session."
           }
         },
         "zh-Hans": {
@@ -15985,6 +16193,22 @@
         }
       }
     },
+    "未保存": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not saved"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未保存"
+          }
+        }
+      }
+    },
     "未决定": {
       "localizations": {
         "en": {
@@ -16278,7 +16502,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No physical microphone found"
+            "value": "No physical mic found"
           }
         },
         "zh-Hans": {
@@ -16438,7 +16662,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not switch back to TalkTalk Mic"
+            "value": "Mic switch-back failed"
           }
         },
         "zh-Hans": {
@@ -16545,18 +16769,18 @@
         }
       }
     },
-    "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 模型 › 文本翻译 中配置": {
+    "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 识别与翻译 › 文本翻译 中配置": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Without an OpenAI key, both directions use Apple’s on-device text translation. Configure a key later in Settings › Models › Text translation."
+            "value": "Without an OpenAI key, both directions use Apple’s on-device text translation. Configure a key later in Settings › Speech & Translation › Text translation."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 模型 › 文本翻译 中配置"
+            "value": "未配置 OpenAI key 时，两个方向都使用 Apple 本地文本翻译；以后可在 设置 › 识别与翻译 › 文本翻译 中配置"
           }
         }
       }
@@ -17345,6 +17569,22 @@
         }
       }
     },
+    "校验未通过": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check failed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "校验未通过"
+          }
+        }
+      }
+    },
     "校验驱动…": {
       "localizations": {
         "en": {
@@ -17437,6 +17677,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "检查中…"
+          }
+        }
+      }
+    },
+    "检查云端翻译": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check cloud translation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查云端翻译"
+          }
+        }
+      }
+    },
+    "检查本地引擎": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the local engine"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查本地引擎"
           }
         }
       }
@@ -17862,7 +18134,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Using speakers · Headphone translation disabled"
+            "value": "Using speakers · Translated speech in headphones disabled"
           }
         },
         "zh-Hans": {
@@ -17878,7 +18150,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Using speakers · Please wear headphones"
+            "value": "Speakers · Headphones"
           }
         },
         "zh-Hans": {
@@ -18870,7 +19142,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clean Up Expired Data…"
+            "value": "Clean up expired data…"
           }
         },
         "zh-Hans": {
@@ -18977,18 +19249,18 @@
         }
       }
     },
-    "点按右⌥开始，说完再点按结束，等待译音": {
+    "点按右⌥开始，说完再点按完成发言，等待译音": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap right ⌥ to start, tap again when finished, then wait for the translation"
+            "value": "Tap right ⌥ to start, tap again to finish speaking, then wait for translated speech"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "点按右⌥开始，说完再点按结束，等待译音"
+            "value": "点按右⌥开始，说完再点按完成发言，等待译音"
           }
         }
       }
@@ -19174,7 +19446,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Generate Preview…"
+            "value": "Generate preview…"
           }
         },
         "zh-Hans": {
@@ -19382,7 +19654,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Phone Interpretation…"
+            "value": "Phone interpretation…"
           }
         },
         "zh-Hans": {
@@ -19622,7 +19894,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Login Items…"
+            "value": "Login items…"
           }
         },
         "zh-Hans": {
@@ -19686,7 +19958,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Got It"
+            "value": "Got it"
           }
         },
         "zh-Hans": {
@@ -19734,13 +20006,29 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Confirm App…"
+            "value": "Confirm app…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "确认应用…"
+          }
+        }
+      }
+    },
+    "磁盘空间不足": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough disk space"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘空间不足"
           }
         }
       }
@@ -19841,6 +20129,22 @@
         }
       }
     },
+    "离线，改用 Apple 翻译": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline; switching to Apple Translation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线，改用 Apple 翻译"
+          }
+        }
+      }
+    },
     "移除登录项": {
       "localizations": {
         "en": {
@@ -19862,7 +20166,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verify Later"
+            "value": "Verify later"
           }
         },
         "zh-Hans": {
@@ -19878,7 +20182,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set Up Later"
+            "value": "Set up later"
           }
         },
         "zh-Hans": {
@@ -20278,7 +20582,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not switch the system microphone"
+            "value": "System mic switch failed"
           }
         },
         "zh-Hans": {
@@ -20305,28 +20609,12 @@
         }
       }
     },
-    "系统麦克风已变化": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System microphone changed"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系统麦克风已变化"
-          }
-        }
-      }
-    },
     "系统麦克风已改变": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "System microphone changed"
+            "value": "System mic changed"
           }
         },
         "zh-Hans": {
@@ -20342,7 +20630,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "System microphone restored"
+            "value": "System mic restored"
           }
         },
         "zh-Hans": {
@@ -20358,7 +20646,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "System microphone not restored"
+            "value": "System mic not restored"
           }
         },
         "zh-Hans": {
@@ -21030,7 +21318,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keep Listening"
+            "value": "Keep listening"
           }
         },
         "zh-Hans": {
@@ -21201,18 +21489,18 @@
         }
       }
     },
-    "翻译收音中，再按右⌥结束。": {
+    "翻译收音中，再点按右⌥完成发言。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Capturing for translation. Press right ⌥ again to finish."
+            "value": "Capturing for translation. Tap right ⌥ again to finish speaking."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "翻译收音中，再按右⌥结束。"
+            "value": "翻译收音中，再点按右⌥完成发言。"
           }
         }
       }
@@ -21222,7 +21510,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Translation model changed"
+            "value": "Translator changed"
           }
         },
         "zh-Hans": {
@@ -21238,7 +21526,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Translation Settings…"
+            "value": "Translation settings…"
           }
         },
         "zh-Hans": {
@@ -21334,7 +21622,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Headphone translation"
+            "value": "Headphone translated speech"
           }
         },
         "zh-Hans": {
@@ -21745,6 +22033,22 @@
         }
       }
     },
+    "自检进行中，原声暂不可用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Self-test running; original audio temporarily unavailable"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自检进行中，原声暂不可用"
+          }
+        }
+      }
+    },
     "自检进行中，原声直通暂不可用": {
       "localizations": {
         "en": {
@@ -21757,6 +22061,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "自检进行中，原声直通暂不可用"
+          }
+        }
+      }
+    },
+    "自检通过": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Self-test passed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自检通过"
           }
         }
       }
@@ -22166,7 +22486,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Video Subtitles…"
+            "value": "Video subtitles…"
           }
         },
         "zh-Hans": {
@@ -22246,7 +22566,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Record"
+            "value": "Log"
           }
         },
         "zh-Hans": {
@@ -22262,7 +22582,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recording"
+            "value": "Saving text"
           }
         },
         "zh-Hans": {
@@ -22486,7 +22806,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recognition and translation · Text translation"
+            "value": "Speech & Translation · Text translation"
           }
         },
         "zh-Hans": {
@@ -22502,7 +22822,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recognition and translation · Speech recognition"
+            "value": "Speech & Translation · Speech recognition"
           }
         },
         "zh-Hans": {
@@ -22518,7 +22838,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recognition and Translation…"
+            "value": "Speech & Translation…"
           }
         },
         "zh-Hans": {
@@ -22854,7 +23174,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Numbers in translation need checking"
+            "value": "Numbers need checking"
           }
         },
         "zh-Hans": {
@@ -22982,7 +23302,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Processing translation"
+            "value": "Processing translated speech"
           }
         },
         "zh-Hans": {
@@ -22998,7 +23318,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Processing translation · Original audio resumes after playback"
+            "value": "Processing translated speech · Original audio resumes after playback"
           }
         },
         "zh-Hans": {
@@ -23014,7 +23334,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Playing translation"
+            "value": "Playing translated speech"
           }
         },
         "zh-Hans": {
@@ -23094,7 +23414,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Try It"
+            "value": "Try it"
           }
         },
         "zh-Hans": {
@@ -23302,7 +23622,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This sentence may be incomplete"
+            "value": "May be incomplete"
           }
         },
         "zh-Hans": {
@@ -23574,7 +23894,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not start the speech pipeline"
+            "value": "Speech link not started"
           }
         },
         "zh-Hans": {
@@ -23677,6 +23997,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "请先打开 %@，或在当前场景中选择其他应用。不会自动改为收听其他应用。"
+          }
+        }
+      }
+    },
+    "%@ 当前没有声音。请先在其中播放或加入会议，或在当前场景中选择其他应用。不会自动改为收听其他应用。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is silent right now. Play something or join a meeting in it first, or choose another app for this scenario. TalkTalk will not switch to another app automatically."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 当前没有声音。请先在其中播放或加入会议，或在当前场景中选择其他应用。不会自动改为收听其他应用。"
           }
         }
       }
@@ -23841,18 +24177,18 @@
         }
       }
     },
-    "请开启自动接入系统输入，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。": {
+    "请开启“同传时设为系统默认输入”，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enable automatic system input switching, or choose TalkTalk Mic under Audio › Microphone in Phone."
+            "value": "Turn on “Set as system default input during interpretation”, or choose TalkTalk Mic under Audio › Microphone in Phone."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请开启自动接入系统输入，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。"
+            "value": "请开启“同传时设为系统默认输入”，或在 Phone 的“音频 › 麦克风”选择 TalkTalk Mic。"
           }
         }
       }
@@ -24662,7 +24998,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This segment was not sent"
+            "value": "Segment not sent"
           }
         },
         "zh-Hans": {
@@ -24817,6 +25153,22 @@
         }
       }
     },
+    "选择组合以更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a preset to update"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择组合以更新"
+          }
+        }
+      }
+    },
     "选择要收听的应用": {
       "localizations": {
         "en": {
@@ -24918,7 +25270,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "General Settings…"
+            "value": "General settings…"
           }
         },
         "zh-Hans": {
@@ -25078,7 +25430,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Some content was skipped"
+            "value": "Some content skipped"
           }
         },
         "zh-Hans": {
@@ -25270,7 +25622,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Record Again"
+            "value": "Record again"
           }
         },
         "zh-Hans": {
@@ -25494,7 +25846,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No call audio for a long time"
+            "value": "No call audio for a while"
           }
         },
         "zh-Hans": {
@@ -25517,6 +25869,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "长时间没有声音"
+          }
+        }
+      }
+    },
+    "长时间没有声音，或解锁、唤醒时应用没有声音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No sound for a long time, or the app had no sound when the Mac woke or unlocked"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长时间没有声音，或解锁、唤醒时应用没有声音"
           }
         }
       }
@@ -26278,7 +26646,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Audio Settings…"
+            "value": "Audio settings…"
           }
         },
         "zh-Hans": {
@@ -26582,7 +26950,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not prepare microphone restore"
+            "value": "Mic restore prep failed"
           }
         },
         "zh-Hans": {

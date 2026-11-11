@@ -1,7 +1,7 @@
 import Accelerate
 import Foundation
 
-/// The numbers behind the driver self-test (ARCHITECTURE.md §8.4 校验 2–4), as pure functions over
+/// The numbers behind the driver self-test (ARCHITECTURE.md, "平台与模块"), as pure functions over
 /// recorded samples placed by sample time. Same method as the M0-T8 bench (`ttdrv loopback`,
 /// `ttdrv replay`): a 1 s, −18 dBFS log sweep 40 Hz → 16 kHz, cross-correlated over lags
 /// 0…4800 frames; and a tone keyed by absolute sample time for the anti-replay check.

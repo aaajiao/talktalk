@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// Private files and directories (ARCHITECTURE.md §7.1, §12.1): directories 0700, files 0600,
+/// Private files and directories (ARCHITECTURE.md, "数据与隐私"): directories 0700, files 0600,
 /// excluded from backup, written atomically, never through a symlink.
 ///
 /// Permissions are set at creation (mkdir/open with the mode; the umask can only remove bits, and

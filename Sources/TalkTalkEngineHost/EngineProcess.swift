@@ -119,7 +119,7 @@ public struct EngineConfig: Sendable {
 }
 
 public enum EngineFailure: Error, Sendable, Equatable, CustomStringConvertible {
-    /// FATAL before READY: "去设置 › 组件 修复".
+    /// FATAL before READY: "去设置 › 安装与维护 修复".
     case fatal(String)
     /// READY does not match install.json (readread's `readyMismatch`): both sides listed.
     case readyMismatch([String])
@@ -130,12 +130,12 @@ public enum EngineFailure: Error, Sendable, Equatable, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .fatal(let m): String(appLocalized: "engine FATAL: \(m) (去设置 › 组件 修复)")
-        case .readyMismatch(let l): "engine READY does not match install.json: " + l.joined(separator: "; ")
-        case .timeout: "engine did not become READY in time"
-        case .crashedTooOften(let e): "engine crashed 3 times within 2 minutes (last: \(e)); see engine.log"
-        case .launch(let m): "engine could not be started: \(m)"
-        case .handshake(let m): "engine handshake error: \(m)"
+        case .fatal(let m): String(appLocalized: "engine FATAL: \(m) (去设置 › 安装与维护 修复)")
+        case .readyMismatch(let l): String(appLocalized: "引擎 READY 与 install.json 不一致：\(l.joined(separator: "; "))")
+        case .timeout: String(appLocalized: "引擎没有在限定时间内就绪")
+        case .crashedTooOften(let e): String(appLocalized: "引擎 2 分钟内崩溃 3 次（最后一次：\(e)），详见 engine.log")
+        case .launch(let m): String(appLocalized: "引擎无法启动：\(m)")
+        case .handshake(let m): String(appLocalized: "引擎握手出错：\(m)")
         }
     }
 }

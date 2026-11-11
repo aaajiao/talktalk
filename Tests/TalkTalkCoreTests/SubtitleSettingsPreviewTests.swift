@@ -67,10 +67,11 @@ import Testing
         }
     }
 
-    @Test func opacitySliderIsGreyedForStrokeAndUnderReduceTransparency() {
+    @Test func opacitySliderIsGreyedForStrokePlateAndUnderReduceTransparency() {
         #expect(SubtitleOpacityControl.make(scene: .video, videoStyle: .fittedGlass, reduceTransparency: false)
             == .init(enabled: true, note: nil))
-        #expect(SubtitleOpacityControl.make(scene: .video, videoStyle: .plate, reduceTransparency: false).enabled)
+        #expect(SubtitleOpacityControl.make(scene: .video, videoStyle: .plate, reduceTransparency: false)
+            == .init(enabled: false, note: .plateIsFixed))
         #expect(SubtitleOpacityControl.make(scene: .video, videoStyle: .stroke, reduceTransparency: false)
             == .init(enabled: false, note: .strokeHasNoBackground))
         // The video caption style never affects the meeting/phone background.

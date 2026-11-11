@@ -1,5 +1,5 @@
 #!/bin/bash
-# Remove TalkTalkAudio.driver and restart coreaudiod (ARCHITECTURE.md §8.4 "卸载").
+# Remove TalkTalkAudio.driver and restart coreaudiod (ARCHITECTURE.md, "平台与模块").
 #
 #   sudo scripts/driver/uninstall-driver.sh [--no-restart]
 #

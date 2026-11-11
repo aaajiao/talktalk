@@ -85,6 +85,8 @@ public struct FullUninstallSection: View {
                         .buttonStyle(.link)
                         .help("打开安装与维护页")
                 }
+            } else if model.sessionActive() {
+                StatusLabel(String(appLocalized: "先结束会话"), .waiting)
             }
         }
     }

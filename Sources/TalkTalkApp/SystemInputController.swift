@@ -5,7 +5,7 @@ import TalkTalkCore
 import TalkTalkSession
 import TalkTalkDriverSupport
 
-/// Meeting mode ↔ SystemInputSwitcher (sysinput, ARCHITECTURE.md §8.6, §16 decision 4): the
+/// Meeting mode ↔ SystemInputSwitcher (sysinput, ARCHITECTURE.md, "实时音频与生命周期约束"): the
 /// system default input goes to TalkTalk Mic while meeting mode runs and comes back afterwards;
 /// with the call still on, by default only when it ends. This file is the wiring only: the
 /// automatic end/quit restoration is wired by `SysInputDialogs` (Core `SysInputDialogPlan`),
@@ -94,6 +94,12 @@ final class SystemInputController {
         route.refresh()
     }
 
+    /// The menu's default-input line in the new interface language (its status is unchanged).
+    func refreshAppLanguage() {
+        state.systemInput = Self.text(switcher.status)
+        state.systemInputNotice = Self.menuNotice(switcher.status)
+    }
+
     /// App launch starts listeners. With SPEAK, takeover waits for the output owner's Feed.
     func start() {
         switcher.start()
@@ -131,7 +137,7 @@ final class SystemInputController {
             pendingResume = false
             let r: SystemInputSwitcher.EntryResult = waitForFeed ? .unchanged
                 : switcher.enterMeetingMode(meetingApps: [appID], switchDefaultInput: AppUIModels.shared.audio.switchDefaultInput)
-            if !waitForFeed { entry(r) }
+            if !waitForFeed { entry(r); recordEntry() }
             // The route first: the guard's first red asks it whether a cue may play (review of a5b2b6b #3).
             route.start(scope: [appID])
             micGuard.start(scope: [appID], justSwitchedDefaultInput: r == .switched)
@@ -158,7 +164,19 @@ final class SystemInputController {
         }
     }
 
+    /// 音频's TalkTalk Mic section follows what this session did: the switch is read on entering
+    /// meeting mode only, and a default input already held stays held.
+    private func recordEntry() {
+        var holds = false
+        switch switcher.status {
+        case .holding, .suspended: holds = true
+        default: break
+        }
+        AppUIModels.shared.audio.sessionSwitchDefaultInput = AppUIModels.shared.audio.switchDefaultInput || holds
+    }
+
     private func stopWatching() {
+        AppUIModels.shared.audio.sessionSwitchDefaultInput = nil
         ownsMeetingMode = false
         pendingAppID = nil
         pendingResume = false
@@ -176,6 +194,7 @@ final class SystemInputController {
             let result = switcher.enterMeetingMode(meetingApps: [app],
                                                    switchDefaultInput: AppUIModels.shared.audio.switchDefaultInput)
             entry(result)
+            recordEntry()
         }
         micGuard.audioRestarted()
         onFactsChange?()
@@ -302,17 +321,18 @@ final class SystemInputController {
         case .idle: nil
         case .otherInstanceManages: String(appLocalized: "另一个 TalkTalk 正在管系统默认输入")
         case .holding: String(appLocalized: "系统默认输入：TalkTalk Mic")
-        case .waitingForMic: String(appLocalized: "⚠︎ TalkTalk Mic 不见了，回来后切回")
-        case let .overridden(by): String(appLocalized: "⚠︎ 系统默认输入被改成了 \(by)")
+        // The menu line's colour and glyph carry the state: no ⚠︎ / ⛔︎ in its tooltip (§8.1).
+        case .waitingForMic: String(appLocalized: "TalkTalk Mic 不见了，回来后切回")
+        case let .overridden(by): String(appLocalized: "系统默认输入被改成了 \(by)")
         case let .switchBackFailed(current, retrying):
-            retrying ? String(appLocalized: "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 \(current)，正在重试")
-                     : String(appLocalized: "⚠︎ 没能切回 TalkTalk Mic，系统默认输入是 \(current)")
+            retrying ? String(appLocalized: "没能切回 TalkTalk Mic，系统默认输入是 \(current)，正在重试")
+                     : String(appLocalized: "没能切回 TalkTalk Mic，系统默认输入是 \(current)")
         case .suspended: String(appLocalized: "系统默认输入：TalkTalk Mic（会议模式已挂起）")
         case .deferred: SysInputDialogPlan.deferredStatus
-        case let .deferredOnPhysical(current, micAbsent, fromLastRun):
-            (fromLastRun ? "⛔︎ " : "⚠︎ ") + SysInputDialogPlan.deferredOnPhysicalStatus(device: current, micAbsent: micAbsent)
-        case let .pendingFromLastRun(original): String(appLocalized: "⛔︎ 上次的默认输入还没还原（原来是 \(original)）")
-        case .noRestoreTarget: String(appLocalized: "⛔︎ 没有可以还原到的实体麦克风")
+        case let .deferredOnPhysical(current, micAbsent, _):
+            SysInputDialogPlan.deferredOnPhysicalStatus(device: current, micAbsent: micAbsent)
+        case let .pendingFromLastRun(original): String(appLocalized: "上次的默认输入还没还原（原来是 \(original)）")
+        case .noRestoreTarget: String(appLocalized: "没有可以还原到的实体麦克风")
         }
     }
 }

@@ -1,9 +1,9 @@
 import Foundation
 
-// §4.1 protocol sketch, MT subset only (M0). The ASR/TTS/E2E protocols arrive with M1/M2;
-// their shapes are already fixed in ARCHITECTURE.md §4.1 and must be added there verbatim.
+// Protocol sketch, MT subset only (M0). The ASR/TTS/E2E protocols arrive with M1/M2;
+// their shapes are already fixed in ARCHITECTURE.md and must be added there verbatim.
 //
-// The four hedge structs below have exactly the field names of PolicyProfile (§5.3) and are
+// The four hedge structs below have exactly the field names of PolicyProfile and are
 // decoded straight from the JSON; there is no second set of defaults in Swift.
 
 public typealias HostTime = UInt64              // ns, clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
