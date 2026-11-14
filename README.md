@@ -27,7 +27,7 @@ The interface supports English and Chinese. Switch instantly in **Settings › G
 
 Requires an **Apple Silicon Mac running macOS 26.4 or later**. Use headphones for meeting and phone interpretation.
 
-**[Download TalkTalk 1.0.16, build 78 (macOS arm64 ZIP)](https://github.com/aaajiao/talktalk/releases/download/v1.0.16-build78/TalkTalk-1.0.16-build78-macOS-arm64.zip)** · [Build 78 release notes](https://github.com/aaajiao/talktalk/releases/tag/v1.0.16-build78)
+**[Download TalkTalk 1.0.17, build 79 (macOS arm64 ZIP)](https://github.com/aaajiao/talktalk/releases/download/v1.0.17/TalkTalk-1.0.17-macOS-arm64.zip)** · [Release notes](https://github.com/aaajiao/talktalk/releases/tag/v1.0.17)
 
 Unzip the download, drag `TalkTalk.app` into Applications, and open it from Finder. The app is **ad-hoc signed, without a Developer ID signature or Apple notarization**. macOS may display a security warning or block the first launch; verify the download source and follow the system prompts.
 

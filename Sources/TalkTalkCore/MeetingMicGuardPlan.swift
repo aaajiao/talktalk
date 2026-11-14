@@ -173,6 +173,24 @@ public enum MeetingMicGuardPlan {
         public static let `default` = Config()
     }
 
+    /// The meeting input problem to explain, independently of key-listener or Feed readiness.
+    public enum ConnectionIssue: Sendable, Hashable {
+        case differentMicrophone, noReader, unconfirmed, confirming
+
+        public var detail: String {
+            switch self {
+            case .differentMicrophone:
+                String(appLocalized: "会议正在使用其他麦克风。请在会议里选择 TalkTalk Mic。")
+            case .noReader:
+                String(appLocalized: "会议尚未读取 TalkTalk Mic。请加入会议并开启麦克风；若仍未接通，请在会议里重新选择 TalkTalk Mic。")
+            case .unconfirmed:
+                String(appLocalized: "尚未确认会议的输入设备。请在会议的麦克风设置里确认已选 TalkTalk Mic。")
+            case .confirming:
+                String(appLocalized: "正在确认会议已接通 TalkTalk Mic…")
+            }
+        }
+    }
+
     /// What the guard says now, for every consumer.
     public struct State: Sendable, Hashable {
         /// nil: unknown (not observed yet, the list or a device could not be read).
@@ -186,6 +204,15 @@ public enum MeetingMicGuardPlan {
 
         /// PassthroughPolicy.Facts.micGuard.
         public var micGuard: PassthroughPolicy.MicGuard? { verdict?.micGuard }
+        /// Startup/restart confirmation must not hide the actual meeting input problem.
+        public var connectionIssue: ConnectionIssue? {
+            switch verdict {
+            case .physicalMic?: .differentMicrophone
+            case .noReader?: .noReader
+            case nil: .unconfirmed
+            case .green?: awaitingConfirmation ? .confirming : nil
+            }
+        }
         /// Push to talk is allowed by the guard: green and confirmed (red: the TTS would not reach
         /// them anyway and the remote hears you; §8.6). Unknown and no reader are not red: they
         /// leave push to talk to its other checks, except while awaiting confirmation.

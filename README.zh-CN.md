@@ -27,7 +27,7 @@ TalkTalk 是一个原生 macOS 菜单栏应用。语音识别和语音合成在�
 
 需要 **Apple Silicon Mac、macOS 26.4 或更新版本**。会议和电话同传请使用耳机。
 
-**[下载 TalkTalk 1.0.16 构建 78（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.16-build78/TalkTalk-1.0.16-build78-macOS-arm64.zip)** · [构建 78 版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.16-build78)
+**[下载 TalkTalk 1.0.17 构建 79（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.17/TalkTalk-1.0.17-macOS-arm64.zip)** · [版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.17)
 
 解压后将 `TalkTalk.app` 拖入“应用程序”，从 Finder 打开。该包使用 **ad-hoc 本地签名，尚无 Developer ID 签名及 Apple 公证**；首次打开时 macOS 可能显示安全提示或阻止启动，请确认下载来源后按系统提示处理。
 

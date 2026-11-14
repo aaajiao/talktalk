@@ -7,6 +7,7 @@ public final class PushToTalkKey: @unchecked Sendable {
     public enum Interaction: Sendable { case hold, toggle }
     public enum BlockReason: Sendable, Equatable {
         case notInSession, meetingUsesPhysicalMic, awaitingAudioConfirmation, noMeetingReader, secureInput
+        case keyListenerUnavailable, physicalMicUnavailable, meetingInputUnconfirmed
     }
     public enum Availability: Sendable, Equatable { case allowed, blocked(BlockReason) }
     public enum Action: Sendable, Equatable {

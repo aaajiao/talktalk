@@ -4337,22 +4337,6 @@
         }
       }
     },
-    "会议 App 正在使用实体麦克风。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The meeting app is using a physical microphone."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "会议 App 正在使用实体麦克风。"
-          }
-        }
-      }
-    },
     "会议 App 正在用实体麦，对方本来就听得到你": {
       "localizations": {
         "en": {
@@ -14573,22 +14557,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "按键监听失效，原声直通暂不可用"
-          }
-        }
-      }
-    },
-    "按键监听或音频尚未就绪，请检查输入监控权限和耳机。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keyboard monitoring or audio is not ready. Check Input Monitoring permission and headphones."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按键监听或音频尚未就绪，请检查输入监控权限和耳机。"
           }
         }
       }
@@ -27357,6 +27325,134 @@
           "stringUnit": {
             "state": "translated",
             "value": "，跳过 %@ 个过大的文件"
+          }
+        }
+      }
+    },
+    "会议尚未读取 TalkTalk Mic。请加入会议并开启麦克风；若仍未接通，请在会议里重新选择 TalkTalk Mic。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The meeting is not reading TalkTalk Mic yet. Join the meeting and unmute; if it still does not connect, reselect TalkTalk Mic in the meeting."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会议尚未读取 TalkTalk Mic。请加入会议并开启麦克风；若仍未接通，请在会议里重新选择 TalkTalk Mic。"
+          }
+        }
+      }
+    },
+    "会议正在使用其他麦克风。请在会议里选择 TalkTalk Mic。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The meeting is using another microphone. Select TalkTalk Mic in the meeting."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会议正在使用其他麦克风。请在会议里选择 TalkTalk Mic。"
+          }
+        }
+      }
+    },
+    "尚未确认会议的输入设备。请在会议的麦克风设置里确认已选 TalkTalk Mic。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The meeting input is not confirmed yet. Check that TalkTalk Mic is selected in the meeting’s microphone settings."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未确认会议的输入设备。请在会议的麦克风设置里确认已选 TalkTalk Mic。"
+          }
+        }
+      }
+    },
+    "按键监听尚未就绪，请检查输入监控权限。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key monitoring is not ready. Check Input Monitoring permission."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按键监听尚未就绪，请检查输入监控权限。"
+          }
+        }
+      }
+    },
+    "正在确认会议已接通 TalkTalk Mic…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirming the meeting’s connection to TalkTalk Mic…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在确认会议已接通 TalkTalk Mic…"
+          }
+        }
+      }
+    },
+    "Phone 尚未读取 TalkTalk Mic。请在 Phone 的“音频 › 麦克风”选择“使用系统设置”或 TalkTalk Mic。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone is not reading TalkTalk Mic yet. In Phone’s Audio › Microphone menu, select Use System Setting or TalkTalk Mic."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone 尚未读取 TalkTalk Mic。请在 Phone 的“音频 › 麦克风”选择“使用系统设置”或 TalkTalk Mic。"
+          }
+        }
+      }
+    },
+    "尚未确认 Phone 的输入设备。请在 Phone 的“音频 › 麦克风”中检查。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone’s input device is not confirmed yet. Check Phone’s Audio › Microphone menu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未确认 Phone 的输入设备。请在 Phone 的“音频 › 麦克风”中检查。"
+          }
+        }
+      }
+    },
+    "Phone 正在使用其他麦克风。请在“音频 › 麦克风”中选择 TalkTalk Mic。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone is using another microphone. Select TalkTalk Mic in Audio › Microphone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone 正在使用其他麦克风。请在“音频 › 麦克风”中选择 TalkTalk Mic。"
           }
         }
       }

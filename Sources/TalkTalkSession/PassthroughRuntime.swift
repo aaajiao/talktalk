@@ -314,27 +314,40 @@ public final class PassthroughRuntime: @unchecked Sendable {
             switch local {
             case .available: availability = .allowed
             case .unavailable(.secureInput), .unavailable(.unknown(.secureInput)): availability = .blocked(.secureInput)
+            case .unavailable(.tapUnhealthy), .unavailable(.unknown(.tapHealthy)): availability = .blocked(.keyListenerUnavailable)
             case .unavailable(.meetingModeOff), .unavailable(.unknown(.meetingModeActive)): availability = .blocked(.notInSession)
-            case .unavailable(.micNotAllowed), .unavailable(.unknown(.physicalMicPassesRule2)): availability = .blocked(.noMeetingReader)
+            case .unavailable(.micNotAllowed), .unavailable(.unknown(.physicalMicPassesRule2)): availability = .blocked(.physicalMicUnavailable)
             default: availability = .blocked(.awaitingAudioConfirmation)
             }
         }
         else if facts.secureInput != false { availability = .blocked(.secureInput) }
-        else if facts.awaitingAudioConfirmation != false || facts.tapHealthy != true || facts.selfTestRunning != false {
+        else if facts.tapHealthy != true { availability = .blocked(.keyListenerUnavailable) }
+        else if facts.physicalMicPassesRule2 != true { availability = .blocked(.physicalMicUnavailable) }
+        // Initial Feed readiness also starts reader confirmation. A missing or wrong meeting
+        // input can keep that confirmation pending indefinitely; report the actionable fact
+        // without clearing the pending state or allowing either audio path to open.
+        else if scope == .meeting && facts.meetingModeActive != true { availability = .blocked(.notInSession) }
+        else if scope == .meeting && facts.micGuard == .meetingUsesPhysicalMic { availability = .blocked(.meetingUsesPhysicalMic) }
+        else if scope == .meeting && facts.micGuard == .noReaderOfTalkTalkMic { availability = .blocked(.noMeetingReader) }
+        else if scope == .meeting && facts.micGuard == nil { availability = .blocked(.meetingInputUnconfirmed) }
+        else if facts.awaitingAudioConfirmation != false || facts.selfTestRunning != false {
             availability = .blocked(.awaitingAudioConfirmation)
         }
-        else if facts.physicalMicPassesRule2 != true { availability = .blocked(.noMeetingReader) }
-        else if scope == .onboarding { availability = .allowed }
-        else if facts.meetingModeActive != true { availability = .blocked(.notInSession) }
-        else if facts.micGuard == .meetingUsesPhysicalMic { availability = .blocked(.meetingUsesPhysicalMic) }
-        else if facts.micGuard != .green { availability = .blocked(.noMeetingReader) }
         else { availability = .allowed }
         if availability != lastAvailability {
             let reason: String
             switch availability { case .allowed: reason = "allowed"; case .blocked(let why): reason = String(describing: why) }
+            let guardTag: String
+            switch facts.micGuard {
+            case .green?: guardTag = "green"
+            case .meetingUsesPhysicalMic?: guardTag = "physical_mic"
+            case .noReaderOfTalkTalkMic?: guardTag = "no_reader"
+            case nil: guardTag = "unknown"
+            }
             log?.event("key.availability", ["state": .tag(reason), "tap_healthy": .bool(facts.tapHealthy == true),
                 "secure_input": .bool(facts.secureInput == true), "audio_pending": .bool(facts.awaitingAudioConfirmation != false),
-                "physical": .bool(facts.physicalMicPassesRule2 == true), "self_test": .bool(facts.selfTestRunning != false)], at: time)
+                "physical": .bool(facts.physicalMicPassesRule2 == true), "self_test": .bool(facts.selfTestRunning != false),
+                "mic_guard": .tag(guardTag)], at: time)
             lastAvailability = availability
         }
         pushToTalk.setAvailability(availability, at: time)

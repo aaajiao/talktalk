@@ -39,6 +39,7 @@ final class SpeakController {
     private var transcript: TranscriptWriter?
     private var sessionLog: EventLog?
     private var speakReadyLogged = false
+    private var lastInputState: [String: EventLog.Value]?
     private let profile: PolicyProfile
     private let selfTestRunning: () -> Bool
     private var subscription: MeetingSubscription?
@@ -244,6 +245,7 @@ final class SpeakController {
             ?? EventLog(inMemory: HostClock.now)
         sessionLog = log
         speakReadyLogged = false
+        lastInputState = nil
         if demo { log.event("demo.start") }
         let echo: any SpeakEchoSink = session.map { $0 as any SpeakEchoSink } ?? DemoEcho()
         let jobs = session?.jobs ?? JobIDSequence()
@@ -482,7 +484,7 @@ final class SpeakController {
                         log.event("key.refused", ["reason": .tag(String(describing: reason))], at: at)
                         if self?.demoActive == true { self?.onDemoStatus?(Self.pressRefusal(reason)) }
                         else {
-                            self?.translationRefusal = (Self.pressRefusal(reason), Self.refusalSettings(reason))
+                            self?.translationRefusal = (Self.pressRefusal(reason, mode: self?.owner?.mode ?? .meeting), Self.refusalSettings(reason))
                             self?.refreshMeetingAudio()
                             self?.systemInput.retryGuardCue()
                         }
@@ -685,7 +687,47 @@ final class SpeakController {
         // Unknown playback is still handled as speakers; only a known speaker route says so.
         if speaker == true && !waitingForPhone { hud.post(.speakerMode) } else { hud.clear(.speakerMode) }
         if speaker == nil && !waitingForPhone { hud.post(.playbackUnknown) } else { hud.clear(.playbackUnknown) }
+        logInputState()
         refreshMeetingAudio()
+    }
+
+    /// Record state transitions, not every 100 ms refresh. Tags describe device roles only;
+    /// device names, UIDs and browser content never enter the session log.
+    private func logInputState() {
+        guard let owner, let mic, let sessionLog else { return }
+        let guardState = systemInput.micGuard.state
+        let reader: String
+        switch guardState.verdict {
+        case .green?: reader = "talktalk_mic"
+        case .physicalMic?: reader = "other_mic"
+        case .noReader?: reader = "no_reader"
+        case nil: reader = "unknown"
+        }
+        let system: String
+        switch systemInput.switcher.status {
+        case .idle: system = "idle"
+        case .holding: system = "holding_mic"
+        case .waitingForMic: system = "mic_missing"
+        case .overridden: system = "overridden"
+        case .switchBackFailed(_, let retrying): system = retrying ? "switch_retrying" : "switch_failed"
+        case .otherInstanceManages: system = "other_instance"
+        case .suspended: system = "suspended"
+        case .deferred: system = "deferred"
+        case .deferredOnPhysical: system = "deferred_other"
+        case .pendingFromLastRun: system = "pending_last_run"
+        case .noRestoreTarget: system = "no_restore_target"
+        }
+        let fields: [String: EventLog.Value] = [
+            "mode": .tag(owner.mode.rawValue),
+            "feed_attached": .bool(output.isFeedAttached), "feed_confirmed": .bool(feedConfirmed),
+            "reader": .tag(reader), "reader_pending": .bool(guardState.awaitingConfirmation),
+            "physical": .bool(mic.state.physicalMicPassesRule2),
+            "capture": .tag(String(describing: mic.state.capture)), "system_input": .tag(system),
+            "mic_selection": .tag(AppUIModels.shared.audio.micUID == nil ? "automatic" : "explicit")
+        ]
+        guard fields != lastInputState else { return }
+        lastInputState = fields
+        sessionLog.event("speak.input_state", fields)
     }
 
     private func devicesChanged(_ event: DeviceWatcher.Event) {
@@ -751,7 +793,7 @@ final class SpeakController {
         func report(_ reason: PassthroughPolicy.DenyReason, translationKey: Bool = false) {
             // Phone's missing reader has one actionable sentence; other reasons say their own.
             if let phoneInputHint { report(.unavailable(reason: phoneInputHint), settings: .audio); return }
-            let unavailable = Self.unavailable(reason)
+            let unavailable = Self.unavailable(reason, mode: owner.mode)
             report(.unavailable(reason: unavailable.text), translationKey: translationKey, settings: unavailable.settings)
         }
         guard case .running = owner.state else {
@@ -765,8 +807,27 @@ final class SpeakController {
         // the key, work and gate facts together instead of mixing two sides of a transition.
         let audio = keys.meetingAudioSnapshot()
         if audio.held == false { translationRefusal = nil }
-        guard output.isFeedAttached, feedConfirmed, mic?.state.capture == .open else {
+        guard output.isFeedAttached, feedConfirmed else {
             report(startupWait.waiting(reason: String(appLocalized: "正在等待音频就绪"), now: now)); return
+        }
+        let local = keys.gate.facts
+        if local.secureInput == true { report(.secureInput); return }
+        if local.tapHealthy == false {
+            report(startupWait.waiting(reason: Self.pressRefusal(.keyListenerUnavailable), now: now),
+                   settings: .inputMonitoring)
+            return
+        }
+        if local.physicalMicPassesRule2 == false { report(.micNotAllowed); return }
+        if local.selfTestRunning == true { report(.selfTestRunning); return }
+        // Capture deliberately stays closed until the meeting reader is confirmed. Explain
+        // that prerequisite before treating closed capture as a generic startup failure.
+        if owner.mode == .meeting, let issue = systemInput.micGuard.state.connectionIssue {
+            report(startupWait.waiting(reason: issue.detail, now: now)); return
+        }
+        guard mic?.state.capture == .open else {
+            if case let .unavailable(reason) = audio.translationReadiness { report(reason) }
+            else { report(startupWait.waiting(reason: String(appLocalized: "正在等待音频就绪"), now: now)) }
+            return
         }
         guard audio.hardwarePollFresh, audio.held != nil else {
             report(startupWait.waiting(reason: String(appLocalized: "正在等待按键监听恢复"), now: now)); return
@@ -870,6 +931,7 @@ final class SpeakController {
         }
         demoMicPreference = nil
         sessionLog?.flush(); sessionLog = nil
+        lastInputState = nil
         await engineHost.speakBridge.process?.setMeetingMode(false)
         links.value.withLock { $0.keys = nil; $0.mic = nil }
         pipeline = nil; mic = nil; keys = nil; reporter = nil; owner = nil; demoActive = false
@@ -994,12 +1056,24 @@ final class SpeakController {
         onDemoStatus?(String(appLocalized: "已自动使用内建或有线麦克风，正在等待耳机恢复播放。试说结束后会恢复原输入。"))
     }
 
-    private static func pressRefusal(_ reason: PushToTalkKey.BlockReason) -> String {
+    private static func pressRefusal(_ reason: PushToTalkKey.BlockReason, mode: MeetingMode = .meeting) -> String {
         switch reason {
         case .secureInput: String(appLocalized: "安全输入正在阻止按键监听。请离开密码输入框后重试。")
-        case .awaitingAudioConfirmation: String(appLocalized: "按键监听或音频尚未就绪，请检查输入监控权限和耳机。")
-        case .noMeetingReader: String(appLocalized: "没有可用的实体麦克风，请在设置 › 音频中检查。")
-        case .meetingUsesPhysicalMic: String(appLocalized: "会议 App 正在使用实体麦克风。")
+        case .keyListenerUnavailable: String(appLocalized: "按键监听尚未就绪，请检查输入监控权限。")
+        case .physicalMicUnavailable: String(appLocalized: "没有可用的实体麦克风，请在设置 › 音频中检查。")
+        case .awaitingAudioConfirmation: String(appLocalized: "正在等待音频就绪")
+        case .noMeetingReader:
+            mode == .phone
+                ? String(appLocalized: "Phone 尚未读取 TalkTalk Mic。请在 Phone 的“音频 › 麦克风”选择“使用系统设置”或 TalkTalk Mic。")
+                : MeetingMicGuardPlan.ConnectionIssue.noReader.detail
+        case .meetingInputUnconfirmed:
+            mode == .phone
+                ? String(appLocalized: "尚未确认 Phone 的输入设备。请在 Phone 的“音频 › 麦克风”中检查。")
+                : MeetingMicGuardPlan.ConnectionIssue.unconfirmed.detail
+        case .meetingUsesPhysicalMic:
+            mode == .phone
+                ? String(appLocalized: "Phone 正在使用其他麦克风。请在“音频 › 麦克风”中选择 TalkTalk Mic。")
+                : MeetingMicGuardPlan.ConnectionIssue.differentMicrophone.detail
         case .notInSession: String(appLocalized: "说话测试尚未启动。")
         }
     }
@@ -1008,24 +1082,27 @@ final class SpeakController {
     private static func refusalSettings(_ reason: PushToTalkKey.BlockReason) -> HUDLine.SettingsDestination? {
         switch reason {
         case .secureInput, .notInSession: nil
-        case .awaitingAudioConfirmation: .inputMonitoring
-        case .noMeetingReader, .meetingUsesPhysicalMic: .audio
+        case .keyListenerUnavailable: .inputMonitoring
+        case .awaitingAudioConfirmation, .physicalMicUnavailable, .noMeetingReader,
+             .meetingInputUnconfirmed, .meetingUsesPhysicalMic: .audio
         }
     }
 
     /// "音频不可用"'s reason in the words already used for a refused press or a warning, and
     /// where it is fixed (nil: nothing in Settings changes it, e.g. secure input).
-    private static func unavailable(_ reason: PassthroughPolicy.DenyReason)
+    private static func unavailable(_ reason: PassthroughPolicy.DenyReason, mode: MeetingMode)
         -> (text: String, settings: HUDLine.SettingsDestination?) {
         switch reason {
         case .secureInput, .unknown(.secureInput): (pressRefusal(.secureInput), nil)
-        case .tapUnhealthy, .unknown(.tapHealthy): (pressRefusal(.awaitingAudioConfirmation), .inputMonitoring)
-        case .micNotAllowed, .unknown(.physicalMicPassesRule2): (pressRefusal(.noMeetingReader), .audio)
-        case .meetingUsesPhysicalMic: (pressRefusal(.meetingUsesPhysicalMic), .audio)
+        case .tapUnhealthy, .unknown(.tapHealthy): (pressRefusal(.keyListenerUnavailable), .inputMonitoring)
+        case .micNotAllowed, .unknown(.physicalMicPassesRule2): (pressRefusal(.physicalMicUnavailable), .audio)
+        case .meetingUsesPhysicalMic: (pressRefusal(.meetingUsesPhysicalMic, mode: mode), .audio)
         case .speakerMode: (HUDModel.Warning.speakerMode.text, .audio)
         case .unknown(.speakerMode): (HUDModel.Warning.playbackUnknown.text, .audio)
         case .selfTestRunning, .unknown(.selfTestRunning): (String(appLocalized: "自检进行中，原声暂不可用"), nil)
-        case .noReaderOfTalkTalkMic, .pushToTalkActive:
+        case .noReaderOfTalkTalkMic: (pressRefusal(.noMeetingReader, mode: mode), .audio)
+        case .unknown(.micGuard): (pressRefusal(.meetingInputUnconfirmed, mode: mode), .audio)
+        case .pushToTalkActive:
             (reason.hudText ?? String(appLocalized: "正在等待音频就绪"), .audio)
         case .meetingModeOff, .settingOff, .unknown, .awaitingAudioConfirmation:
             (String(appLocalized: "正在等待音频就绪"), .audio)

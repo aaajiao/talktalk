@@ -145,6 +145,41 @@ import Testing
         #expect(m.state.allowsPushToTalk)
     }
 
+    @Test func startupWaitKeepsSpecificConnectionIssue() {
+        var m = P.Monitor()
+        m.audioRestarted()
+        _ = m.observe([Self.chrome([Self.builtIn])], scope: ["com.google.Chrome"], now: 1)
+        #expect(m.state.connectionIssue == .differentMicrophone)
+        #expect(m.state.awaitingConfirmation && !m.state.allowsPushToTalk)
+
+        _ = m.observe([Self.chrome([], running: false)], scope: ["com.google.Chrome"], now: 2)
+        #expect(m.state.connectionIssue == .noReader)
+        #expect(m.state.awaitingConfirmation && !m.state.allowsPushToTalk)
+
+        _ = m.observe([Self.chrome(nil)], scope: ["com.google.Chrome"], now: 3)
+        #expect(m.state.connectionIssue == .unconfirmed)
+        #expect(m.state.awaitingConfirmation && !m.state.allowsPushToTalk)
+    }
+
+    @Test func connectionIssueClearsOnlyAfterStableReaderConfirmation() {
+        var m = P.Monitor(config: .init(confirmSettle: 0.5))
+        m.audioRestarted()
+        _ = m.observe([Self.chrome([Self.mic])], scope: [], now: 1)
+        #expect(m.state.connectionIssue == .confirming)
+        #expect(!m.state.verified)
+        // A transient input stream is not enough: losing it restarts confirmation.
+        _ = m.observe([], scope: [], now: 1.25)
+        #expect(m.state.connectionIssue == .noReader)
+        _ = m.observe([Self.chrome([Self.mic])], scope: [], now: 2)
+        _ = m.observe([Self.chrome([Self.mic])], scope: [], now: 2.49)
+        #expect(m.state.connectionIssue == .confirming)
+        #expect(!m.state.allowsPushToTalk)
+        let confirmed = m.observe([Self.chrome([Self.mic])], scope: [], now: 2.5)
+        #expect(confirmed.events == [.confirmed])
+        #expect(m.state.connectionIssue == nil)
+        #expect(m.state.verified && m.state.allowsPushToTalk)
+    }
+
     @Test func fallbackAfterARestartStaysOff() {
         var m = P.Monitor(config: .init(confirmSettle: 0.5))
         _ = m.observe([Self.zoom([Self.mic])], scope: [], now: 0)

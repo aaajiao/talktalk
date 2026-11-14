@@ -229,6 +229,97 @@ private let commandFlags: ModifierFlags = [.command, .deviceRightCommand]
         runtime.stop(at: ns(170))
     }
 
+    @Test func meetingInputReasonSurvivesPendingConfirmationAndRecoveryStillWaits() throws {
+        let cases: [(PassthroughPolicy.MicGuard?, PushToTalkKey.BlockReason, String)] = [
+            (.noReaderOfTalkTalkMic, .noMeetingReader, "no_reader"),
+            (.meetingUsesPhysicalMic, .meetingUsesPhysicalMic, "physical_mic"),
+            (nil, .meetingInputUnconfirmed, "unknown"),
+        ]
+        for (guardState, reason, guardTag) in cases {
+            let actions = KeyActions(), log = EventLog(inMemory: { 0 })
+            let (runtime, sink) = try runtime(log: log, actions: actions, automatic: true, interaction: .toggle)
+            runtime.updateFacts(at: ns(1)) {
+                $0.micGuard = guardState
+                $0.awaitingAudioConfirmation = true
+            }
+            let blocked = log.recorded.last { $0["ev"] as? String == "key.availability" }
+            #expect(blocked?["state"] as? String == String(describing: reason))
+            #expect(blocked?["mic_guard"] as? String == guardTag)
+            #expect(blocked?["audio_pending"] as? Bool == true)
+            #expect(!sink.current.open)
+            runtime.handle(.init(time: ns(10), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+            runtime.handle(.init(time: ns(20), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+            runtime.handle(.init(time: ns(25), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+            #expect(actions.all == [.refused(at: ns(10), reason: reason)])
+            #expect(!sink.current.open && !runtime.meetingAudioSnapshot(at: ns(25)).recordingActive)
+
+            // Selecting the right device does not bypass the guard's confirmation interval.
+            runtime.updateFacts(at: ns(30)) { $0.micGuard = .green }
+            runtime.handle(.init(time: ns(40), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+            runtime.handle(.init(time: ns(50), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+            #expect(actions.all.last == .refused(at: ns(40), reason: .awaitingAudioConfirmation))
+            #expect(!sink.current.open && !runtime.meetingAudioSnapshot(at: ns(50)).recordingActive)
+
+            runtime.updateFacts(at: ns(60)) { $0.awaitingAudioConfirmation = false }
+            #expect(!sink.current.open) // only a fresh hardware poll may restore original audio
+            runtime.handle(.init(time: ns(70), kind: .poll(.init(keysDown: [], flags: [], secureInput: false))))
+            #expect(sink.current.open)
+            runtime.handle(.init(time: ns(80), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+            runtime.handle(.init(time: ns(90), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+            #expect(actions.all.last == .machine(.began(at: ns(80))))
+            #expect(runtime.meetingAudioSnapshot(at: ns(90)).recordingActive && !sink.current.open)
+            #expect(actions.rawOpenOnAction.allSatisfy { !$0 })
+            runtime.stop(at: ns(100))
+        }
+    }
+
+    @Test func keyAvailabilityDistinguishesLocalHardwareFromMeetingInput() throws {
+        for phoneLocal in [false, true] {
+            let actions = KeyActions(), log = EventLog(inMemory: { 0 })
+            let (runtime, sink) = try runtime(log: log, actions: actions, automatic: true, interaction: .toggle)
+            runtime.updateFacts(at: ns(1), phoneLocalSpeechReady: phoneLocal) {
+                $0.micGuard = .noReaderOfTalkTalkMic
+                $0.awaitingAudioConfirmation = true
+                $0.physicalMicPassesRule2 = false
+            }
+            runtime.handle(.init(time: ns(10), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+            runtime.handle(.init(time: ns(20), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+            #expect(actions.all == [.refused(at: ns(10), reason: .physicalMicUnavailable)])
+            runtime.updateFacts(at: ns(25), phoneLocalSpeechReady: phoneLocal) { $0.physicalMicPassesRule2 = nil }
+            runtime.handle(.init(time: ns(30), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+            runtime.handle(.init(time: ns(40), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+            #expect(actions.all.last == .refused(at: ns(30), reason: .physicalMicUnavailable))
+            runtime.handle(.init(time: ns(50), kind: .tapDisabled(.disabledByTimeout)))
+            let blocked = log.recorded.last { $0["ev"] as? String == "key.availability" }
+            #expect(blocked?["state"] as? String == "keyListenerUnavailable")
+            #expect(blocked?["mic_guard"] as? String == "no_reader")
+            runtime.handle(.init(time: ns(60), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+            runtime.handle(.init(time: ns(70), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+            #expect(!sink.current.open && !runtime.meetingAudioSnapshot(at: ns(70)).recordingActive)
+            #expect(!actions.all.contains { if case .machine(.began) = $0 { true } else { false } })
+            runtime.stop(at: ns(80))
+        }
+    }
+
+    @Test func onboardingStillWaitsForAudioWithoutRequiringMeetingReader() throws {
+        let actions = KeyActions()
+        let (runtime, sink) = try runtime(scope: .onboarding, actions: actions, interaction: .toggle)
+        runtime.updateFacts(at: ns(1)) {
+            $0.meetingModeActive = false
+            $0.micGuard = nil
+            $0.awaitingAudioConfirmation = true
+        }
+        runtime.handle(.init(time: ns(10), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        runtime.handle(.init(time: ns(20), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        #expect(actions.all == [.refused(at: ns(10), reason: .awaitingAudioConfirmation)])
+        runtime.updateFacts(at: ns(30)) { $0.awaitingAudioConfirmation = false }
+        runtime.handle(.init(time: ns(40), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: optionFlags)))
+        runtime.handle(.init(time: ns(50), kind: .flagsChanged(keyCode: KeyCode.rightOption, flags: [])))
+        #expect(actions.all.last == .machine(.began(at: ns(40))))
+        #expect(!sink.current.open)
+        runtime.stop(at: ns(60))
+    }
+
     @Test func preparedPhoneToggleCapturesLocallyWhileRawGateRemainsClosed() throws {
         let actions = KeyActions()
         let (runtime, sink) = try runtime(actions: actions, automatic: true, interaction: .toggle)
