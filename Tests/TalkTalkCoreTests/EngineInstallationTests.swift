@@ -151,6 +151,31 @@ import TalkTalkTestSupport
         #expect(inst(h).check().state == .installed(profile: EngineProfile.customID, models: ["tts-x"]))
     }
 
+    @Test func recognitionOnlyInstallationIsReadyWithoutSynthesisFiles() throws {
+        let h = try Home(); defer { h.remove() }
+        let url = h.url.appendingPathComponent("install.json")
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let roles = try #require(json["roles"] as? [String: Any])
+        json["roles"] = roles.filter { $0.key == "asr" }
+        json["models"] = (json["models"] as? [[String: Any]])?.filter { $0["role"] as? String == "asr" }
+        json["profile"] = "custom"
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+        try FileManager.default.removeItem(at: h.url.appendingPathComponent("models/TTS-X@\(Self.ttsRev.prefix(12))"))
+        let before = try Data(contentsOf: url)
+        let result = inst(h).check()
+        #expect(result.state == .installed(profile: EngineProfile.customID, models: ["asr-y"]))
+        #expect(result.state.canUseRole("asr", record: result.record))
+        #expect(!result.state.canUseRole("tts", record: result.record))
+        #expect(!result.state.canUseRole("asr", record: nil))
+        #expect(try Data(contentsOf: url) == before)
+
+        // A stale role in the manifest cannot mask a missing runtime or model.
+        try FileManager.default.removeItem(at: h.url.appendingPathComponent("models/ASR-Y@\(Self.asrRev.prefix(12))/model.safetensors"))
+        let incomplete = inst(h).check()
+        #expect(!incomplete.state.canUseRole("asr", record: incomplete.record))
+        #expect(incomplete.record?.roles["asr"] != nil)
+    }
+
     @Test func completeInstallIsInstalled() throws {
         let h = try Home(); defer { h.remove() }
         let (state, record) = inst(h).check()

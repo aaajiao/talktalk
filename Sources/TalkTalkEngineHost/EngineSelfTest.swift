@@ -303,7 +303,9 @@ public struct EngineSelfTest: Sendable {
             add(SelfTestCheck("asr", ok: nil, detail: "no ASR role in this profile"))
         }
 
-        if let ref = reference {
+        if !engine.config.roles.contains("tts") {
+            add(SelfTestCheck("voice", ok: nil, detail: "no TTS role in this installation"))
+        } else if let ref = reference {
             do {
                 let client = try await engine.readyTTSClient()
                 let built = try await client.buildVoice(reference24k: ref.samples, refText: ref.text, model: engine.config.tts)

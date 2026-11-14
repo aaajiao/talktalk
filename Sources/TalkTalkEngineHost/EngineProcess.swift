@@ -77,8 +77,15 @@ public struct EngineConfig: Sendable {
                                  paths: EnginePaths, source: URL, roles: [String]? = nil,
                                  policy: PolicyProfile? = nil) -> EngineConfig {
         let r = (roles ?? ["tts", "asr"]).filter { record.roles[$0] != nil }
+        // A downloaded sibling revision must never replace the recorded selection. The
+        // engine accepts each verified model directory directly as well as legacy roots.
+        let modelDirectories = r.compactMap { role -> URL? in
+            guard let selected = record.roles[role],
+                  let model = record.models.first(where: { $0.id == selected.id && $0.rev == selected.rev }) else { return nil }
+            return installation.modelsDir.appendingPathComponent(model.dir)
+        }
         var c = EngineConfig(flavour: record.flavour, python: installation.pythonURL, source: source,
-                             modelsDirs: [installation.modelsDir], warmupDir: installation.warmupDir,
+                             modelsDirs: modelDirectories, warmupDir: installation.warmupDir,
                              profile: record.profile, roles: r, tts: record.roles["tts"]?.id,
                              asr: record.roles["asr"]?.id, record: record, paths: paths)
         if let policy { c.horizonMs = policy.speak.tts.renderHorizonMs }
@@ -253,6 +260,9 @@ public actor EngineProcess {
     }
 
     private func readyTTS() async throws -> (info: ReadyInfo, client: EngineClient) {
+        guard config.roles.contains("tts") else {
+            throw RemoteEngineError.tts(code: "tts_not_loaded", message: "")
+        }
         let end = ContinuousClock.now + config.timing.readyTimeout
         let info = try await start()
         try Task.checkCancellation()

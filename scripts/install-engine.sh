@@ -3,6 +3,7 @@
 # (ARCHITECTURE.md, "引擎、翻译与播放"; derived from readread install-hq.sh's discipline).
 #
 #   install-engine.sh [--profile max|standard|compact24|compact16] [--json-progress]   install / update / repair
+#   install-engine.sh --recognition-only [--json-progress]             prepare Qwen ASR, preserve other roles
 #   install-engine.sh --check [--json-progress]                                        verify only, exit 0/1
 #   install-engine.sh --add-model <key> | --remove-model <key> [--json-progress]
 #   install-engine.sh --select-tts <key> [--model-source <verified-local-directory>]
@@ -25,10 +26,11 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/models.sh
 . "$here/lib/models.sh"
 
-op="install"; profile=""; model_arg=""; smoke=1; allow_active_model=0; MODEL_SOURCE=""
+op="install"; profile=""; model_arg=""; smoke=1; allow_active_model=0; recognition_only=0; MODEL_SOURCE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --profile) profile="${2:-}"; shift 2 ;;
+    --recognition-only) recognition_only=1; shift ;;
     --check) op="check"; shift ;;
     --add-model) op="add"; model_arg="${2:-}"; shift 2 ;;
     --select-tts) op="select-tts"; model_arg="${2:-}"; shift 2 ;;
@@ -42,6 +44,10 @@ while [ $# -gt 0 ]; do
     *) tt_die "unknown argument: $1" ;;
   esac
 done
+if [ "$recognition_only" = "1" ]; then
+  [ "$op" = "install" ] && [ -z "$profile" ] || tt_die "--recognition-only cannot be combined with another operation or --profile"
+  [ "$smoke" = "1" ] || tt_die "--recognition-only requires a successful ASR smoke check"
+fi
 [ "$allow_active_model" = "0" ] || [ "$op" = "remove" ] || tt_die "--allow-active-model requires --remove-model"
 [ -z "$MODEL_SOURCE" ] || [ "$op" = "add" ] || [ "$op" = "select-tts" ] || tt_die "--model-source requires --add-model or --select-tts"
 if [ "$op" = "select-tts" ]; then
@@ -277,6 +283,15 @@ make_warmup() {
   tt_log "warmup: synthetic references written"
 }
 
+make_asr_sample() {
+  local w="$ENGINE_HOME/warmup"
+  if [ -f "$w/sample-zh.wav" ] && [ -f "$w/sample-zh.txt" ]; then return 0; fi
+  /bin/mkdir -p "$w"
+  /usr/bin/say -v Tingting --file-format=WAVE --data-format=LEI16@16000 -o "$w/sample-zh.wav" "$WARMUP_SAMPLE_TEXT" \
+    || tt_die "say -v Tingting failed for the ASR sample"
+  printf '%s' "$WARMUP_SAMPLE_TEXT" > "$w/sample-zh.txt"
+}
+
 run_smoke() {
   # run_smoke <profile>: §7.3 smoke run; install.json is written only if it passes.
   local prof="$1" py="$VENV_DIR/bin/python3"
@@ -325,9 +340,160 @@ check_space() {
 
 # ---------------------------------------------------------------- operations
 
+compatible_runtime() {
+  # Reuse a verified shared runtime, including a supported older Python build. The
+  # real model smoke below validates its imports and inference before completion.
+  local pyv pyr pysha lock stamp
+  [ "$(installed_field .engine_api)" = "$TT_ENGINE_API" ] || return 1
+  [ "$(installed_field .recipe)" = "$TT_ENGINE_RECIPE" ] || return 1
+  lock="$(installed_field .lock_sha256)"
+  tt_in_list "$lock" "${TT_LOCK_COMPAT:-$TT_LOCK_SHA256}" || return 1
+  pyv="$(installed_field .python.version)"; pyr="$(installed_field .python.release)"; pysha="$(installed_field .python.sha256)"
+  [ -n "$pyv" ] && [ -n "$pyr" ] && [ -n "$pysha" ] || return 1
+  [ -x "$PY_DIR/bin/python3" ] && [ -x "$VENV_DIR/bin/python3" ] || return 1
+  [ -f "$PY_DIR/.talktalk-python" ] && [ -f "$VENV_DIR/.talktalk-venv" ] || return 1
+  [ "$(/bin/cat "$PY_DIR/.talktalk-python")" = "$pyv $pyr $pysha recipe=$TT_ENGINE_RECIPE" ] || return 1
+  stamp="$(/bin/cat "$VENV_DIR/.talktalk-venv")"
+  [ "$stamp" = "lock=$lock build=$(installed_field .build_lock_sha256) python=$pysha recipe=$TT_ENGINE_RECIPE" ] || return 1
+  tt_manifest_check "$PY_DIR" "$PY_DIR/.talktalk-manifest"
+}
+
+prepare_additive_model() {
+  # ADDED_ROLES/MODELS retain every unrelated role and downloaded model entry.
+  local role="$1" key="$2" rev entry dir stamp reuse=0
+  check_model_key "$key"
+  [ "$(tt_model_field "$key" ROLE)" = "$role" ] || tt_die "$key: invalid $role model"
+  rev="$(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r --arg role "$role" '.[$role].rev // empty')"
+  entry="$(printf '%s' "$ADDED_MODELS" | /usr/bin/jq -c --arg key "$key" --arg rev "$rev" '[.[] | select(.id == $key and .rev == $rev)][0] // empty')"
+  if [ -n "$entry" ]; then
+    dir="$(printf '%s' "$entry" | /usr/bin/jq -r .dir)"
+    case "$dir" in ''|*/*|.|..) tt_die "$key: invalid model directory" ;; esac
+    stamp="$MODELS_DIR/$dir/.talktalk-verified"
+    if [ -f "$stamp" ] && [ "$(/usr/bin/head -1 "$stamp")" = "$rev" ]; then
+      if [ "$rev" = "$(tt_model_field "$key" REVISION)" ]; then
+        if [ "$dir" = "$(tt_model_dirname "$key")" ] && model_full_verify "$key"; then reuse=1; fi
+      elif tt_in_list "$rev" "$(tt_model_field "$key" COMPAT_REVISIONS)"; then
+        reuse=1 # The selected compatible revision is also checked by real inference.
+      fi
+    fi
+  fi
+  if [ "$reuse" = "0" ]; then
+    # Re-download a same-size corrupted current model instead of trusting its quick stamp.
+    /bin/rm -f "$(model_dir "$key")/.talktalk-verified"
+    install_model "$key"
+    model_full_verify "$key" || tt_die "$key: model verification failed"
+    rev="$(tt_model_field "$key" REVISION)"
+    entry="$(/usr/bin/jq -nc --arg id "$key" --arg repo "$(tt_model_field "$key" REPO)" --arg rev "$rev" \
+      --arg role "$role" --arg dir "$(tt_model_dirname "$key")" '{id:$id,repo:$repo,rev:$rev,role:$role,dir:$dir}')"
+    ADDED_MODELS="$(printf '%s' "$ADDED_MODELS" | /usr/bin/jq -c --arg key "$key" --argjson entry "$entry" '[.[] | select(.id != $key)] + [$entry]')"
+  fi
+  ADDED_ROLES="$(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -c --arg role "$role" --arg id "$key" --arg rev "$rev" '.[$role]={id:$id,rev:$rev}')"
+}
+
+validate_preserved_roles() {
+  local role key rev dir stamp
+  while IFS='|' read -r role key rev; do
+    [ -n "$role" ] || continue
+    check_model_key "$key"
+    [ "$(tt_model_field "$key" ROLE)" = "$role" ] || tt_die "$key: invalid installed role; repair speech resources first"
+    { [ "$rev" = "$(tt_model_field "$key" REVISION)" ] \
+      || tt_in_list "$rev" "$(tt_model_field "$key" COMPAT_REVISIONS)"; } \
+      || tt_die "$key: existing revision is incompatible; repair speech resources first"
+    dir="$(printf '%s' "$ADDED_MODELS" | /usr/bin/jq -r --arg key "$key" --arg rev "$rev" '.[] | select(.id == $key and .rev == $rev) | .dir')"
+    case "$dir" in ''|*/*|.|..) tt_die "$key: invalid model directory; repair speech resources first" ;; esac
+    stamp="$MODELS_DIR/$dir/.talktalk-verified"
+    [ -f "$stamp" ] && [ "$(/usr/bin/head -1 "$stamp")" = "$rev" ] \
+      || tt_die "$key: existing model is unverified; repair speech resources first"
+    if [ "$rev" = "$(tt_model_field "$key" REVISION)" ]; then
+      if [ "$dir" != "$(tt_model_dirname "$key")" ] || ! model_full_verify "$key"; then
+        tt_die "$key: existing model is incomplete; repair speech resources first"
+      fi
+    fi
+  done < <(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r 'to_entries[] | select(.key != "asr") | [.key,.value.id,.value.rev] | join("|")')
+}
+
+do_additive_install() {
+  local scope="$1" previous='{}' source runtime_reused=0 asr tts prof tmp role key rev dir
+  local smoke_args=()
+  acquire_lock
+  source="$INSTALL_JSON"; [ -f "$source" ] || source="$INSTALL_JSON.prev"
+  if [ -f "$source" ]; then
+    /usr/bin/jq -e '.version == 1 and (.roles | type == "object") and (.models | type == "array")' "$source" >/dev/null \
+      || tt_die "repair the installation record before preparing recognition"
+    previous="$(/bin/cat "$source")"
+  fi
+  ADDED_ROLES="$(printf '%s' "$previous" | /usr/bin/jq -c '.roles // {}')"
+  ADDED_MODELS="$(printf '%s' "$previous" | /usr/bin/jq -c '.models // []')"
+  asr="$(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r '.asr.id // empty')"
+  tts="$(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r '.tts.id // empty')"
+  if [ "$scope" = "recognition" ]; then
+    asr="${asr:-$(role_key standard asr)}"
+    # A damaged preserved TTS role would make the complete install record unusable
+    # in the app. Fail before mutation rather than reporting a false completion.
+    validate_preserved_roles
+  else
+    tts="${tts:-$(role_key standard tts)}"
+  fi
+  [ -z "$asr" ] || check_model_key "$asr"
+  [ -z "$tts" ] || [ "$scope" = "recognition" ] || check_model_key "$tts"
+  if compatible_runtime; then
+    runtime_reused=1
+    tt_log "python and venv: compatible shared runtime retained"
+  fi
+  # Recognition never requires space for TTS weights or repairs the TTS role.
+  if [ "$scope" = "recognition" ]; then check_space "$asr"; else check_space "$tts" ${asr:+"$asr"}; fi
+  mark_prev
+  if [ "$runtime_reused" = "0" ]; then install_python; install_venv; fi
+  [ -z "$asr" ] || prepare_additive_model asr "$asr"
+  if [ "$scope" != "recognition" ]; then prepare_additive_model tts "$tts"; make_warmup; else make_asr_sample; fi
+  prof="$(matching_profile "$ADDED_ROLES" "$(printf '%s' "$previous" | /usr/bin/jq -r '.profile // empty')")"
+  for role in asr tts; do
+    [ "$scope" != "recognition" ] || [ "$role" != "tts" ] || continue
+    key="$(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r --arg role "$role" '.[$role].id // empty')"
+    [ -n "$key" ] || continue
+    rev="$(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r --arg role "$role" '.[$role].rev')"
+    dir="$(printf '%s' "$ADDED_MODELS" | /usr/bin/jq -r --arg key "$key" --arg rev "$rev" '.[] | select(.id == $key and .rev == $rev) | .dir')"
+    smoke_args+=("--$role" "$key" "--$role-model-dir" "$MODELS_DIR/$dir" "--$role-revision" "$rev")
+  done
+  [ -f "$ENGINE_SRC/smoke_engine.py" ] || tt_die "smoke_engine.py not found in $ENGINE_SRC"
+  tt_event step step "smoke" "done" 0 count 1
+  "$VENV_DIR/bin/python3" -I -B "$ENGINE_SRC/smoke_engine.py" --engine-home "$ENGINE_HOME" --engine-src "$ENGINE_SRC" \
+    --profile "$prof" "${smoke_args[@]}" >&2 || tt_die "smoke run failed; install.json not written (re-run to retry)"
+  tt_event step step "smoke" "done" 1 count 1
+  # Keep compatible runtime metadata and unknown record fields; replace metadata only
+  # when the shared runtime was installed/upgraded by this operation.
+  if [ "$runtime_reused" = "0" ]; then
+    previous="$(printf '%s' "$previous" | /usr/bin/jq -c --argjson api "$TT_ENGINE_API" --arg lock "$TT_LOCK_SHA256" \
+      --arg block "$TT_BUILD_LOCK_SHA256" --arg pyv "$TT_PY_VERSION" --arg pyr "$TT_PY_RELEASE" --arg pysha "$TT_PY_SHA256" \
+      --arg mla "$TT_MLX_AUDIO_COMMIT" --argjson recipe "$TT_ENGINE_RECIPE" \
+      '. + {version:1,engine_api:$api,runtime:"python-mlx",flavour:"main",lock_sha256:$lock,build_lock_sha256:$block,
+        recipe:$recipe,python:{version:$pyv,release:$pyr,sha256:$pysha},mlx_audio_commit:$mla}')"
+  fi
+  tmp="$INSTALL_JSON.tmp-$$"
+  printf '%s' "$previous" | /usr/bin/jq --argjson roles "$ADDED_ROLES" --argjson models "$ADDED_MODELS" --arg profile "$prof" \
+    --arg at "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" '.roles=$roles | .models=$models | .profile=$profile | .installed_at=$at' > "$tmp"
+  /bin/mv -f "$tmp" "$INSTALL_JSON"
+  /bin/rm -f "$INSTALL_JSON.prev"
+  tt_event "done" profile "$prof"
+  tt_log "engine installed ($scope resources; existing selections retained)"
+}
+
 do_install() {
+  if [ "$recognition_only" = "1" ]; then do_additive_install recognition; return; fi
+  # Maintenance Repair has no completed record from which to infer the failed
+  # operation. An unfinished ASR-only install must stay ASR-only; adding speech
+  # resources is a separate choice after recognition has finished successfully.
+  if [ -z "$profile" ] && [ ! -f "$INSTALL_JSON" ] && [ -f "$INSTALL_JSON.prev" ] \
+    && /usr/bin/jq -e '(.roles | keys) == ["asr"]' "$INSTALL_JSON.prev" >/dev/null; then
+    [ "$smoke" = "1" ] || tt_die "recognition recovery requires a successful ASR smoke check"
+    do_additive_install recognition; return
+  fi
   local prof="${profile:-$(installed_profile)}"
-  [ "$prof" != "custom" ] || tt_die "active models form a custom combination; choose an explicit --profile to change it"
+  if [ "$prof" = "custom" ]; then
+    [ "$(installed_field '.roles | length')" != "0" ] || tt_die "no active models; choose an explicit --profile to repair"
+    [ "$smoke" = "1" ] || tt_die "custom resource completion requires a successful smoke check"
+    do_additive_install speech; return
+  fi
   # Preserve the former default's actual model combination; Max now opts into ASR 1.7B.
   prof="${prof:-standard}"
   local models k extra

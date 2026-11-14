@@ -36,12 +36,14 @@ From version 1.0.18, use **Check for Updates…** in the menu bar menu or **Sett
 First-time setup:
 
 1. Follow onboarding to grant permissions and configure the speech resources you need. Meeting and phone interpretation also require the **TalkTalk Mic** virtual microphone. For video subtitles only, choose the listening-only setup.
-2. The app installs its private Python runtime and local models as needed. **You do not need to install system Python or Homebrew.** The default model files take about **4.1 GB**, plus space for the runtime. Later upgrades reuse compatible runtimes and downloaded models.
+2. The app installs its private Python runtime and local models as needed. **You do not need to install system Python or Homebrew.** The default meeting/phone model files take about **4.1 GB**, plus space for the runtime. Later upgrades reuse compatible runtimes and downloaded models.
 3. In **Settings › Scenarios**, choose Meeting, Phone, or Video and configure the app and languages. In your meeting or phone app, select **TalkTalk Mic** as the input, or follow onboarding to use the system default input managed by TalkTalk.
 4. For cloud text translation, enter your own OpenAI API key. For local Apple translation, install the required language resources first.
 5. To use your own voice, record and preview it in **My voice**. Download or delete models in **Components**, and switch between installed synthesis models in **Models › Synthesis**.
 
 Video mode listens only to the selected app by default. Explicitly enabling the global capture fallback captures audio from all apps. Your meeting app still controls muting. When you stop interpretation or quit TalkTalk, it restores the system input it managed.
+
+Video-only onboarding prepares the private Python runtime, shared dependencies, and Qwen3-ASR (0.6B for a new installation), then checks actual Qwen recognition. It does not download synthesis models, install TalkTalk Mic, require a voice recording, or request microphone permission. Apple speech resources remain available as fallback, with a visible status when Qwen is unavailable. Existing models and recognition choices are kept; users who selected Apple Speech can continue using it. Downloads can be cancelled and resumed by retrying. Adding speech synthesis for meetings or calls later reuses the existing models and runtime.
 
 ## Local models and voices
 

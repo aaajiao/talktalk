@@ -85,8 +85,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         settings.voice.peer = onboardingModel.voice
         onboardingModel.voice.peer = settings.voice
         onboardingModel.demo.panel = conversationPanel
+        onboardingModel.demo.recognitionPreference = { [weak state] in state?.effectiveListenASREngine ?? .qwen }
+        onboardingModel.demo.engineProcess = { [bridge = engineHost.speakBridge] in bridge.process }
         onboardingModel.demo.canStart = { [weak state, weak self] in
-            state?.meetingActive == false && state?.meetingStarting == false && self?.updater?.relaunching != true
+            guard let self else { return false }
+            return state?.meetingActive == false && state?.meetingStarting == false && updater?.relaunching != true
+                && !AppUIModels.shared.engine.busy && !engineHost.maintenanceActive
         }
         let onboarding = OnboardingWindowController(model: onboardingModel)
         onboardingModel.openScenario = { [weak state, weak settings, weak onboarding] mode in
@@ -374,7 +378,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func updateActivity() -> AppUpdateActivity {
         let privacy = isSmoke ? nil : PrivacySettings.shared
         let voices = [settings?.voice, onboarding?.model.voice].compactMap { $0 }
-        let demo = onboarding?.model.demo.phase
         return AppUpdateActivity(
             session: state.meetingActive || state.meetingStarting || state.meetingStopping
                 || state.speakSessionActive || speak?.isActive == true,
@@ -384,7 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             diagnostics: privacy?.diagnosticsStatus.runningPart != nil
                 || privacy?.recorder.recordingTracks.isEmpty == false
                 || privacy?.subtitleAnalysis.isStarting == true || privacy?.subtitleAnalysis.isRecording == true,
-            onboarding: demo == .preparing || demo == .playing || onboarding?.model.probeRunning == true
+            onboarding: onboarding?.model.demo.busy == true || onboarding?.model.probeRunning == true
                 || onboarding?.model.assets.values.contains(.downloading) == true,
             exporting: privacy?.exporting == true,
             calibration: AppUIModels.shared.audio.calibration.running)
@@ -462,6 +465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let voices = [settings?.voice, onboarding?.model.voice].compactMap { $0 }
             return updater?.relaunching == true || state.meetingActive || state.meetingStarting || state.meetingStopping
                 || state.speakSessionActive || speak?.isActive == true
+                || onboarding?.model.demo.busy == true
                 || voices.contains { $0.recordingBusy || $0.auditioning != nil || $0.deleting || $0.externalBusy() }
                 || settings?.driver.model?.selfTestRunning == true
                 || AppUIModels.shared.engine.blocked

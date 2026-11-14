@@ -27696,6 +27696,166 @@
           }
         }
       }
+    },
+    "Qwen 主识别，Apple 备用；保留已选的识别引擎": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qwen is primary, with Apple as fallback; your recognition choice is kept"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qwen 主识别，Apple 备用；保留已选的识别引擎"
+          }
+        }
+      }
+    },
+    "仅安装本地识别资源；下载可以取消，下次接着下": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install local recognition resources only; you can cancel and resume the download later"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅安装本地识别资源；下载可以取消，下次接着下"
+          }
+        }
+      }
+    },
+    "保留当前识别模型与设置，安装语音合成所需的模型。已有资源会复用。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install the speech synthesis model while keeping your current recognition model and settings. Existing resources will be reused."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留当前识别模型与设置，安装语音合成所需的模型。已有资源会复用。"
+          }
+        }
+      }
+    },
+    "保留当前选择，可直接继续；Qwen 安装状态独立显示": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep your current choice and continue; Qwen installation status is shown separately"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留当前选择，可直接继续；Qwen 安装状态独立显示"
+          }
+        }
+      }
+    },
+    "准备本地识别？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up local recognition?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准备本地识别？"
+          }
+        }
+      }
+    },
+    "准备本地语音识别": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up local recognition"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准备本地语音识别"
+          }
+        }
+      }
+    },
+    "安装所需运行环境与 Qwen 识别模型；复用已有资源，保留当前模型与识别选择。下载可以取消，下次接着下。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install the runtime and Qwen recognition model, reusing existing resources and keeping your current models and recognition choices. You can cancel and resume the download later."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装所需运行环境与 Qwen 识别模型；复用已有资源，保留当前模型与识别选择。下载可以取消，下次接着下。"
+          }
+        }
+      }
+    },
+    "已选择 Apple Speech": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Speech selected"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已选择 Apple Speech"
+          }
+        }
+      }
+    },
+    "补充语音合成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add speech synthesis"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "补充语音合成"
+          }
+        }
+      }
+    },
+    "补充语音合成？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add speech synthesis?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "补充语音合成？"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

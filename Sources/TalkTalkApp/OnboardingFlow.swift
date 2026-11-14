@@ -10,6 +10,7 @@ import TalkTalkCloud
 import TalkTalkCloudUI
 import TalkTalkCore
 import TalkTalkDriverSupport
+import TalkTalkEngineHost
 import TalkTalkSession
 import TalkTalkSettingsUI
 import TalkTalkVoice
@@ -146,9 +147,17 @@ final class OnboardingFlowModel {
 
     var canContinue: Bool {
         guard let s = step else { return false }
+        if (s == .engine || s == .tryIt) && engine.running { return false }
+        return state.canContinue(s, currentFacts)
+    }
+
+    private var currentFacts: OnboardingFacts {
         var f = facts
         f.recordingTake = voice.enrollment != nil
-        return state.canContinue(s, f)
+        f.engineInstalled = engine.synthesisInstalled
+        f.recognitionInstalled = engine.recognitionInstalled
+        f.prefersAppleRecognition = appState.effectiveListenASREngine == .apple
+        return f
     }
 
     /// The probe verdict to show: this process's, else the persisted one.
@@ -172,7 +181,9 @@ final class OnboardingFlowModel {
         // Presence only, never the value (CLAUDE.md): no TranslationSettingsModel here.
         facts.openAIKeyPresent = bundleID.flatMap { KeychainSecret.openAI(bundleID: $0) }?.exists()
         engine.reload()
-        facts.engineInstalled = engine.installed
+        facts.engineInstalled = engine.synthesisInstalled
+        facts.recognitionInstalled = engine.recognitionInstalled
+        facts.prefersAppleRecognition = appState.effectiveListenASREngine == .apple
         refreshDriver()
         voice.reload()
         facts.voiceProfile = voice.hasProfile
@@ -196,9 +207,7 @@ final class OnboardingFlowModel {
 
     func next() {
         guard let s = step, canContinue else { return }
-        var f = facts
-        f.recordingTake = voice.enrollment != nil
-        if state.complete(s, f) { moved() }
+        if state.complete(s, currentFacts) { moved() }
     }
 
     func skip() {
@@ -388,7 +397,7 @@ final class OnboardingFlowModel {
 extension OnboardingFlowModel {
     static let devAllFacts = OnboardingFacts(microphone: true, speechRecognition: true, inputMonitoring: true,
                                              systemAudioProbe: .granted, speechAssets: true, driverInstalled: true,
-                                             engineInstalled: true, openAIKeyPresent: true, voiceProfile: true,
+                                             engineInstalled: true, recognitionInstalled: true, openAIKeyPresent: true, voiceProfile: true,
                                              meetingMicVerified: true)
 
     @discardableResult
@@ -458,7 +467,7 @@ enum AppActivation {
 
 /// "播放示例音频看字幕": `say` renders an English sample into a UUID-named temporary directory,
 /// which is read into memory and deleted at once; the sample plays on the default output and
-/// goes through ListenPipeline (Apple ASR, the same MT engines as meeting mode) into the shared
+/// goes through ListenPipeline (the selected ASR, Apple translation) into the shared
 /// conversation panel. Every run has a token: 停止, closing the window or a new run makes the
 /// older run stop at its next await (pipeline stopped, panel hidden).
 @MainActor
@@ -467,11 +476,18 @@ final class ListenDemo {
     enum Phase: Equatable { case idle, preparing, playing, done, failed(String) }
     private(set) var phase: Phase = .idle
     private(set) var lines: [String] = []
+    /// Includes asynchronous stop cleanup; maintenance must not replace Python underneath it.
+    private(set) var busy = false
+    private(set) var recognitionName = ""
+    private(set) var recognitionFallback = false
     @ObservationIgnored var panel: SubtitlePanel?
     @ObservationIgnored var canStart: () -> Bool = { true }
+    @ObservationIgnored var recognitionPreference: () -> SpeechRecognitionEngine = { .qwen }
+    @ObservationIgnored var engineProcess: () -> EngineProcess? = { nil }
     @ObservationIgnored private var showingPanel = false
     @ObservationIgnored private var player: AVAudioPlayer?
     @ObservationIgnored private var run: UUID?
+    @ObservationIgnored private var busyRun: UUID?
     @ObservationIgnored private var task: Task<Void, Never>?
 
     nonisolated static let sample = "Thanks everyone for joining. Let's start with the budget for next year, and then we look at the hiring plan."
@@ -486,15 +502,30 @@ final class ListenDemo {
         }
         let id = UUID()
         run = id
+        busyRun = id
+        busy = true
         phase = .preparing
         lines = []
-        task = Task { await play(id) }
+        recognitionName = ""
+        recognitionFallback = false
+        let preference = recognitionPreference()
+        let engine = preference == .qwen ? engineProcess() : nil
+        // A stopped run finishes its pipeline/engine cleanup before the next run acquires it.
+        let previous = task
+        task = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            defer {
+                if self.busyRun == id { self.busyRun = nil; self.busy = false }
+            }
+            guard self.current(id) else { return }
+            await self.play(id, preference: preference, engine: engine)
+        }
     }
 
     func stop() {
         run = nil
         task?.cancel()
-        task = nil
         player?.stop()
         player = nil
         if showingPanel {
@@ -515,17 +546,41 @@ final class ListenDemo {
 
     private func current(_ id: UUID) -> Bool { run == id && !Task.isCancelled }
 
-    private func play(_ id: UUID) async {
+    private func play(_ id: UUID, preference: SpeechRecognitionEngine, engine: EngineProcess?) async {
         var pipeline: ListenPipeline?
+        var ownsEngine = false
         func abandon() async {
             if let pipeline { await pipeline.stop() }
+            if ownsEngine { await engine?.enrollmentFinished(); ownsEngine = false }
         }
         do {
             let (samples, wavData) = try await Self.renderSample()
             guard current(id) else { return await abandon() }
             let profile = try PolicyProfile.loadDefault()
-            let engines = await MeetingController.engines(.en)
+            var engines = await MeetingController.engines(.en)
             guard current(id) else { return await abandon() }
+            if preference == .qwen {
+                await engine?.enrollmentStarted()
+                ownsEngine = engine != nil
+                // Match video startup: let ASR become available before TTS warmup in a full
+                // installation. A failed preparation still takes the normal Apple fallback.
+                var primary = engine
+                do { _ = try await engine?.start(prioritizingASR: true) }
+                catch { primary = nil }
+                guard current(id) else { return await abandon() }
+                engines.asr = QwenStreamingASR(engine: primary, fallback: AppleSpeechASR(), cadenceMs: 500,
+                                               windowSeconds: 24, earlySentences: true,
+                                               onEngine: { [weak self] actual in
+                    Task { @MainActor in
+                        guard let self, self.run == id else { return }
+                        self.recognitionFallback = actual.placement != .engineGPU
+                        self.recognitionName = self.recognitionFallback
+                            ? String(appLocalized: "识别：Apple 备用") : "Qwen3-ASR"
+                    }
+                })
+            } else {
+                recognitionName = "Apple Speech"
+            }
             let ingest = AudioIngest()            // one per run
             let p = ListenPipeline(lang: .en, profile: profile.listen, engines: engines, log: EventLog(inMemory: HostClock.now),
                                    ingest: ingest, onUpdate: { [weak self] u in
@@ -563,7 +618,7 @@ final class ListenDemo {
                 try? await Task.sleep(for: .milliseconds(20))
             }
             if current(id) { try? await Task.sleep(for: .seconds(2)) }
-            await p.stop()
+            await abandon()
             if current(id), phase == .playing { phase = .done }
         } catch {
             await abandon()
@@ -836,6 +891,7 @@ struct OnboardingView: View {
         switch model.step {
         case .tryIt?:
             Button("完成") { model.next() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                .disabled(!model.canContinue)
         case .openAI?:
             // Optional: 稍后设置 moves on without a key; 继续 once the key passed both checks.
             let verified = model.translation.model.map(OpenAIOnboardingStep.canContinue) ?? false
@@ -1118,13 +1174,20 @@ private struct EngineStep: View {
     let model: OnboardingFlowModel
 
     var body: some View {
-        OnboardingPage(title: StepTitle(.engine, String(appLocalized: "准备本地语音引擎"))) {
+        OnboardingPage(title: StepTitle(.engine, model.videoOnly ? String(appLocalized: "准备本地语音识别")
+                                                               : String(appLocalized: "准备本地语音引擎"))) {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
-                    FlowGrid.localEngine(model.engine, state: model.appState)
+                    FlowGrid.localEngine(model.engine, state: model.appState, recognitionOnly: model.videoOnly)
                     FactRow([FactChip(String(appLocalized: "本机"), symbol: Icon.thisMac,
-                                      help: String(appLocalized: "识别与合成都在这台 Mac"),
-                                      spoken: String(appLocalized: "识别与合成都在这台 Mac 完成；下载可以取消，下次接着下"))])
+                                      help: model.videoOnly ? String(appLocalized: "Qwen 主识别，Apple 备用；保留已选的识别引擎")
+                                          : String(appLocalized: "识别与合成都在这台 Mac"),
+                                      spoken: model.videoOnly ? String(appLocalized: "仅安装本地识别资源；下载可以取消，下次接着下")
+                                          : String(appLocalized: "识别与合成都在这台 Mac 完成；下载可以取消，下次接着下"))])
+                    if model.videoOnly, model.facts.prefersAppleRecognition {
+                        StatusLabel(String(appLocalized: "已选择 Apple Speech"), .ok,
+                                    help: String(appLocalized: "保留当前选择，可直接继续；Qwen 安装状态独立显示"))
+                    }
                 }
                 .padding(.vertical, 4)
             }
@@ -1132,12 +1195,12 @@ private struct EngineStep: View {
                 Section { EngineUnavailableView() }
             } else {
                 Section {
-                    EngineControlRows(model: model.engine)
+                    EngineControlRows(model: model.engine, recognitionOnly: model.videoOnly)
                 } header: {
                     SectionHeader(String(appLocalized: "引擎"), symbol: Icon.engine)
                 }
                 Section {
-                    EngineModelRows(model: model.engine)
+                    EngineModelRows(model: model.engine, role: model.videoOnly ? "asr" : nil)
                 } header: {
                     SectionHeader(String(appLocalized: "模型"), symbol: Icon.Page.models)
                 }
@@ -1146,6 +1209,9 @@ private struct EngineStep: View {
         .onAppear { model.engine.reload() }
         .onChange(of: model.engine.running) { _, running in
             if !running { Task { await model.refresh() } }
+        }
+        .onChange(of: model.appState.effectiveListenASREngine) { _, _ in
+            Task { await model.refresh() }
         }
     }
 }
@@ -1207,15 +1273,18 @@ private struct VoiceStep: View {
 extension FlowGrid {
     /// Step 4 (§7.17): recognition and the selected local synthesis model, the two parts
     /// the engine runs on this Mac; translation itself is not installed here.
-    static func localEngine(_ engine: EngineComponentsModel, state: AppState) -> FlowGrid {
-        let recognition = engine.recognitionProblem(state)
+    static func localEngine(_ engine: EngineComponentsModel, state: AppState, recognitionOnly: Bool = false) -> FlowGrid {
+        let recognition = engine.recognitionProblem(state, speaking: recognitionOnly ? false : nil)
         let synthesis = engine.synthesisProblem
-        return FlowGrid(String(appLocalized: "本地语音引擎"), lanes: [
+        let apple = state.effectiveListenASREngine == .apple
+        let lanes = [
             FlowLane(String(appLocalized: "识别"), cells: [
                 .node(FlowNode(String(appLocalized: "声音"), glyph: .symbol(Icon.recognition), badge: recognition?.status,
                                badgeReason: recognition?.text,
-                               satellite: FlowSatellite(engine.usesAppleRecognition ? "Apple Speech" : "Qwen3-ASR", symbol: Icon.Page.models,
-                                                        help: String(appLocalized: "识别声音")))),
+                               satellite: FlowSatellite(apple ? "Apple Speech" : "Qwen3-ASR", symbol: Icon.Page.models,
+                                                        help: !recognitionOnly ? String(appLocalized: "识别声音")
+                                                            : apple ? String(appLocalized: "已选择 Apple Speech")
+                                                                : String(appLocalized: "Qwen 主识别，Apple 备用；保留已选的识别引擎")))),
                 .node(FlowNode(String(appLocalized: "原文"), glyph: .symbol(Icon.sourceText))),
                 .empty, .empty
             ]),
@@ -1228,6 +1297,7 @@ extension FlowGrid {
                                                         help: engine.modelName(role: "tts") ?? String(appLocalized: "合成译音")))),
                 .empty, .empty
             ])
-        ])
+        ]
+        return FlowGrid(String(appLocalized: "本地语音引擎"), lanes: recognitionOnly ? Array(lanes.prefix(1)) : lanes)
     }
 }

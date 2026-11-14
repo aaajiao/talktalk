@@ -171,6 +171,21 @@ private final class ReadinessFallbackASR: StreamingASREngine, ASRStream, Sendabl
         await engine.stop()
     }
 
+    @Test(arguments: [false, true])
+    func missingOrUnstartableQwenReportsAppleAsTheActualEngine(missing: Bool) async throws {
+        let box = try EngineHostTests.Sandbox()
+        let engine = missing ? nil : EngineProcess(config: try box.config("fatal"))
+        let fallback = ReadinessFallbackASR(), selected = Mutex<[String]>([])
+        let asr = QwenStreamingASR(engine: engine, fallback: fallback,
+                                  onEngine: { id in selected.withLock { $0.append(id.name) } })
+        let stream = try await asr.open(.en, highPriority: false)
+        #expect(fallback.opens.withLock { $0 } == 1)
+        #expect(selected.withLock { $0 } == [fallback.id.name])
+        #expect(calls(box).allSatisfy { $0.path != "/v1/asr" })
+        await stream.cancel()
+        await engine?.stop()
+    }
+
     @Test(arguments: ["build", "load", "simpleSpeak"])
     func everyTTSConvenienceEntryWaitsBeforeSendingAnHTTPJob(entry: String) async throws {
         let box = try EngineHostTests.Sandbox(), engine = EngineProcess(config: try loadingConfig(box))
@@ -257,6 +272,27 @@ private final class ReadinessFallbackASR: StreamingASREngine, ASRStream, Sendabl
             }
         }
         #expect(calls(box).allSatisfy { $0.method != "POST" })
+        await engine.stop()
+    }
+
+    @Test func recognitionOnlyInstallationDoesNotStartForAnAccidentalVoiceRequest() async throws {
+        let box = try EngineHostTests.Sandbox()
+        var config = try box.config()
+        config.roles = ["asr"]; config.tts = nil
+        let engine = EngineProcess(config: config)
+        await #expect(throws: RemoteEngineError.tts(code: "tts_not_loaded", message: "")) {
+            try await engine.readyTTSClient()
+        }
+        #expect(box.launches.isEmpty)
+        #expect(await engine.status == .stopped)
+
+        // The same installation remains usable by the listening path.
+        let ready = try await engine.start(prioritizingASR: true)
+        #expect(ready.models["asr"]?.state == "ready" && ready.models["tts"] == nil)
+        let result = try await RemoteQwenASR(engine: engine).transcribe([Float](repeating: 0, count: 1600),
+                                                                      hint: "en", priority: 2, job: "recognition-only")
+        #expect(result.text == "今天十点开会")
+        #expect(calls(box).allSatisfy { $0.path != "/v1/tts" && !$0.path.hasPrefix("/v1/voice/") })
         await engine.stop()
     }
 

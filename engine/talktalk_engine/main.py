@@ -43,13 +43,17 @@ class ImportAudit:
 
 
 def find_models(dirs):
-    """Maps model key -> (path, revision) using each dir's .talktalk-verified stamp."""
+    """Read exact model directories or legacy roots via .talktalk-verified stamps."""
     found = {}
     for base in dirs:
         base = Path(base)
         if not base.is_dir():
             continue
-        for d in sorted(base.iterdir()):
+        # The app passes exact directories from install.json, retaining a selected revision
+        # even when another revision of the same model is downloaded beside it. CLI callers
+        # and installer smoke views may still pass roots containing model directories.
+        candidates = [base] if (base / ".talktalk-verified").is_file() else sorted(base.iterdir())
+        for d in candidates:
             stamp = d / ".talktalk-verified"
             if not stamp.is_file():
                 continue

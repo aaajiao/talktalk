@@ -2,7 +2,7 @@
 """Installer smoke run (ARCHITECTURE.md §7.3 steps 2-7). install.json is written only if this passes.
 
   venv/bin/python3 -I -B smoke_engine.py --engine-home <engine> --engine-src <src> --profile max \
-      --tts <key> [--asr <key>]
+      [--tts <key>] [--asr <key>]
 
 Uses only the synthetic `say` references in <engine>/warmup (never a real person's voice).
 Prints one JSON summary line on stdout; exit 0 on pass.
@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import unicodedata
 import wave
@@ -62,14 +63,29 @@ def main():
     ap.add_argument("--engine-home", required=True)
     ap.add_argument("--engine-src", required=True)
     ap.add_argument("--profile", default="max")
-    ap.add_argument("--tts", required=True)
+    ap.add_argument("--tts", default="")
     ap.add_argument("--asr", default="")
+    for role in ("tts", "asr"):
+        ap.add_argument(f"--{role}-model-dir")
+        ap.add_argument(f"--{role}-revision")
     a = ap.parse_args()
+    if not a.tts and not a.asr:
+        ap.error("at least one of --tts or --asr is required")
     home = Path(a.engine_home)
     warm = home / "warmup"
-    roles = "tts,asr" if a.asr else "tts"
+    roles = ",".join(role for role in ("tts", "asr") if getattr(a, role))
     result = {"profile": a.profile, "roles": roles, "ok": False}
-    eng = Engine(home / "venv/bin/python3", a.engine_src, [home / "models"], roles=roles, tts=a.tts,
+    # A compatible old revision and a newer download may coexist. Give this smoke
+    # a view containing only the exact selected directories, rather than relying
+    # on the engine's discovery order to pick a revision with the same model key.
+    selected = tempfile.TemporaryDirectory(prefix="talktalk-smoke-models-")
+    model_dirs = [home / "models"]
+    for role in ("tts", "asr"):
+        directory = getattr(a, f"{role}_model_dir")
+        if directory and getattr(a, role):
+            (Path(selected.name) / role).symlink_to(Path(directory), target_is_directory=True)
+            model_dirs = [Path(selected.name)]
+    eng = Engine(home / "venv/bin/python3", a.engine_src, model_dirs, roles=roles, tts=a.tts or None,
                  asr=a.asr or None, warmup_dir=warm,
                  cache_dir=Path.home() / "Library/Caches/TalkTalk",
                  log_path=Path.home() / "Library/Logs/TalkTalk/engine-install.log")
@@ -77,6 +93,12 @@ def main():
     try:
         eng.start()
         result["ready_s"] = round(eng.ready_s, 2)
+        for role in ("tts", "asr"):
+            expected_revision = getattr(a, f"{role}_revision")
+            if expected_revision and getattr(a, role):
+                actual = eng.ready.get("models", {}).get(role, {})
+                assert actual.get("id") == getattr(a, role) and actual.get("rev") == expected_revision, \
+                    f"{role} loaded a different model or revision than the selected installation"
         if a.asr:
             eng.wait_asr()
             pcm, sr = read_wav(warm / "sample-zh.wav")
@@ -85,19 +107,20 @@ def main():
             ref = (warm / "sample-zh.txt").read_text()
             result["asr_cer"] = round(cer(ref, r["text"]), 3)
             assert result["asr_cer"] <= 0.15, f"ASR CER {result['asr_cer']} > 0.15"
-        ref_pcm, sr = read_wav(warm / "ref-zh.wav")
-        assert sr == 24000, "warmup reference must be 24 kHz"
-        _, blob = eng.build_voice(ref_pcm, (warm / "ref-zh.txt").read_text().strip())
-        eng.load_voice(blob)
-        result["tts"] = {}
-        for lang, text in (("en", "Thanks, everyone. Let me quickly walk you through where the project stands today."),
-                           ("de", "Danke Ihnen allen. Ich gebe Ihnen kurz einen Überblick über den aktuellen Stand des Projekts.")):
-            pcm, tail, timing = eng.tts({"text": text, "lang": lang, "seed": 0})
-            exp = expected_seconds(text, lang)
-            ratio = timing["audio_s"] / exp
-            result["tts"][lang] = {"audio_s": round(timing["audio_s"], 2), "ratio": round(ratio, 2),
-                                   "rtf": round(tail["timing"]["total_ms"] / 1e3 / max(1e-6, timing["audio_s"]), 3)}
-            assert 0.7 <= ratio <= 1.4, f"{lang}: duration ratio {ratio:.2f} outside 0.7-1.4"
+        if a.tts:
+            ref_pcm, sr = read_wav(warm / "ref-zh.wav")
+            assert sr == 24000, "warmup reference must be 24 kHz"
+            _, blob = eng.build_voice(ref_pcm, (warm / "ref-zh.txt").read_text().strip())
+            eng.load_voice(blob)
+            result["tts"] = {}
+            for lang, text in (("en", "Thanks, everyone. Let me quickly walk you through where the project stands today."),
+                               ("de", "Danke Ihnen allen. Ich gebe Ihnen kurz einen Überblick über den aktuellen Stand des Projekts.")):
+                pcm, tail, timing = eng.tts({"text": text, "lang": lang, "seed": 0})
+                exp = expected_seconds(text, lang)
+                ratio = timing["audio_s"] / exp
+                result["tts"][lang] = {"audio_s": round(timing["audio_s"], 2), "ratio": round(ratio, 2),
+                                       "rtf": round(tail["timing"]["total_ms"] / 1e3 / max(1e-6, timing["audio_s"]), 3)}
+                assert 0.7 <= ratio <= 1.4, f"{lang}: duration ratio {ratio:.2f} outside 0.7-1.4"
         ok, detail = lsof_ok(eng.pid, eng.port)
         result["lsof"] = detail
         assert ok, f"unexpected sockets: {detail}"
@@ -113,6 +136,7 @@ def main():
         result["error"] = f"{type(e).__name__}: {e}"
     finally:
         eng.stop()
+        selected.cleanup()
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result["ok"] else 1
 

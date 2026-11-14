@@ -140,7 +140,7 @@ final class EngineHost {
     private func set(_ p: EngineProcess?, _ record: EngineInstallation.Record?) {
         process = p
         processRecord = p == nil ? nil : record
-        (routing, lifecycle) = Self.voice(p, monitor: auditionMonitor)
+        (routing, lifecycle) = Self.voice(processRecord?.roles["tts"] == nil ? nil : p, monitor: auditionMonitor)
         speakBridge.update(p, routing: routing)
         onChange?()
     }
@@ -148,16 +148,17 @@ final class EngineHost {
     /// Called once while assembling the app, before a recording or meeting can start.
     func setAuditionMonitor(_ monitor: any AuditionMonitor) {
         auditionMonitor = monitor
-        (routing, lifecycle) = Self.voice(process, monitor: monitor)
+        (routing, lifecycle) = Self.voice(processRecord?.roles["tts"] == nil ? nil : process, monitor: monitor)
         speakBridge.update(process, routing: routing)
         onChange?()
     }
 
-    private static func voice(_ p: EngineProcess?, monitor: any AuditionMonitor = UnavailableAuditionMonitor()) -> (SpeakVoiceRouting, VoiceLifecycle) {
+    /// Callers pass only a process whose validated installation contains synthesis.
+    private static func voice(_ synthesis: EngineProcess?, monitor: any AuditionMonitor = UnavailableAuditionMonitor()) -> (SpeakVoiceRouting, VoiceLifecycle) {
         let system = SystemVoiceTTS()
-        let clone: any TTSEngine = p.map { RemoteQwenTTS(engine: $0) } ?? system
+        let clone: any TTSEngine = synthesis.map { RemoteQwenTTS(engine: $0) } ?? system
         let routing = SpeakVoiceRouting(clone: clone, system: system)
-        let lifecycle = VoiceLifecycle(engineProcess: p, monitor: monitor,
+        let lifecycle = VoiceLifecycle(engineProcess: synthesis, monitor: monitor,
                                        routing: routing, passthroughGains: PassthroughGainDefaults())
         return (routing, lifecycle)
     }

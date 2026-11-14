@@ -131,6 +131,42 @@ pass=0; fail=0
 ok() { pass=$((pass + 1)); printf 'ok   %s\n' "$1"; }
 no() { fail=$((fail + 1)); printf 'FAIL %s\n' "$1"; [ ! -s "$work/err" ] || /usr/bin/tail -5 "$work/err" | /usr/bin/sed 's/^/     /'; }
 
+# 0. Video-only preparation installs ASR without TTS or a voice reference.
+/bin/rm -f "$eng/warmup/ref-zh.wav" "$eng/warmup/ref-zh.txt"
+inst --recognition-only --no-smoke && no "recognition cannot bypass smoke" || ok "recognition cannot bypass smoke"
+inst --recognition-only --profile standard && no "recognition rejects a preset" || ok "recognition rejects a preset"
+inst --recognition-only --check && no "recognition rejects other operations" || ok "recognition rejects other operations"
+inst --recognition-only --json-progress && ok "fresh recognition install succeeds" || no "fresh recognition install"
+[ "$(/usr/bin/jq -c '.roles | keys' "$eng/install.json")" = '["asr"]' ] \
+  && [ "$(/usr/bin/jq -r .roles.asr.id "$eng/install.json")" = fake-asr ] \
+  && [ "$(/usr/bin/jq -r '.models | length' "$eng/install.json")" = 1 ] \
+  && [ ! -e "$eng/models/Fake-TTS@111111111111" ] && [ ! -e "$eng/warmup/ref-zh.wav" ] \
+  && ok "recognition has only the default ASR and no TTS reference" || no "recognition resource scope"
+/usr/bin/grep -q '^--asr$' "$work/smoke_args" && ! /usr/bin/grep -q '^--tts$' "$work/smoke_args" \
+  && /usr/bin/grep -q '^--asr-revision$' "$work/smoke_args" \
+  && ok "recognition smoke launches only the selected ASR revision" || no "recognition smoke scope"
+inst --check && ok "recognition-only record passes check" || no "recognition check"
+inst --recognition-only --json-progress && ! /usr/bin/grep -q '"event":"download"' "$work/out" \
+  && ok "recognition retry reuses Python, dependencies and model" || no "recognition reuse"
+echo 1 > "$work/smoke_rc"
+inst --recognition-only && no "failed ASR smoke cannot complete" || ok "failed ASR smoke cannot complete"
+[ ! -f "$eng/install.json" ] && [ -f "$eng/install.json.prev" ] \
+  && ok "failed ASR smoke remains unfinished" || no "recognition failure status"
+echo 0 > "$work/smoke_rc"
+inst && [ ! -e "$eng/install.json.prev" ] \
+  && [ "$(/usr/bin/jq -c '.roles | keys' "$eng/install.json")" = '["asr"]' ] \
+  && [ ! -e "$eng/models/Fake-TTS@111111111111" ] && [ ! -e "$eng/warmup/ref-zh.wav" ] \
+  && ! /usr/bin/grep -q '^--tts$' "$work/smoke_args" \
+  && ok "bare Repair resumes unfinished ASR-only install without adding TTS" || no "recognition repair scope"
+asr_before="$(/usr/bin/jq -cS .roles.asr "$eng/install.json")"
+for f in ref-zh.wav ref-zh.txt; do printf 'x' > "$eng/warmup/$f"; done
+inst && [ "$(/usr/bin/jq -cS .roles.asr "$eng/install.json")" = "$asr_before" ] \
+  && [ "$(/usr/bin/jq -r .roles.tts.id "$eng/install.json")" = fake-tts ] \
+  && ok "later speech setup adds TTS while retaining ASR" || no "speech upgrade from video"
+inst --uninstall
+/bin/mkdir -p "$eng/warmup"
+for f in ref-zh.wav ref-zh.txt sample-zh.wav sample-zh.txt; do printf 'x' > "$eng/warmup/$f"; done
+
 # 1. fresh install
 inst --json-progress && ok "fresh install exits 0" || no "fresh install"
 all_json && ok "--json-progress: stdout is JSON events only" || no "stdout JSON"
@@ -308,9 +344,11 @@ inst --remove-model fake-tts --allow-active-model \
   && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = custom ] \
   && ok "opt-in active TTS removal preserves ASR and records custom composition" || no "active TTS removal"
 set_record '.profile = "max"'
-before_custom="$(tt_sha256 "$eng/install.json")"
-inst && no "custom repair requires explicit target" || ok "custom repair requires explicit target"
-[ "$(tt_sha256 "$eng/install.json")" = "$before_custom" ] && ok "refused custom repair leaves record unchanged" || no "custom record changed"
+asr_before="$(/usr/bin/jq -cS .roles.asr "$eng/install.json")"
+inst && [ "$(/usr/bin/jq -cS .roles.asr "$eng/install.json")" = "$asr_before" ] \
+  && [ "$(/usr/bin/jq -r .roles.tts.id "$eng/install.json")" = fake-tts ] \
+  && ok "implicit completion of ASR-only custom setup adds only TTS" || no "custom resource completion"
+inst --remove-model fake-tts --allow-active-model
 roles_before="$(/usr/bin/jq -cS .roles "$eng/install.json")"
 inst --add-model fake-asr-large && [ "$(/usr/bin/jq -cS .roles "$eng/install.json")" = "$roles_before" ] \
   && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = custom ] \
@@ -319,6 +357,38 @@ inst --remove-model fake-asr && no "custom active role also requires opt-in" || 
 inst --remove-model fake-asr --allow-active-model && [ "$(/usr/bin/jq -r '.roles | length' "$eng/install.json")" = 0 ] \
   && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = custom ] \
   && ok "custom role removal does not activate another downloaded model" || no "custom remove"
+inst --profile standard
+inst --remove-model fake-asr-large
+
+# Recognition preparation preserves a custom voice and larger selected ASR, even
+# when the selected compatible revision is older than the current download pin.
+inst --profile max
+inst --select-tts fake-ming
+roles_before="$(/usr/bin/jq -cS .roles "$eng/install.json")"
+models_before="$(/usr/bin/jq -cS .models "$eng/install.json")"
+inst --recognition-only && [ "$(/usr/bin/jq -cS .roles "$eng/install.json")" = "$roles_before" ] \
+  && [ "$(/usr/bin/jq -cS .models "$eng/install.json")" = "$models_before" ] \
+  && ! /usr/bin/grep -q '^--tts$' "$work/smoke_args" \
+  && ok "recognition retains custom TTS and larger ASR without synthesizing" || no "recognition preserves selected models"
+record_before="$(tt_sha256 "$eng/install.json")"
+/bin/mv "$eng/models/Fake-Ming@444444444444/config.json" "$work/ming-config"
+inst --recognition-only && no "recognition rejects a broken preserved TTS role" || ok "recognition rejects a broken preserved TTS role"
+[ "$(tt_sha256 "$eng/install.json")" = "$record_before" ] && [ ! -e "$eng/install.json.prev" ] \
+  && /usr/bin/grep -q 'repair speech resources first' "$work/err" \
+  && ok "broken preserved role gives actionable failure before mutation" || no "preserved role failure state"
+/bin/mv "$work/ming-config" "$eng/models/Fake-Ming@444444444444/config.json"
+printf '\nTT_M_FAKE_ASR_LARGE_REVISION="6666666666666666666666666666666666666666"\nTT_M_FAKE_ASR_LARGE_COMPAT_REVISIONS="%s"\n' "$rev_large" >> "$tree/scripts/lib/versions.sh"
+inst --recognition-only && [ "$(/usr/bin/jq -cS .roles "$eng/install.json")" = "$roles_before" ] \
+  && [ "$(/usr/bin/jq -cS .models "$eng/install.json")" = "$models_before" ] \
+  && [ ! -e "$eng/models/Fake-ASR-Large@666666666666" ] \
+  && /usr/bin/grep -q "^$rev_large$" "$work/smoke_args" \
+  && ok "recognition reuses the selected compatible ASR revision" || no "recognition compatible revision"
+printf '\nTT_M_FAKE_ASR_LARGE_REVISION="%s"\n' "$rev_large" >> "$tree/scripts/lib/versions.sh"
+inst --remove-model fake-ming --allow-active-model
+asr_before="$(/usr/bin/jq -cS .roles.asr "$eng/install.json")"
+inst && [ "$(/usr/bin/jq -cS .roles.asr "$eng/install.json")" = "$asr_before" ] \
+  && [ "$(/usr/bin/jq -r .roles.tts.id "$eng/install.json")" = fake-tts ] \
+  && ok "later speech setup retains the selected larger ASR" || no "larger ASR speech upgrade"
 inst --profile standard
 inst --remove-model fake-asr-large
 

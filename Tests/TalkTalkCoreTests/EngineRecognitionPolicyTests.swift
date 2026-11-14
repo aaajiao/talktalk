@@ -38,6 +38,17 @@ import Testing
         }
     }
 
+    @Test func recognitionOnlyInstallationPreservesBothIndependentPreferences() {
+        let profile = EngineRecognitionPolicy.compatibilityProfile(activeRoles: ["asr": "asr-qwen3-0.6b-8bit"])
+        #expect(profile != .compact16)
+        for listen in SpeechRecognitionEngine.allCases {
+            for speak in SpeechRecognitionEngine.allCases {
+                #expect(EngineRecognitionPolicy.listening(preferred: listen, installedProfile: profile) == listen)
+                #expect(EngineRecognitionPolicy.speaking(preferred: speak, installedProfile: profile) == speak)
+            }
+        }
+    }
+
     @Test func leavingLegacyProfileRestoresEachUnchangedPreference() {
         for listen in SpeechRecognitionEngine.allCases {
             for speak in SpeechRecognitionEngine.allCases {

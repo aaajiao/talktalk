@@ -68,6 +68,12 @@ public struct EngineInstallation: Sendable {
             default: false
             }
         }
+
+        /// A runnable installation may contain only recognition or only synthesis. A scene
+        /// must check the role it needs instead of treating any installation as complete.
+        public func canUseRole(_ role: String, record: Record?) -> Bool {
+            canStartEngine && record?.roles[role] != nil
+        }
     }
 
     public static let maxRecordBytes = 1 << 20

@@ -70,7 +70,7 @@ final class MyVoiceModel {
     var synthesisProblem: SettingsProblem? { components.synthesisProblem }
     /// The installation, not the engine instance (dropped during maintenance): the scenario
     /// pages' fact for 我的声音 vs 系统声音.
-    var engineInstalled: Bool { components.installed }
+    var engineInstalled: Bool { components.synthesisInstalled }
     var synthesisModelName: String? { components.modelName(role: "tts") }
     /// The chosen synthesis model's short name, as the chip on 识别与翻译 › 语音合成.
     var synthesisModelShortName: String? {

@@ -42,11 +42,11 @@ public enum OnboardingStep: String, CaseIterable, Codable, Sendable, Comparable 
     }
 
     /// The steps for the chosen scenarios (redesign §7 首次引导). Video alone needs only app
-    /// audio and speech recognition, the speech assets and the try-out ("准备视频字幕"). Step 7
+    /// audio and speech recognition, Apple fallback assets, local recognition and the try-out. Step 7
     /// is about a meeting app's input, so a path without 会议 (phone, or phone and video) drops
     /// it: the phone follows the system default input.
     public static func path(for scenarios: Set<OnboardingScenario>) -> [OnboardingStep] {
-        if OnboardingScenario.isVideoOnly(scenarios) { return [.permissions, .speechAssets, .tryIt] }
+        if OnboardingScenario.isVideoOnly(scenarios) { return [.permissions, .speechAssets, .engine, .tryIt] }
         return scenarios.contains(.meeting) ? allCases : allCases.filter { $0 != .meetingMic }
     }
 }
@@ -93,6 +93,10 @@ public struct OnboardingFacts: Sendable, Equatable {
     public var speechAssets: Bool?
     public var driverInstalled: Bool?
     public var engineInstalled: Bool?
+    /// Qwen ASR is installed independently of synthesis. Apple being usable is not this fact.
+    public var recognitionInstalled: Bool?
+    /// An intentional Apple selection (including a legacy synthesis-only setup), never a runtime fallback.
+    public var prefersAppleRecognition: Bool
     /// The key item exists (never its value), or the user chose to skip in step 5.
     public var openAIKeyPresent: Bool?
     public var voiceProfile: Bool?
@@ -103,7 +107,8 @@ public struct OnboardingFacts: Sendable, Equatable {
 
     public init(microphone: Bool? = nil, speechRecognition: Bool? = nil, inputMonitoring: Bool? = nil,
                 systemAudioProbe: OnboardingProbeVerdict? = nil, speechAssets: Bool? = nil, driverInstalled: Bool? = nil,
-                engineInstalled: Bool? = nil, openAIKeyPresent: Bool? = nil, voiceProfile: Bool? = nil,
+                engineInstalled: Bool? = nil, recognitionInstalled: Bool? = nil, prefersAppleRecognition: Bool = false,
+                openAIKeyPresent: Bool? = nil, voiceProfile: Bool? = nil,
                 meetingMicVerified: Bool? = nil) {
         self.microphone = microphone
         self.speechRecognition = speechRecognition
@@ -112,6 +117,8 @@ public struct OnboardingFacts: Sendable, Equatable {
         self.speechAssets = speechAssets
         self.driverInstalled = driverInstalled
         self.engineInstalled = engineInstalled
+        self.recognitionInstalled = recognitionInstalled
+        self.prefersAppleRecognition = prefersAppleRecognition
         self.openAIKeyPresent = openAIKeyPresent
         self.voiceProfile = voiceProfile
         self.meetingMicVerified = meetingMicVerified
@@ -134,7 +141,8 @@ public struct OnboardingFacts: Sendable, Equatable {
         case .permissions: permissionsDone(videoOnly: videoOnly)
         case .speechAssets: speechAssets == true
         case .driver: driverInstalled == true
-        case .engine: engineInstalled == true
+        case .engine: videoOnly ? recognitionInstalled == true || (prefersAppleRecognition && speechAssets == true)
+            : engineInstalled == true
         case .openAI: openAIKeyPresent == true
         case .voice: voiceProfile == true && !recordingTake
         case .meetingMic: meetingMicVerified == true
@@ -296,6 +304,11 @@ public final class OnboardingState {
     /// continues with the step after it ("重开后回到这一步之后"). Nothing else moves by itself.
     public func resume(_ given: OnboardingFacts) {
         let facts = merged(given)
+        // An unfinished video guide from the old three-step path must visit the newly added
+        // recognition step. Completed guides stay completed; deliberate Apple users keep it.
+        if videoOnly, current == .tryIt, steps.contains(.engine), !facts.satisfied(.engine, videoOnly: true) {
+            current = .engine
+        }
         guard pendingRelaunch == .inputMonitoring else { return }
         guard facts.inputMonitoring == true else { return }   // not granted yet: stay, keep the flag
         pendingRelaunch = nil
@@ -306,7 +319,8 @@ public final class OnboardingState {
     public func willRelaunch(for r: Relaunch) { pendingRelaunch = r }
 
     public func canContinue(_ step: OnboardingStep, _ facts: OnboardingFacts) -> Bool {
-        step.skippable || merged(facts).satisfied(step, videoOnly: videoOnly)
+        if videoOnly, step == .tryIt, steps.contains(.engine), !facts.satisfied(.engine, videoOnly: true) { return false }
+        return step.skippable || merged(facts).satisfied(step, videoOnly: videoOnly)
     }
 
     /// "继续": only when the step is satisfied (or skippable, which then counts as skipped when

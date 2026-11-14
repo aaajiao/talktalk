@@ -206,9 +206,11 @@ private let allGranted = OnboardingFacts(microphone: true, speechRecognition: tr
         o.chooseScenarios([.video])
         o.recordSystemAudioProbe(.granted)
         #expect(o.complete(.permissions, .init(speechRecognition: true)))
-        #expect(o.progress == OnboardingProgress(step: 2, count: 3))
-        #expect(o.progress?.text == "第 2 步，共 3 步")
-        #expect(o.complete(.speechAssets, .init(speechAssets: true)) && o.complete(.tryIt, .init()))
+        #expect(o.progress == OnboardingProgress(step: 2, count: 4))
+        #expect(o.progress?.text == "第 2 步，共 4 步")
+        #expect(o.complete(.speechAssets, .init(speechAssets: true)))
+        #expect(o.complete(.engine, .init(recognitionInstalled: true)))
+        #expect(o.complete(.tryIt, .init(recognitionInstalled: true)))
         #expect(o.progress == nil)
     }
 
@@ -238,13 +240,18 @@ private let allGranted = OnboardingFacts(microphone: true, speechRecognition: tr
         let s = DefaultsSuite()
         let o = s.relaunch()
         o.chooseScenarios([.video])
-        #expect(o.steps == [.permissions, .speechAssets, .tryIt])
-        #expect(o.position(of: .tryIt) == 3 && o.position(of: .driver) == nil)
+        #expect(o.steps == [.permissions, .speechAssets, .engine, .tryIt])
+        #expect(o.position(of: .tryIt) == 4 && o.position(of: .driver) == nil)
         o.recordSystemAudioProbe(.granted)
         #expect(o.complete(.permissions, .init(speechRecognition: true)))   // no mic, no Input Monitoring
         #expect(o.complete(.speechAssets, .init(speechAssets: true)))
+        #expect(o.current == .engine)
+        // Apple fallback assets and an unrelated TTS installation cannot stand in for Qwen.
+        #expect(!o.complete(.engine, .init(speechAssets: true, engineInstalled: true)))
+        #expect(!o.skip(.engine))
+        #expect(o.complete(.engine, .init(recognitionInstalled: true)))
         #expect(o.current == .tryIt)
-        #expect(s.relaunch().steps == [.permissions, .speechAssets, .tryIt])
+        #expect(s.relaunch().steps == [.permissions, .speechAssets, .engine, .tryIt])
     }
 
     @Test func backFromTheFirstStepReturnsToTheScenarioPage() {
@@ -254,9 +261,43 @@ private let allGranted = OnboardingFacts(microphone: true, speechRecognition: tr
         o.back()
         #expect(o.choosingScenarios && o.current == .permissions)
         o.chooseScenarios([.video])
-        #expect(o.steps.count == 3 && !o.choosingScenarios)
+        #expect(o.steps.count == 4 && !o.choosingScenarios)
         o.restart()
         #expect(o.choosingScenarios && o.scenarios == nil && o.steps == OnboardingStep.allCases)
+    }
+
+    @Test func intentionalAppleChoiceContinuesWithoutClaimingQwenInstalled() {
+        let facts = OnboardingFacts(speechAssets: true, recognitionInstalled: false, prefersAppleRecognition: true)
+        #expect(facts.satisfied(.engine, videoOnly: true))
+        #expect(facts.recognitionInstalled == false)
+        #expect(!facts.satisfied(.engine, videoOnly: false))
+        #expect(!OnboardingFacts(prefersAppleRecognition: true).satisfied(.engine, videoOnly: true))
+    }
+
+    @Test func unfinishedOldVideoGuideChecksRecognitionBeforeTryingOrFinishing() {
+        let s = DefaultsSuite()
+        s.defaults.set(["video"], forKey: OnboardingState.Key.scenarios)
+        s.defaults.set("tryIt", forKey: OnboardingState.Key.step)
+        let o = s.relaunch()
+        #expect(!o.complete(.tryIt, .init(speechAssets: true)))
+        o.resume(.init(speechAssets: true))
+        #expect(o.current == .engine)
+        #expect(o.complete(.engine, .init(recognitionInstalled: true)))
+        #expect(o.complete(.tryIt, .init(recognitionInstalled: true)))
+        let finished = s.relaunch()
+        finished.resume(.init())
+        #expect(finished.finished && finished.current == nil)
+    }
+
+    @Test func oldVideoGuideWithAppleSelectionRetainsItsProgress() {
+        let s = DefaultsSuite()
+        s.defaults.set(["video"], forKey: OnboardingState.Key.scenarios)
+        s.defaults.set("tryIt", forKey: OnboardingState.Key.step)
+        let o = s.relaunch()
+        let facts = OnboardingFacts(speechAssets: true, prefersAppleRecognition: true)
+        o.resume(facts)
+        #expect(o.current == .tryIt)
+        #expect(o.complete(.tryIt, facts))
     }
 
     /// Step 7 is about a meeting app's input: a path without 会议 does not ask for it.

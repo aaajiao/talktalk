@@ -125,11 +125,15 @@ struct TryItStep: View {
         case .preparing:
             return SettingsProblem(.busy, String(appLocalized: "准备中…"), help: String(appLocalized: "正在准备示例和字幕"))
         case .playing:
-            return SettingsProblem(.busy, String(appLocalized: "播放中 · 看字幕面板"))
+            return SettingsProblem(demo.recognitionFallback ? .warn : .busy,
+                                   demo.recognitionFallback ? demo.recognitionName : String(appLocalized: "播放中 · 看字幕面板"),
+                                   help: demo.recognitionName)
         case .done:
             return demo.lines.isEmpty
                 ? SettingsProblem(.warn, String(appLocalized: "未收到译文"), help: String(appLocalized: "示例已结束，但没有收到译文"))
-                : SettingsProblem(.ok, String(appLocalized: "已收到字幕"))
+                : SettingsProblem(demo.recognitionFallback ? .warn : .ok,
+                                  String(appLocalized: "已收到字幕") + " · " + demo.recognitionName,
+                                  help: demo.recognitionFallback ? String(appLocalized: "Apple Speech（Qwen 不可用，备用接管）") : nil)
         case .failed(let reason):
             return SettingsProblem(.failed, sentence: reason)
         }

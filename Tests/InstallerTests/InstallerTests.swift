@@ -59,6 +59,7 @@ struct InstallerTests {
         let i = installer(s)
         #expect(i.launchSpec(for: .install(profile: nil)).arguments == [s.path, "--json-progress"])
         #expect(i.launchSpec(for: .install(profile: "compact24")).arguments == [s.path, "--profile", "compact24", "--json-progress"])
+        #expect(i.launchSpec(for: .installRecognition).arguments == [s.path, "--recognition-only", "--json-progress"])
         #expect(i.launchSpec(for: .check).arguments == [s.path, "--check", "--json-progress"])
         #expect(i.launchSpec(for: .addModel("k")).arguments == [s.path, "--add-model", "k", "--json-progress"])
         #expect(i.launchSpec(for: .selectTTS("k")).arguments == [s.path, "--select-tts", "k", "--json-progress"])

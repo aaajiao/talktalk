@@ -5,6 +5,8 @@ import Observation
 /// One run of `install-engine.sh` (§7.3, §7.4).
 public enum InstallerOp: Sendable, Equatable {
     case install(profile: String?)
+    /// Add or repair recognition without changing existing roles or model selections.
+    case installRecognition
     case check
     case addModel(String)
     /// Install if necessary, then switch only the active TTS role. Other roles and files stay.
@@ -17,6 +19,7 @@ public enum InstallerOp: Sendable, Equatable {
     public var arguments: [String] {
         switch self {
         case .install(let p): p.map { ["--profile", $0] } ?? []
+        case .installRecognition: ["--recognition-only"]
         case .check: ["--check"]
         case .addModel(let k): ["--add-model", k]
         case .selectTTS(let k): ["--select-tts", k]

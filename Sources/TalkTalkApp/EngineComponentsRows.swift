@@ -122,6 +122,11 @@ final class EngineComponentsModel {
     }
 
     var installed: Bool { state.canStartEngine }
+    var recognitionInstalled: Bool { state.canUseRole("asr", record: record) }
+    var synthesisInstalled: Bool { state.canUseRole("tts", record: record) }
+    var recognitionOnlyInstallation: Bool {
+        record?.roles["asr"] != nil && record?.roles["tts"] == nil
+    }
     var running: Bool { maintenanceRunning || (installer?.state.isRunning ?? false) }
     /// No engine action can start now: one runs, the engine restarts, 完全卸载 runs, or this
     /// build has no installer.
@@ -259,7 +264,16 @@ final class EngineComponentsModel {
     /// The confirmations (§7.11), shortened to what the run costs.
     private func confirmation(_ op: InstallerOp) -> (String, String, String)? {
         switch op {
+        case .installRecognition:
+            return (String(appLocalized: "准备本地识别？"),
+                    String(appLocalized: "安装所需运行环境与 Qwen 识别模型；复用已有资源，保留当前模型与识别选择。下载可以取消，下次接着下。"),
+                    String(appLocalized: "下载并安装"))
         case .install(nil):
+            if recognitionOnlyInstallation {
+                return (String(appLocalized: "补充语音合成？"),
+                        String(appLocalized: "保留当前识别模型与设置，安装语音合成所需的模型。已有资源会复用。"),
+                        String(appLocalized: "下载并安装"))
+            }
             // A repair without a readable record: the installer reinstalls what
             // install.json.prev recorded, so the confirmation names no profile.
             return (String(appLocalized: "修复 \(String(appLocalized: "引擎"))？"),
@@ -372,14 +386,14 @@ final class EngineComponentsModel {
     }
 
     var customRepairRequiresPreset: Bool {
-        record != nil && installedProfile == nil && needsRepair && synthesisRepairID == nil
+        record != nil && installedProfile == nil && needsRepair && synthesisRepairID == nil && !recognitionOnlyInstallation
     }
 
     /// An outdated custom combination has no recorded preset to update: like a repair, it
     /// needs an explicit preset and 换档.
     var customUpdateRequiresPreset: Bool {
         guard case .outdated = state else { return false }
-        return record != nil && installedProfile == nil
+        return record != nil && installedProfile == nil && !recognitionOnlyInstallation
     }
 
     /// The install lifecycle's steps (§7.11): 下载 → 安装 → 校验 → 就绪.
@@ -407,7 +421,7 @@ final class EngineComponentsModel {
         case "smoke", "check": return .verify
         default:
             switch op {
-            case .install, .addModel, .selectTTS: return .download
+            case .install, .installRecognition, .addModel, .selectTTS: return .download
             case .check: return .verify
             case .removeModel, .removeActiveModel, .uninstall: return .install
             }
@@ -442,14 +456,47 @@ private typealias Ladder = SubtitleTokens.SettingsIcon.Size
 /// Form Section or a VStack lays them out.
 struct EngineControlRows: View {
     @Bindable var model: EngineComponentsModel
+    var recognitionOnly = false
 
     var body: some View {
-        profileRow
-        FlowGrid.engineRequirements(model)
-            .padding(.vertical, 4)
-        independentSynthesisRow
-        statusRow
+        if recognitionOnly {
+            recognitionRow
+            if model.progress == nil, let problem = model.problem {
+                StatusLabel(problem.text, problem.status, help: problem.help)
+                    .padding(.leading, Ladder.rowTextInset)
+            }
+        } else {
+            profileRow
+            FlowGrid.engineRequirements(model)
+                .padding(.vertical, 4)
+            independentSynthesisRow
+            statusRow
+        }
         EngineOperationRows(model: model)
+    }
+
+    private var recognitionRow: some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                Text(verbatim: model.modelName(role: "asr") ?? (model.state == .notInstalled ? "Qwen3-ASR · 0.6B" : "Qwen3-ASR"))
+                    .foregroundStyle(.secondary)
+                if model.recognitionInstalled {
+                    StatusGlyph(.ok)
+                        .help(String(appLocalized: "已就绪"))
+                        .accessibilityLabel(String(appLocalized: "已就绪"))
+                } else {
+                    Button { model.confirmAndRun(.installRecognition) } label: {
+                        Label(model.needsRepair ? String(appLocalized: "修复") : String(appLocalized: "下载"),
+                              systemImage: model.needsRepair ? Icon.repair : Icon.download)
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.maintenanceBlocked)
+                }
+            }
+        } label: {
+            Label("语音识别", systemImage: Icon.recognition)
+        }
     }
 
     private var profileRow: some View {
@@ -501,7 +548,12 @@ struct EngineControlRows: View {
             .disabled(model.maintenanceBlocked)
             .help(model.downloadSummary(model.profile))
         } else {
-            if let id = model.synthesisRepairID {
+            if model.recognitionOnlyInstallation && model.needsRepair {
+                Button { model.confirmAndRun(.installRecognition) } label: {
+                    Label("修复", systemImage: Icon.repair).labelStyle(.titleAndIcon)
+                }
+                .disabled(model.maintenanceBlocked)
+            } else if let id = model.synthesisRepairID {
                 Button { model.confirmAndRun(.selectTTS(id)) } label: {
                     Label("修复", systemImage: Icon.repair).labelStyle(.titleAndIcon)
                 }
@@ -522,12 +574,20 @@ struct EngineControlRows: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(model.maintenanceBlocked)
                     .help(String(appLocalized: "安装 \(EngineComponentsModel.profileTitle(model.profile))"))
-            } else if case .outdated = model.state, let recorded {
-                Button { model.confirmAndRun(.install(profile: recorded)) } label: {
+            } else if case .outdated = model.state, recorded != nil || model.recognitionOnlyInstallation {
+                Button { model.confirmAndRun(model.recognitionOnlyInstallation ? .installRecognition : .install(profile: recorded)) } label: {
                     Label("更新", systemImage: Icon.download).labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(model.maintenanceBlocked)
+            }
+            if model.pendingPresetID == nil && model.recognitionOnlyInstallation && model.installed {
+                Button { model.confirmAndRun(.install(profile: nil)) } label: {
+                    Label("下载", systemImage: Icon.download).labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.maintenanceBlocked)
+                .help(String(appLocalized: "补充语音合成"))
             }
         }
     }
@@ -674,10 +734,11 @@ struct SynthesisStatusRows: View {
 /// installed, and delete or download.
 struct EngineModelRows: View {
     @Bindable var model: EngineComponentsModel
+    var role: String? = nil
 
     var body: some View {
         let installedKeys = Set(model.record?.models.map(\.id) ?? []).union(model.readyModelIDs)
-        ForEach(EnginePins.models, id: \.key) { m in
+        ForEach(EnginePins.models.filter { role == nil || $0.role == role }, id: \.key) { m in
             row(m, installed: installedKeys.contains(m.key))
         }
     }

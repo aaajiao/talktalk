@@ -118,4 +118,24 @@ import TalkTalkTestSupport
         #expect(byName["voice"]?.ok == false)
         #expect(await engine.status == .stopped)
     }
+
+    @Test func recognitionOnlySelfTestRequiresASRButSkipsVoiceAndSynthesis() async throws {
+        let box = try EngineHostTests.Sandbox()
+        var config = try box.config()
+        config.roles = ["asr"]; config.tts = nil
+        let engine = EngineProcess(config: config)
+        let test = EngineSelfTest(install: .installed(profile: "custom", models: ["asr-y"]), engine: engine,
+                                 asrSample: .init(samples: [Float](repeating: 0, count: 16000), text: "今天十点开会。"),
+                                 reference: nil, referenceSource: "synthetic", isAudioProcess: { _ in false },
+                                 to16k: { $0 })
+        let report = await test.run()
+        #expect(report.ok)
+        #expect(report.checks.first { $0.name == "asr" }?.ok == true)
+        let voice = try #require(report.checks.first { $0.name == "voice" })
+        #expect(voice.ok == nil && voice.detail == "no TTS role in this installation")
+        #expect(!report.checks.contains { $0.name.hasPrefix("tts_") })
+        let requests = box.file("requests.jsonl")
+        #expect(!requests.contains("/v1/voice/") && !requests.contains("/v1/tts"))
+        #expect(await engine.status == .stopped)
+    }
 }

@@ -33,6 +33,32 @@ class InlineScheduler:
         return job
 
 
+class ModelDiscoveryTests(unittest.TestCase):
+    def test_exact_directory_keeps_selected_revision_when_another_sorts_first(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            old, selected = base / "ASR-Y@aaaa", base / "ASR-Y@cccc"
+            for directory, revision in ((old, "aaaa"), (selected, "cccc")):
+                directory.mkdir()
+                (directory / ".talktalk-verified").write_text(f"{revision}\nkey=asr-y repo=org/ASR-Y\n")
+            # Legacy root scanning remains available to command-line callers.
+            self.assertEqual(main.find_models([base]), {"asr-y": (old, "aaaa")})
+            # App configuration gives the exact manifest directory, bypassing the sibling.
+            self.assertEqual(main.find_models([selected]), {"asr-y": (selected, "cccc")})
+            self.assertEqual(main.find_models([selected, base]), {"asr-y": (selected, "cccc")})
+
+    def test_exact_asr_and_tts_directories_do_not_discover_unselected_models(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            for key in ("asr-y", "tts-x", "unused"):
+                directory = base / key
+                directory.mkdir()
+                (directory / ".talktalk-verified").write_text(f"revision-{key}\nkey={key}\n")
+            found = main.find_models([base / "asr-y", base / "tts-x"])
+            self.assertEqual(set(found), {"asr-y", "tts-x"})
+            self.assertEqual(found["asr-y"], (base / "asr-y", "revision-asr-y"))
+
+
 class StartupTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

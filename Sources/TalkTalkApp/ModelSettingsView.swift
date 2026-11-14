@@ -135,7 +135,7 @@ extension FlowGrid {
                                                   engine.canSelectSynthesis ? nil : engine.problem])
         // A profile without an installed engine is synthesized with the system voice, as on
         // 我的声音, the scenario pages and the menu.
-        let voice = state.voiceProfilePresent && engine.installed
+        let voice = state.voiceProfilePresent && engine.synthesisInstalled
             ? FlowSatellite(String(appLocalized: "我的声音"), symbol: Icon.myVoice,
                             help: String(appLocalized: "用我的声音合成译音"),
                             link: links.node(String(appLocalized: "我的声音"), .voice))

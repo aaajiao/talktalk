@@ -363,6 +363,32 @@ import TalkTalkTestSupport
         #expect(try PolicyProfile.loadDefault().speak.tts.renderHorizonMs == d.horizonMs)
     }
 
+    @Test func recognitionOnlyRecordBuildsAnASROnlyLaunch() throws {
+        let box = try Sandbox(), base = try box.config()
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(base.record)) as? [String: Any])
+        let roles = try #require(json["roles"] as? [String: Any])
+        json["roles"] = roles.filter { $0.key == "asr" }
+        json["profile"] = "custom"
+        let selectedDirectory = "ASR-Y@\(Self.asrRev.prefix(12))"
+        json["models"] = [
+            ["id": "asr-y", "repo": "org/ASR-Y", "rev": String(repeating: "a", count: 40),
+             "role": "asr", "dir": "ASR-Y@aaaaaaaaaaaa"],
+            ["id": "asr-y", "repo": "org/ASR-Y", "rev": Self.asrRev,
+             "role": "asr", "dir": selectedDirectory],
+        ]
+        let record = try JSONDecoder().decode(EngineInstallation.Record.self, from: JSONSerialization.data(withJSONObject: json))
+        let installation = EngineInstallation(engineHome: box.state.appendingPathComponent("engine-home"))
+        let config = EngineConfig.installed(record: record,
+            installation: installation,
+            paths: base.paths, source: base.source)
+        #expect(config.roles == ["asr"] && config.asr == "asr-y" && config.tts == nil)
+        #expect(config.arguments.firstIndex(of: "--roles").map { config.arguments[$0 + 1] } == "asr")
+        #expect(!config.arguments.contains("--tts"))
+        #expect(config.arguments.firstIndex(of: "--asr").map { config.arguments[$0 + 1] } == "asr-y")
+        #expect(config.modelsDirs == [installation.modelsDir.appendingPathComponent(selectedDirectory)])
+        #expect(!config.arguments.contains(installation.modelsDir.path))
+    }
+
     @Test func hangRuleIsPure() {
         let g = { (age: Double?, pending: Int, long: Bool) in
             EngineHealth.GPU(lastStepAgeMs: age, inLongStep: long, queue: ["p0": pending])
