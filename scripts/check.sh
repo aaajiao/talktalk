@@ -43,6 +43,11 @@ scripts/tests/test-gen-pins.sh
 step "application build-number reservation (isolated fixtures; no compilation)"
 "$TALKTALK_DEV_PYTHON" -I -B scripts/tests/test-app-build.py
 
+step "signed update packaging and release publication (isolated fixtures; no Keychain or network)"
+"$TALKTALK_DEV_PYTHON" -I -B scripts/tests/test-source-provenance.py
+"$TALKTALK_DEV_PYTHON" -I -B scripts/tests/test-package-update.py
+"$TALKTALK_DEV_PYTHON" -I -B scripts/tests/test-publish-release.py
+
 step "python compiles"
 "$TALKTALK_DEV_PYTHON" -I -B -c 'import sys; [compile(open(f, encoding="utf-8").read(), f, "exec") for f in sys.argv[1:]]' \
   engine/talktalk_engine.py engine/smoke_engine.py engine/talktalk_engine/*.py \

@@ -27,9 +27,11 @@ The interface supports English and Chinese. Switch instantly in **Settings › G
 
 Requires an **Apple Silicon Mac running macOS 26.4 or later**. Use headphones for meeting and phone interpretation.
 
-**[Download TalkTalk 1.0.17, build 79 (macOS arm64 ZIP)](https://github.com/aaajiao/talktalk/releases/download/v1.0.17/TalkTalk-1.0.17-macOS-arm64.zip)** · [Release notes](https://github.com/aaajiao/talktalk/releases/tag/v1.0.17)
+**[Download TalkTalk 1.0.18, build 82 (macOS arm64 ZIP)](https://github.com/aaajiao/talktalk/releases/download/v1.0.18/TalkTalk-1.0.18-macOS-arm64.zip)** · [Release notes](https://github.com/aaajiao/talktalk/releases/tag/v1.0.18)
 
 Unzip the download, drag `TalkTalk.app` into Applications, and open it from Finder. The app is **ad-hoc signed, without a Developer ID signature or Apple notarization**. macOS may display a security warning or block the first launch; verify the download source and follow the system prompts.
+
+From version 1.0.18, use **Check for Updates…** in the menu bar menu or **Settings › General › App Updates**. GitHub hosts the signed update feed and packages; you choose when to download and restart. Updates wait for interpretation, recordings and maintenance to finish. Version 1.0.17 and earlier need one manual installation to get the updater.
 
 First-time setup:
 
@@ -83,7 +85,7 @@ scripts/check.sh --skip-stress
 scripts/build-app.sh release
 ```
 
-The release app is generated at `build/TalkTalk.app`. The packaging script automatically increments the build number; the release version is maintained separately. A local build does not create a published GitHub Release.
+The release app is generated at `build/TalkTalk.app`. The packaging script automatically increments the build number; the release version is maintained separately. A local build does not create a published GitHub Release. Follow the [release workflow](docs/releases.md) to publish the signed ZIP, appcast and checksums together.
 
 The private runtime currently uses **CPython 3.14.10**. The app bundles the engine code and installer, then installs the interpreter and dependencies into a dedicated directory. Its virtual environment does not load system Python packages. Development uses the repository's `.venv`, with the interpreter pinned in `.build/dev-python`, sharing model pins and dependency lockfiles with the app. Run the setup script before checks or packaging.
 

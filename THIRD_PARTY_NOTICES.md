@@ -5,8 +5,8 @@ model weights and macOS services retain their own licenses; the project's MIT li
 replace those terms.
 
 The source repository includes libfvad and libASPL. An app built with the provided scripts carries
-the engine sources, libfvad compiled into the app, and TalkTalkAudio.driver with libASPL compiled
-in. The installer downloads the other artifacts listed below from their upstreams onto the user's
+the engine sources, libfvad compiled into the app, Sparkle.framework with its updater helpers,
+and TalkTalkAudio.driver with libASPL compiled in. The installer downloads the other artifacts listed below from their upstreams onto the user's
 machine. See [licensing notes](docs/decisions/licensing.md) and the
 [license gate](scripts/check-licenses.sh).
 
@@ -23,12 +23,21 @@ machine. See [licensing notes](docs/decisions/licensing.md) and the
 | Native CAMPPlus speaker encoder used with Ming | huggingface.co/mlx-community/Step-Audio-2-token2wav | Apache-2.0 |
 | libASPL 3.1.2 (compiled into TalkTalkAudio.driver, which the app bundle carries) | github.com/gavv/libASPL | MIT, full text below |
 | libfvad (VAD, compiled into the app) | github.com/dpirch/libfvad, vendored in `Sources/CAudioCore/third_party/libfvad/` | BSD-3-Clause + WebRTC patent grant |
+| Sparkle 2.10.1 (framework and updater helpers, embedded in the app) | github.com/sparkle-project/Sparkle, pinned Swift Package Manager binary distribution | MIT-style license and bundled external licenses |
 
 macOS system voices (`say`, `AVSpeechSynthesizer`) are subject to the applicable macOS license,
 including its voice-use restrictions. TalkTalk's MIT license grants no rights to Apple's voices or
 their output. Consult the license supplied with your macOS version and
 [Apple's software license agreements](https://www.apple.com/legal/sla/); see also
 [the system-voice notes](docs/decisions/licensing.md#macos-system-voices).
+
+## Sparkle
+
+Application updates use [Sparkle 2.10.1](https://github.com/sparkle-project/Sparkle/releases/tag/2.10.1).
+The app carries the upstream framework and helper tools in `Contents/Frameworks/Sparkle.framework`.
+The complete upstream copyright and license notices, including bsdiff, sais-lite, Ed25519 and
+SUSignatureVerifier notices, are included unchanged in `Contents/Resources/Licenses/Sparkle-LICENSE.txt`.
+The source distribution retains the same [upstream license](https://github.com/sparkle-project/Sparkle/blob/2.10.1/LICENSE).
 
 ## libASPL
 

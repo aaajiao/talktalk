@@ -27,9 +27,11 @@ TalkTalk 是一个原生 macOS 菜单栏应用。语音识别和语音合成在�
 
 需要 **Apple Silicon Mac、macOS 26.4 或更新版本**。会议和电话同传请使用耳机。
 
-**[下载 TalkTalk 1.0.17 构建 79（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.17/TalkTalk-1.0.17-macOS-arm64.zip)** · [版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.17)
+**[下载 TalkTalk 1.0.18 构建 82（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.18/TalkTalk-1.0.18-macOS-arm64.zip)** · [版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.18)
 
 解压后将 `TalkTalk.app` 拖入“应用程序”，从 Finder 打开。该包使用 **ad-hoc 本地签名，尚无 Developer ID 签名及 Apple 公证**；首次打开时 macOS 可能显示安全提示或阻止启动，请确认下载来源后按系统提示处理。
+
+从 1.0.18 起，可在菜单栏菜单或 **设置 › 通用 › 应用更新** 点击“检查更新…”。更新清单和安装包由 GitHub 提供并经过签名验证，由你确认下载及重启。正在同传、录音或维护时会等待；1.0.17 及更早版本需先手动安装一次带更新器的版本。
 
 首次设置：
 
@@ -70,6 +72,8 @@ Apple Speech 在 **识别与翻译** 中独立选择，“听对方”和“我�
 音频和声音档案在本机处理。启用 OpenAI 时，会发送原文、翻译上下文及术语表；API key 保存在 macOS 钥匙串。默认不保存会议录音或转写，转写记录、字幕分析和诊断录音需主动开启。
 
 系统声音与第三方组件受各自许可约束，详见[许可说明](docs/decisions/licensing.md)。
+
+发布者请遵循[GitHub 发布流程](docs/releases.md)，通过统一入口同时发布签名安装包、更新清单与校验文件。
 
 ## 从源码构建
 

@@ -14,7 +14,7 @@ import UserNotifications
 /// brings the running one forward and exits: a minimized subtitle window is restored first,
 /// otherwise an unfinished onboarding opens, otherwise the settings window (`showFront`).
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private static var retained: AppDelegate?
 
     let state = AppState()
@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var quitting = false
     private var languageObserver: NSObjectProtocol?
     private var appleCheckTask: Task<Void, Never>?
+    private var updater: AppUpdater?
 
     init(smoke: Bool, smokeOut: String?) {
         isSmoke = smoke
@@ -55,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshAppLanguage() {
-        NSApp.mainMenu = MainMenu.make(settingsTarget: self)
+        NSApp.mainMenu = MainMenu.make(settingsTarget: self, updater: updater)
         settings?.refreshAppLanguage()
         onboarding?.refreshAppLanguage()
         meeting?.refreshAppLanguage()
@@ -84,8 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.voice.peer = onboardingModel.voice
         onboardingModel.voice.peer = settings.voice
         onboardingModel.demo.panel = conversationPanel
-        onboardingModel.demo.canStart = { [weak state] in
-            state?.meetingActive == false && state?.meetingStarting == false
+        onboardingModel.demo.canStart = { [weak state, weak self] in
+            state?.meetingActive == false && state?.meetingStarting == false && self?.updater?.relaunching != true
         }
         let onboarding = OnboardingWindowController(model: onboardingModel)
         onboardingModel.openScenario = { [weak state, weak settings, weak onboarding] mode in
@@ -201,14 +202,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             privacy.diagnosticsStatus.beforeAudioSelfTest = { [weak engineHost] in await engineHost?.engine()?.stop() }
             privacy.diagnosticsStatus.canRunAudioSelfTest = { [weak self, weak settings, weak onboardingModel] in
                 guard let self, let settings, let onboardingModel else { return false }
-                return !state.meetingActive && !state.meetingStarting && speak?.isActive != true
+                return updater?.relaunching != true && !state.meetingActive && !state.meetingStarting && speak?.isActive != true
                     && !settings.voice.recordingBusy && settings.voice.auditioning == nil
                     && !onboardingModel.voice.recordingBusy && onboardingModel.voice.auditioning == nil
                     && !AppUIModels.shared.engine.running && settings.driver.model?.selfTestRunning != true
             }
-            settings.voice.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
-            onboardingModel.voice.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
-            settings.driver.externalBusy = { [weak privacy] in privacy?.diagnosticsStatus.isAudioSelfTestRunning == true }
+            settings.voice.externalBusy = { [weak privacy, weak self] in
+                privacy?.diagnosticsStatus.isAudioSelfTestRunning == true || self?.updater?.relaunching == true
+            }
+            onboardingModel.voice.externalBusy = { [weak privacy, weak self] in
+                privacy?.diagnosticsStatus.isAudioSelfTestRunning == true || self?.updater?.relaunching == true
+            }
+            settings.driver.externalBusy = { [weak privacy, weak self] in
+                privacy?.diagnosticsStatus.isAudioSelfTestRunning == true || self?.updater?.relaunching == true
+            }
         }
         meeting.canStartMeeting = { [weak self] in self?.audioFree(speakBusy: self?.speak?.isActive == true) ?? true }
         meeting.beforeUserEnd = { [weak systemInput] in systemInput?.confirmUserEnd() }
@@ -222,6 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let state, state.meetingActive { meeting?.toggle(mode: state.meetingMode) }
             },
             quit: { NSApp.terminate(nil) },
+            checkForUpdates: { [weak self] in self?.checkForUpdates(nil) },
             stillInMeeting: { [weak meeting] in meeting?.stillInMeeting() },
             // 继续使用引导 opens onboarding at its saved step (§8.2).
             openOnboarding: { [weak onboarding] in onboarding?.show() },
@@ -300,6 +308,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         followIconFacts()
         followStartAvailability()
 
+        let updater = AppUpdater(enabled: !isSmoke && BuildFlavor.current == .release)
+        self.updater = updater
+        updater.configure { [weak self] in self?.updateActivity() ?? AppUpdateActivity(session: true) }
+        updater.onPendingRestart = { [weak settings] in settings?.show(.general) }
+        AppUIModels.shared.general.updater = updater
+        followUpdateActivity()
+        NSApp.mainMenu = MainMenu.make(settingsTarget: self, updater: updater)
+
         systemInput?.start()
         speak?.prepareLaunchTakeover()
         updateIcon()
@@ -350,8 +366,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// What `canStartMeeting` reads: no self-test, speaking session, installer run or
     /// maintenance holds the audio.
     private func audioFree(speakBusy: Bool) -> Bool {
-        (isSmoke ? nil : PrivacySettings.shared)?.diagnosticsStatus.isAudioSelfTestRunning != true && !speakBusy
+        updater?.relaunching != true && (isSmoke ? nil : PrivacySettings.shared)?.diagnosticsStatus.isAudioSelfTestRunning != true && !speakBusy
             && !AppUIModels.shared.engine.running && !engineHost.maintenanceActive
+    }
+
+    /// Recomputed at the install boundary, not just when the update check started.
+    private func updateActivity() -> AppUpdateActivity {
+        let privacy = isSmoke ? nil : PrivacySettings.shared
+        let voices = [settings?.voice, onboarding?.model.voice].compactMap { $0 }
+        let demo = onboarding?.model.demo.phase
+        return AppUpdateActivity(
+            session: state.meetingActive || state.meetingStarting || state.meetingStopping
+                || state.speakSessionActive || speak?.isActive == true,
+            voice: voices.contains { $0.recordingBusy || $0.auditioning != nil || $0.deleting },
+            maintenance: AppUIModels.shared.engine.running || AppUIModels.shared.engine.restarting
+                || engineHost.maintenanceActive || settings?.driver.model?.isBusy == true,
+            diagnostics: privacy?.diagnosticsStatus.runningPart != nil
+                || privacy?.recorder.recordingTracks.isEmpty == false
+                || privacy?.subtitleAnalysis.isStarting == true || privacy?.subtitleAnalysis.isRecording == true,
+            onboarding: demo == .preparing || demo == .playing || onboarding?.model.probeRunning == true
+                || onboarding?.model.assets.values.contains(.downloading) == true,
+            exporting: privacy?.exporting == true,
+            calibration: AppUIModels.shared.audio.calibration.running)
+    }
+
+    private func followUpdateActivity() {
+        guard let updater else { return }
+        withObservationTracking {
+            _ = updateActivity()
+            _ = updater.relaunching
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.followUpdateActivity() }
+        }
+        updater.refreshActivity()
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) {
+        if updater?.hasPendingRestart == true { updater?.resumePendingUpdate() }
+        else { updater?.checkForUpdates() }
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(checkForUpdates(_:)) else { return true }
+        menuItem.title = updater?.hasPendingRestart == true
+            ? String(appLocalized: "重启并更新") : String(appLocalized: "检查更新…")
+        menuItem.toolTip = updater?.busyReason ?? updater?.statusMessage
+        return updater?.hasPendingRestart == true
+            ? updater?.canResumePendingUpdate == true : updater?.canCheckForUpdates == true
     }
 
     /// `state.meetingAvailable`: the menu's quick start and the scenario page's 开始 share one
@@ -399,7 +460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // These observable voice fields cover recording, enrollment/save, generation and
             // playback. SPEAK owns its demo until asynchronous shutdown has fully completed.
             let voices = [settings?.voice, onboarding?.model.voice].compactMap { $0 }
-            return state.meetingActive || state.meetingStarting || state.meetingStopping
+            return updater?.relaunching == true || state.meetingActive || state.meetingStarting || state.meetingStopping
                 || state.speakSessionActive || speak?.isActive == true
                 || voices.contains { $0.recordingBusy || $0.auditioning != nil || $0.deleting || $0.externalBusy() }
                 || settings?.driver.model?.selfTestRunning == true
@@ -510,6 +571,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Only a restore failure needs an actionable notice; normal exit has no choice dialog.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitting { return .terminateLater }
+        if let updater, updater.relaunching || updater.hasPendingRestart,
+           updateActivity().blockingReason != nil {
+            updater.refuseBusyTermination()
+            settings?.show(.general)
+            return .terminateCancel
+        }
         // quit() never cancels termination, so the window may leave first, in one step.
         conversationPanel.endSession()
         let reply = systemInput?.quit() ?? .terminateNow
@@ -746,11 +813,16 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 /// An accessory app has no menu bar of its own, but the settings window still needs the Edit
 /// menu's key equivalents (⌘C / ⌘V / ⌘A in the OpenAI key box) and ⌘W / ⌘Q.
 enum MainMenu {
-    @MainActor static func make(settingsTarget: AnyObject? = nil) -> NSMenu {
+    @MainActor static func make(settingsTarget: AnyObject? = nil, updater: AppUpdater? = nil) -> NSMenu {
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: String(appLocalized: "关于 TalkTalk"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        if updater?.isEnabled == true {
+            let updates = NSMenuItem(title: String(appLocalized: "检查更新…"), action: #selector(AppDelegate.checkForUpdates(_:)), keyEquivalent: "")
+            updates.target = settingsTarget
+            appMenu.addItem(updates)
+        }
         appMenu.addItem(.separator())
         let settings = NSMenuItem(title: String(appLocalized: "设置…"), action: #selector(AppDelegate.openSettings(_:)), keyEquivalent: ",")
         settings.target = settingsTarget

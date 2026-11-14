@@ -40,6 +40,11 @@ export PATH="$root/.venv/bin:$PATH"
 version="$TT_APP_VERSION"
 build_number="$TT_APP_BUILD"
 
+# Capture after reserving the version, then verify again before signing the assembled app.
+# A clean commit alone cannot prove that an existing bundle contains its current sources.
+source_snapshot="$root/build/.build-source-$flavor.json"
+"$TALKTALK_DEV_PYTHON" -I -B "$here/source-provenance.py" capture --root "$root" --output "$source_snapshot"
+
 localization_data="$scratch/localized-strings"
 # Extraction files are compiler side outputs. If that directory was independently removed,
 # discard the matching Swift cache so a no-op incremental build cannot omit typed keys.
@@ -59,12 +64,21 @@ case "$binary_version" in
   *) tt_die "compiled binary version does not match reserved $version ($build_number): $binary_version" ;;
 esac
 
+# Use the framework resolved for this very build, preserving the framework's version symlinks.
+# shellcheck source=lib/updates.sh
+. "$here/lib/updates.sh"
+sparkle_dist="$scratch/artifacts/sparkle/Sparkle"
+sparkle_source="$sparkle_dist/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+[ -d "$sparkle_source" ] || tt_die "Sparkle framework missing from this build's resolved artifacts"
+[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$sparkle_source/Resources/Info.plist")" = "$TT_SPARKLE_VERSION" ] || tt_die "Sparkle artifact version does not match updater pin"
+
 out_dir="$root/build"
 stage="$out_dir/.staging-$flavor"
 app="$stage/$app_name.app"
 /bin/rm -rf "$stage"
-/bin/mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/engine" "$app/Contents/Resources/installer/scripts/lib"
+/bin/mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resources/engine" "$app/Contents/Resources/installer/scripts/lib"
 /bin/cp "$bin" "$app/Contents/MacOS/TalkTalk"
+/usr/bin/ditto "$sparkle_source" "$app/Contents/Frameworks/Sparkle.framework"
 "$TALKTALK_DEV_PYTHON" -I -B "$here/compile-localizations.py" \
     --catalog "$root/Resources/Localizable.xcstrings" --extracted "$localization_data" \
     --output "$app/Contents/Resources"
@@ -88,6 +102,7 @@ done
 /bin/cp "$root/LICENSE" "$app/Contents/Resources/LICENSE.txt"
 /bin/mkdir -p "$app/Contents/Resources/Licenses"
 /bin/cp "$root/Driver/third_party/libASPL/LICENSE.apple2012" "$root/Driver/third_party/libASPL/LICENSE.apple2020" "$app/Contents/Resources/Licenses/"
+/bin/cp "$sparkle_dist/LICENSE" "$app/Contents/Resources/Licenses/Sparkle-LICENSE.txt"
 # Finder metadata/resource forks on an imported icon cannot be sealed by codesign.
 /bin/cp -X "$root/Resources/TalkTalk.icns" "$app/Contents/Resources/"
 /bin/chmod +x "$app/Contents/Resources/uninstall.sh"
@@ -130,15 +145,37 @@ drv="$app/Contents/Resources/driver"
   <key>NSMicrophoneUsageDescription</key><string>TalkTalk uses your microphone for original speech and press-to-translate during meeting interpretation, and for recordings you start.</string>
   <key>NSAudioCaptureUsageDescription</key><string>TalkTalk captures sound from the app you select to show live subtitles for meetings or videos.</string>
   <key>NSSpeechRecognitionUsageDescription</key><string>TalkTalk uses on-device speech recognition for live subtitles.</string>
+  <key>SUFeedURL</key><string>$TT_UPDATE_FEED_URL</string>
+  <key>SUPublicEDKey</key><string>$TT_UPDATE_PUBLIC_KEY</string>
+  <key>SUEnableAutomaticChecks</key><false/>
+  <key>SUAutomaticallyUpdate</key><false/>
+  <key>SUAllowsAutomaticUpdates</key><false/>
+  <key>SUSendProfileInfo</key><false/>
+  <key>SUVerifyUpdateBeforeExtraction</key><true/>
+  <key>SURequireSignedFeed</key><true/>
+  <key>SUSignedFeedFailureExpirationInterval</key><integer>0</integer>
 </dict>
 </plist>
 EOF
+
+"$TALKTALK_DEV_PYTHON" -I -B "$here/source-provenance.py" embed --root "$root" --snapshot "$source_snapshot" --app "$app"
+
+# Sign nested Sparkle code inside-out, following Sparkle's manual signing order:
+# https://sparkle-project.org/documentation/sandboxing/#code-signing
+# TalkTalk uses ad-hoc signing without Hardened Runtime, including its helpers. Explicitly
+# clear the upstream runtime flag; never recursively apply the app's TCC requirement to them.
+sparkle="$app/Contents/Frameworks/Sparkle.framework"
+/usr/bin/codesign --force -s - --options 0 "$sparkle/Versions/B/XPCServices/Installer.xpc" >&2
+/usr/bin/codesign --force -s - --options 0 --preserve-metadata=entitlements "$sparkle/Versions/B/XPCServices/Downloader.xpc" >&2
+/usr/bin/codesign --force -s - --options 0 "$sparkle/Versions/B/Autoupdate" >&2
+/usr/bin/codesign --force -s - --options 0 "$sparkle/Versions/B/Updater.app" >&2
+/usr/bin/codesign --force -s - --options 0 "$sparkle" >&2
 
 # Ad-hoc + fixed DR (cicada build.sh): the DR names only the identifier, so TCC keeps its grants
 # across rebuilds. Known cost (§2.2): any local program ad-hoc signed with this identifier inherits them.
 /usr/bin/codesign --force -s - --identifier "$bundle_id" \
   --requirements "=designated => identifier \"$bundle_id\"" "$app" >&2
-/usr/bin/codesign --verify --strict "$app" >&2
+/usr/bin/codesign --verify --deep --strict "$app" >&2
 
 "$here/smoke-test.sh" "$app" "$bundle_id" "$flavor"
 

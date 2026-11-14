@@ -26,6 +26,7 @@ enum UIPrefKey {
 final class GeneralSettingsModel {
     @ObservationIgnored private let defaults: UserDefaults
     let launch: LaunchAtLogin
+    var updater: AppUpdater?
 
     var announcementEnabled: Bool {
         didSet { defaults.set(announcementEnabled, forKey: UIPrefKey.announcementEnabled) }
@@ -156,6 +157,9 @@ struct GeneralSettingsView: View {
                     onboardingRow
                         .flowFlash(SettingsAnchor.onboarding, in: navigation.flow)
                     aboutRow
+                    if let updater = model.updater, updater.isEnabled {
+                        AppUpdateRow(updater: updater)
+                    }
                 }
                 .id(SettingsAnchor.onboarding)
                 Section {
@@ -286,6 +290,34 @@ struct GeneralSettingsView: View {
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
         }
+    }
+}
+
+/// The updater uses its native download UI; a deferred restart stays an explicit action here.
+private struct AppUpdateRow: View {
+    @Bindable var updater: AppUpdater
+
+    var body: some View {
+        LabeledContent {
+            VStack(alignment: .trailing, spacing: 4) {
+                Button {
+                    if updater.hasPendingRestart { updater.resumePendingUpdate() }
+                    else { updater.checkForUpdates() }
+                } label: {
+                    Text(updater.hasPendingRestart ? String(appLocalized: "重启并更新") : String(appLocalized: "检查更新…"))
+                }
+                .disabled(updater.hasPendingRestart ? !updater.canResumePendingUpdate : !updater.canCheckForUpdates)
+                if let message = updater.busyReason ?? updater.statusMessage {
+                    Text(verbatim: message)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } label: {
+            Label("应用更新", systemImage: "arrow.triangle.2.circlepath")
+        }
+        .help("从 GitHub 检查新版本，由你确认下载和重启升级")
     }
 }
 

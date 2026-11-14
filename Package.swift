@@ -1,5 +1,5 @@
 // swift-tools-version:6.2
-// talktalk (ARCHITECTURE.md §2.2, §13). No third-party Swift packages, no SwiftPM resources.
+// talktalk (ARCHITECTURE.md §2.2, §13). Sparkle is pinned; no SwiftPM resources.
 // M0 contains only what the benchmarks need: the --bench entry points, KeychainSecret,
 // the audio process listing used by M0-T0, and the generated engine pins.
 import PackageDescription
@@ -9,6 +9,9 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .executable(name: "TalkTalk", targets: ["TalkTalkApp"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
     ],
     targets: [
         // Test-only filesystem scopes; never linked into the application.
@@ -20,7 +23,9 @@ let package = Package(
         .executableTarget(
             name: "TalkTalkApp",
             dependencies: ["TalkTalkCore", "TalkTalkCloud", "TalkTalkAudio", "TalkTalkVoice", "TalkTalkApple", "TalkTalkCloudUI", "TalkTalkSession",
-                           "TalkTalkEngineHost", "TalkTalkDriverSupport", "TalkTalkSettingsUI"]
+                           "TalkTalkEngineHost", "TalkTalkDriverSupport", "TalkTalkSettingsUI",
+                           .product(name: "Sparkle", package: "Sparkle")],
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
             // The dev-only entry points (--bench store-key) compile only with -DTALKTALK_DEV,
             // which scripts/build-app.sh passes for TalkTalk-Dev.app and never for TalkTalk.app.
         ),

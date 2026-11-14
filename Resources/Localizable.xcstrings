@@ -27456,6 +27456,246 @@
           }
         }
       }
+    },
+    "检查更新…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check for Updates…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查更新…"
+          }
+        }
+      }
+    },
+    "重启并更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart and Update"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重启并更新"
+          }
+        }
+      }
+    },
+    "应用更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Updates"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用更新"
+          }
+        }
+      }
+    },
+    "从 GitHub 检查新版本，由你确认下载和重启升级": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check GitHub for a new version. You choose when to download and restart to update."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 GitHub 检查新版本，由你确认下载和重启升级"
+          }
+        }
+      }
+    },
+    "此构建不支持在线更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online updates are unavailable in this build."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此构建不支持在线更新"
+          }
+        }
+      }
+    },
+    "结束当前操作后再重启更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish the current operation, then restart to update."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束当前操作后再重启更新"
+          }
+        }
+      }
+    },
+    "正在重启更新…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restarting to update…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重启更新…"
+          }
+        }
+      }
+    },
+    "请通过“检查更新…”手动检查更新。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Check for Updates… to check manually."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请通过“检查更新…”手动检查更新。"
+          }
+        }
+      }
+    },
+    "请先结束当前同传或视频字幕。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End the current interpretation or video subtitle session first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先结束当前同传或视频字幕。"
+          }
+        }
+      }
+    },
+    "请先完成录音、保存或试听声音。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish recording, saving or previewing your voice first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先完成录音、保存或试听声音。"
+          }
+        }
+      }
+    },
+    "请等待语音资源或 TalkTalk Mic 维护完成。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait for speech resource or TalkTalk Mic maintenance to finish."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请等待语音资源或 TalkTalk Mic 维护完成。"
+          }
+        }
+      }
+    },
+    "请先结束诊断录音、字幕分析或自检。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish diagnostic recording, subtitle analysis or self-tests first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先结束诊断录音、字幕分析或自检。"
+          }
+        }
+      }
+    },
+    "请等待使用引导中的下载或示例结束。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait for onboarding downloads or demonstrations to finish."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请等待使用引导中的下载或示例结束。"
+          }
+        }
+      }
+    },
+    "请等待诊断包导出完成。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait for the diagnostics export to finish."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请等待诊断包导出完成。"
+          }
+        }
+      }
+    },
+    "请先完成麦克风校准。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish microphone calibration first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先完成麦克风校准。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

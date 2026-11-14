@@ -8,6 +8,23 @@ import Testing
 @Suite struct StatusMenuTests {
     private typealias Row = StatusMenuRow
 
+    @Test func updatesExposeOnlyTheCurrentPermittedAction() {
+        var facts = StatusMenuFacts()
+        #expect(!StatusMenu.rows(facts).contains { $0.command == .checkForUpdates })
+        facts.updaterEnabled = true
+        facts.canUpdate = false
+        facts.updateHelp = "session busy"
+        let blocked = StatusMenu.rows(facts).first { $0.command == .checkForUpdates }
+        #expect(blocked?.isEnabled == false && blocked?.help == "session busy")
+        facts.canUpdate = true
+        let check = StatusMenu.rows(facts).first { $0.command == .checkForUpdates }
+        facts.updatePendingRestart = true
+        let restart = StatusMenu.rows(facts).first { $0.command == .checkForUpdates }
+        #expect(restart?.isEnabled == true && restart?.title != check?.title)
+        facts.canUpdate = false
+        #expect(StatusMenu.rows(facts).first { $0.command == .checkForUpdates }?.isEnabled == false)
+    }
+
     private func titles(_ rows: [Row]) -> [String] { rows.map { $0.kind == .separator ? "—" : $0.title } }
     private func row(_ rows: [Row], _ title: String) -> Row? { rows.first { $0.title == title } }
     private func index(_ rows: [Row], _ title: String) -> Int? { rows.firstIndex { $0.title == title } }

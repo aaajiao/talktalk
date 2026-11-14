@@ -30,7 +30,7 @@ class AppBuildTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "project"
         (self.root / "scripts/lib").mkdir(parents=True)
-        for name in ("build-app.sh", "reserve-app-build.py", "gen-pins.sh"):
+        for name in ("build-app.sh", "reserve-app-build.py", "gen-pins.sh", "source-provenance.py"):
             shutil.copy2(REPO / "scripts" / name, self.root / "scripts" / name)
         for name in ("common.sh", "versions.sh"):
             shutil.copy2(REPO / "scripts/lib" / name, self.root / "scripts/lib" / name)
@@ -42,6 +42,8 @@ class AppBuildTests(unittest.TestCase):
         source = re.sub(r'^TT_APP_BUILD="[^"]*"', 'TT_APP_BUILD="7"', source, flags=re.MULTILINE)
         self.versions.write_text(source)
         subprocess.run([str(self.root / "scripts/gen-pins.sh")], check=True, capture_output=True)
+        (self.root / "Package.swift").write_text("// fixture package\n")
+        (self.root / "Package.resolved").write_text("{}\n")
         self.original_versions = source
         self.original_generated = {name: (self.root / name).read_bytes() for name in GENERATED}
         self.fake_bin = self.root / "fake-bin"

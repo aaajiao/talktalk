@@ -18,6 +18,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         /// The in-session "结束<场景>": ends at once, as the titlebar does.
         var endSession: () -> Void = {}
         var quit: () -> Void
+        var checkForUpdates: () -> Void = {}
         var stillInMeeting: () -> Void = {}
         var openOnboarding: () -> Void = {}
         /// 权限设置… for an unconfirmed system-audio grant (the titlebar chip's own).
@@ -187,6 +188,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// What the menu reads now (§8): the session, the checks and the problems.
     private func currentFacts() -> StatusMenuFacts {
         var f = StatusMenuFacts()
+        if let updater = AppUIModels.shared.general.updater {
+            f.updaterEnabled = updater.isEnabled
+            f.updatePendingRestart = updater.hasPendingRestart
+            f.canUpdate = updater.hasPendingRestart ? updater.canResumePendingUpdate : updater.canCheckForUpdates
+            f.updateHelp = updater.busyReason ?? updater.statusMessage
+        }
         if case let .unfinished(progress) = actions.onboarding() {
             f.onboardingNeeded = true
             f.onboardingProgress = progress
@@ -384,6 +391,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .toggleGlobalFallback: actions.setGlobalListenFallback(!actions.usesGlobalListenFallback())
         case .playAnnouncement: actions.playAnnouncement()
         case .settings: actions.openSettings(nil)
+        case .checkForUpdates: actions.checkForUpdates()
         // The app identity row also keeps access to the standard About panel.
         case .about:
             NSApp.activate()   // in front of the app that was active when the menu opened

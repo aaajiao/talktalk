@@ -62,6 +62,7 @@ public enum StatusMenuCommand: Sendable, Equatable {
     case playAnnouncement
     case settings
     case about
+    case checkForUpdates
     case quit
 }
 
@@ -204,6 +205,10 @@ public struct StatusMenuFacts: Sendable, Equatable {
     /// The running app bundle's identity; the status item supplies its full version and build.
     public var appName = "TalkTalk"
     public var appVersion = "\(EnginePins.appVersion) (\(EnginePins.appBuild))"
+    public var updaterEnabled = false
+    public var canUpdate = false
+    public var updatePendingRestart = false
+    public var updateHelp: String?
 
     public init() {}
 
@@ -252,7 +257,13 @@ public enum StatusMenu {
         rows += [.separator,
                  StatusMenuRow(.action(.settings), String(appLocalized: "设置…"), symbol: SubtitleTokens.ActionIcon.settings,
                                keyEquivalent: ","),
-                 StatusMenuRow(.action(.about), "\(f.appName) \(f.appVersion)", symbol: "bubble.left.and.bubble.right"),
+                 StatusMenuRow(.action(.about), "\(f.appName) \(f.appVersion)", symbol: "bubble.left.and.bubble.right")]
+        if f.updaterEnabled {
+            rows.append(StatusMenuRow(.action(.checkForUpdates),
+                                      f.updatePendingRestart ? String(appLocalized: "重启并更新") : String(appLocalized: "检查更新…"),
+                                      symbol: "arrow.triangle.2.circlepath", help: f.updateHelp, isEnabled: f.canUpdate))
+        }
+        rows += [
                  // Quitting ends the session as 结束 does: the same consequence in its tooltip.
                  StatusMenuRow(.action(.quit), f.devBuild ? String(appLocalized: "退出 TalkTalk Dev") : String(appLocalized: "退出 TalkTalk"),
                                help: f.inSession ? f.mode.scene.endHelp(systemInputSwitched: f.systemInputSwitched) : nil,
