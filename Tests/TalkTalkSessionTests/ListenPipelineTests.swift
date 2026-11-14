@@ -276,9 +276,10 @@ enum Fixture {
 
     func events(_ log: EventLog, _ name: String) -> [[String: Any]] { log.recorded.filter { ($0["ev"] as? String) == name } }
 
-    @Test func sixSubtitleDirectionsReachDraftCloudAndAppleFallback() async throws {
+    @Test func twelveSubtitleDirectionsReachDraftCloudAndAppleFallback() async throws {
         let examples: [Lang: String] = [.zh: "预算是三十万欧元", .en: "The budget is three hundred thousand euros",
-                                        .de: "Das Budget beträgt dreihunderttausend Euro"]
+                                        .de: "Das Budget beträgt dreihunderttausend Euro",
+                                        .fr: "Le budget est de trois cent mille euros"]
         for source in Lang.allCases {
             for target in Lang.allCases where target != source {
                 for cloudEnabled in [true, false] {
@@ -324,7 +325,8 @@ enum Fixture {
     @Test func primaryInTimeIsTheFinal() async throws {
         let primary = FakeMT("openai", placement: .network, prefix: "云", delayMs: 30)
         let apple = FakeMT("apple", placement: .systemService, prefix: "苹", delayMs: 10)
-        let (p, s, sink, log) = try make(primary: primary, apple: apple)
+        // This checks winner selection, not the wall-clock deadline under a busy test runner.
+        let (p, s, sink, log) = try make(primary: primary, apple: apple, deadlineMs: 30_000)
         try await p.start()
         s.volatile("hello there")
         s.final("Hello there.")

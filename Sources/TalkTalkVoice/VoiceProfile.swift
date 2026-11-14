@@ -15,9 +15,9 @@ public struct VoiceProfile: Codable, Sendable, Equatable {
     public var wavSHA256: String
     /// Check statuses by row plus the raw measurements of the accepted take.
     public var checks: Checks
-    public var mode: [String: String] = ["en": "icl", "de": "icl"]
+    public var mode: [String: String] = ["en": "icl", "de": "icl", "fr": "icl"]
     public var references: [String: String] = ["zh": VoiceStore.referenceName]
-    public var useFor: [String: String] = ["en": "zh", "de": "zh"]
+    public var useFor: [String: String] = ["en": "zh", "de": "zh", "fr": "zh"]
     /// Hash of the recording microphone's UID (§3.8 passthrough gain is keyed the same way).
     public var micUIDHash: String
     /// Calibrated speaking rate (script Han characters / compressed speech seconds), for §5.2.
@@ -71,13 +71,13 @@ public struct VoiceProfile: Codable, Sendable, Equatable {
 
     public var identity: Identity { Identity(id: id, wavSHA256: wavSHA256) }
 
-    /// The conditioning entry SPEAK loads (the en mode; en and de share it while both are ICL).
+    /// The conditioning entry SPEAK loads (the en mode; ICL output languages share it).
     public var speakEntry: ConditioningEntry? { conditioningEntries?.first { $0.mode == modesByLang[.en] } }
 
     /// The clone modes this profile needs conditioning for (one build per model × mode).
     public var cloneModes: [CloneMode] {
         var out: [CloneMode] = []
-        for lang in ["en", "de"] {
+        for lang in ["en", "de", "fr"] {
             let m = CloneMode(rawValue: mode[lang] ?? "icl") ?? .icl
             if !out.contains(m) { out.append(m) }
         }
@@ -85,7 +85,9 @@ public struct VoiceProfile: Codable, Sendable, Equatable {
     }
 
     public var modesByLang: [Lang: CloneMode] {
-        [.en: CloneMode(rawValue: mode["en"] ?? "icl") ?? .icl, .de: CloneMode(rawValue: mode["de"] ?? "icl") ?? .icl]
+        [.en: CloneMode(rawValue: mode["en"] ?? "icl") ?? .icl,
+         .de: CloneMode(rawValue: mode["de"] ?? "icl") ?? .icl,
+         .fr: CloneMode(rawValue: mode["fr"] ?? "icl") ?? .icl]
     }
 
     public struct Checks: Codable, Sendable, Equatable {

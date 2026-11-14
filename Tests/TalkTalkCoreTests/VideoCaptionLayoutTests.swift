@@ -23,7 +23,7 @@ import Testing
         #expect(VideoCaptionLayout.minimumContentHeight(translationLineHeight: 34, sourceLineHeight: 22) == 114)
     }
 
-    @Test func eachBlockUsesItsLanguageMetricsForAllSixDirections() {
+    @Test func eachBlockUsesItsLanguageMetricsForAllTwelveDirections() {
         for source in Lang.allCases {
             for target in Lang.allCases where target != source {
                 let sourceWidth = VideoCaptionLayout.sourceBlockWidth(windowWidth: 960, sourceSize: 17, language: source)

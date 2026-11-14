@@ -12,7 +12,7 @@ import Testing
     }
 
     var glossary: [GlossaryEntry] {
-        [GlossaryEntry(zh: "延迟", en: "latency", de: "Latenz"), GlossaryEntry(zh: "原型", en: "prototype", de: "Prototyp")]
+        [GlossaryEntry(zh: "延迟", en: "latency", de: "Latenz", fr: "latence"), GlossaryEntry(zh: "原型", en: "prototype", de: "Prototyp", fr: "prototype")]
     }
 
     func speakRequest(_ text: String = "总共还是三十万欧元。", history: [MTTurn] = [], final: Bool = false,
@@ -117,6 +117,23 @@ import Testing
         #expect(retry.contains("1.5 million, latency"))
         #expect(retry.contains("Output Simplified Chinese only"))
         #expect(!retry.contains("never output Chinese characters"))
+    }
+
+    @Test func frenchPromptsCoverEveryModeAndIgnoreIncompleteTerms() throws {
+        for session in [MTSession.speakZhFr, .speakEnFr, .speakFrZh, .speakFrEn, .speakFrDe] {
+            for mode in [MTMode.normal, .concise, .summarize] {
+                let prompt = try builder.instructions(session: session, mode: mode, glossary: glossary, strictTerms: ["TalkTalk"])
+                #expect(prompt.contains("French"))
+                #expect(prompt.contains(builder.prompts.languageNames[session.direction.target.rawValue]!))
+                #expect(prompt.contains("TalkTalk"))
+                #expect(prompt.contains("\(glossary[0].rendering(for: session.direction.source)) = \(glossary[0].rendering(for: session.direction.target))"))
+                if session.direction.target == .zh { #expect(!prompt.contains("never output Chinese characters")) }
+            }
+        }
+        let legacy = [GlossaryEntry(zh: "旧术语", en: "legacy", de: "alt")]
+        let prompt = try builder.instructions(session: .speakFrEn, mode: .normal, glossary: legacy)
+        #expect(!prompt.contains(" = legacy"))
+        #expect(!prompt.contains("Glossary (always"))
     }
 
     @Test func allSubtitleDirectionsUseSubtitlePromptsAndTheirOwnGlossary() throws {

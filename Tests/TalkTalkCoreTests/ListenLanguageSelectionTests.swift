@@ -3,29 +3,33 @@ import Testing
 @testable import TalkTalkCore
 
 @Suite struct ListenLanguageSelectionTests {
-    @Test func allScenesOfferSixDirectionsAndAtomicSwap() {
+    @Test func allScenesOfferTwelveDirectionsAndAtomicSwap() {
         var directions: [String] = []
         for source in Lang.allCases {
             let selection = ListenLanguageSelection(source: source)
-            #expect(selection.targets.count == 2)
+            #expect(selection.targets.count == 3)
             for target in selection.targets {
                 let pair = ListenLanguageSelection(source: source, target: target)
                 directions.append("\(pair.source.rawValue)-\(pair.target.rawValue)")
                 #expect(pair.source != pair.target)
                 #expect(pair.swapped.source == target && pair.swapped.target == source)
                 #expect(pair.swapped.swapped == pair)
+                let session = MTSession.listen(source: source, target: target)
+                #expect(session?.isSpeak == false)
+                #expect(session?.direction == Direction(source: source, target: target))
                 for scope in ListenLanguagePreferences.Scope.allCases {
                     #expect(ListenLanguagePreferences.normalized(pair, for: scope) == pair)
                 }
             }
         }
-        #expect(Set(directions) == Set(["zh-en", "zh-de", "en-zh", "en-de", "de-zh", "de-en"]))
+        #expect(Set(directions) == Set(["zh-en", "zh-de", "zh-fr", "en-zh", "en-de", "en-fr",
+                                        "de-zh", "de-en", "de-fr", "fr-zh", "fr-en", "fr-de"]))
         #expect(ListenLanguageSelection(source: .en, target: .de).selectingSource(.zh).target == .de)
         #expect(ListenLanguageSelection(source: .en, target: .zh).selectingSource(.zh).target == .en)
         #expect(ListenLanguageSelection(source: .de, target: .en).selectingTarget(.de).target == .zh)
     }
 
-    @Test func allScenesPersistSixDirectionsWithoutNarrowing() throws {
+    @Test func allScenesPersistTwelveDirectionsWithoutNarrowing() throws {
         let suite = "ListenLanguageSelectionTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }

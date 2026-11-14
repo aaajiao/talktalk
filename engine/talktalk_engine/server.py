@@ -210,8 +210,8 @@ class Handler(BaseHTTPRequestHandler):
     def r_tts(self, q):
         b = self._json_body()
         text = str(b.get("text") or "")
-        if b.get("lang") not in ("zh", "en", "de"):
-            raise ApiError(400, "bad_request", "lang must be zh, en or de")
+        if b.get("lang") not in ("zh", "en", "de", "fr"):
+            raise ApiError(400, "bad_request", "lang must be zh, en, de or fr")
         minimum = 1 if b["lang"] == "zh" else 2
         if len(_ALNUM.findall(text)) < minimum:
             raise ApiError(400, "text_too_short", f"fewer than {minimum} letters or digits")

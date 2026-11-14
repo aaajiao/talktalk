@@ -18,7 +18,7 @@ import numpy as np
 
 SAMPLE_RATE = 24000
 FRAME_HZ = 12.5
-LANGUAGES = {"en": "english", "de": "german", "zh": "chinese"}
+LANGUAGES = {"en": "english", "de": "german", "zh": "chinese", "fr": "french"}
 CONTINUATION_MAX_FRAMES = 100
 CONTINUATION_MAX_TEXT = 512
 
@@ -58,7 +58,8 @@ def duration_units(text, lang):
 
 def expected_seconds(text, lang):
     """Expected spoken duration for runaway and short checks, from shared coefficients.
-    zh uses character units and an initial heuristic; en/de retain their measured word fit."""
+    zh uses character units; fr starts with the conservative de coefficients, not a measured fit.
+    en/de retain their measured word fit."""
     words = duration_units(text, lang)
     intercept, per_word = _EXPECTED.get(lang, _EXPECTED[_EXPECTED_DEFAULT])
     return intercept + per_word * words

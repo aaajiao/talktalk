@@ -25,12 +25,13 @@ public struct RollingSentenceCommitter: Sendable {
     }
 
     private static let enders: Set<Character> = [".", "?", "!", "…", "。", "？", "！"]
-    private static let closers: Set<Character> = ["\"", "'", ")", "”", "’", "）", "」", "』", "】", "》"]
+    private static let closers: Set<Character> = ["\"", "'", ")", "”", "’", "»", "）", "」", "』", "】", "》"]
     private static let pauses: Set<Character> = [",", ";", ":", "，", "；", "：", "、"]
     private static let abbreviations: Set<String> = [
         "dr", "mr", "mrs", "ms", "prof", "st", "vs", "jr", "sr",   // en
         "hr", "fr", "nr", "bzw", "ca", "ggf", "evtl", "vgl",       // de
     ]
+    private static let frenchAbbreviations: Set<String> = ["m", "mme", "mmes", "mlle", "mlles", "dr", "pr", "me", "ste", "av"]
     private static let requiredAgreement = 2
 
     public let lang: Lang
@@ -164,11 +165,16 @@ public struct RollingSentenceCommitter: Sendable {
         var lowerNext = false
         for index in tokens.indices {
             let surface = tokens[index].surface
-            out += text[cursor..<surface.startIndex]
+            let gap = text[cursor..<surface.startIndex]
+            // A recognizer can put a pause/period after an unfinished elision: "qu’. Il".
+            // Once that artificial stop is removed the apostrophe must join the next word.
+            let joinsElision = lang == .fr && (out.last == "'" || out.last == "’")
+                && UnfinishedEnding.matches(out, lang: .fr) && gap.allSatisfy(\.isWhitespace)
+            if !joinsElision { out += gap }
             cursor = surface.endIndex
             if index < tokens.endIndex - 1, endsOnUnfinishedWord(tokens, at: index) {
                 out += surface.dropLast()
-                lowerNext = lang == .en
+                lowerNext = lang == .en || lang == .fr
             } else {
                 out += lowerNext ? Self.withLoweredHead(String(surface)) : String(surface)
                 lowerNext = false
@@ -282,6 +288,7 @@ public struct RollingSentenceCommitter: Sendable {
         let bare = word.dropLast().lowercased().trimmingCharacters(in: .punctuationCharacters)
         guard !bare.isEmpty else { return false }
         if Self.abbreviations.contains(bare) { return true }
+        if lang == .fr, Self.frenchAbbreviations.contains(bare) { return true }
         // "am 3. Mai", "der 100. Geburtstag", "am 3.5."; a four-digit number is a year ending a sentence.
         if lang == .de, bare.allSatisfy({ $0.isNumber || $0 == "." }), bare.count != 4 || bare.contains(".") { return true }
         return bare.split(separator: ".", omittingEmptySubsequences: false)
@@ -305,7 +312,7 @@ public struct RollingSentenceCommitter: Sendable {
     /// The model capitalizes the first word of every window, even mid-sentence. German nouns are
     /// capitalized anyway, and acronyms or "I" must keep theirs.
     private func decapitalized(_ text: String) -> String {
-        guard continuesSentence, released.isEmpty, lang == .en else { return text }
+        guard continuesSentence, released.isEmpty, lang == .en || lang == .fr else { return text }
         return Self.withLoweredHead(text)
     }
 

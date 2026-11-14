@@ -68,7 +68,7 @@ final class GlossarySettingsModel {
         // A row left completely empty is not a term: it is dropped, not refused (the store's
         // missing-term rule still holds for every other row).
         rows.removeAll { row in
-            [row.entry.zh, row.entry.en, row.entry.de, row.entry.note ?? ""]
+            [row.entry.zh, row.entry.en, row.entry.de, row.entry.fr, row.entry.note ?? ""]
                 .allSatisfy { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         }
         do {
@@ -90,7 +90,7 @@ final class GlossarySettingsModel {
 /// Settings › 术语表 (settings visual system §7.13): a grouped Form with the same margins as
 /// the other pages. The hero shows the count of the 30 allowed, whether the terms go to OpenAI,
 /// the last save's result while it holds, and the page's actions: add, and the manual 保存
-/// (§9.6 #6, prominent while there are unsaved edits). One row per term: 中文 / EN / DE / 备注
+/// (§9.6 #6, prominent while there are unsaved edits). One row per term: 中文 / EN / DE / FR / 备注
 /// and its remove button.
 struct GlossarySettingsView: View {
     @Bindable var model: GlossarySettingsModel
@@ -200,6 +200,7 @@ struct GlossarySettingsView: View {
             Text("中文").frame(maxWidth: .infinity, alignment: .leading)
             Text(verbatim: "EN").frame(maxWidth: .infinity, alignment: .leading)
             Text(verbatim: "DE").frame(maxWidth: .infinity, alignment: .leading)
+            Text(verbatim: "FR").frame(maxWidth: .infinity, alignment: .leading)
             Text("备注").frame(maxWidth: .infinity, alignment: .leading)
             Color.clear.frame(width: Ladder.hitArea, height: 1)
         }
@@ -218,6 +219,7 @@ struct GlossarySettingsView: View {
                 .focused($focusedRow, equals: row.wrappedValue.id)
             field(String(appLocalized: "英语"), text: row.entry.en, missing: model.showsMissing && entry.lacksTranslation)
             field(String(appLocalized: "德语"), text: row.entry.de, missing: model.showsMissing && entry.lacksTranslation)
+            field(String(appLocalized: "法语"), text: row.entry.fr, missing: model.showsMissing && entry.lacksTranslation)
             field(String(appLocalized: "备注"), text: Binding(get: { row.wrappedValue.entry.note ?? "" },
                                                          set: { row.wrappedValue.entry.note = $0.isEmpty ? nil : $0 }),
                   prompt: String(appLocalized: "备注"), missing: false)

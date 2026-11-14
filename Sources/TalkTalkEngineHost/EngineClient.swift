@@ -183,7 +183,7 @@ public final class EngineClient: Sendable {
         return try decode(Reply.self, resp).cosine
     }
 
-    /// `/v1/asr` with 16 kHz mono samples (kind 6). `hint` is the language ("zh", "en", "de") or nil.
+    /// `/v1/asr` with 16 kHz mono samples (kind 6). `hint` is the language ("zh", "en", "de", "fr") or nil.
     /// `pinnedText` is text the recognizer continues from; the result starts with it.
     public func asr(samples16k: [Float], hint: String?, priority: Int = 1, job: String? = nil,
                     context: String? = nil, pinnedText: String? = nil) async throws -> ASRResult {

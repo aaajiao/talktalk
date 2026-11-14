@@ -985,6 +985,10 @@ final class SpeakController {
             return "Ich nutze maschinelle Live-Übersetzung und eine synthetische Stimme."
                 + (cloud ? " Gesprochene Inhalte werden als Text zur Übersetzung an OpenAI gesendet." : "")
         }
+        if (sessionTarget ?? state.speakLanguage.lang) == .fr {
+            return "J’utilise une traduction automatique en direct et une voix de synthèse."
+                + (cloud ? " Les paroles sont envoyées sous forme de texte à OpenAI pour être traduites." : "")
+        }
         return "I'm using live machine interpretation and a synthesized voice."
             + (cloud ? " Spoken content is sent as text to OpenAI for translation." : "")
     }

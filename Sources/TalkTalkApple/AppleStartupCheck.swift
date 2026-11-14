@@ -5,7 +5,7 @@ import TalkTalkCore
 import Translation
 
 /// Startup check item 6, "Apple 侧" (ARCHITECTURE.md): speech assets for zh-CN / en-US /
-/// de-DE (installed, reserved — 3 of the system's reservation slots), Translation availability
+/// de-DE / fr-FR (installed, reserved — 4 of the system's reservation slots), Translation availability
 /// per direction, and whether `.highFidelity` is usable. Runs no process, downloads nothing.
 /// `evaluate` is pure; the `StartupCheckItem` adapter (talktalk-m0's protocol) wraps `run`.
 public enum AppleStartupCheck {
@@ -33,8 +33,10 @@ public enum AppleStartupCheck {
         case unavailable([String])
     }
 
-    public static let locales: [Lang] = [.zh, .en, .de]
-    static let pairs: [(MTSession, String)] = [(.listenEnZh, "en-zh"), (.listenDeZh, "de-zh"), (.speakZhEn, "zh-en"), (.speakZhDe, "zh-de"), (.speakEnDe, "en-de"), (.listenDeEn, "de-en")]
+    public static let locales: [Lang] = Lang.allCases
+    static let pairs: [(MTSession, String)] = MTSession.allCases.filter { !$0.isSpeak }.map {
+        ($0, "\($0.direction.source.rawValue)-\($0.direction.target.rawValue)")
+    }
 
     public static func evaluate(_ r: Report) -> Verdict {
         guard r.transcriberAvailable else { return .unavailable([String(appLocalized: "这台 Mac 不支持系统语音识别（SpeechTranscriber）")]) }
@@ -56,7 +58,7 @@ public enum AppleStartupCheck {
                 problems.append(String(appLocalized: "\(key) 翻译语言包不可用（系统设置 › 通用 › 语言与地区 › 翻译语言）"))
             }
         }
-        if !hasSpeech { return .unavailable([String(appLocalized: "中文、英语和德语的语音资源都没有：没法生成字幕")] + problems) }
+        if !hasSpeech { return .unavailable([String(appLocalized: "中文、英语、德语和法语的语音资源都没有：没法生成字幕")] + problems) }
         return problems.isEmpty ? .ok : .degraded(problems)
     }
 

@@ -293,7 +293,16 @@ private actor DraftSwitchASR: StreamingASREngine {
     @Test @MainActor func languageSwitchCancelsAdoptedDraftAndKeepsTheNewDirectionIndependent() async throws {
         let apple = DeferredDraftMT(), asr = DraftSwitchASR(), sink = Sink()
         var profile = try PolicyProfile.load(from: Fixture.repoRoot.appendingPathComponent("Resources/PolicyProfile.default.json"))
-        profile.listen.finalize.silenceMs = ["en": 60_000, "de": 60_000, "zh": 60_000]
+        // This text-only fixture has no voiced PCM; AudioIngest reports Int.max / 2 before
+        // any voice, so a finite silence threshold would still finalize on the first tick.
+        profile.listen.finalize.silenceMs = Dictionary(uniqueKeysWithValues: Lang.allCases.map { ($0.rawValue, Int.max) })
+        // This test advances the sentence with explicit ASR finals. MainActor scheduling must
+        // not let a text-pause timer close it between the two volatile hypotheses.
+        profile.listen.finalize.punctPauseMs = 60_000
+        profile.listen.finalize.force.minWords = Int.max
+        profile.listen.finalize.stallMs = 60_000
+        profile.listen.finalize.stallMsAfter8s = 60_000
+        profile.listen.finalize.hardCapS = 60
         let session = MeetingSession(profile: profile, makeEngines: { _, _, _ in
             .init(asr: asr, apple: apple, primary: nil)
         }, onSubtitle: sink.add)

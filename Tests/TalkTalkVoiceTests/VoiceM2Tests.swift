@@ -149,6 +149,7 @@ let deText = AuditionCheck.sentences[.de]!
                                       reference: enText) == 0)
         #expect(WordErrorRate.compute(hypothesis: "Danke Ihnen allen ich gebe Ihnen kurz einen überblick über den aktuellen Stand des Projekts",
                                       reference: deText) == 0)
+        #expect(WordErrorRate.compute(hypothesis: "L'artiste pre\u{301}sente son œuvre", reference: "L’artiste présente son œuvre.") == 0)
     }
 
     @Test func countsSubstitutionsInsertionsDeletions() {
@@ -213,16 +214,16 @@ let deText = AuditionCheck.sentences[.de]!
         let blob = try #require(conditioning.first)
         let handle = VoiceHandle(profileID: id, conditioningKey: blob.key, mode: .icl,
                                  model: .init(name: blob.model, revision: "", placement: .engineGPU))
-        for language in [Lang.en, .de] {
+        for language in [Lang.en, .de, .fr] {
             #expect(await b.seeds[language]?.first == Int(TTSSeed.make(voice: handle, language: language)))
         }
         #expect(a.passed)
-        #expect(a.clips.map(\.lang) == [.en, .de])
+        #expect(a.clips.map(\.lang) == [.en, .de, .fr])
         #expect(a.clips.allSatisfy { $0.attempts == 1 && $0.wer == 0 && $0.similarity == 0.97 })
         // 1 kHz sine at 0.1 peak ≈ −23 LUFS → +3 dB to reach −20 LUFS.
         let g = try #require(a.playoutGainDb)
         #expect(abs(g - 3.0) <= 0.3)
-        #expect(await b.loads.count == 1)   // same ICL blob for en and de: loaded once
+        #expect(await b.loads.count == 1)   // same ICL blob for en, de and fr: loaded once
     }
 
     @Test func runawayIsRegeneratedOnceWithTheNextSeed() async throws {
@@ -262,7 +263,7 @@ let deText = AuditionCheck.sentences[.de]!
 
     @Test func werAboveFifteenPercentTwiceFails() async throws {
         // The failing en clip is much louder (0.5 peak ≈ −9 LUFS): if it counted, the gain would
-        // be about −8 dB. Measured on the passing de clip only (0.1 peak ≈ −23 LUFS → +3 dB).
+        // be about −8 dB. Measured on the passing de/fr clips (0.1 peak ≈ −23 LUFS → +3 dB).
         let b = FakeBackend(takes: [.en: [.init(seconds: 4, readback: "thanks everyone", amplitude: 0.5)]])
         let a = try await services(b).audition(conditioning: try await blobs(b), modes: [.en: .icl, .de: .icl],
                                                profileID: UUID().uuidString, referenceWAV: referenceWAV)
@@ -274,10 +275,12 @@ let deText = AuditionCheck.sentences[.de]!
 
     @Test func noPassingClipMeansNoPlayoutGain() async throws {
         let b = FakeBackend(takes: [.en: [.init(seconds: 4, readback: "thanks everyone", amplitude: 0.5)],
-                                    .de: [.init(seconds: 1, readback: deText, amplitude: 0.3)]])
+                                    .de: [.init(seconds: 1, readback: deText, amplitude: 0.3)],
+                                    .fr: [.init(seconds: 1, readback: AuditionCheck.sentences[.fr], amplitude: 0.3)]])
         let a = try await services(b).audition(conditioning: try await blobs(b), modes: [.en: .icl, .de: .icl],
                                                profileID: UUID().uuidString, referenceWAV: referenceWAV)
         #expect(!a.passed)
+        #expect(a.clips.allSatisfy { $0.failure != nil })
         #expect(a.playoutGainDb == nil)
     }
 
@@ -593,7 +596,7 @@ final class Flag: @unchecked Sendable {
         var original = handle
         original.conditioningKey = try #require(profile.samplingKey)
         original.samplingKey = nil
-        for language in [Lang.en, .de] {
+        for language in [Lang.en, .de, .fr] {
             #expect(await backend.seeds[language]?.first == Int(TTSSeed.make(voice: original, language: language)))
         }
         #expect(VoiceSync.alreadyRestored(store: store, routing: routing))

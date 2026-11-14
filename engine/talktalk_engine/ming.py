@@ -228,7 +228,7 @@ class MingTTSModel:
         has no Qwen codebook, so no fake CB0 values or synthetic continuation are exposed.
         """
         self.validate_voice(voice)
-        if language not in ("zh", "en", "de"):
+        if language not in ("zh", "en", "de", "fr"):
             raise ValueError("unsupported Ming output language")
         if not math.isfinite(interval) or interval <= 0:
             raise ValueError("invalid Ming chunk interval")

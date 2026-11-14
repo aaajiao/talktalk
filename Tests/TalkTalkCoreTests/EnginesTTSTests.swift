@@ -48,6 +48,7 @@ import Testing
     @Test func languageSeedsPreserveTheListeningComparison() {
         #expect(TTSSeed.make(voice: Self.voice, language: .en) == 2_583_116_680)
         #expect(TTSSeed.make(voice: Self.voice, language: .de) == 318_753_904)
+        #expect(TTSSeed.make(voice: Self.voice, language: .fr) == 4_129_970_124)
         var other = Self.voice
         other.conditioningKey = "k8-9999"
         #expect(TTSSeed.make(voice: other, language: .en) != TTSSeed.make(voice: Self.voice, language: .en))
@@ -56,7 +57,7 @@ import Testing
     @Test func mingUsesItsAcceptedLocalAuditionSeedAcrossLanguages() {
         var ming = Self.voice
         ming.model = EngineID(name: "tts-ming3-0.5b-bf16", revision: "283b3c342c6f", placement: .engineGPU)
-        for language in [Lang.en, .de, .zh] {
+        for language in Lang.allCases {
             #expect(TTSSeed.make(voice: ming, language: language) == 20_261_107)
         }
         #expect(TTSSeed.next(TTSSeed.make(voice: ming, language: .en), attempt: 1) != 20_261_107)
@@ -71,7 +72,7 @@ import Testing
         edited.conditioningKey = "cropped-reference-key"
         #expect(TTSSeed.make(voice: edited, language: .en) != TTSSeed.make(voice: Self.voice, language: .en))
         edited.samplingKey = Self.voice.conditioningKey
-        for language in [Lang.en, .de] {
+        for language in [Lang.en, .de, .fr] {
             #expect(TTSSeed.make(voice: edited, language: language) == TTSSeed.make(voice: Self.voice, language: language))
         }
         #expect(edited.conditioningKey == "cropped-reference-key")

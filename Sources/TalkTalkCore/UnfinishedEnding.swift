@@ -11,6 +11,12 @@ enum UnfinishedEnding {
         "um", "uh", "er", "erm",
     ]
     private static let de: Set<String> = ["und", "weil", "dass", "wenn", "von", "für", "äh", "ähm", "öh", "hm"]
+    // Leave out words that can be complete replies, including un/une and avec/pour.
+    private static let fr: Set<String> = ["et", "ou", "mais", "parce", "puisque", "lorsque", "quoique", "que",
+                                         "de", "du", "des", "ce", "cet", "cette", "mes", "tes", "ses", "nos", "vos",
+                                         "mon", "ton", "son", "notre", "votre", "euh", "heu", "hum"]
+    private static let frElisions: Set<String> = ["l", "d", "j", "m", "t", "s", "n", "c", "qu", "jusqu", "lorsqu", "puisqu"]
+    private static let frFillers: Set<String> = ["euh", "heu", "hum", "hm", "hmm"]
     private static let zh = ["因为", "所以", "但是", "如果", "而且", "然后", "嗯", "呃"]
     private static let fillers: Set<String> = ["um", "uh", "er", "erm", "äh", "ähm", "öh", "hm"]
     private static let zhFillers: Set<Character> = ["嗯", "呃"]
@@ -20,6 +26,10 @@ enum UnfinishedEnding {
     static func matches(_ text: String, lang: Lang) -> Bool {
         var body = text.trimmingCharacters(in: .whitespacesAndNewlines)[...]
         if let last = body.last, last == "." || last == "。" { body.removeLast() }
+        if lang == .fr, let last = body.last, last == "'" || last == "’",
+           let tail = body.dropLast().split(whereSeparator: \.isWhitespace).last {
+            return frElisions.contains(tail.lowercased())
+        }
         guard let last = body.last, last.isLetter else { return false }
         if lang == .zh {
             guard zh.contains(where: { body.hasSuffix($0) }) else { return false }
@@ -28,7 +38,8 @@ enum UnfinishedEnding {
         let words = body.split(whereSeparator: \.isWhitespace)
         guard let tail = words.last, tail.contains(where: \.isLowercase) else { return false }
         let bare = words.map { $0.lowercased().trimmingCharacters(in: .punctuationCharacters) }
-        guard let word = bare.last, (lang == .de ? de : en).contains(word) else { return false }
-        return !bare.allSatisfy(fillers.contains)
+        let endings = lang == .fr ? fr : (lang == .de ? de : en)
+        guard let word = bare.last, endings.contains(word) else { return false }
+        return !bare.allSatisfy((lang == .fr ? frFillers : fillers).contains)
     }
 }

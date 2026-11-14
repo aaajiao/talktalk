@@ -247,7 +247,7 @@ struct DoneStep: View {
                 scenarioRow(.captions,
                             chip: FactChip(String(appLocalized: "不用麦克风"), symbol: Icon.noMicrophone,
                                            help: String(appLocalized: "只收听应用声音")),
-                            note: String(appLocalized: "只收听应用声音，中文、英语和德语可互译，原文与译文成对显示，不使用麦克风。"))
+                            note: String(appLocalized: "只收听应用声音，中文、英语、德语和法语可互译，原文与译文成对显示，不使用麦克风。"))
             }
         }
     }

@@ -10,9 +10,9 @@ import TalkTalkVoice
 @MainActor
 @Observable
 final class AppState {
-    /// Compatibility wrapper for the active scene's source; all scenes support Chinese, English and German.
+    /// Compatibility wrapper for the active scene's source; all scenes support Chinese, English, German and French.
     enum RemoteLanguage: String, CaseIterable, Identifiable {
-        case zh, en, de
+        case zh, en, de, fr
         var id: String { rawValue }
         var title: String { lang.title }
         /// BCP-47 locale for SpeechAnalyzer / Translation.
@@ -23,6 +23,7 @@ final class AppState {
             case .zh: .zh
             case .en: .en
             case .de: .de
+            case .fr: .fr
             }
         }
         init?(_ lang: Lang) {
@@ -30,6 +31,7 @@ final class AppState {
             case .en: self = .en
             case .de: self = .de
             case .zh: self = .zh
+            case .fr: self = .fr
             }
         }
     }

@@ -84,8 +84,17 @@ class ServerTests(unittest.TestCase):
     def test_tts_validation(self):
         st, data = self.req("POST", "/v1/tts", {"text": "!", "lang": "en"})
         self.assertEqual((st, json.loads(data)["error"]["code"]), (400, "text_too_short"))
-        st, data = self.req("POST", "/v1/tts", {"text": "Hello", "lang": "fr"})
+        st, data = self.req("POST", "/v1/tts", {"text": "Hello", "lang": "xx"})
         self.assertEqual(st, 400)
+
+    def test_french_tts_streams_and_preserves_accents_and_language(self):
+        text = "L’artiste présente son œuvre à Paris."
+        status, data = self.req("POST", "/v1/tts", {"text": text, "lang": "fr"})
+        self.assertEqual(status, 200)
+        self.assertEqual([kind for kind, _ in frames.decode_all(data)],
+                         [frames.JSON_HEAD, frames.PCM_F32_24K, frames.JSON_TAIL])
+        self.assertEqual(self.state.last_tts_request["lang"], "fr")
+        self.assertEqual(self.state.last_tts_request["text"], text)
 
     def test_tts_streams_frames(self):
         st, data = self.req("POST", "/v1/tts", {"text": "Hello there", "lang": "en"})

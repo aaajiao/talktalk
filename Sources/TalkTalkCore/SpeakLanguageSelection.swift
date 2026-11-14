@@ -2,17 +2,19 @@ import Foundation
 
 /// The explicit language spoken into the microphone. German remains a translation target.
 public enum SpeakSourceLanguage: String, CaseIterable, Codable, Sendable, Identifiable {
-    case zh, en
+    case zh, en, fr
     public var id: String { rawValue }
-    public var lang: Lang { self == .zh ? .zh : .en }
-    public var targets: [SpeakTargetLanguage] { self == .zh ? [.en, .de] : [.zh, .de] }
+    public var lang: Lang {
+        switch self { case .zh: .zh; case .en: .en; case .fr: .fr }
+    }
+    public var targets: [SpeakTargetLanguage] { SpeakTargetLanguage.allCases.filter { $0.lang != lang } }
 }
 
 public enum SpeakTargetLanguage: String, CaseIterable, Codable, Sendable, Identifiable {
-    case zh, en, de
+    case zh, en, de, fr
     public var id: String { rawValue }
     public var lang: Lang {
-        switch self { case .zh: .zh; case .en: .en; case .de: .de }
+        switch self { case .zh: .zh; case .en: .en; case .de: .de; case .fr: .fr }
     }
 }
 

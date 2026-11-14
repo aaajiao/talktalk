@@ -142,8 +142,8 @@ private func fill(_ store: VoiceStore, _ staging: URL, profileID: String) throws
         }
         #expect(json["version"] as? Int == 1)
         #expect(json["script_id"] as? String == "zh-v1")
-        #expect((json["mode"] as? [String: String]) == ["en": "icl", "de": "icl"])
-        #expect((json["use_for"] as? [String: String]) == ["en": "zh", "de": "zh"])
+        #expect((json["mode"] as? [String: String]) == ["en": "icl", "de": "icl", "fr": "icl"])
+        #expect((json["use_for"] as? [String: String]) == ["en": "zh", "de": "zh", "fr": "zh"])
         #expect((json["references"] as? [String: String]) == ["zh": "reference.wav"])
         #expect((json["mic_uid_hash"] as? String)?.count == 16)
         #expect(json["conditioning"] as? String == "pending_engine")
@@ -151,6 +151,21 @@ private func fill(_ store: VoiceStore, _ staging: URL, profileID: String) throws
         #expect(!text.contains("大家好"))
         #expect(!text.contains("BuiltInMicrophoneDevice"))
         #expect(try VoiceProfile.decode(p.encoded()) == p)
+    }
+
+    @Test func legacyEnglishGermanProfileUsesExistingICLForFrench() throws {
+        var profile = VoiceProfile(script: .zhV1, wav: WAVFile.encodePCM16([0.1], sampleRate: 24_000),
+                                   report: sampleReport(), micUID: "test", durationSeconds: 9.1)
+        profile.mode = ["en": "icl", "de": "icl"]
+        profile.useFor = ["en": "zh", "de": "zh"]
+        profile.conditioningEntries = [.init(key: "existing-voice", model: "model", mode: .icl)]
+        profile.playoutGainDb = 1.5
+        let decoded = try VoiceProfile.decode(profile.encoded())
+        #expect(decoded == profile)
+        #expect(decoded.modesByLang[.fr] == .icl)
+        #expect(decoded.cloneModes == [.icl])
+        #expect(decoded.speakEntry?.key == "existing-voice")
+        #expect(decoded.playoutGainDb == 1.5)
     }
 }
 

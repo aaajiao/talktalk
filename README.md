@@ -4,7 +4,7 @@
 
 ![TalkTalk subtitle settings and bilingual meeting conversation preview](docs/images/talktalk-subtitles.png)
 
-**Subtitles and voice translation in Chinese, English, and German for meetings, phone calls, and videos.**
+**Subtitles and voice translation in Chinese, English, German, and French for meetings, phone calls, and videos.**
 
 TalkTalk is a native macOS menu bar app. Speech recognition and synthesis run locally, with OpenAI or Apple available for text translation. Speak with your own cloned voice or choose a macOS system voice.
 
@@ -16,12 +16,14 @@ TalkTalk is a native macOS menu bar app. Speech recognition and synthesis run lo
 | Phone interpretation | Connect to the macOS **Phone** app. Prepare interpretation in TalkTalk, then make or answer a call in Phone. Ending interpretation in TalkTalk does not hang up the call. |
 | Video subtitles | Listen to a selected video or browser app and display bilingual subtitles, without enabling the microphone or generating translated speech. Browser capture includes audio from the whole app, not just one tab. |
 
-- **Listening subtitles** support all six translation directions between Chinese, English, and German. Each mode remembers its own audio source and language direction; Phone mode always uses the Phone app.
-- **Translated speech** supports Chinese → English/German and English → Chinese/German. Meeting and Phone modes each have their own speaking language setting and send your original voice by default. Tap **right ⌥ (Option)** to start speaking for translation, then tap again to finish. Your original voice resumes after the remaining translated audio finishes playing.
+- **Listening subtitles** support all twelve translation directions between Chinese, English, German, and French. Each mode remembers its own audio source and language direction; Phone mode always uses the Phone app.
+- **Translated speech** supports Chinese, English, or French as the spoken language, translating into any of the other three languages (nine directions). Meeting and Phone modes each have their own speaking language setting and send your original voice by default. Tap **right ⌥ (Option)** to start speaking for translation, then tap again to finish. Your original voice resumes after the remaining translated audio finishes playing.
 - **Bilingual subtitles** appear as a conversation timeline in Meeting and Phone modes. Video mode shows paginated sentence pairs, with drafts updated in place as final translations arrive. The video subtitle window appears only once original or translated text is available. Windows can be moved, resized, hidden, or minimized. Hiding a window keeps the session running, and new subtitles do not reopen a window you have hidden or minimized.
 - **Local voice cloning** reuses your recorded voice profile across Qwen and Ming. Each model keeps its own voice cache and preview volume calibration.
 
 The interface supports English and Chinese. Switch instantly in **Settings › General › Interface language**. The interface language is independent of your subtitle and speaking language settings.
+
+French support is available in the current source; the latest published release below still supports Chinese, English, and German.
 
 ## Get started
 

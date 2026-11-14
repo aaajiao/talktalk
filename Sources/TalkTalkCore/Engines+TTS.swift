@@ -173,7 +173,9 @@ public enum TTSSeed {
         case .de:
             anchor = "Nachdem wir die aktuellen Ergebnisse gemeinsam geprüft haben, können wir das Budget bestätigen und die nächsten Schritte besprechen."
         case .zh:
-            anchor = "talktalk-voice-seed-v1:zh" // Reserved; meeting SPEAK targets English/German.
+            anchor = "talktalk-voice-seed-v1:zh"
+        case .fr:
+            anchor = "talktalk-voice-seed-v1:fr" // Stable initial seed; French listening acceptance is separate.
         }
         return make(voice: voice, text: anchor)
     }

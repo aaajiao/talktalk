@@ -38,7 +38,7 @@ public final class EnrollmentController {
     public private(set) var lastReport: EnrollmentReport?
     /// "待引擎" until an engine is connected (§9.2 steps 6–7).
     public private(set) var engineAvailable: Bool
-    /// The checked en/de audition of the candidate (§9.2 step 7); samples stay in memory only.
+    /// The checked en/de/fr audition of the candidate (§9.2 step 7); samples stay in memory only.
     public private(set) var audition: AuditionResult?
     /// Set while an audition clip plays (the monitor output, never TalkTalk Mic).
     public private(set) var playingAudition: Lang?

@@ -412,6 +412,8 @@ final class MeetingController {
                 text = "Ich nutze maschinelle Live-Übersetzung und eine synthetische Stimme. Gesprochene Inhalte werden als Text zur Übersetzung an OpenAI gesendet."
             case .en:
                 text = "I'm using live machine interpretation and a synthesized voice. Spoken content is sent as text to OpenAI for translation."
+            case .fr:
+                text = "J'utilise une interprétation automatique en direct et une voix de synthèse. Les paroles sont envoyées sous forme de texte à OpenAI pour être traduites."
             }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)

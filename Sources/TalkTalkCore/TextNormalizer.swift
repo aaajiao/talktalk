@@ -1,8 +1,8 @@
 import Foundation
 
 /// Pre-TTS normalisation (ARCHITECTURE.md), Swift ICU only (no num2words):
-/// - `NumberFormatter(.spellOut)` per en-US / de-DE for numbers, percentages, €/$/¥, common
-///   units, years, decimals and English ordinals;
+/// - `NumberFormatter(.spellOut)` per en-US / de-DE / fr-FR for numbers, percentages, €/$/¥,
+///   common units, years, decimals and English/French ordinals;
 /// - terminal_stop: add a sentence-final mark when missing (a trailing clause mark becomes ".");
 /// - the target language itself is always passed to TTS explicitly (not done here).
 public enum TextNormalizer {
@@ -20,7 +20,12 @@ public enum TextNormalizer {
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return t }
         var tail = ""
-        while let last = t.last, closers.contains(last) { tail = String(last) + tail; t.removeLast() }
+        while let last = t.last, closers.contains(last) {
+            tail = String(last) + tail; t.removeLast()
+            if lang == .fr, last == "»" {
+                while let space = t.last, space.isWhitespace { tail = String(space) + tail; t.removeLast() }
+            }
+        }
         while let last = t.last, clauseMarks.contains(last) || last == " " { t.removeLast() }
         guard let last = t.last else { return text }
         if !finalMarks.contains(last) { t.append(lang == .zh ? "。" : ".") }
@@ -51,27 +56,41 @@ public enum TextNormalizer {
                 "cm": ("Zentimeter", "Zentimeter"), "mm": ("Millimeter", "Millimeter"), "Hz": ("Hertz", "Hertz"),
                 "kHz": ("Kilohertz", "Kilohertz")],
         point: "Komma")
+    static let fr = Words(
+        percent: ["%": ("pour cent", "pour cent")],
+        currency: ["€": ("euro", "euros"), "$": ("dollar", "dollars"), "¥": ("yuan", "yuans"), "£": ("livre", "livres")],
+        units: ["ms": ("milliseconde", "millisecondes"), "km": ("kilomètre", "kilomètres"), "kg": ("kilogramme", "kilogrammes"),
+                "GB": ("gigaoctet", "gigaoctets"), "MB": ("mégaoctet", "mégaoctets"), "TB": ("téraoctet", "téraoctets"),
+                "Go": ("gigaoctet", "gigaoctets"), "Mo": ("mégaoctet", "mégaoctets"), "To": ("téraoctet", "téraoctets"),
+                "cm": ("centimètre", "centimètres"), "mm": ("millimètre", "millimètres"), "Hz": ("hertz", "hertz"),
+                "kHz": ("kilohertz", "kilohertz")],
+        point: "virgule")
 
     static let numberRegex = try! NSRegularExpression(pattern:
         #"(?:([€$¥£])\s?)?(\d+(?:[.,']\d+)*)(?:(st|nd|rd|th)\b)?(?:\s?(%|ms\b|km\b|kg\b|GB\b|MB\b|TB\b|cm\b|mm\b|kHz\b|Hz\b|€|\$|¥|£))?"#)
+    static let frenchNumberRegex = try! NSRegularExpression(pattern:
+        #"(?:([€$¥£])\s?)?(\d{1,3}(?:[ \u00A0\u202F']\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)*)(?:(er|re|ère|e|ème|ième)\b)?(?:\s?(%|ms\b|km\b|kg\b|GB\b|MB\b|TB\b|Go\b|Mo\b|To\b|cm\b|mm\b|kHz\b|Hz\b|€|\$|¥|£))?"#)
 
     public static func spellOutNumbers(_ text: String, lang: Lang) -> String {
         guard lang != .zh else { return text }
-        let w = lang == .de ? de : en
+        let w = lang == .fr ? fr : (lang == .de ? de : en)
         let ns = text as NSString
         var out = ""
         var last = 0
-        for m in numberRegex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+        let regex = lang == .fr ? frenchNumberRegex : numberRegex
+        for m in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
             let digits = ns.substring(with: m.range(at: 2))
             guard let value = TargetNumerals.parseDigits(digits, lang: lang) else { continue }
             out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
             let pre = m.range(at: 1).location == NSNotFound ? nil : ns.substring(with: m.range(at: 1))
-            let ordinal = m.range(at: 3).location != NSNotFound
+            let ordinal = m.range(at: 3).location == NSNotFound ? nil : ns.substring(with: m.range(at: 3))
             let post = m.range(at: 4).location == NSNotFound ? nil : ns.substring(with: m.range(at: 4))
-            let isOne = value == 1
+            let isOne = lang == .fr ? abs(value) < 2 : value == 1
             var spoken: String
-            if ordinal, lang == .en, value == value.rounded() {
+            if ordinal != nil, lang == .en, value == value.rounded() {
                 spoken = englishOrdinal(Int(value))
+            } else if let ordinal, lang == .fr, value == value.rounded(), value >= 0, value < Double(Int.max) {
+                spoken = frenchOrdinal(Int(value), feminine: ordinal == "re" || ordinal == "ère")
             } else if pre == nil, post == nil, value == value.rounded(), digits.count == 4, !digits.contains(where: { !$0.isNumber }),
                       (1100...2099).contains(Int(value)) {
                 spoken = year(Int(value), lang: lang)
@@ -93,7 +112,7 @@ public enum TextNormalizer {
 
     static func spellOut(_ v: Double, lang: Lang) -> String {
         let f = NumberFormatter()
-        f.locale = Locale(identifier: lang == .de ? "de_DE" : "en_US")
+        f.locale = Locale(identifier: lang == .fr ? "fr_FR" : (lang == .de ? "de_DE" : "en_US"))
         f.numberStyle = .spellOut
         // ICU puts soft hyphens (U+00AD) into German compounds; TTS must not see them.
         return (f.string(from: NSNumber(value: v)) ?? String(v)).replacingOccurrences(of: "\u{AD}", with: "")
@@ -102,6 +121,7 @@ public enum TextNormalizer {
     /// en: 2026 → twenty twenty-six, 2005 → two thousand five, 1999 → nineteen ninety-nine.
     /// de: 1999 → neunzehnhundertneunundneunzig, 2026 → zweitausendsechsundzwanzig.
     static func year(_ y: Int, lang: Lang) -> String {
+        if lang == .fr { return spellOut(Double(y), lang: .fr) }
         let hi = y / 100, lo = y % 100
         if lang == .de {
             if y < 2000 { return spellOut(Double(hi), lang: .de) + "hundert" + (lo == 0 ? "" : spellOut(Double(lo), lang: .de)) }
@@ -127,5 +147,15 @@ public enum TextNormalizer {
         var s = ""
         for (i, p) in parts.enumerated() { s += p + seps[i] }
         return s + lastWord
+    }
+
+    static func frenchOrdinal(_ n: Int, feminine: Bool = false) -> String {
+        if n == 1 { return feminine ? "première" : "premier" }
+        var cardinal = spellOut(Double(n), lang: .fr)
+        if cardinal.hasSuffix("cinq") { return cardinal + "uième" }
+        if cardinal.hasSuffix("neuf") { return String(cardinal.dropLast()) + "vième" }
+        if cardinal.hasSuffix("vingts") || cardinal.hasSuffix("cents") { cardinal.removeLast() }
+        if cardinal.hasSuffix("e") { cardinal.removeLast() }
+        return cardinal + "ième"
     }
 }

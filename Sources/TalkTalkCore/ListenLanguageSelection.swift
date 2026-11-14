@@ -22,7 +22,7 @@ public enum ListenLanguagePreferences {
     public enum Scope: String, Sendable, CaseIterable { case meeting, phone, video }
     public static let legacySourceKey = "listen.remoteLanguage"
 
-    /// All three scenes support the same six caption directions; scope only owns persistence.
+    /// All three scenes support the same twelve caption directions; scope only owns persistence.
     public static func normalized(_ selection: ListenLanguageSelection, for _: Scope) -> ListenLanguageSelection {
         selection
     }

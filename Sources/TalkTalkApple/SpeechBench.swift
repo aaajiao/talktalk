@@ -64,7 +64,7 @@ public struct SpeechBench: Sendable {
         .de: ["Anna (German (Germany))", "Flo (German (Germany))"],
     ]
     static let zhVoice = "Eddy (Chinese (China mainland))"
-    static let localeID: [Lang: String] = [.en: "en-US", .de: "de-DE", .zh: "zh-CN"]
+    static let localeID = Dictionary(uniqueKeysWithValues: Lang.allCases.map { ($0, AppleSpeechASR.localeIdentifier($0)) })
     static let sampleRate = 16_000.0
     static let chunkFrames = 320   // 20 ms
 

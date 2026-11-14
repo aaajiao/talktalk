@@ -212,19 +212,13 @@ extension AppState.RemoteLanguage {
 }
 
 extension SpeakSourceLanguage {
-    var title: String { self == .zh ? String(appLocalized: "中文") : String(appLocalized: "英语") }
-    var code: String { self == .zh ? String(appLocalized: "中") : "EN" }
+    var title: String { lang.title }
+    var code: String { lang.shortCode }
 }
 
 extension SpeakTargetLanguage {
-    var title: String {
-        switch self {
-        case .zh: String(appLocalized: "中文")
-        case .en: String(appLocalized: "英语")
-        case .de: String(appLocalized: "德语")
-        }
-    }
-    var code: String { self == .zh ? String(appLocalized: "中") : rawValue.uppercased() }
+    var title: String { lang.title }
+    var code: String { lang.shortCode }
 }
 
 /// What the scene diagrams link to: another page (with ReturnPill) and a section of it.

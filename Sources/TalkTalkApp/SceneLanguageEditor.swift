@@ -56,7 +56,7 @@ struct SceneLanguageChip: View {
     @Bindable var state: AppState
     let mode: MeetingMode
     let role: Role
-    /// A flow node's chip: the short code ("中", "EN", "DE"); menu items, help and VoiceOver keep
+    /// A flow node's chip: the short code ("中", "EN", "DE", "FR"); menu items, help and VoiceOver keep
     /// the language's name.
     var compact = false
 

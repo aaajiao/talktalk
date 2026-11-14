@@ -7,7 +7,7 @@ import TalkTalkSession
 import TalkTalkVoice
 
 /// Explicit, silent synthetic video-caption test: system TTS buffers → real streaming
-/// Apple/Qwen ASR → production LISTEN segmentation → Apple MT → finals, in six directions.
+/// Apple/Qwen ASR → production LISTEN segmentation → Apple MT → finals, in twelve directions.
 /// No microphone, speaker, private recording, cloud request or resource download is used.
 func subtitleLanguagesSelfTest() async -> SelfTestReport {
     var report = SelfTestReport(suite: "subtitle-languages")
@@ -27,12 +27,10 @@ func subtitleLanguagesSelfTest() async -> SelfTestReport {
         let voice = VoiceHandle(profileID: UUID(), conditioningKey: "system", mode: .system, model: system.id)
         let fixtures: [(Lang, String)] = [(.zh, "项目的预算是三百欧元。"),
                                          (.en, "The project budget is three hundred euros."),
-                                         (.de, "Das Projektbudget beträgt dreihundert Euro.")]
+                                         (.de, "Das Projektbudget beträgt dreihundert Euro."),
+                                         (.fr, "Le budget du projet est de trois cents euros.")]
         var audio: [Lang: [Float]] = [:]
         for (language, text) in fixtures {
-            guard await AppleSpeechASR.assetsInstalled(language) else {
-                report.checks.append(.init("asr.\(language.rawValue)", ok: nil, detail: "speech assets not installed")); continue
-            }
             var pcm: [Float] = []
             for try await chunk in system.speak(.init(job: UInt64(audio.count + 1), clause: 1, text: text,
                     language: language, voice: voice, seed: TTSSeed.make(voice: voice, text: text), wholeClause: true)) {
@@ -44,6 +42,9 @@ func subtitleLanguagesSelfTest() async -> SelfTestReport {
           for session in MTSession.allCases where !session.isSpeak {
             let direction = session.direction
             let name = backend + "." + session.rawValue
+            if backend == "apple", !(await AppleSpeechASR.assetsInstalled(direction.source)) {
+                report.checks.append(.init(name, ok: nil, detail: "speech assets not installed")); continue
+            }
             guard let pcm = audio[direction.source], backend == "apple" || qwen != nil,
                   await AppleTranslationMT.availability(session) == "installed" else {
                 report.checks.append(.init(name, ok: nil, detail: "source audio, ASR model or translation pack unavailable")); continue
@@ -92,7 +93,8 @@ func subtitleLanguagesSelfTest() async -> SelfTestReport {
                 && numbers.source.contains { $0.value == 300 }, values: ["finals": Double(pairs.count)]))
           }
         }
-        report.checks.append(.init("complete", ok: report.checks.count == 12 && report.checks.allSatisfy { $0.ok == true }))
+        let expected = MTSession.allCases.filter { !$0.isSpeak }.count * 2
+        report.checks.append(.init("complete", ok: report.checks.count == expected && report.checks.allSatisfy { $0.ok == true }))
     } catch {
         report.checks.append(.init("run", ok: false, detail: String(describing: type(of: error))))
     }

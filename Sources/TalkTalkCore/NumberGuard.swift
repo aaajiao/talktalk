@@ -3,7 +3,7 @@ import Foundation
 /// NumberGuard (ARCHITECTURE.md): a self-written Chinese numeral parser (no dependency)
 /// normalises the numbers in the source into a multiset of values (三十万 → 300000,
 /// 百分之二十 → 20 %, 两千零五 → 2005, 1.5 亿 → 150000000) and compares it with the numbers in
-/// the translation (digits, and en/de number words that can be read back). It also checks that
+/// the translation (digits, and en/de/fr number words that can be read back). It also checks that
 /// glossary entries found in the source appear in their target form.
 ///
 /// Deliberately ignored, on both sides, because they are usually not numbers in meaning:
@@ -310,6 +310,7 @@ public enum TargetNumerals {
 
     public static func mentions(in text: String, lang: Lang) -> [NumberGuard.Mention] {
         if lang == .zh { return NumberGuard.sourceMentions(in: text) }
+        if lang == .fr { return FrenchNumerals.mentions(in: text) }
         let tokens = tokenize(text)
         var out: [NumberGuard.Mention] = []
         var i = 0
@@ -386,6 +387,7 @@ public enum TargetNumerals {
     /// en: 300,000 / 1.5; de: 300.000 / 1,5. A group of exactly three digits after the
     /// separator is a thousands group; anything else is a decimal part.
     static func parseDigits(_ s: String, lang: Lang) -> Double? {
+        if lang == .fr { return FrenchNumerals.parseDigits(s) }
         let thousands: Character = lang == .de ? "." : ","
         let decimal: Character = lang == .de ? "," : "."
         var t = s.replacingOccurrences(of: "'", with: "")

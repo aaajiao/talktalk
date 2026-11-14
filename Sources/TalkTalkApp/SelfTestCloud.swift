@@ -20,11 +20,11 @@ func cloudSelfTest() async -> SelfTestReport {
         let client = OpenAIClient(cloud: profile.cloud, keyProvider: { String(decoding: try secret.read(), as: UTF8.self) }, sink: { ports.observe($0) })
         let builder = OpenAIRequestBuilder(cloud: profile.cloud, prompts: try MTPrompts.loadDefault())
         let gate = try TargetTextGate(config: profile.speak.mt.targetGate, patterns: GatePatterns.loadDefault())
-        let cases: [(MTSession, String)] = [(.speakZhEn, "预算是三百欧元。"), (.speakZhDe, "周一开会。"),
-                                           (.speakEnZh, "The budget is three hundred euros."), (.speakEnDe, "We meet on Monday."),
-                                           (.listenEnZh, "The budget is three hundred euros."), (.listenDeZh, "Wir treffen uns am Montag."),
-                                           (.listenZhEn, "预算是三百欧元。"), (.listenZhDe, "预算是三百欧元。"),
-                                           (.listenEnDe, "The budget is three hundred euros."), (.listenDeEn, "Das Budget beträgt dreihundert Euro.")]
+        let samples: [Lang: String] = [.zh: "项目预算是三百欧元。",
+                                       .en: "The project budget is three hundred euros.",
+                                       .de: "Das Projektbudget beträgt dreihundert Euro.",
+                                       .fr: "Le budget du projet est de trois cents euros."]
+        let cases = MTSession.allCases.map { ($0, samples[$0.direction.source]!) }
         var responseID: String?
         for (index, sample) in (cases + [cases[0]]).enumerated() {
             let leg: Leg = index == cases.count ? .B : .A

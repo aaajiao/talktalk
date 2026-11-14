@@ -62,7 +62,7 @@ public enum TextMetrics {
 
     /// Lowercased words after NFKC; punctuation is dropped, apostrophes inside words kept.
     public static func werUnits(_ s: String) -> [String] {
-        let t = s.precomposedStringWithCompatibilityMapping.lowercased()
+        let t = s.replacingOccurrences(of: "’", with: "'").precomposedStringWithCompatibilityMapping.lowercased()
         var words: [String] = [], cur = ""
         for u in t.unicodeScalars {
             if u.properties.generalCategory == .spaceSeparator || u == "\n" || u == "\t" {
@@ -182,7 +182,7 @@ public enum SocketAudit {
 
 /// `TalkTalk --self-test --engine` (§12.3): install.json and pins; READY with the installed models
 /// and API 2; the engine PID is not a Core Audio process object; only the one loopback listener;
-/// ASR CER on the `say` sample; en/de TTS with "my voice" (else the synthetic reference): duration
+/// ASR CER on the `say` sample; en/de/fr TTS with "my voice" (else the synthetic reference): duration
 /// sanity, RTF, and a Qwen3-ASR read-back WER. Audio inputs are passed in so this module stays free
 /// of audio-file and resampling code.
 public struct EngineSelfTest: Sendable {
@@ -208,6 +208,7 @@ public struct EngineSelfTest: Sendable {
     public static let sentences: [(lang: String, text: String)] = [
         ("en", "Thanks, everyone. Let me quickly walk you through where the project stands today."),
         ("de", "Danke Ihnen allen. Ich gebe Ihnen kurz einen Überblick über den aktuellen Stand des Projekts."),
+        ("fr", "Merci à tous. Je vais vous présenter rapidement l’état actuel du projet."),
     ]
 
     public var install: EngineInstallation.State
@@ -373,8 +374,7 @@ public struct EngineSelfTest: Sendable {
 
     /// talktalk_engine/tts.py `expected_seconds` (used when the tail does not carry `expected_s`).
     public static func expectedSeconds(_ text: String, lang: String) -> Double {
-        let words = max(1, text.split(whereSeparator: \.isWhitespace).count)
-        return lang == "en" ? 0.391 + 0.340 * Double(words) : 0.134 + 0.430 * Double(words)
+        ExpectedDuration.seconds(text, Lang(rawValue: lang) ?? .de)
     }
 
     static func round(_ x: Double, _ digits: Int) -> Double {

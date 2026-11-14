@@ -8,11 +8,12 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let url = root.appendingPathComponent("glossary.json")
         let store = GlossaryStore(url: url)
-        try store.save([.init(zh: " 术语 ", en: " term ", de: "", note: "note")])
+        try store.save([.init(zh: " 术语 ", en: " term ", de: "", fr: " terme ", note: "note")])
         #expect(FileSystem.permissions(url) == 0o600)
         #expect(FileSystem.permissions(root) == 0o700)
         #expect(store.snapshot(target: .en).first?.zh == "术语")
         #expect(store.snapshot(target: .de).isEmpty)
+        #expect(store.snapshot(target: .fr).first?.fr == "terme")
         let second = GlossaryStore(url: url)
         #expect(second.snapshot() == store.snapshot())
         let object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
@@ -36,5 +37,18 @@ import Testing
         #expect(!noTranslation.lacksChinese && noTranslation.lacksTranslation)
         let germanOnly = GlossaryEntry(zh: "词", en: "", de: "Wort")
         #expect(!germanOnly.lacksChinese && !germanOnly.lacksTranslation)
+        let frenchOnly = GlossaryEntry(zh: "词", en: "", de: "", fr: "mot")
+        #expect(!frenchOnly.lacksChinese && !frenchOnly.lacksTranslation)
+    }
+
+    @Test func legacyEntriesDecodeWithoutFrenchAndRoundTripNewField() throws {
+        let old = Data(#"{"zh":"词","en":"word","de":"Wort","note":"kept"}"#.utf8)
+        var entry = try JSONDecoder().decode(GlossaryEntry.self, from: old)
+        #expect(entry.fr.isEmpty)
+        #expect(entry.note == "kept")
+        entry.fr = "mot"
+        let decoded = try JSONDecoder().decode(GlossaryEntry.self, from: JSONEncoder().encode(entry))
+        #expect(decoded == entry)
+        #expect(decoded.rendering(for: .fr) == "mot")
     }
 }

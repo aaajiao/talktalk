@@ -53,6 +53,8 @@ import TalkTalkTestSupport
     @Test func languageNames() {
         #expect(RemoteQwenASR.lang("English") == .en)
         #expect(RemoteQwenASR.lang("German") == .de)
+        #expect(RemoteQwenASR.lang("French") == .fr)
+        #expect(RemoteQwenASR.lang("fr") == .fr)
         #expect(RemoteQwenASR.lang("zh") == .zh)
         #expect(RemoteQwenASR.lang("Japanese") == nil)
         #expect(RemoteQwenASR.lang(nil) == nil)

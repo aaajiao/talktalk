@@ -20,6 +20,51 @@ private actor SwitchASR: StreamingASREngine {
     }
 }
 
+/// The old direction stays in flight until the switch cancels it; later requests finish normally.
+private actor HeldSwitchMT: MTEngine {
+    nonisolated let id = EngineID(name: "held-switch-apple", revision: "1", placement: .systemService)
+    private(set) var requests: [MTRequest] = []
+    private(set) var cancels: [JobID] = []
+    private var held: [JobID: CheckedContinuation<Void, Error>] = [:]
+    var hasHeldRequest: Bool { !held.isEmpty }
+
+    func translate(_ request: MTRequest) async throws -> MTResult {
+        try Task.checkCancellation()
+        requests.append(request)
+        if requests.count == 1 {
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    if Task.isCancelled || cancels.contains(request.job) {
+                        continuation.resume(throwing: CancellationError())
+                    } else {
+                        held[request.job] = continuation
+                    }
+                }
+            } onCancel: {
+                Task { await self.cancel(request.job) }
+            }
+        }
+        try Task.checkCancellation()
+        let now = HostClock.now()
+        return MTResult(text: "translated:\(request.text)", tokens: 1, reasoningTokens: 0, engine: id,
+                        hedge: .init(fired: false, winner: .apple, reason: nil, ms: 0),
+                        timing: .init(received: now, started: now, firstOutput: now, finished: now))
+    }
+
+    func cancel(_ job: JobID) {
+        cancels.append(job)
+        held.removeValue(forKey: job)?.resume(throwing: CancellationError())
+    }
+
+    func releaseHeldRequest() {
+        let pending = held
+        held.removeAll()
+        for continuation in pending.values { continuation.resume() }
+    }
+
+    func setContext(_ session: MTSession, glossary: [GlossaryEntry]) async throws {}
+}
+
 @MainActor private final class SwitchUI {
     var updates: [SubtitleUpdate] = []
     var resets = 0
@@ -30,7 +75,7 @@ private actor SwitchASR: StreamingASREngine {
 }
 
 @MainActor @Suite struct ListenLanguageSwitchTests {
-    private func make(_ asr: SwitchASR, apple: FakeMT? = nil, events: MeetingEvents = MeetingEvents(),
+    private func make(_ asr: SwitchASR, apple: (any MTEngine)? = nil, events: MeetingEvents = MeetingEvents(),
                       ui: SwitchUI) throws -> MeetingSession {
         let profile = try PolicyProfile.load(from: Fixture.repoRoot.appendingPathComponent("Resources/PolicyProfile.default.json"))
         return MeetingSession(profile: profile, makeEngines: { direction, _, _ in
@@ -42,15 +87,15 @@ private actor SwitchASR: StreamingASREngine {
 
     @Test func languageSwitchKeepsMeetingAndReplaysOpeningAudio() async throws {
         let asr = SwitchASR(), ui = SwitchUI(), events = MeetingEvents()
-        let apple = FakeMT("apple", placement: .systemService, prefix: "translated", delayMs: 80)
+        let apple = HeldSwitchMT()
+        defer { Task { await apple.releaseHeldRequest() } }
         let session = try make(asr, apple: apple, events: events, ui: ui)
         var lifecycleEvents = 0
         let subscription = events.subscribe { if $0.isLifecycle { lifecycleEvents += 1 } }
         try await session.startListenForTesting(lang: .en)
         let old = await asr.opened[0].1
         old.final("Old English final.")
-        let oldTranslationStarted = await until { @Sendable in await apple.requests.count == 1 }
-        #expect(oldTranslationStarted)
+        try #require(await until { @Sendable in await apple.hasHeldRequest })
         await asr.blockNextOpen()
         let switching = Task { try await session.switchListenLanguage(to: .de) }
         let replacementOpened = await until { @Sendable in await asr.opened.count == 2 }
@@ -73,25 +118,26 @@ private actor SwitchASR: StreamingASREngine {
 
     @Test func targetOnlySwitchCancelsOldTranslationAndPreparesTheWholeDirection() async throws {
         let asr = SwitchASR(), ui = SwitchUI()
-        let apple = FakeMT("apple", placement: .systemService, prefix: "translated", delayMs: 80)
+        let apple = HeldSwitchMT()
+        defer { Task { await apple.releaseHeldRequest() } }
         let session = try make(asr, apple: apple, ui: ui)
         try await session.startListenForTesting(lang: .en)
         let old = await asr.opened[0].1
         old.final("Old English sentence.")
-        #expect(await until { @Sendable in await apple.requests.count == 1 })
-        try await session.switchListenDirection(source: .en, target: .de)
-        #expect(session.listenLanguage == .en && session.listenTarget == .de)
-        #expect(ui.prepared == [.init(source: .en, target: .zh), .init(source: .en, target: .de)])
+        try #require(await until { @Sendable in await apple.hasHeldRequest })
+        try await session.switchListenDirection(source: .en, target: .fr)
+        #expect(session.listenLanguage == .en && session.listenTarget == .fr)
+        #expect(ui.prepared == [.init(source: .en, target: .zh), .init(source: .en, target: .fr)])
         #expect(!(await apple.cancels).isEmpty)
         let fresh = await asr.opened[1].1
         fresh.final("New English sentence.")
         #expect(await until { @Sendable in await MainActor.run { ui.finals.count == 1 } })
-        #expect(await apple.requests.last?.session == .listenEnDe)
+        #expect(await apple.requests.last?.session == .listenEnFr)
         #expect(ui.transcripts.allSatisfy { !$0.0.contains("Old English") })
         await #expect(throws: MeetingSession.ListenConfigurationError.self) {
             try await session.switchListenDirection(source: .en, target: .en)
         }
-        #expect(session.listenLanguage == .en && session.listenTarget == .de)
+        #expect(session.listenLanguage == .en && session.listenTarget == .fr)
         await session.stop()
         #expect(session.listenLanguage == nil && session.listenTarget == nil)
     }

@@ -3745,22 +3745,6 @@
         }
       }
     },
-    "中文、英语和德语的语音资源都没有：没法生成字幕": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chinese, English, and German speech resources are all missing; subtitles cannot be generated"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中文、英语和德语的语音资源都没有：没法生成字幕"
-          }
-        }
-      }
-    },
     "中间停顿太长，请一口气读完": {
       "localizations": {
         "en": {
@@ -6193,22 +6177,6 @@
         }
       }
     },
-    "准备三种语言的语音资源": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prepare speech resources for three languages"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "准备三种语言的语音资源"
-          }
-        }
-      }
-    },
     "准备中": {
       "localizations": {
         "en": {
@@ -7773,22 +7741,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "只收听应用声音"
-          }
-        }
-      }
-    },
-    "只收听应用声音，中文、英语和德语可互译，原文与译文成对显示，不使用麦克风。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Listen only to app audio, with translation between Chinese, English, and German. Original text and translation appear together; the microphone is not used."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "只收听应用声音，中文、英语和德语可互译，原文与译文成对显示，不使用麦克风。"
           }
         }
       }
@@ -27853,6 +27805,102 @@
           "stringUnit": {
             "state": "translated",
             "value": "补充语音合成？"
+          }
+        }
+      }
+    },
+    "中文、英语、德语和法语的语音资源都没有：没法生成字幕": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Chinese, English, German or French speech resources: captions are unavailable"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中文、英语、德语和法语的语音资源都没有：没法生成字幕"
+          }
+        }
+      }
+    },
+    "法语": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "French"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "法语"
+          }
+        }
+      }
+    },
+    "只收听应用声音，中文、英语、德语和法语可互译，原文与译文成对显示，不使用麦克风。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listen to app audio only, with paired original and translated captions in Chinese, English, German or French. The microphone stays off."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只收听应用声音，中文、英语、德语和法语可互译，原文与译文成对显示，不使用麦克风。"
+          }
+        }
+      }
+    },
+    "试听法语": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview French"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "试听法语"
+          }
+        }
+      }
+    },
+    "试听中文": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview Chinese"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "试听中文"
+          }
+        }
+      }
+    },
+    "准备四种语言的语音资源": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prepare speech resources for four languages"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准备四种语言的语音资源"
           }
         }
       }

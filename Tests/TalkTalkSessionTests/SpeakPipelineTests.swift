@@ -287,14 +287,15 @@ struct SpeakPipelineTests {
         await pipeline.stop()
     }
 
-    @Test(arguments: [Direction(source: .zh, target: .en), Direction(source: .zh, target: .de),
-                      Direction(source: .en, target: .zh), Direction(source: .en, target: .de)], [false, true])
+    @Test(arguments: MTSession.allCases.filter(\.isSpeak).map(\.direction), [false, true])
     func selectedDirectionReachesBothRecognizersTranslationAndVoice(direction: Direction, clone: Bool) async throws {
-        let input = direction.source == .zh ? "我们明天继续讨论。" : "We will continue the discussion tomorrow."
+        let input = direction.source == .zh ? "我们明天继续讨论。" : direction.source == .fr
+            ? "Nous continuerons la discussion demain." : "We will continue the discussion tomorrow."
         let output: String = switch direction.target {
         case .zh: "我们明天继续讨论。"
         case .en: "We will continue the discussion tomorrow."
         case .de: "Wir setzen das Gespräch morgen fort."
+        case .fr: "Nous continuerons la discussion demain."
         }
         let primary = SpeakTestASR(fails: true), fallback = SpeakTestASR(text: input)
         let mt = SpeakTestMT(text: output), transcript = Mutex<SpeakTranscript?>(nil)

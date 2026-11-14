@@ -9,18 +9,11 @@ public struct MTPrompts: Codable, Sendable, Equatable {
     public var languageNames: [String: String]
 
     public struct Speak: Codable, Sendable, Equatable {
-        public var zhDe: String
-        public var zhEn: String
-        public var enZh: String
-        public var enDe: String
+        public var normal: [String: String]
         public var concise: String
         public var summarize: [String: String]
         public var strictTerms: String
         public var strictTermsZh: String
-        enum CodingKeys: String, CodingKey {
-            case zhDe = "zh-de", zhEn = "zh-en", enZh = "en-zh", enDe = "en-de"
-            case concise, summarize, strictTerms, strictTermsZh
-        }
     }
     public struct Glossary: Codable, Sendable, Equatable { public var header: String; public var line: String }
 
@@ -71,20 +64,16 @@ public struct OpenAIRequestBuilder: Sendable {
                 guard let s = prompts.speak.summarize[key] else { throw PromptError.missingPrompt("summarize." + key) }
                 parts.append(s)
             case .normal, .concise:
-                switch session {
-                case .speakZhEn: parts.append(prompts.speak.zhEn)
-                case .speakZhDe: parts.append(prompts.speak.zhDe)
-                case .speakEnZh: parts.append(prompts.speak.enZh)
-                case .speakEnDe: parts.append(prompts.speak.enDe)
-                case .listenEnZh, .listenDeZh, .listenZhEn, .listenZhDe, .listenEnDe, .listenDeEn: preconditionFailure("LISTEN prompt in SPEAK branch")
-                }
+                guard let s = prompts.speak.normal[key] else { throw PromptError.missingPrompt("speak." + key) }
+                parts.append(s)
                 if mode == .concise { parts.append(prompts.speak.concise) }
             }
         } else {
             guard let s = prompts.listen[key] else { throw PromptError.missingPrompt("listen." + key) }
             parts.append(s)
         }
-        let entries = glossary.sorted { ($0.zh, $0.en, $0.de) < ($1.zh, $1.en, $1.de) }.prefix(Self.maxGlossaryEntries)
+        let entries = glossary.filter { !$0.rendering(for: d.source).isEmpty && !$0.rendering(for: d.target).isEmpty }
+            .sorted { ($0.zh, $0.en, $0.de, $0.fr) < ($1.zh, $1.en, $1.de, $1.fr) }.prefix(Self.maxGlossaryEntries)
         if !entries.isEmpty {
             let lines = entries.map { e -> String in
                 // Both subtitle and speech prompts carry the actual source → target terms.

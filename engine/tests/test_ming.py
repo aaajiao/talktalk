@@ -73,7 +73,7 @@ def adapter(**kwargs):
     tts.mx = FakeMX()
     tts.model = FakeModel(**kwargs)
     tts.native_rate = 24000
-    tts._languages = {"de": "German"}
+    tts._languages = {"de": "German", "fr": "French"}
     tts._add_period = lambda text: text
     tts._split_fragments = lambda text, limit: text.split("|")
     tts._trim_silence = lambda audio, rate: audio
@@ -88,6 +88,13 @@ def voice():
 
 
 class MingStreamTests(unittest.TestCase):
+    def test_french_uses_target_language_prompt_and_existing_voice(self):
+        tts, v = adapter(), voice()
+        audio = [item for item in tts.stream("Merci à tous.", v, "fr", seed=42) if item is not None]
+        self.assertGreater(sum(map(len, audio)), 0)
+        self.assertIn("Target language: French.\n", tts.model.calls[0]["prompt"])
+        self.assertEqual(v.key, "human")
+
     def test_latents_yield_before_decode_and_fragment_pcm_drains_before_next_fragment(self):
         tts, v, stats = adapter(), voice(), {}
         stream = tts.stream("First.|Second.", v, "de", seed=42, max_frames=20, stats=stats)

@@ -10,7 +10,7 @@ import time
 import numpy as np
 
 SAMPLE_RATE = 16000
-LANG_NAMES = {"zh": "Chinese", "en": "English", "de": "German"}
+LANG_NAMES = {"zh": "Chinese", "en": "English", "de": "German", "fr": "French"}
 
 
 class ASRModel:

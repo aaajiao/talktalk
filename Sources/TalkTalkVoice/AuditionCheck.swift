@@ -2,7 +2,7 @@
 import Foundation
 import TalkTalkCore
 
-/// The audition row of the §9.2 step 4 table ("试听合理性"): the en and de sentences must not run
+/// The audition row of the §9.2 step 4 table ("试听合理性"): the en, de and fr sentences must not run
 /// away, must not be too short, and must read back with WER ≤ 15 %. A failing sentence is generated
 /// once more with the next seed; if it still fails the user is told to re-record. Pure rules; the
 /// engine calls are in `EngineVoiceServices`.
@@ -11,8 +11,17 @@ public enum AuditionCheck {
     public static let sentences: [Lang: String] = [
         .en: "Thanks, everyone. Let me quickly walk you through where the project stands today.",
         .de: "Danke Ihnen allen. Ich gebe Ihnen kurz einen Überblick über den aktuellen Stand des Projekts.",
+        .fr: "Merci à tous. Je vais vous présenter rapidement l’état actuel du projet.",
     ]
-    public static let languages: [Lang] = [.en, .de]
+    public static let languages: [Lang] = [.en, .de, .fr]
+    public static func title(for lang: Lang) -> String {
+        switch lang {
+        case .zh: String(appLocalized: "试听中文")
+        case .en: String(appLocalized: "试听英语")
+        case .de: String(appLocalized: "试听德语")
+        case .fr: String(appLocalized: "试听法语")
+        }
+    }
     public static let maxWER = 0.15
     /// Independent of the engine's own flags: longer than `runawayFactor × expected + runawaySlack`
     /// is a runaway (the engine's cap is 3 × expected + 2 s, §5.5), shorter than
@@ -70,13 +79,13 @@ public enum AuditionCheck {
     }
 }
 
-/// Word error rate for the en/de read-back (edits / reference words). Lowercased, punctuation
-/// dropped, umlauts and ß kept as letters; digits stay words. Pure.
+/// Word error rate for Latin-language read-back (edits / reference words). Lowercased,
+/// punctuation dropped, accented letters kept; straight and curly apostrophes agree. Pure.
 public enum WordErrorRate {
     public static func words(_ s: String) -> [String] {
         var out: [String] = []
         var cur = ""
-        for scalar in s.unicodeScalars {
+        for scalar in s.replacingOccurrences(of: "’", with: "'").precomposedStringWithCanonicalMapping.unicodeScalars {
             let p = scalar.properties
             if p.isAlphabetic || p.numericType != nil || scalar == "'" {
                 cur.unicodeScalars.append(scalar)

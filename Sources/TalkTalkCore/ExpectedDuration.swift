@@ -9,7 +9,8 @@ import Foundation
 /// (M0-T1 lite fit, docs/decisions/m0-results.md) through scripts/gen-expected-duration.sh →
 /// Generated/ExpectedDurationTable.swift; check.sh keeps the two in sync and
 /// ExpectedDurationTests compares against the JSON itself. English/German numbers are spelled
-/// out before TTS. Chinese uses character units and an initial rate, not a measured voice fit.
+/// out before TTS. Chinese uses character units and an initial rate; French starts with the
+/// German coefficients. Neither is a measured voice fit for that language.
 public enum ExpectedDuration {
     public struct Coefficients: Sendable, Equatable {
         public var baseS: Double

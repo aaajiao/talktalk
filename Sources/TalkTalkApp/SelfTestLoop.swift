@@ -90,10 +90,12 @@ private func appleTranslationGoldenChecks() async -> [SelfTestCheck] {
     let fixtures: [(text: GlossaryEntry, term: String)] = [
         (.init(zh: "项目 Atlas 的预算是三十万欧元。",
                en: "The budget for project Atlas is three hundred thousand euros.",
-               de: "Das Budget für das Projekt Atlas beträgt dreihunderttausend Euro."), "Atlas"),
+               de: "Das Budget für das Projekt Atlas beträgt dreihunderttausend Euro.",
+               fr: "Le budget du projet Atlas est de trois cent mille euros."), "Atlas"),
         (.init(zh: "API 的折扣是百分之二十，交付日期在十二月。",
                en: "The API discount is twenty percent, with delivery in December.",
-               de: "Der API-Rabatt beträgt zwanzig Prozent, die Lieferung erfolgt im Dezember."), "API"),
+               de: "Der API-Rabatt beträgt zwanzig Prozent, die Lieferung erfolgt im Dezember.",
+               fr: "La remise API est de vingt pour cent, avec une livraison en décembre."), "API"),
     ]
     let apple = AppleTranslationMT()
     var checks: [SelfTestCheck] = [], job: JobID = 100

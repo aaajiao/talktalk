@@ -9,7 +9,7 @@ import Foundation
 public typealias HostTime = UInt64              // ns, clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
 public typealias JobID = UInt64
 
-public enum Lang: String, Codable, Sendable, CaseIterable { case zh, en, de }
+public enum Lang: String, Codable, Sendable, CaseIterable { case zh, en, de, fr }
 
 public struct Direction: Hashable, Codable, Sendable {
     public var source: Lang
@@ -46,7 +46,9 @@ public struct StageTiming: Codable, Sendable {
 
 public enum MTSession: String, Codable, Sendable, CaseIterable {
     case speakZhEn, speakZhDe, speakEnZh, speakEnDe
+    case speakZhFr, speakEnFr, speakFrZh, speakFrEn, speakFrDe
     case listenEnZh, listenDeZh, listenZhEn, listenZhDe, listenEnDe, listenDeEn
+    case listenFrZh, listenFrEn, listenFrDe, listenZhFr, listenEnFr, listenDeFr
 
     public var direction: Direction {
         switch self {
@@ -54,23 +56,36 @@ public enum MTSession: String, Codable, Sendable, CaseIterable {
         case .speakZhDe: Direction(source: .zh, target: .de)
         case .speakEnZh: Direction(source: .en, target: .zh)
         case .speakEnDe: Direction(source: .en, target: .de)
+        case .speakZhFr: Direction(source: .zh, target: .fr)
+        case .speakEnFr: Direction(source: .en, target: .fr)
+        case .speakFrZh: Direction(source: .fr, target: .zh)
+        case .speakFrEn: Direction(source: .fr, target: .en)
+        case .speakFrDe: Direction(source: .fr, target: .de)
         case .listenEnZh: Direction(source: .en, target: .zh)
         case .listenDeZh: Direction(source: .de, target: .zh)
         case .listenZhEn: Direction(source: .zh, target: .en)
         case .listenZhDe: Direction(source: .zh, target: .de)
         case .listenEnDe: Direction(source: .en, target: .de)
         case .listenDeEn: Direction(source: .de, target: .en)
+        case .listenFrZh: Direction(source: .fr, target: .zh)
+        case .listenFrEn: Direction(source: .fr, target: .en)
+        case .listenFrDe: Direction(source: .fr, target: .de)
+        case .listenZhFr: Direction(source: .zh, target: .fr)
+        case .listenEnFr: Direction(source: .en, target: .fr)
+        case .listenDeFr: Direction(source: .de, target: .fr)
         }
     }
 
     public var isSpeak: Bool {
         switch self {
-        case .speakZhEn, .speakZhDe, .speakEnZh, .speakEnDe: true
-        case .listenEnZh, .listenDeZh, .listenZhEn, .listenZhDe, .listenEnDe, .listenDeEn: false
+        case .speakZhEn, .speakZhDe, .speakEnZh, .speakEnDe,
+             .speakZhFr, .speakEnFr, .speakFrZh, .speakFrEn, .speakFrDe: true
+        case .listenEnZh, .listenDeZh, .listenZhEn, .listenZhDe, .listenEnDe, .listenDeEn,
+             .listenFrZh, .listenFrEn, .listenFrDe, .listenZhFr, .listenEnFr, .listenDeFr: false
         }
     }
 
-    /// Subtitles support every non-identical pair among Chinese, English and German.
+    /// Subtitles support every non-identical pair among Chinese, English, German and French.
     public static func listen(source: Lang, target: Lang) -> MTSession? {
         switch (source, target) {
         case (.zh, .en): .listenZhEn
@@ -79,6 +94,12 @@ public enum MTSession: String, Codable, Sendable, CaseIterable {
         case (.en, .de): .listenEnDe
         case (.de, .zh): .listenDeZh
         case (.de, .en): .listenDeEn
+        case (.fr, .zh): .listenFrZh
+        case (.fr, .en): .listenFrEn
+        case (.fr, .de): .listenFrDe
+        case (.zh, .fr): .listenZhFr
+        case (.en, .fr): .listenEnFr
+        case (.de, .fr): .listenDeFr
         default: nil
         }
     }
@@ -90,6 +111,11 @@ public enum MTSession: String, Codable, Sendable, CaseIterable {
         case (.zh, .de): .speakZhDe
         case (.en, .zh): .speakEnZh
         case (.en, .de): .speakEnDe
+        case (.zh, .fr): .speakZhFr
+        case (.en, .fr): .speakEnFr
+        case (.fr, .zh): .speakFrZh
+        case (.fr, .en): .speakFrEn
+        case (.fr, .de): .speakFrDe
         default: nil
         }
     }
@@ -98,13 +124,23 @@ public enum MTSession: String, Codable, Sendable, CaseIterable {
 public enum MTMode: String, Codable, Sendable { case normal, concise, summarize }
 
 public struct GlossaryEntry: Codable, Sendable, Equatable {
-    public var zh, en, de: String
+    public var zh, en, de, fr: String
     public var note: String?
-    public init(zh: String, en: String, de: String, note: String? = nil) {
-        self.zh = zh; self.en = en; self.de = de; self.note = note
+    public init(zh: String, en: String, de: String, fr: String = "", note: String? = nil) {
+        self.zh = zh; self.en = en; self.de = de; self.fr = fr; self.note = note
+    }
+    private enum CodingKeys: String, CodingKey { case zh, en, de, fr, note }
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        zh = try values.decode(String.self, forKey: .zh)
+        en = try values.decode(String.self, forKey: .en)
+        de = try values.decode(String.self, forKey: .de)
+        // Existing version-1 glossaries predate French and remain valid without a migration write.
+        fr = try values.decodeIfPresent(String.self, forKey: .fr) ?? ""
+        note = try values.decodeIfPresent(String.self, forKey: .note)
     }
     public func rendering(for lang: Lang) -> String {
-        switch lang { case .zh: zh; case .en: en; case .de: de }
+        switch lang { case .zh: zh; case .en: en; case .de: de; case .fr: fr }
     }
 }
 

@@ -19,10 +19,13 @@ import TalkTalkCore
             V(identifier: "f", name: "Anna", language: "de-DE", quality: 1),
             V(identifier: "g", name: "Helena", language: "de-DE", quality: 1),
             V(identifier: "h", name: "Tingting", language: "zh-CN", quality: 3),
+            V(identifier: "i", name: "Thomas", language: "fr-FR", quality: 1),
+            V(identifier: "j", name: "Amélie", language: "fr-CA", quality: 3),
         ]
         #expect(SystemVoiceTTS.pickVoice(for: .en, among: voices)?.identifier == "b")
         #expect(SystemVoiceTTS.pickVoice(for: .de, among: voices)?.identifier == "f")
         #expect(SystemVoiceTTS.pickVoice(for: .zh, among: voices)?.identifier == "h")
+        #expect(SystemVoiceTTS.pickVoice(for: .fr, among: voices)?.identifier == "i")
         #expect(SystemVoiceTTS.pickVoice(for: .en, among: [voices[3], voices[4]]) == nil)
     }
 
@@ -30,6 +33,19 @@ import TalkTalkCore
         let voice = VoiceHandle(profileID: UUID(), conditioningKey: "system", mode: .system, model: SystemVoiceTTS().id)
         return TTSRequest(job: job, clause: 1, text: text, language: lang, voice: voice,
                           seed: TTSSeed.make(voice: voice, text: text), wholeClause: true)
+    }
+
+    @Test(.enabled(if: SystemVoiceTTS.pickVoice(for: .fr, among: SystemVoiceTTS.installedVoices()) != nil))
+    func rendersFrenchThroughTheSameChunkContract() async throws {
+        let tts = SystemVoiceTTS()
+        var chunks: [TTSChunk] = []
+        for try await chunk in tts.speak(request(.fr, "Le budget du projet est de trois cents euros.")) { chunks.append(chunk) }
+        let last = try #require(chunks.last)
+        #expect(last.isLast)
+        #expect(chunks.count > 2)
+        #expect(chunks.dropLast().allSatisfy { $0.samples24k.count == SystemVoiceTTS.chunkSamples && !$0.isLast })
+        #expect(last.summary?.frames == chunks.reduce(0) { $0 + $1.samples24k.count })
+        #expect(chunks.flatMap(\.samples24k).contains { abs($0) > 0.01 })
     }
 
     @Test(.enabled(if: SystemVoiceTTS.pickVoice(for: .zh, among: SystemVoiceTTS.installedVoices()) != nil))

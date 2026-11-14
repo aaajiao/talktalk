@@ -21,7 +21,7 @@ public struct TranslationBench: Sendable {
     }
 
     static func language(_ l: Lang) -> Locale.Language {
-        switch l { case .zh: Locale.Language(identifier: "zh-Hans"); case .en: Locale.Language(identifier: "en"); case .de: Locale.Language(identifier: "de") }
+        AppleTranslationMT.language(l)
     }
 
     enum StrategyName: String, CaseIterable { case lowLatency, highFidelity }

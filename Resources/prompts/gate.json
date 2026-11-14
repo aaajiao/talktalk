@@ -22,11 +22,17 @@
     "^(?:以下是|这是)(?:中文)?(?:翻译|译文)",
     "^(?:翻译|译文)\\s*[:：]",
     "^(?:没有|无)(?:可供|需要)?(?:翻译的)?(?:内容|文本)[。.!！]?$",
-    "^作为(?:一个|一名)?(?:AI|人工智能)"
+    "^作为(?:一个|一名)?(?:AI|人工智能)",
+    "^(?:voici|voilà) (?:la|ma|votre) traduction\\b",
+    "^(?:la )?traduction\\s*:",
+    "^je ne peux pas (?:traduire|fournir une traduction)\\b",
+    "^en tant qu['’](?:une? )?(?:ia|intelligence artificielle)\\b",
+    "^(?:aucun|pas de) (?:contenu|texte|traduction)\\b"
   ],
   "fillers": {
     "en": ["um", "uh", "er", "erm", "hmm", "hm", "mm", "uhm"],
     "de": ["äh", "ähm", "öh", "hm", "hmm", "mhm"],
-    "zh": ["嗯", "啊", "呃", "唔"]
+    "zh": ["嗯", "啊", "呃", "唔"],
+    "fr": ["euh", "heu", "hum", "hmm", "hm"]
   }
 }

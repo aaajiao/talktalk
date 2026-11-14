@@ -116,13 +116,14 @@ extension RemoteQwenASR: ClipASREngine {
         try? await engine.client?.cancel(job: WireJob.asr(job))
     }
 
-    /// The engine reports a code or Qwen3-ASR's language name ("English", "German", "Chinese").
+    /// The engine reports a code or Qwen3-ASR's language name.
     static func lang(_ s: String?) -> Lang? {
         guard let s = s?.lowercased() else { return nil }
         if let l = Lang(rawValue: s) { return l }
         switch s {
         case "english": return .en
         case "german", "deutsch": return .de
+        case "french", "français": return .fr
         case "chinese", "mandarin": return .zh
         default: return nil
         }

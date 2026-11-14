@@ -51,6 +51,12 @@ class PinnedTextTests(unittest.TestCase):
         self.assertEqual(run(self.asr, hint="en")["text"], "b")
         self.assertEqual(self.asr.model.prompts[1], [1, 2])
 
+    def test_french_hint_keeps_explicit_language_and_pinned_text(self):
+        result = run(self.asr, hint="fr", pinned_text="L’état.")
+        self.assertEqual(result["language"], "French")
+        self.assertEqual(result["text"], "L’état. b")
+        self.assertEqual(self.asr.model.prompts, [[1, 2] + [ord(c) for c in "L’état."]])
+
     def test_without_a_language_the_text_is_ignored(self):
         self.assertEqual(run(self.asr, pinned_text="A.")["text"], "b")
         self.assertEqual(self.asr.model.prompts, [[1, 2]])

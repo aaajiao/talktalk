@@ -113,11 +113,18 @@ public struct SubtitleSpeakingSample: Equatable, Sendable {
             : "Tuesday morning works. Let's start with the demo, then talk about next steps."
         let de = phone ? "Dienstagvormittag passt, danke. Können Sie mir die Adresse noch einmal nennen?"
             : "Dienstagvormittag passt. Wir können zuerst die Demo ansehen und dann die nächsten Schritte besprechen."
-        source = languages.source == .zh ? zh : en
+        let fr = phone ? "Mardi matin me convient, merci. Pourriez-vous me redonner l'adresse ?"
+            : "Mardi matin me convient. Nous pouvons commencer par la démonstration, puis discuter de la suite."
+        switch languages.source {
+        case .zh: source = zh
+        case .en: source = en
+        case .fr: source = fr
+        }
         switch languages.target {
         case .zh: translation = zh
         case .en: translation = en
         case .de: translation = de
+        case .fr: translation = fr
         }
     }
 }
@@ -132,35 +139,40 @@ public struct SubtitleListeningSample: Equatable, Sendable {
     public let pairs: [Pair]
 
     public init(scene: SubtitleScene, languages: ListenLanguageSelection) {
-        let sentences: [(zh: String, en: String, de: String)]
+        let sentences: [(zh: String, en: String, de: String, fr: String)]
         switch scene {
         case .meeting:
             sentences = [
                 ("我们确认一下下周的安排。周二上午你方便吗？", // l10n-ignore
                  "Let's confirm the plan for next week. Would Tuesday morning work for you?",
-                 "Lassen Sie uns den Plan für nächste Woche bestätigen. Passt Ihnen Dienstagvormittag?"),
+                 "Lassen Sie uns den Plan für nächste Woche bestätigen. Passt Ihnen Dienstagvormittag?",
+                 "Confirmons le programme de la semaine prochaine. Mardi matin vous conviendrait-il ?"),
                 ("好的。我今天下午把议程和会议链接发给你。", // l10n-ignore
                  "Great. I'll send the agenda and the meeting link this afternoon.",
-                 "Gut. Ich schicke Ihnen heute Nachmittag die Tagesordnung und den Link zur Besprechung.")
+                 "Gut. Ich schicke Ihnen heute Nachmittag die Tagesordnung und den Link zur Besprechung.",
+                 "Très bien. Je vous enverrai l'ordre du jour et le lien de la réunion cet après-midi.")
             ]
         case .phone:
             sentences = [
                 ("您好，我打电话来确认您的预约。周二上午您方便吗？", // l10n-ignore
                  "Hi, I'm calling to confirm your appointment. Would Tuesday morning work for you?",
-                 "Guten Tag, ich rufe an, um Ihren Termin zu bestätigen. Passt Ihnen Dienstagvormittag?"),
+                 "Guten Tag, ich rufe an, um Ihren Termin zu bestätigen. Passt Ihnen Dienstagvormittag?",
+                 "Bonjour, je vous appelle pour confirmer votre rendez-vous. Mardi matin vous conviendrait-il ?"),
                 ("当然。我们在市场街，二楼。", // l10n-ignore
                  "Of course. We're on Market Street, on the second floor.",
-                 "Natürlich. Wir sind in der Marktstraße, im zweiten Stock.")
+                 "Natürlich. Wir sind in der Marktstraße, im zweiten Stock.",
+                 "Bien sûr. Nous sommes rue du Marché, au deuxième étage.")
             ]
         case .video:
             sentences = [
                 ("最简单的想法，往往始于换一种方式去看待我们身边的世界。", // l10n-ignore
                  "The simplest ideas often begin with a different way of looking at the world around us.",
-                 "Die einfachsten Ideen beginnen oft damit, die Welt um uns herum auf eine andere Weise zu betrachten.")
+                 "Die einfachsten Ideen beginnen oft damit, die Welt um uns herum auf eine andere Weise zu betrachten.",
+                 "Les idées les plus simples commencent souvent par un regard différent sur le monde qui nous entoure.")
             ]
         }
-        func text(_ sentence: (zh: String, en: String, de: String), for language: Lang) -> String {
-            switch language { case .zh: sentence.zh; case .en: sentence.en; case .de: sentence.de }
+        func text(_ sentence: (zh: String, en: String, de: String, fr: String), for language: Lang) -> String {
+            switch language { case .zh: sentence.zh; case .en: sentence.en; case .de: sentence.de; case .fr: sentence.fr }
         }
         pairs = sentences.map { Pair(source: text($0, for: languages.source), translation: text($0, for: languages.target)) }
     }

@@ -2,13 +2,14 @@
 // Do not edit. check.sh fails when this file and the JSON disagree.
 
 enum ExpectedDurationTable {
-    static let source = "M0-T1 lite fit, user voice reference, good clips only (docs/decisions/m0-results.md, 2026-11-04); zh: conservative 4 Han characters/s heuristic, not a measured voice fit"
+    static let source = "M0-T1 lite fit, user voice reference, good clips only (docs/decisions/m0-results.md, 2026-11-04); zh: conservative 4 Han characters/s heuristic, not a measured voice fit; fr: initial estimate reusing de coefficients, not a measured French voice fit"
     /// Languages not listed use this one (tts.py: `_EXPECTED.get(lang, _EXPECTED[default])`).
     static let defaultLanguage = "de"
     /// language code -> (intercept_s, per_word_s)
     static let languages: [String: (interceptS: Double, perWordS: Double)] = [
         "de": (interceptS: 0.134, perWordS: 0.43),
         "en": (interceptS: 0.391, perWordS: 0.34),
+        "fr": (interceptS: 0.134, perWordS: 0.43),
         "zh": (interceptS: 0.4, perWordS: 0.25),
     ]
 }

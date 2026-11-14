@@ -277,7 +277,7 @@ public struct EnrollmentView: View {
             }
             ForEach(summary.clips, id: \.lang) { clip in
                 let playing = controller.playingAudition == clip.lang
-                let name = clip.lang == .en ? String(appLocalized: "试听英语") : String(appLocalized: "试听德语")
+                let name = AuditionCheck.title(for: clip.lang)
                 HStack(spacing: 8) {
                     StatusGlyph(clip.failure == nil ? .ok : .failed)
                         .accessibilityLabel(clip.failure.map(\.text) ?? SettingsStatus.ok.spokenName)
@@ -362,7 +362,7 @@ public struct EnrollmentView: View {
         }
     }
 
-    private static func code(_ lang: Lang) -> String { lang == .en ? "EN" : "DE" }
+    private static func code(_ lang: Lang) -> String { lang.shortCode }
 
     private static func decimal(_ value: Double) -> String { String(format: "%.1f", value) }
 }

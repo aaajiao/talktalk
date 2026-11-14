@@ -1045,7 +1045,7 @@ private struct PermissionsStep: View {
     }
 }
 
-/// Step 2 (§7.17): the three languages as badges with their status in the corner, one 下载 for
+/// Step 2 (§7.17): the four languages as badges with their status in the corner, one 下载 for
 /// what is missing; Apple's backup role is a chip.
 private struct SpeechAssetsStep: View {
     let model: OnboardingFlowModel
@@ -1058,13 +1058,14 @@ private struct SpeechAssetsStep: View {
             if case let .failed(error)? = model.assets[lang] { return error }
             return nil
         }
-        OnboardingPage(title: StepTitle(.speechAssets, String(appLocalized: "准备三种语言的语音资源"))) {
+        OnboardingPage(title: StepTitle(.speechAssets, String(appLocalized: "准备四种语言的语音资源"))) {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .center, spacing: 16) {
                         language(.zh, name: String(appLocalized: "中文"), badge: String(appLocalized: "中"))
                         language(.en, name: String(appLocalized: "英语"), badge: "EN")
                         language(.de, name: String(appLocalized: "德语"), badge: "DE")
+                        language(.fr, name: String(appLocalized: "法语"), badge: "FR")
                         Spacer(minLength: 8)
                         Button { model.downloadAssets() } label: {
                             Label("下载", systemImage: Icon.download).labelStyle(.titleAndIcon)

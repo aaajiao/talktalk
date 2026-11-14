@@ -3,7 +3,7 @@ import Foundation
 import TalkTalkCore
 
 /// The system-voice fallback (ARCHITECTURE.md C8, §9, §16 decision 5): `AVSpeechSynthesizer.write`
-/// with the best installed zh-CN / en-US / de-DE voice, never a Personal Voice.
+/// with the best installed zh-CN / en-US / de-DE / fr-FR voice, never a Personal Voice.
 /// Output: 24 kHz f32 mono in 0.16 s chunks (§1.3), like RemoteQwenTTS, so it goes through
 /// the same PlayoutStage. Licence: personal, non-commercial use only (SLA §2.F, licensing.md).
 ///
@@ -31,7 +31,7 @@ public actor SystemVoiceTTS: TTSEngine {
         }
     }
 
-    public static let locales: [Lang: String] = [.zh: "zh-CN", .en: "en-US", .de: "de-DE"]
+    public static let locales: [Lang: String] = [.zh: "zh-CN", .en: "en-US", .de: "de-DE", .fr: "fr-FR"]
     /// Preferred names per language at equal quality (§9: Ava Premium, Anna).
     public static let preferred: [Lang: [String]] = [.zh: ["Tingting", "婷婷"], .en: ["Ava"], .de: ["Anna"]]
     public static let chunkSamples = 3840                  // 0.16 s at 24 kHz

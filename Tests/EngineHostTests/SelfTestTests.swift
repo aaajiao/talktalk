@@ -21,6 +21,7 @@ import TalkTalkTestSupport
         #expect(TextMetrics.wer(reference: "Let me walk you", hypothesis: "let me talk you") == 0.25)
         #expect(TextMetrics.werUnits("Don't stop — well-known, Überblick.") == ["don't", "stop", "well-known", "überblick"])
         #expect(TextMetrics.wer(reference: "a b", hypothesis: "") == 1)
+        #expect(TextMetrics.wer(reference: "L’état du projet.", hypothesis: "L'état du projet") == 0)
     }
 
     @Test func lsofFieldOutputParsesAndAudits() {
@@ -91,8 +92,8 @@ import TalkTalkTestSupport
         let r = await t.run()
         let byName = Dictionary(uniqueKeysWithValues: r.checks.map { ($0.name, $0) })
         #expect(r.checks.map(\.name) == ["install", "ready", "not_audio_process", "sockets", "asr", "voice",
-                                         "tts_en", "readback_en", "tts_de", "readback_de", "stop"])
-        for name in ["install", "ready", "not_audio_process", "sockets", "asr", "voice", "tts_en", "tts_de", "stop"] {
+                                         "tts_en", "readback_en", "tts_de", "readback_de", "tts_fr", "readback_fr", "stop"])
+        for name in ["install", "ready", "not_audio_process", "sockets", "asr", "voice", "tts_en", "tts_de", "tts_fr", "stop"] {
             #expect(byName[name]?.ok == true, "\(name): \(byName[name]?.detail ?? "")")
         }
         #expect(byName["asr"]?.values["cer"] == 0)

@@ -142,7 +142,7 @@ final class MyVoiceModel {
         }
     }
 
-    /// 试听 English / Deutsch: generate the saved profile's audition once (or reuse it), then play
+    /// Generate the saved profile's audition once (or reuse it), then play
     /// it on the monitor output (never TalkTalk Mic). Without an engine or a monitor output, the
     /// reason is shown instead.
     func audition(_ lang: Lang) {
@@ -494,6 +494,7 @@ extension FlowGrid {
                                     HStack(spacing: 4) {
                                         AuditionButton(model: model, lang: .en)
                                         AuditionButton(model: model, lang: .de)
+                                        AuditionButton(model: model, lang: .fr)
                                     }
                                 })
         } else {
@@ -548,7 +549,7 @@ extension FlowGrid {
     }
 }
 
-/// EN / DE on the 试听 node: play, or stop while that language plays (or is being made). After
+/// EN / DE / FR on the 试听 node: play, or stop while that language plays (or is being made). After
 /// 停止 it shows play at once, disabled until the audition's task ends.
 private struct AuditionButton: View {
     let model: MyVoiceModel
@@ -556,14 +557,14 @@ private struct AuditionButton: View {
 
     var body: some View {
         let playing = model.auditioning == lang && !model.auditionStopped
-        let name = lang == .en ? String(appLocalized: "试听英语") : String(appLocalized: "试听德语")
+        let name = AuditionCheck.title(for: lang)
         Button {
             if playing { model.stopAudition() } else { model.audition(lang) }
         } label: {
             HStack(spacing: 2) {
                 Image(systemName: playing ? SubtitleTokens.SettingsIcon.stop : SubtitleTokens.SettingsIcon.start)
                     .font(.system(size: SubtitleTokens.SettingsIcon.Size.badge))
-                Text(verbatim: lang == .en ? "EN" : "DE")
+                Text(verbatim: lang.shortCode)
                     .font(.system(size: SubtitleTokens.SettingsIcon.Size.badge, weight: .medium))
             }
         }

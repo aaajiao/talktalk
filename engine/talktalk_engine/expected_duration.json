@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "source": "M0-T1 lite fit, user voice reference, good clips only (docs/decisions/m0-results.md, 2026-11-04); zh: conservative 4 Han characters/s heuristic, not a measured voice fit",
-  "words": "en/de: max(1, whitespace-separated words); zh: max(1, Han characters + ASCII digits + other letter runs)",
+  "source": "M0-T1 lite fit, user voice reference, good clips only (docs/decisions/m0-results.md, 2026-11-04); zh: conservative 4 Han characters/s heuristic, not a measured voice fit; fr: initial estimate reusing de coefficients, not a measured French voice fit",
+  "words": "en/de/fr: max(1, whitespace-separated words); zh: max(1, Han characters + ASCII digits + other letter runs)",
   "formula": "intercept_s + per_word_s * words",
   "default": "de",
   "languages": {
@@ -10,6 +10,10 @@
       "per_word_s": 0.34
     },
     "de": {
+      "intercept_s": 0.134,
+      "per_word_s": 0.43
+    },
+    "fr": {
       "intercept_s": 0.134,
       "per_word_s": 0.43
     },

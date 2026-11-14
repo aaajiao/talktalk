@@ -29,7 +29,8 @@ func speakLanguagesSelfTest() async -> SelfTestReport {
             return samples
         }
         let fixtures: [(Lang, String)] = [(.zh, "项目的预算是三百欧元，我们下周讨论。"),
-                                         (.en, "The project budget is three hundred euros. We will discuss it next week.")]
+                                         (.en, "The project budget is three hundred euros. We will discuss it next week."),
+                                         (.fr, "Le budget du projet est de trois cents euros. Nous en parlerons la semaine prochaine.")]
         for (source, text) in fixtures {
             guard await AppleSpeechASR.assetsInstalled(source) else {
                 report.checks.append(.init("asr.\(source.rawValue)", ok: nil, detail: "speech assets not installed")); continue
@@ -43,7 +44,7 @@ func speakLanguagesSelfTest() async -> SelfTestReport {
             let numbers = NumberGuard.check(source: text, sourceLang: source, target: recognized.text, targetLang: source)
             let keyword = source == .zh ? recognized.text.contains("预算") : recognized.text.lowercased().contains("budget")
             report.checks.append(.init("asr.\(source.rawValue)", ok: keyword && numbers.numbersMatch))
-            for target in (source == .zh ? [Lang.en, .de] : [.zh, .de]) {
+            for target in Lang.allCases where MTSession.speak(source: source, target: target) != nil {
                 let session = MTSession.speak(source: source, target: target)!
                 guard await AppleTranslationMT.availability(session) == "installed" else {
                     report.checks.append(.init(session.rawValue, ok: nil, detail: "translation pack not installed")); continue
@@ -59,7 +60,8 @@ func speakLanguagesSelfTest() async -> SelfTestReport {
                                            values: ["audioS": Double(audio.count) / 24_000]))
             }
         }
-        report.checks.append(.init("complete", ok: report.checks.count == 10 && report.checks.allSatisfy { $0.ok == true }))
+        let expected = fixtures.count + MTSession.allCases.filter(\.isSpeak).count * 2
+        report.checks.append(.init("complete", ok: report.checks.count == expected && report.checks.allSatisfy { $0.ok == true }))
     } catch {
         report.checks.append(.init("run", ok: false, detail: String(describing: error)))
     }

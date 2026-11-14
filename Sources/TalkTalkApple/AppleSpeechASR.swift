@@ -4,7 +4,7 @@ import Foundation
 import Speech
 import TalkTalkCore
 
-/// LISTEN streaming ASR (ARCHITECTURE.md, "LISTEN：对方音频到双语字幕"): Apple `SpeechTranscriber` en-US / de-DE with
+/// LISTEN streaming ASR (ARCHITECTURE.md, "LISTEN：对方音频到双语字幕"): Apple `SpeechTranscriber` zh-CN / en-US / de-DE / fr-FR with
 /// `.volatileResults + .fastResults` and `.audioTimeRange`, analyzer `.processLifetime`,
 /// `prepareToAnalyze`, 16 kHz Int16 mono input. Speech assets are system-managed (AssetInventory);
 /// `open` refuses a locale whose assets are not installed — installing is the settings UI's call
@@ -22,7 +22,7 @@ public struct AppleSpeechASR: StreamingASREngine {
     public init() {}
 
     public static func localeIdentifier(_ lang: Lang) -> String {
-        switch lang { case .en: "en-US"; case .de: "de-DE"; case .zh: "zh-CN" }
+        switch lang { case .en: "en-US"; case .de: "de-DE"; case .zh: "zh-CN"; case .fr: "fr-FR" }
     }
 
     static func makeTranscriber(_ lang: Lang) -> SpeechTranscriber {

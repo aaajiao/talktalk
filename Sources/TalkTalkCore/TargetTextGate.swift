@@ -18,7 +18,7 @@ public struct GatePatterns: Codable, Sendable, Equatable {
 
 /// Language identification for the gate; injectable so tests are deterministic.
 public protocol LanguageIdentifying: Sendable {
-    /// Best guess and its confidence (0…1), restricted to en and de.
+    /// Best guess and its confidence (0…1), restricted to the supported Latin-script languages.
     func identify(_ text: String) -> (Lang, Double)?
 }
 
@@ -26,13 +26,14 @@ public struct NLLanguageIdentifier: LanguageIdentifying {
     public init() {}
     public func identify(_ text: String) -> (Lang, Double)? {
         let r = NLLanguageRecognizer()
-        r.languageConstraints = [.english, .german]
+        r.languageConstraints = [.english, .german, .french]
         r.processString(text)
-        let h = r.languageHypotheses(withMaximum: 2)
+        let h = r.languageHypotheses(withMaximum: 3)
         guard let (lang, p) = h.max(by: { $0.value < $1.value }) else { return nil }
         switch lang {
         case .english: return (.en, p)
         case .german: return (.de, p)
+        case .french: return (.fr, p)
         default: return nil
         }
     }
@@ -107,7 +108,7 @@ public struct TargetTextGate: Sendable {
     }
 
     static func words(_ s: String) -> [String] {
-        s.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "-" }).map(String.init)
+        s.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "’" && $0 != "-" }).map(String.init)
     }
 
     /// Recovery ② (§5.4): when every Han run is at most `translitMaxHanRun` characters (mostly

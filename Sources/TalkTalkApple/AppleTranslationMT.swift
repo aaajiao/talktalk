@@ -3,7 +3,7 @@ import TalkTalkCore
 import Translation
 
 /// Apple Translation as an `MTEngine` (§4.1, §4.2): LISTEN drafts and the final-MT fallback
-/// (all six zh/en/de directions), and the SPEAK fallback (zh→en/de, en→zh/de). `.highFidelity` (26.4+; the
+/// (all twelve zh/en/de/fr directions), and all nine SPEAK fallback directions. `.highFidelity` (26.4+; the
 /// installed packs on this Mac, M0-T11). One warm session per direction. Language packs are
 /// system-managed and never downloaded from here: a missing pack throws `.notInstalled`.
 /// Glossary and history are not supported by the framework; `setContext` is a no-op and the
@@ -27,6 +27,7 @@ public actor AppleTranslationMT: MTEngine {
         case .zh: Locale.Language(identifier: "zh-Hans")
         case .en: Locale.Language(identifier: "en")
         case .de: Locale.Language(identifier: "de")
+        case .fr: Locale.Language(identifier: "fr")
         }
     }
 
