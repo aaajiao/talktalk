@@ -297,11 +297,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             MainActor.assumeIsolated { self?.showFront() }
         }
 
-        // §7.5 item 6, in the background; the menu shows a status line when something is missing.
-        Task { [weak self, isSmoke] in
-            if !isSmoke { await AppleSpeechASR.reserveInstalledLocales() }   // the smoke run changes nothing
-            self?.refreshAppleCheck()
-        }
+        // Prepare/check only the user's chosen Apple resources; the smoke run changes nothing.
+        refreshAppleCheck(reserveInstalled: !isSmoke)
         followAppleAssets()
 
         // The installer (onboarding step 4, Settings › 组件) changed the installation: build or
@@ -342,26 +339,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard !isSmoke else { return }
         Task { await AppUIModels.shared.general.refreshNotifications() }
         // Back from System Settings or a download elsewhere: Apple resources may be complete now.
-        refreshAppleCheck()
+        refreshAppleCheck(reserveInstalled: true)
     }
 
-    /// §7.5 item 6 again (status APIs only: no prompt, no download, no network), so 通用's row
-    /// and the menu's "Apple 资源待配置" leave once the resources are in place.
-    private func refreshAppleCheck() {
+    /// Check the chosen resources, optionally reserving ones already installed. No downloads
+    /// or permission prompts; unchecked optional languages cannot keep a warning visible.
+    private func refreshAppleCheck(reserveInstalled: Bool = false) {
         appleCheckTask?.cancel()
+        let selection = onboarding?.model.speechResources ?? SpeechResourceSelection.load()
+        let shouldReserve = reserveInstalled && !isSmoke
         appleCheckTask = Task { [state] in
-            let r = await AppleStartupCheckItem().run()
+            if shouldReserve { await AppleSpeechASR.reserveInstalledLocales(selection.orderedLanguages) }
+            guard !Task.isCancelled else { return }
+            let r = await AppleStartupCheckItem(selection: selection).run()
             guard !Task.isCancelled else { return }
             state.appleCheck = r.level == .ok ? nil : String(appLocalized: "Apple：\(r.summary)")
         }
     }
 
-    /// Onboarding step 2's downloads, and onboarding finishing: the Apple check runs again.
+    /// Selection, downloads and onboarding completion all refresh the same resource check.
     private func followAppleAssets() {
         guard let model = onboarding?.model else { return }
-        withObservationTracking { _ = (model.assets, model.step) } onChange: { [weak self] in
+        withObservationTracking { _ = (model.assets, model.step, model.speechResources) } onChange: { [weak self] in
             Task { @MainActor in
-                self?.refreshAppleCheck()
+                self?.refreshAppleCheck(reserveInstalled: true)
                 self?.followAppleAssets()
             }
         }

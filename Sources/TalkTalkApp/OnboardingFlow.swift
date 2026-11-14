@@ -25,6 +25,7 @@ import TalkTalkVoice
 @Observable
 final class OnboardingFlowModel {
     @ObservationIgnored let state: OnboardingState
+    @ObservationIgnored private let defaults: UserDefaults
     /// The scene and model diagrams' state (steps 4 and 7 draw the settings pages' flows).
     @ObservationIgnored let appState: AppState
     private(set) var step: OnboardingStep?
@@ -56,6 +57,7 @@ final class OnboardingFlowModel {
     @ObservationIgnored private var probeTask: Task<Void, Never>?
     // step 2
     private(set) var assets: [Lang: AssetState] = [:]
+    private(set) var speechResources: SpeechResourceSelection
     // step 4
     let engine: EngineComponentsModel
     // step 5: the settings window's page (one TranslationSettingsModel, one consent)
@@ -83,6 +85,8 @@ final class OnboardingFlowModel {
     init(defaults: UserDefaults = .standard, appState: AppState, engine: EngineComponentsModel,
          translation: TranslationPage, bundleID: String? = Bundle.main.bundleIdentifier, autoProbe: Bool = true) {
         state = OnboardingState(defaults: defaults, steps: OnboardingStep.allCases)
+        self.defaults = defaults
+        speechResources = SpeechResourceSelection.load(defaults: defaults)
         self.appState = appState
         step = state.current
         steps = state.steps
@@ -175,6 +179,7 @@ final class OnboardingFlowModel {
     func refresh() async {
         checking = true
         defer { checking = false }
+        speechResources = SpeechResourceSelection.load(defaults: defaults)
         facts.microphone = MicrophoneAuthorization.current == .authorized
         facts.speechRecognition = SFSpeechAuthorization.isAuthorized
         facts.inputMonitoring = CGPreflightListenEventAccess()
@@ -193,7 +198,7 @@ final class OnboardingFlowModel {
             if case .downloading? = assets[l] { continue }
             assets[l] = ok ? .installed : .missing
         }
-        facts.speechAssets = Lang.allCases.allSatisfy { assets[$0] == .installed }
+        refreshSpeechAssetReadiness()
         if autoProbe, step == .permissions, !state.choosingScenarios, !autoProbed, state.systemAudioProbe != .granted {
             autoProbed = true
             await probe()
@@ -374,8 +379,25 @@ final class OnboardingFlowModel {
 
     // MARK: step 2
 
+    func setSpeechResource(_ language: Lang, enabled: Bool) {
+        guard assets[language] != .downloading else { return }
+        let next = speechResources.selecting(language, enabled: enabled)
+        guard next != speechResources else { return }
+        next.save(defaults: defaults)
+        speechResources = next
+        refreshSpeechAssetReadiness()
+    }
+
+    private var installedSpeechResources: Set<Lang> {
+        Set(assets.compactMap { $0.value == .installed ? $0.key : nil })
+    }
+
+    private func refreshSpeechAssetReadiness() {
+        facts.speechAssets = speechResources.isReady(installed: installedSpeechResources)
+    }
+
     func downloadAssets() {
-        for l in Lang.allCases where assets[l] != .installed && assets[l] != .downloading {
+        for l in speechResources.missingLanguages(installed: installedSpeechResources) where assets[l] != .downloading {
             assets[l] = .downloading
             Task {
                 do {
@@ -384,7 +406,7 @@ final class OnboardingFlowModel {
                 } catch {
                     assets[l] = .failed(error.localizedDescription)
                 }
-                facts.speechAssets = Lang.allCases.allSatisfy { assets[$0] == .installed }
+                refreshSpeechAssetReadiness()
             }
         }
     }
@@ -1045,8 +1067,8 @@ private struct PermissionsStep: View {
     }
 }
 
-/// Step 2 (§7.17): the four languages as badges with their status in the corner, one 下载 for
-/// what is missing; Apple's backup role is a chip.
+/// Step 2 (§7.17): language badges retain their status corners; Chinese/English are required,
+/// German/French are optional. One 下载 prepares only selected missing resources.
 private struct SpeechAssetsStep: View {
     let model: OnboardingFlowModel
 
@@ -1054,11 +1076,11 @@ private struct SpeechAssetsStep: View {
     private static let tile: Double = 48
 
     var body: some View {
-        let failed = Lang.allCases.compactMap { lang -> String? in
+        let failed = model.speechResources.orderedLanguages.compactMap { lang -> String? in
             if case let .failed(error)? = model.assets[lang] { return error }
             return nil
         }
-        OnboardingPage(title: StepTitle(.speechAssets, String(appLocalized: "准备四种语言的语音资源"))) {
+        OnboardingPage(title: StepTitle(.speechAssets, String(appLocalized: "选择语音资源"))) {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .center, spacing: 16) {
@@ -1070,8 +1092,9 @@ private struct SpeechAssetsStep: View {
                         Button { model.downloadAssets() } label: {
                             Label("下载", systemImage: Icon.download).labelStyle(.titleAndIcon)
                         }
-                        .disabled(model.facts.speechAssets == true || model.assets.values.contains(.downloading))
-                        .help(String(appLocalized: "下载缺少的语音资源"))
+                        .disabled(model.facts.speechAssets == true
+                                  || model.speechResources.orderedLanguages.contains { model.assets[$0] == .downloading })
+                        .help(String(appLocalized: "下载所选语言缺少的语音资源"))
                     }
                     if !failed.isEmpty {
                         StatusLabel(String(appLocalized: "下载失败"), .failed, help: failed.joined(separator: "\n"))
@@ -1087,22 +1110,38 @@ private struct SpeechAssetsStep: View {
 
     private func language(_ lang: Lang, name: String, badge: String) -> some View {
         let status = assetStatus(lang)
+        let required = SpeechResourceSelection.required.contains(lang)
+        let selected = model.speechResources.languages.contains(lang)
+        let selectionHelp = required ? String(appLocalized: "中文和英语为必选语言")
+            : String(appLocalized: "可选语言，取消选择不会删除已安装资源")
         return VStack(spacing: 6) {
             Text(verbatim: badge).font(.title2.weight(.medium))
                 .frame(width: Self.tile, height: Self.tile)
                 .background(RoundedRectangle(cornerRadius: SubtitleTokens.Radius.settingsCard).fill(.quaternary))
                 .overlay(alignment: .topTrailing) {
-                    StatusGlyph(status.status, size: .badge).offset(x: Ladder.badgeDisc / 3, y: -Ladder.badgeDisc / 3)
+                    if selected || model.assets[lang] == .installed {
+                        StatusGlyph(status.status, size: .badge).offset(x: Ladder.badgeDisc / 3, y: -Ladder.badgeDisc / 3)
+                    }
                 }
-            Text(verbatim: name).font(.callout)
+                .accessibilityHidden(true)
+            Toggle(isOn: Binding(get: { model.speechResources.languages.contains(lang) },
+                                 set: { model.setSpeechResource(lang, enabled: $0) })) {
+                Text(verbatim: name)
+            }
+            .toggleStyle(.checkbox)
+            .font(.callout)
+            .disabled(required || model.assets[lang] == .downloading)
+            .accessibilityHint(String(appLocalized: "\(selectionHelp) · \(status.text)"))
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(appLocalized: "\(name)，\(status.text)"))
-        .help([status.help ?? status.text, AppleSpeechASR.localeIdentifier(lang)].joined(separator: " · "))
+        .accessibilityElement(children: .contain)
+        .help([selectionHelp, status.help ?? status.text, AppleSpeechASR.localeIdentifier(lang)].joined(separator: " · "))
     }
 
     private func assetStatus(_ lang: Lang) -> SettingsProblem {
-        switch model.assets[lang] ?? .unknown {
+        if !model.speechResources.languages.contains(lang), model.assets[lang] != .installed {
+            return SettingsProblem(.waiting, String(appLocalized: "未选择"))
+        }
+        return switch model.assets[lang] ?? .unknown {
         case .installed: SettingsProblem(.ok, String(appLocalized: "已安装"))
         case .downloading: SettingsProblem(.busy, String(appLocalized: "下载中"))
         case .missing: SettingsProblem(.pending, String(appLocalized: "未安装"))

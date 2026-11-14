@@ -1185,22 +1185,6 @@
         }
       }
     },
-    "Apple 语音和翻译资源齐全": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apple speech and translation resources are ready"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apple 语音和翻译资源齐全"
-          }
-        }
-      }
-    },
     "Apple 语音识别": {
       "localizations": {
         "en": {
@@ -3389,22 +3373,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "下载没有完成"
-          }
-        }
-      }
-    },
-    "下载缺少的语音资源": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Download missing speech resources"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下载缺少的语音资源"
           }
         }
       }
@@ -27809,22 +27777,6 @@
         }
       }
     },
-    "中文、英语、德语和法语的语音资源都没有：没法生成字幕": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No Chinese, English, German or French speech resources: captions are unavailable"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中文、英语、德语和法语的语音资源都没有：没法生成字幕"
-          }
-        }
-      }
-    },
     "法语": {
       "localizations": {
         "en": {
@@ -27889,18 +27841,98 @@
         }
       }
     },
-    "准备四种语言的语音资源": {
+    "选择语音资源": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prepare speech resources for four languages"
+            "value": "Choose speech resources"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "准备四种语言的语音资源"
+            "value": "选择语音资源"
+          }
+        }
+      }
+    },
+    "下载所选语言缺少的语音资源": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download missing speech resources for the selected languages"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载所选语言缺少的语音资源"
+          }
+        }
+      }
+    },
+    "中文和英语为必选语言": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chinese and English are required"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中文和英语为必选语言"
+          }
+        }
+      }
+    },
+    "可选语言，取消选择不会删除已安装资源": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional language; deselecting keeps installed resources"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可选语言，取消选择不会删除已安装资源"
+          }
+        }
+      }
+    },
+    "所选语言的语音资源都未下载：没法生成字幕": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speech resources for the selected languages are missing: subtitles are unavailable"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选语言的语音资源都未下载：没法生成字幕"
+          }
+        }
+      }
+    },
+    "所选 Apple 语音和翻译资源齐全": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected Apple speech and translation resources are ready"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选 Apple 语音和翻译资源齐全"
           }
         }
       }

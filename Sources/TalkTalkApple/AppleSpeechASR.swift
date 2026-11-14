@@ -63,9 +63,10 @@ public struct AppleSpeechASR: StreamingASREngine {
     }
 
     /// App launch, before the startup check: onboarding step 2 reserves only what it downloads, so
-    /// a locale that was already installed is reserved here. Only installed locales that are not
-    /// reserved yet, and never more than `maximumReservedLocales` in all.
-    public static func reserveInstalledLocales(_ langs: [Lang] = AppleStartupCheck.locales) async {
+    /// a selected locale that was already installed is reserved here. Only installed locales that
+    /// are not reserved yet, and never more than `maximumReservedLocales` in all. Unselected assets
+    /// and existing reservations are left intact.
+    public static func reserveInstalledLocales(_ langs: [Lang] = SpeechResourceSelection.load().orderedLanguages) async {
         var reserved = Set(await AssetInventory.reservedLocales.map { $0.identifier(.bcp47) })
         let limit = AssetInventory.maximumReservedLocales
         for l in langs {
@@ -77,7 +78,7 @@ public struct AppleSpeechASR: StreamingASREngine {
 
     /// Downloads the locale's speech assets (system-managed, ~140 MB per locale, §4.3). UI only
     /// (onboarding step 2, the meeting-start prompt). Reserves the locale first so the system
-    /// keeps the assets (§7.5 item 6: zh-CN, en-US, de-DE take 3 of the reservation slots); a
+    /// keeps the assets (Chinese/English are required; German/French are optional); a
     /// failed reservation does not block the download (the startup check reports it).
     public static func installAssets(_ lang: Lang) async throws {
         _ = try? await AssetInventory.reserve(locale: Locale(identifier: localeIdentifier(lang)))

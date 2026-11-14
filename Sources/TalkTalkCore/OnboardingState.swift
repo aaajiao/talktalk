@@ -4,7 +4,7 @@ import Foundation
 /// The eight onboarding steps (ARCHITECTURE.md, "三种使用场景"), in order.
 public enum OnboardingStep: String, CaseIterable, Codable, Sendable, Comparable {
     case permissions      // 1 麦克风、语音识别、输入监控（+ 系统录音探针）
-    case speechAssets     // 2 zh-CN / en-US / de-DE 语音资源
+    case speechAssets     // 2 Chinese/English resources, with optional German/French
     case driver           // 3 虚拟麦克风
     case engine           // 4 引擎
     case openAI           // 5 OpenAI（可跳过）
