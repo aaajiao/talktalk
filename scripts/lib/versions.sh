@@ -5,8 +5,8 @@
 # then run scripts/gen-pins.sh (check.sh fails when EnginePins.swift is out of sync).
 
 # Application identity; independent of engine API/recipe and model revisions.
-TT_APP_VERSION="1.0.18"
-TT_APP_BUILD="83"
+TT_APP_VERSION="1.0.19"
+TT_APP_BUILD="84"
 
 # Standalone CPython (astral-sh/python-build-standalone). Size and sha256 checked against the
 # GitHub release asset digest on 2026-11-07; dedicated, ordinary (GIL) CPython build.
