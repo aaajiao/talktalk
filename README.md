@@ -27,7 +27,7 @@ The interface supports English and Chinese. Switch instantly in **Settings › G
 
 Requires an **Apple Silicon Mac running macOS 26.4 or later**. Use headphones for meeting and phone interpretation.
 
-**[Download TalkTalk 1.0.20, build 86 (macOS arm64 ZIP)](https://github.com/aaajiao/talktalk/releases/download/v1.0.20/TalkTalk-1.0.20-macOS-arm64.zip)** · [Release notes](https://github.com/aaajiao/talktalk/releases/tag/v1.0.20)
+**[Download TalkTalk 1.0.21, build 88 (macOS arm64 ZIP)](https://github.com/aaajiao/talktalk/releases/download/v1.0.21/TalkTalk-1.0.21-macOS-arm64.zip)** · [Release notes](https://github.com/aaajiao/talktalk/releases/tag/v1.0.21)
 
 Unzip the download, drag `TalkTalk.app` into Applications, and open it from Finder. The app is **ad-hoc signed, without a Developer ID signature or Apple notarization**. macOS may display a security warning or block the first launch; verify the download source and follow the system prompts.
 
@@ -35,7 +35,7 @@ From version 1.0.18, use **Check for Updates…** in the menu bar menu or **Sett
 
 First-time setup:
 
-1. Follow onboarding to grant permissions and configure the speech resources you need. Meeting and phone interpretation also require the **TalkTalk Mic** virtual microphone. For video subtitles only, choose the listening-only setup.
+1. Follow onboarding to grant permissions and configure the speech resources you need. Chinese and English are required Apple speech resources; German and French are optional. Meeting and phone interpretation also require the **TalkTalk Mic** virtual microphone. For video subtitles only, choose the listening-only setup.
 2. The app installs its private Python runtime and local models as needed. **You do not need to install system Python or Homebrew.** The default meeting/phone model files take about **4.1 GB**, plus space for the runtime. Later upgrades reuse compatible runtimes and downloaded models.
 3. In **Settings › Scenarios**, choose Meeting, Phone, or Video and configure the app and languages. In your meeting or phone app, select **TalkTalk Mic** as the input, or follow onboarding to use the system default input managed by TalkTalk.
 4. For cloud text translation, enter your own OpenAI API key. For local Apple translation, install the required language resources first.

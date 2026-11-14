@@ -27,7 +27,7 @@ TalkTalk 是一个原生 macOS 菜单栏应用。语音识别和语音合成在�
 
 需要 **Apple Silicon Mac、macOS 26.4 或更新版本**。会议和电话同传请使用耳机。
 
-**[下载 TalkTalk 1.0.20 构建 86（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.20/TalkTalk-1.0.20-macOS-arm64.zip)** · [版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.20)
+**[下载 TalkTalk 1.0.21 构建 88（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.21/TalkTalk-1.0.21-macOS-arm64.zip)** · [版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.21)
 
 解压后将 `TalkTalk.app` 拖入“应用程序”，从 Finder 打开。该包使用 **ad-hoc 本地签名，尚无 Developer ID 签名及 Apple 公证**；首次打开时 macOS 可能显示安全提示或阻止启动，请确认下载来源后按系统提示处理。
 
@@ -35,7 +35,7 @@ TalkTalk 是一个原生 macOS 菜单栏应用。语音识别和语音合成在�
 
 首次设置：
 
-1. 按首次引导授权，配置需要的语音资源。会议和电话还需要安装 **TalkTalk Mic** 虚拟麦克风；只看视频可走仅收听引导。
+1. 按首次引导授权，配置需要的语音资源。Apple 语音资源的中文和英语必选，德语和法语按需勾选。会议和电话还需要安装 **TalkTalk Mic** 虚拟麦克风；只看视频可走仅收听引导。
 2. App 按需安装私有 Python 环境和本地模型，**无需自行安装系统 Python 或 Homebrew**。会议／电话的默认模型文件约 **4.1 GB**，另需运行环境空间；后续升级会复用兼容的运行时和已下载模型。
 3. 在 **设置 › 使用场景** 选择会议、电话或视频，设置对应的应用与语言。会议／电话应用的输入需选择 **TalkTalk Mic**，或按引导跟随由 TalkTalk 管理的系统默认输入。
 4. 如需云端文字翻译，填写自己的 OpenAI API key；使用 Apple 本地翻译前，需安装相应语言资源。
