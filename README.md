@@ -23,13 +23,11 @@ TalkTalk is a native macOS menu bar app. Speech recognition and synthesis run lo
 
 The interface supports English and Chinese. Switch instantly in **Settings › General › Interface language**. The interface language is independent of your subtitle and speaking language settings.
 
-French support is available in the current source; the latest published release below still supports Chinese, English, and German.
-
 ## Get started
 
 Requires an **Apple Silicon Mac running macOS 26.4 or later**. Use headphones for meeting and phone interpretation.
 
-**[Download TalkTalk 1.0.19, build 84 (macOS arm64 ZIP)](https://github.com/aaajiao/talktalk/releases/download/v1.0.19/TalkTalk-1.0.19-macOS-arm64.zip)** · [Release notes](https://github.com/aaajiao/talktalk/releases/tag/v1.0.19)
+**[Download TalkTalk 1.0.20, build 86 (macOS arm64 ZIP)](https://github.com/aaajiao/talktalk/releases/download/v1.0.20/TalkTalk-1.0.20-macOS-arm64.zip)** · [Release notes](https://github.com/aaajiao/talktalk/releases/tag/v1.0.20)
 
 Unzip the download, drag `TalkTalk.app` into Applications, and open it from Finder. The app is **ad-hoc signed, without a Developer ID signature or Apple notarization**. macOS may display a security warning or block the first launch; verify the download source and follow the system prompts.
 

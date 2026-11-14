@@ -23,13 +23,11 @@ TalkTalk 是一个原生 macOS 菜单栏应用。语音识别和语音合成在�
 
 界面支持中文和 English，可在 **设置 › 通用 › 界面语言** 中立即切换。界面语言与字幕、发言的语言设置相互独立。
 
-法语支持已加入当前源码；下方最新已发布版本仍支持中文、英语和德语。
-
 ## 开始使用
 
 需要 **Apple Silicon Mac、macOS 26.4 或更新版本**。会议和电话同传请使用耳机。
 
-**[下载 TalkTalk 1.0.19 构建 84（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.19/TalkTalk-1.0.19-macOS-arm64.zip)** · [版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.19)
+**[下载 TalkTalk 1.0.20 构建 86（macOS arm64 ZIP）](https://github.com/aaajiao/talktalk/releases/download/v1.0.20/TalkTalk-1.0.20-macOS-arm64.zip)** · [版本说明](https://github.com/aaajiao/talktalk/releases/tag/v1.0.20)
 
 解压后将 `TalkTalk.app` 拖入“应用程序”，从 Finder 打开。该包使用 **ad-hoc 本地签名，尚无 Developer ID 签名及 Apple 公证**；首次打开时 macOS 可能显示安全提示或阻止启动，请确认下载来源后按系统提示处理。
 

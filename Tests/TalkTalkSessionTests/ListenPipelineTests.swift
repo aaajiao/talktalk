@@ -343,7 +343,8 @@ enum Fixture {
     @Test func nonePlaceholderFallsBackInsteadOfBecomingASubtitle() async throws {
         let primary = FakeMT("openai", placement: .network, prefix: "", delayMs: 5, fixed: " \n<none>\n ")
         let apple = FakeMT("apple", placement: .systemService, prefix: "", delayMs: 10, fixed: "这是有效的译文。")
-        let (pipeline, stream, sink, log) = try make(primary: primary, apple: apple)
+        // Exercise the empty-result fallback; deadline behavior has its own tests below.
+        let (pipeline, stream, sink, log) = try make(primary: primary, apple: apple, deadlineMs: 30_000)
         try await pipeline.start()
         stream.final("A valid sentence.")
         #expect(await until { sink.finals.count == 1 })
