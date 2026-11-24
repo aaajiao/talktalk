@@ -1,6 +1,6 @@
 # 当前状态与剩余工作
 
-**2026-11-24 1.0.22（构建 90）发布准备：引擎 mlx-audio 升至 0.6.8，已有安装可在设置中原地更新运行环境。**
+**2026-11-24 1.0.22（构建 90）已发布：引擎 mlx-audio 升至 0.6.8，已有安装可在设置中原地更新运行环境。**
 
 - mlx-audio 改钉 v0.6.8 标签提交 `db4b2e7`。它已包含此前单独钉住的 #1096、#1117，旧钉 `f65753b` 是其祖先，安装方式仍是 commit tarball 源码包。新 engine lock 只增加 0.6.8 新的直接依赖 requests 及其 certifi、charset-normalizer、urllib3。MLX 0.32.4、transformers 5.20.2、numpy 2.4.3、CPython 3.14.10、构建 lock、模型和 recipe 均不变。`scripts/lock-deps.sh` 改为：
   - 从 `TT_MLX_AUDIO_COMMIT` 取提交，从 tarball 的 `version.py` 推出 PyPI 代理版本；
@@ -21,7 +21,8 @@
   - `scripts/check.sh --skip-stress` 整条通过：Swift 1,761 项；Python 引擎 133 项，1 项按环境跳过；安装器隔离回归 94 项，含运行环境更新（自选组合、仅识别、Apple 识别）、保留组合、模型损坏时先拒绝、失败续做和旧环境兼容；另有双语目录、pins、钉值一致、许可与音频路径检查。
   - 多视角审查确认的问题均已修复：无活动角色的旧记录不再显示无法完成的“更新”，“更新”失败后不再提示选择组合，直接提供“修复”；另补了安装器回归。
   - 本机实际验收：中间构建 1.0.21（89）安装到 `/Applications` 后，用户对旧 lock 的自选组合（Ming 0.5B 合成＋Qwen3-ASR 0.6B 识别）点“更新”。Python 3.14.10 构建复用，venv 按新 lock 重建（mlx-audio 0.6.8 及新增的 4 个包），两个角色、3 个模型与自选组合保留，没有残留未完成标记。按原角色跑的 smoke 通过：就绪 8.1 秒，识别 CER 0.0，英德合成正常，RTF 0.23。没有下载模型、录音或使用云端。
-  - 正式包 `build/TalkTalk.app` 为 **1.0.22（构建 90）**，release 编译、严格签名、源码指纹和双语 smoke 通过；双语 README 已更新下载入口，准备通过统一发布入口发布。
+  - 正式包 `build/TalkTalk.app` 为 **1.0.22（构建 90）**，release 编译、严格签名、源码指纹和双语 smoke 通过；正式版本重新运行的 `scripts/check.sh --skip-stress` 整条通过，计数同上。
+- 发布：功能提交 `00ea3a4` 与版本提交 `d09de30` 已推送 `origin/main`。统一发布入口已签名打包，发布 [v1.0.22](https://github.com/aaajiao/talktalk/releases/tag/v1.0.22) 并设为 Latest，标签指向 `d09de30`。ZIP、签名 appcast 和校验文件的远端大小与 SHA-256 均匹配；公开 Latest appcast 与本地签名文件逐字节一致，指向 1.0.22（90）。双语 README 已更新下载入口。本机 `/Applications` 仍是验收用的 1.0.21（89），可在 App 内更新到 1.0.22。
 - 待验收：
   - 更新后首次真实启动时，自动重新准备声音数据，并听感确认本人声音；
   - 带上下文的真实 Qwen 识别对比；
