@@ -4,6 +4,7 @@
 #
 #   install-engine.sh [--profile max|standard|compact24|compact16] [--json-progress]   install / update / repair
 #   install-engine.sh --recognition-only [--json-progress]             prepare Qwen ASR, preserve other roles
+#   install-engine.sh --update-runtime [--json-progress]               bring Python/dependencies current, keep roles and models
 #   install-engine.sh --check [--json-progress]                                        verify only, exit 0/1
 #   install-engine.sh --add-model <key> | --remove-model <key> [--json-progress]
 #   install-engine.sh --select-tts <key> [--model-source <verified-local-directory>]
@@ -40,7 +41,8 @@ while [ $# -gt 0 ]; do
     --uninstall) op="uninstall"; shift ;;
     --json-progress) TT_JSON_PROGRESS=1; shift ;;
     --no-smoke) smoke=0; shift ;;
-    -h|--help) /usr/bin/sed -n '2,16p' "$0" >&2; exit 0 ;;
+    --update-runtime) op="update-runtime"; shift ;;
+    -h|--help) /usr/bin/sed -n '2,17p' "$0" >&2; exit 0 ;;
     *) tt_die "unknown argument: $1" ;;
   esac
 done
@@ -53,6 +55,10 @@ fi
 if [ "$op" = "select-tts" ]; then
   [ -z "$profile" ] || tt_die "--select-tts cannot change the resource profile"
   [ "$smoke" = "1" ] || tt_die "--select-tts requires a successful smoke check"
+fi
+if [ "$op" = "update-runtime" ]; then
+  [ -z "$profile" ] || tt_die "--update-runtime keeps the recorded roles and cannot take --profile"
+  [ "$smoke" = "1" ] || tt_die "--update-runtime requires a successful smoke check"
 fi
 export TT_JSON_PROGRESS
 
@@ -223,9 +229,21 @@ install_venv() {
   tt_log "venv: installed from requirements-engine.lock"
 }
 
+with_current_runtime() {
+  # stdin: an install record -> stdout: the same record with this app's runtime metadata
+  # (for operations that installed or verified python/ and venv/ from the current pins).
+  /usr/bin/jq -c --argjson api "$TT_ENGINE_API" --arg lock "$TT_LOCK_SHA256" \
+    --arg block "$TT_BUILD_LOCK_SHA256" --arg pyv "$TT_PY_VERSION" --arg pyr "$TT_PY_RELEASE" --arg pysha "$TT_PY_SHA256" \
+    --arg mla "$TT_MLX_AUDIO_COMMIT" --argjson recipe "$TT_ENGINE_RECIPE" \
+    '. + {version:1,engine_api:$api,runtime:"python-mlx",flavour:"main",lock_sha256:$lock,build_lock_sha256:$block,
+      recipe:$recipe,python:{version:$pyv,release:$pyr,sha256:$pysha},mlx_audio_commit:$mla}'
+}
+
 write_install_json() {
   # --preserve-roles is for add/remove only: retain active revisions and existing
   # model entries instead of reinterpreting an old profile label with today's presets.
+  # add/remove never touch python/ or venv/, so they also keep the record's runtime
+  # metadata (an older compatible lock or Python stays recorded as such) and unknown fields.
   local prof="$1"; shift
   local preserve=0 old_roles="{}" old_models="[]" entry
   if [ "${1:-}" = "--preserve-roles" ]; then
@@ -252,15 +270,19 @@ write_install_json() {
     roles="$(printf '%s' "$old_roles" | /usr/bin/jq -c --argjson models "$models" \
       'with_entries(select(.value.id as $id | any($models[]; .id == $id)))')"
     prof="$(matching_profile "$roles" "$prof")"
+    /usr/bin/jq --arg profile "$prof" --argjson roles "$roles" --argjson models "$models" \
+      --arg at "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '.profile=$profile | .roles=$roles | .models=$models | .installed_at=$at' "$INSTALL_JSON" > "$tmp"
+  else
+    /usr/bin/jq -n --arg profile "$prof" --argjson api "$TT_ENGINE_API" --arg lock "$TT_LOCK_SHA256" \
+      --arg block "$TT_BUILD_LOCK_SHA256" --arg pyv "$TT_PY_VERSION" --arg pyr "$TT_PY_RELEASE" \
+      --arg pysha "$TT_PY_SHA256" --arg mla "$TT_MLX_AUDIO_COMMIT" --argjson recipe "$TT_ENGINE_RECIPE" \
+      --argjson roles "$roles" --argjson models "$models" --arg at "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{version:1, profile:$profile, engine_api:$api, runtime:"python-mlx", flavour:"main",
+        lock_sha256:$lock, build_lock_sha256:$block, recipe:$recipe,
+        python:{version:$pyv, release:$pyr, sha256:$pysha}, mlx_audio_commit:$mla,
+        roles:$roles, models:$models, installed_at:$at}' > "$tmp"
   fi
-  /usr/bin/jq -n --arg profile "$prof" --argjson api "$TT_ENGINE_API" --arg lock "$TT_LOCK_SHA256" \
-    --arg block "$TT_BUILD_LOCK_SHA256" --arg pyv "$TT_PY_VERSION" --arg pyr "$TT_PY_RELEASE" \
-    --arg pysha "$TT_PY_SHA256" --arg mla "$TT_MLX_AUDIO_COMMIT" --argjson recipe "$TT_ENGINE_RECIPE" \
-    --argjson roles "$roles" --argjson models "$models" --arg at "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{version:1, profile:$profile, engine_api:$api, runtime:"python-mlx", flavour:"main",
-      lock_sha256:$lock, build_lock_sha256:$block, recipe:$recipe,
-      python:{version:$pyv, release:$pyr, sha256:$pysha}, mlx_audio_commit:$mla,
-      roles:$roles, models:$models, installed_at:$at}' > "$tmp"
   /bin/mv -f "$tmp" "$INSTALL_JSON"
   /bin/rm -f "$INSTALL_JSON.prev"
 }
@@ -341,8 +363,10 @@ check_space() {
 # ---------------------------------------------------------------- operations
 
 compatible_runtime() {
-  # Reuse a verified shared runtime, including a supported older Python build. The
-  # real model smoke below validates its imports and inference before completion.
+  # The recorded shared runtime is intact and still supported by this app: the current or
+  # an older Python build, and the current or a previous lock listed in TT_LOCK_COMPAT.
+  # Additive operations reuse it as is (the real model smoke validates imports and
+  # inference before completion); --update-runtime brings it current; --check accepts it.
   local pyv pyr pysha lock stamp
   [ "$(installed_field .engine_api)" = "$TT_ENGINE_API" ] || return 1
   [ "$(installed_field .recipe)" = "$TT_ENGINE_RECIPE" ] || return 1
@@ -391,7 +415,10 @@ prepare_additive_model() {
 }
 
 validate_preserved_roles() {
-  local role key rev dir stamp
+  # validate_preserved_roles <role it re-prepares, or ""> <full|quick>: every other role in
+  # ADDED_ROLES must be a verified model of that role at the current or a compatible revision.
+  # full hashes the current revision's files; quick checks sizes (a smoke run follows).
+  local skip="$1" verify="$2" role key rev dir stamp
   while IFS='|' read -r role key rev; do
     [ -n "$role" ] || continue
     check_model_key "$key"
@@ -405,16 +432,38 @@ validate_preserved_roles() {
     [ -f "$stamp" ] && [ "$(/usr/bin/head -1 "$stamp")" = "$rev" ] \
       || tt_die "$key: existing model is unverified; repair speech resources first"
     if [ "$rev" = "$(tt_model_field "$key" REVISION)" ]; then
-      if [ "$dir" != "$(tt_model_dirname "$key")" ] || ! model_full_verify "$key"; then
+      if [ "$dir" != "$(tt_model_dirname "$key")" ] \
+        || { [ "$verify" = full ] && ! model_full_verify "$key"; } \
+        || { [ "$verify" != full ] && ! model_quick_ok "$key"; }; then
         tt_die "$key: existing model is incomplete; repair speech resources first"
       fi
     fi
-  done < <(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r 'to_entries[] | select(.key != "asr") | [.key,.value.id,.value.rev] | join("|")')
+  done < <(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r --arg skip "$skip" 'to_entries[] | select(.key != $skip) | [.key,.value.id,.value.rev] | join("|")')
+}
+
+smoke_preserved_roles() {
+  # smoke_preserved_roles <profile> <role to leave out, or "">: the real smoke run of the
+  # ADDED_ROLES models at their recorded revisions and directories.
+  local prof="$1" skip="$2" role key rev dir
+  local args=()
+  for role in asr tts; do
+    [ "$role" != "$skip" ] || continue
+    key="$(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r --arg role "$role" '.[$role].id // empty')"
+    [ -n "$key" ] || continue
+    rev="$(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r --arg role "$role" '.[$role].rev')"
+    dir="$(printf '%s' "$ADDED_MODELS" | /usr/bin/jq -r --arg key "$key" --arg rev "$rev" '.[] | select(.id == $key and .rev == $rev) | .dir')"
+    args+=("--$role" "$key" "--$role-model-dir" "$MODELS_DIR/$dir" "--$role-revision" "$rev")
+  done
+  [ "${#args[@]}" -gt 0 ] || tt_die "no active models to check"
+  [ -f "$ENGINE_SRC/smoke_engine.py" ] || tt_die "smoke_engine.py not found in $ENGINE_SRC"
+  tt_event step step "smoke" "done" 0 count 1
+  "$VENV_DIR/bin/python3" -I -B "$ENGINE_SRC/smoke_engine.py" --engine-home "$ENGINE_HOME" --engine-src "$ENGINE_SRC" \
+    --profile "$prof" "${args[@]}" >&2 || tt_die "smoke run failed; install.json not written (re-run to retry)"
+  tt_event step step "smoke" "done" 1 count 1
 }
 
 do_additive_install() {
-  local scope="$1" previous='{}' source runtime_reused=0 asr tts prof tmp role key rev dir
-  local smoke_args=()
+  local scope="$1" previous='{}' source runtime_reused=0 asr tts prof tmp skip=""
   acquire_lock
   source="$INSTALL_JSON"; [ -f "$source" ] || source="$INSTALL_JSON.prev"
   if [ -f "$source" ]; then
@@ -430,7 +479,7 @@ do_additive_install() {
     asr="${asr:-$(role_key standard asr)}"
     # A damaged preserved TTS role would make the complete install record unusable
     # in the app. Fail before mutation rather than reporting a false completion.
-    validate_preserved_roles
+    validate_preserved_roles asr full
   else
     tts="${tts:-$(role_key standard tts)}"
   fi
@@ -447,28 +496,11 @@ do_additive_install() {
   [ -z "$asr" ] || prepare_additive_model asr "$asr"
   if [ "$scope" != "recognition" ]; then prepare_additive_model tts "$tts"; make_warmup; else make_asr_sample; fi
   prof="$(matching_profile "$ADDED_ROLES" "$(printf '%s' "$previous" | /usr/bin/jq -r '.profile // empty')")"
-  for role in asr tts; do
-    [ "$scope" != "recognition" ] || [ "$role" != "tts" ] || continue
-    key="$(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r --arg role "$role" '.[$role].id // empty')"
-    [ -n "$key" ] || continue
-    rev="$(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r --arg role "$role" '.[$role].rev')"
-    dir="$(printf '%s' "$ADDED_MODELS" | /usr/bin/jq -r --arg key "$key" --arg rev "$rev" '.[] | select(.id == $key and .rev == $rev) | .dir')"
-    smoke_args+=("--$role" "$key" "--$role-model-dir" "$MODELS_DIR/$dir" "--$role-revision" "$rev")
-  done
-  [ -f "$ENGINE_SRC/smoke_engine.py" ] || tt_die "smoke_engine.py not found in $ENGINE_SRC"
-  tt_event step step "smoke" "done" 0 count 1
-  "$VENV_DIR/bin/python3" -I -B "$ENGINE_SRC/smoke_engine.py" --engine-home "$ENGINE_HOME" --engine-src "$ENGINE_SRC" \
-    --profile "$prof" "${smoke_args[@]}" >&2 || tt_die "smoke run failed; install.json not written (re-run to retry)"
-  tt_event step step "smoke" "done" 1 count 1
+  [ "$scope" != "recognition" ] || skip=tts
+  smoke_preserved_roles "$prof" "$skip"
   # Keep compatible runtime metadata and unknown record fields; replace metadata only
   # when the shared runtime was installed/upgraded by this operation.
-  if [ "$runtime_reused" = "0" ]; then
-    previous="$(printf '%s' "$previous" | /usr/bin/jq -c --argjson api "$TT_ENGINE_API" --arg lock "$TT_LOCK_SHA256" \
-      --arg block "$TT_BUILD_LOCK_SHA256" --arg pyv "$TT_PY_VERSION" --arg pyr "$TT_PY_RELEASE" --arg pysha "$TT_PY_SHA256" \
-      --arg mla "$TT_MLX_AUDIO_COMMIT" --argjson recipe "$TT_ENGINE_RECIPE" \
-      '. + {version:1,engine_api:$api,runtime:"python-mlx",flavour:"main",lock_sha256:$lock,build_lock_sha256:$block,
-        recipe:$recipe,python:{version:$pyv,release:$pyr,sha256:$pysha},mlx_audio_commit:$mla}')"
-  fi
+  if [ "$runtime_reused" = "0" ]; then previous="$(printf '%s' "$previous" | with_current_runtime)"; fi
   tmp="$INSTALL_JSON.tmp-$$"
   printf '%s' "$previous" | /usr/bin/jq --argjson roles "$ADDED_ROLES" --argjson models "$ADDED_MODELS" --arg profile "$prof" \
     --arg at "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" '.roles=$roles | .models=$models | .profile=$profile | .installed_at=$at' > "$tmp"
@@ -476,6 +508,38 @@ do_additive_install() {
   /bin/rm -f "$INSTALL_JSON.prev"
   tt_event "done" profile "$prof"
   tt_log "engine installed ($scope resources; existing selections retained)"
+}
+
+do_update_runtime() {
+  # 更新 for a runtime-only update hint (an earlier Python build or a previous, still
+  # compatible dependency lock): bring python/ and venv/ to this app's pins, keep every role,
+  # model selection, downloaded model and the profile label exactly as recorded, smoke the
+  # recorded roles on the new runtime, then record it. A failed or cancelled run leaves
+  # install.json.prev (unfinished); a bare Repair resumes from it with the same roles.
+  local previous prof tmp
+  acquire_lock
+  [ -f "$INSTALL_JSON" ] && [ ! -e "$INSTALL_JSON.prev" ] \
+    || tt_die "finish the engine installation before updating the runtime"
+  /usr/bin/jq -e '.version == 1 and (.roles | type == "object") and (.roles | length > 0) and (.models | type == "array")' \
+    "$INSTALL_JSON" >/dev/null || tt_die "repair the installation record before updating the runtime"
+  previous="$(/bin/cat "$INSTALL_JSON")"
+  ADDED_ROLES="$(printf '%s' "$previous" | /usr/bin/jq -c '.roles')"
+  ADDED_MODELS="$(printf '%s' "$previous" | /usr/bin/jq -c '.models')"
+  validate_preserved_roles "" quick
+  prof="$(matching_profile "$ADDED_ROLES" "$(printf '%s' "$previous" | /usr/bin/jq -r '.profile // empty')")"
+  check_space
+  mark_prev
+  install_python
+  install_venv
+  if [ "$(printf '%s' "$ADDED_ROLES" | /usr/bin/jq -r 'has("tts")')" = true ]; then make_warmup; else make_asr_sample; fi
+  smoke_preserved_roles "$prof" ""
+  tmp="$INSTALL_JSON.tmp-$$"
+  printf '%s' "$previous" | with_current_runtime \
+    | /usr/bin/jq --arg at "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" '.installed_at=$at' > "$tmp"
+  /bin/mv -f "$tmp" "$INSTALL_JSON"
+  /bin/rm -f "$INSTALL_JSON.prev"
+  tt_event "done" profile "$prof"
+  tt_log "engine runtime updated; roles and models retained"
 }
 
 do_install() {
@@ -622,8 +686,16 @@ do_check() {
   prof="$(installed_profile)"; prof="${prof:-${profile:-standard}}"
   [ -f "$INSTALL_JSON.prev" ] && { tt_log "unfinished: install.json.prev exists"; bad=1; }
   [ -f "$INSTALL_JSON" ] || { tt_log "install.json missing"; bad=1; }
-  python_ok || { tt_log "python: not ok"; bad=1; }
-  venv_ok || { tt_log "venv: not ok"; bad=1; }
+  if python_ok && venv_ok; then
+    :
+  elif [ -f "$INSTALL_JSON" ] && compatible_runtime; then
+    # Runs as installed. The app decides whether it is older and offers 更新 (--update-runtime).
+    tt_log "python/venv: compatible runtime that differs from this app's pins (python $(installed_field .python.version), lock $(installed_field .lock_sha256 | /usr/bin/cut -c1-12))"
+  else
+    python_ok || tt_log "python: not ok"
+    venv_ok || tt_log "venv: not ok"
+    bad=1
+  fi
   models="$(installed_field '.models[]?.id')"
   if [ -z "$models" ] && [ "$prof" != "custom" ]; then models="$(profile_models "$prof")"; fi
   for k in $models; do
@@ -668,6 +740,7 @@ case "$op" in
   check) do_check ;;
   add) do_add ;;
   select-tts) do_select_tts ;;
+  update-runtime) do_update_runtime ;;
   remove) do_remove ;;
   uninstall) do_uninstall ;;
 esac

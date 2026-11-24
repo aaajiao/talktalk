@@ -73,9 +73,12 @@ import TalkTalkTestSupport
     }
 
     func inst(_ h: Home, profiles: [String: [String]] = ["max": ["tts-x", "asr-y"]],
-              recommendedPythonVersion: String = EnginePins.pythonVersion) -> EngineInstallation {
-        EngineInstallation(engineHome: h.url, lockCompat: [Self.lock], engineAPI: 2, pins: Self.pins,
-                           profiles: profiles, recommendedPythonVersion: recommendedPythonVersion)
+              recommendedPythonVersion: String = EnginePins.pythonVersion,
+              lockCompat: [String] = [EngineInstallationTests.lock],
+              recommendedLock: String = EngineInstallationTests.lock) -> EngineInstallation {
+        EngineInstallation(engineHome: h.url, lockCompat: lockCompat, engineAPI: 2, pins: Self.pins,
+                           profiles: profiles, recommendedPythonVersion: recommendedPythonVersion,
+                           recommendedLockSHA256: recommendedLock)
     }
 
     @Test(arguments: ["3.14.10", "3.15.1", "4.0.0", "development"])
@@ -99,6 +102,28 @@ import TalkTalkTestSupport
         #expect(result.record?.roles["tts"]?.id == "tts-x" && result.record?.roles["asr"]?.id == "asr-y")
         #expect(result.record?.roles["tts"]?.rev == Self.ttsRev)
         #expect(try Data(contentsOf: recordURL) == before)
+    }
+
+    /// "上一版运行时 + 新 app" (§7.4): a previous dependency lock that the new app still lists
+    /// runs, with a runtime-only update hint and an unchanged record; the current lock has no
+    /// hint, and a lock the app no longer lists is incompatible.
+    @Test func previousLockInCompatListOffersOnlyRuntimeUpdate() throws {
+        let h = try Home(); defer { h.remove() }
+        let current = String(repeating: "f", count: 64)
+        let recordURL = h.url.appendingPathComponent("install.json")
+        let before = try Data(contentsOf: recordURL)
+        let result = inst(h, lockCompat: [current, Self.lock], recommendedLock: current).check()
+        #expect(result.state == .outdated(profile: "max", models: []))
+        #expect(result.state.canStartEngine)
+        #expect(result.record?.lockSHA256 == Self.lock)
+        #expect(try Data(contentsOf: recordURL) == before)
+        try h.writeRecord(ttsRev: Self.ttsRev, lock: current)
+        #expect(inst(h, lockCompat: [current, Self.lock], recommendedLock: current).check().state
+                == .installed(profile: "max", models: ["asr-y", "tts-x"]))
+        try h.writeRecord(ttsRev: Self.ttsRev)
+        guard case .incompatible = inst(h, lockCompat: [current], recommendedLock: current).check().state else {
+            Issue.record("a lock outside lockCompat must be incompatible"); return
+        }
     }
 
     @Test func legacyRecordWithoutPythonMetadataRemainsCompatible() throws {

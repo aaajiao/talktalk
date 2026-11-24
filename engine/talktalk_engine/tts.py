@@ -2,9 +2,11 @@
 
 `TTSModel.stream()` is a generator: each next() runs one codec frame (12.5 Hz) and yields either
 None (no audio yet) or a float32 PCM chunk (24 kHz) every `interval * 12.5` frames. The first
-step contains the ICL prefill. The loop mirrors mlx-audio's `_generate_icl` at the pinned commit
-(f65753b: #1096 decoder priming with the reference tail, #1117 sliding window); the M0 bench
-checks it against upstream with greedy decoding (identical codes). Owning the loop gives the
+step contains the ICL prefill. The loop mirrors mlx-audio's `_generate_icl` (#1096 decoder priming
+with the reference tail, #1117 sliding window); the M0 bench checked it against upstream at the
+former pin f65753b with greedy decoding (identical codes). The pinned v0.6.8 commit (db4b2e7) leaves
+the path this loop mirrors unchanged (input preparation, sampling, the streaming decoder); only the
+non-streaming decode upstream, which the engine does not use, now counts code 0 as a frame. Owning the loop gives the
 scheduler per-frame preemption, cancellation at frame boundaries, per-frame timing for M0-T1/T3,
 runaway caps, and an optional mx.compile'd code-predictor step (§6.4 ladder step 1).
 

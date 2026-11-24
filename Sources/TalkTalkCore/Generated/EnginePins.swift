@@ -8,9 +8,9 @@ public enum EnginePins {
     public static let engineRecipe = 1
     public static let pythonVersion = "3.14.10"
     public static let pythonRelease = "20261026"
-    public static let mlxAudioCommit = "f65753b55f011f4cc8b1dbc7622ae8110b7b7fbb"
-    public static let lockSHA256 = "349c6c6ca785f6e2717caba43f4bdf336c42264c9a442468205bcc62e925cdd7"
-    public static let lockCompat: [String] = ["349c6c6ca785f6e2717caba43f4bdf336c42264c9a442468205bcc62e925cdd7"]
+    public static let mlxAudioCommit = "db4b2e736a52dcf877384629412fb281f42f262d"
+    public static let lockSHA256 = "07350ccade4ea8f1a17b5055a260ce150bc388533ade767d6359fcfb447947e6"
+    public static let lockCompat: [String] = ["07350ccade4ea8f1a17b5055a260ce150bc388533ade767d6359fcfb447947e6", "349c6c6ca785f6e2717caba43f4bdf336c42264c9a442468205bcc62e925cdd7"]
     public static let runtimeFlavours: [String] = ["main"]
 
     public struct Model: Sendable, Equatable {

@@ -7,6 +7,9 @@ public enum InstallerOp: Sendable, Equatable {
     case install(profile: String?)
     /// Add or repair recognition without changing existing roles or model selections.
     case installRecognition
+    /// Bring an earlier compatible runtime (Python build, dependency lock) current. Roles,
+    /// model selections, downloaded models and the profile label stay as recorded.
+    case updateRuntime
     case check
     case addModel(String)
     /// Install if necessary, then switch only the active TTS role. Other roles and files stay.
@@ -20,6 +23,7 @@ public enum InstallerOp: Sendable, Equatable {
         switch self {
         case .install(let p): p.map { ["--profile", $0] } ?? []
         case .installRecognition: ["--recognition-only"]
+        case .updateRuntime: ["--update-runtime"]
         case .check: ["--check"]
         case .addModel(let k): ["--add-model", k]
         case .selectTTS(let k): ["--select-tts", k]

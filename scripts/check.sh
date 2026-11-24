@@ -40,6 +40,20 @@ step "generated pins in sync"
 scripts/gen-pins.sh --check
 scripts/tests/test-gen-pins.sh
 
+step "mlx-audio pin agrees with the engine requirements and lock"
+if (
+  # shellcheck source=lib/versions.sh
+  . scripts/lib/versions.sh
+  url="https://github.com/Neywa-Labs/mlx-audio/archive/$TT_MLX_AUDIO_COMMIT.tar.gz"
+  /usr/bin/grep -qxF "mlx-audio @ $url" engine/requirements-engine.in \
+    && /usr/bin/grep -qxF "mlx-audio @ $url \\" engine/requirements-engine.lock
+); then
+  echo "ok"
+else
+  echo "TT_MLX_AUDIO_COMMIT, engine/requirements-engine.in and engine/requirements-engine.lock disagree (run scripts/lock-deps.sh)" >&2
+  exit 1
+fi
+
 step "application build-number reservation (isolated fixtures; no compilation)"
 "$TALKTALK_DEV_PYTHON" -I -B scripts/tests/test-app-build.py
 

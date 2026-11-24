@@ -17,11 +17,12 @@ TT_PY_SIZE=26891793; TT_PY_SHA256="30a18bcb9ab75e485b4bf4e5d783dde165571e7e42c56
 
 TT_ENGINE_RECIPE=1        # bump when the way python/ or venv/ is built changes (invalidates them)
 TT_ENGINE_API=2           # engine wire protocol (§4.4); v2 removed /v1/mt*
-# mlx-audio: commit f65753b (merge of #1117) on top of v0.6.4 (which already has #1096). See m0-results.md.
-TT_MLX_AUDIO_COMMIT="f65753b55f011f4cc8b1dbc7622ae8110b7b7fbb"
-TT_LOCK_SHA256="349c6c6ca785f6e2717caba43f4bdf336c42264c9a442468205bcc62e925cdd7"
+# mlx-audio: tag v0.6.8 (commit db4b2e7), which contains #1096 and #1117; the former pin f65753b
+# (v0.6.4 + #1117) is its ancestor. Must match the URL in engine/requirements-engine.in.
+TT_MLX_AUDIO_COMMIT="db4b2e736a52dcf877384629412fb281f42f262d"
+TT_LOCK_SHA256="07350ccade4ea8f1a17b5055a260ce150bc388533ade767d6359fcfb447947e6"
 TT_BUILD_LOCK_SHA256="b1361fb1b329fa4c6973a983539168c102ef2397cd207ec03b5bfcbf5b1bb8a8"   # setuptools + wheel for the mlx-audio sdist (--no-build-isolation)
-TT_LOCK_COMPAT="349c6c6ca785f6e2717caba43f4bdf336c42264c9a442468205bcc62e925cdd7"   # lock sha256s the bundled engine code can run on (current, previous)
+TT_LOCK_COMPAT="07350ccade4ea8f1a17b5055a260ce150bc388533ade767d6359fcfb447947e6 349c6c6ca785f6e2717caba43f4bdf336c42264c9a442468205bcc62e925cdd7"   # lock sha256s the bundled engine code can run on (current first, then previous: mlx-audio 0.6.4+f65753b)
 TT_RUNTIME_FLAVOURS="main"   # reserved: "alt-tts" (§7.6), not installed in v1
 
 TT_MODELS="tts-qwen3-1.7b-base-8bit tts-qwen3-0.6b-base-8bit tts-ming3-0.5b-bf16 asr-qwen3-0.6b-8bit asr-qwen3-1.7b-8bit"   # no MT (§16 decision 12)

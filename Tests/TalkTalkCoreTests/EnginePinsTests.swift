@@ -24,6 +24,8 @@ import Testing
 
     @Test func lockIsCompatibleWithItself() {
         #expect(EnginePins.lockCompat.contains(EnginePins.lockSHA256))
+        // versions.sh lists the current lock first, then the previous ones (TT_LOCK_COMPAT).
+        #expect(EnginePins.lockCompat.first == EnginePins.lockSHA256)
         #expect(EnginePins.engineAPI == 2)
     }
 

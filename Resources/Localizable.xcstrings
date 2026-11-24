@@ -2993,6 +2993,22 @@
         }
       }
     },
+    "更新运行环境？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update the runtime?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新运行环境？"
+          }
+        }
+      }
+    },
     "没能切回 TalkTalk Mic，系统默认输入是 %@，正在重试": {
       "localizations": {
         "en": {
@@ -25565,6 +25581,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "重新安装虚拟麦克风？"
+          }
+        }
+      }
+    },
+    "重新安装运行环境；模型与当前识别、合成选择保持不变。下载可以取消，下次接着下。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reinstall the runtime, keeping your models and current recognition and synthesis choices. You can cancel and resume the download later."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新安装运行环境；模型与当前识别、合成选择保持不变。下载可以取消，下次接着下。"
           }
         }
       }

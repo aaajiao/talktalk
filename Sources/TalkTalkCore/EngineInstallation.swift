@@ -49,8 +49,9 @@ public struct EngineInstallation: Sendable {
     public enum State: Sendable, Equatable {
         case notInstalled
         case installed(profile: String, models: [String])
-        /// A model revision or Python release has an update, while the installation remains
-        /// compatible. `models` is empty for a runtime-only update.
+        /// A model revision, Python release or dependency lock has an update, while the
+        /// installation remains compatible and runnable. `models` is empty for a runtime-only
+        /// update (an earlier Python build, or a previous lock still listed in `lockCompat`).
         case outdated(profile: String, models: [String])
         /// The runtime (lock, engine API) or a model revision is not supported by this app:
         /// the runtime must be updated before the engine can start.
@@ -85,17 +86,22 @@ public struct EngineInstallation: Sendable {
     public let pins: [EnginePins.Model]
     public let profiles: [String: [String]]
     public let recommendedPythonVersion: String
+    /// The lock this app installs. A record on another lock that `lockCompat` still lists runs,
+    /// with a runtime-only update hint.
+    public let recommendedLockSHA256: String
 
     public init(engineHome: URL, lockCompat: [String] = EnginePins.lockCompat,
                 engineAPI: Int = EnginePins.engineAPI, pins: [EnginePins.Model] = EnginePins.models,
                 profiles: [String: [String]] = EnginePins.profiles,
-                recommendedPythonVersion: String = EnginePins.pythonVersion) {
+                recommendedPythonVersion: String = EnginePins.pythonVersion,
+                recommendedLockSHA256: String = EnginePins.lockSHA256) {
         self.engineHome = engineHome
         self.lockCompat = lockCompat
         self.engineAPI = engineAPI
         self.pins = pins
         self.profiles = profiles
         self.recommendedPythonVersion = recommendedPythonVersion
+        self.recommendedLockSHA256 = recommendedLockSHA256
     }
 
     public var recordURL: URL { engineHome.appendingPathComponent("install.json") }
@@ -179,7 +185,8 @@ public struct EngineInstallation: Sendable {
         // combinations remain runnable under the same runtime/revision/file checks.
         let profile = EngineProfile.matchingID(activeRoles: record.roles.mapValues(\.id),
             declaredID: record.profile, profiles: profiles, pins: pins) ?? EngineProfile.customID
-        if !outdated.isEmpty || pythonUpdateAvailable(record.python?.version) {
+        // The lock guard above already rejected a lock outside `lockCompat`.
+        if !outdated.isEmpty || pythonUpdateAvailable(record.python?.version) || record.lockSHA256 != recommendedLockSHA256 {
             return (.outdated(profile: profile, models: outdated.sorted()), record)
         }
         return (.installed(profile: profile, models: ids), record)

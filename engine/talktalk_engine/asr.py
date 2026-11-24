@@ -13,6 +13,18 @@ SAMPLE_RATE = 16000
 LANG_NAMES = {"zh": "Chinese", "en": "English", "de": "German", "fr": "French"}
 
 
+def split_language(raw):
+    """Qwen3-ASR output `language X<asr_text>text` -> (X, text); (None, raw) without the tag, and
+    None for `language None` (no speech). Parsed here rather than by mlx-audio's private
+    `extract_language`, whose fallback changed from "English" to None in 0.6.8, so the result is
+    the same on every runtime this engine supports."""
+    if raw.startswith("language ") and "<asr_text>" in raw:
+        tag, _, text = raw[len("language "):].partition("<asr_text>")
+        tag = tag.strip()
+        return (tag if tag and tag.lower() != "none" else None), text
+    return None, raw
+
+
 class ASRModel:
     def __init__(self, key, path, rev):
         self.key = key
@@ -73,7 +85,7 @@ class ASRModel:
         finally:
             gen.close()
         raw = self.model._tokenizer.decode(pinned + tokens, skip_special_tokens=True) if pinned or tokens else ""
-        detected, text = self.model.extract_language(raw) if hasattr(self.model, "extract_language") else (lang, raw)
+        detected, text = split_language(raw)
         st["tokens"] = len(tokens)
         st["total_ms"] = (time.perf_counter() - t0) * 1e3
         yield {"text": text.strip(), "language": detected if not lang else lang, "timing": {

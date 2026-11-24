@@ -79,6 +79,8 @@ final class EngineComponentsModel {
     }
     private var outcome: Outcome?
     var lastResult: SettingsProblem? { outcome?.presentation }
+    /// The installer operation the last outcome belongs to (nil after a restart).
+    private(set) var lastOp: InstallerOp?
 
     static let profiles = EngineProfile.selectablePresets.map(\.rawValue)
 
@@ -244,6 +246,7 @@ final class EngineComponentsModel {
         }
         guard canRun(op) else { return }
         outcome = nil
+        lastOp = op
         Task {
             guard canRun(op) else { return }
             maintenanceRunning = true
@@ -264,6 +267,10 @@ final class EngineComponentsModel {
     /// The confirmations (§7.11), shortened to what the run costs.
     private func confirmation(_ op: InstallerOp) -> (String, String, String)? {
         switch op {
+        case .updateRuntime:
+            return (String(appLocalized: "更新运行环境？"),
+                    String(appLocalized: "重新安装运行环境；模型与当前识别、合成选择保持不变。下载可以取消，下次接着下。"),
+                    String(appLocalized: "更新"))
         case .installRecognition:
             return (String(appLocalized: "准备本地识别？"),
                     String(appLocalized: "安装所需运行环境与 Qwen 识别模型；复用已有资源，保留当前模型与识别选择。下载可以取消，下次接着下。"),
@@ -320,6 +327,7 @@ final class EngineComponentsModel {
         guard let restart, !maintenanceBlocked else { return }
         restarting = true
         outcome = nil
+        lastOp = nil
         Task {
             guard !sessionInProgress, !running, !blocked else { restarting = false; return }
             let failure = await restart()
@@ -389,10 +397,19 @@ final class EngineComponentsModel {
         record != nil && installedProfile == nil && needsRepair && synthesisRepairID == nil && !recognitionOnlyInstallation
     }
 
-    /// An outdated custom combination has no recorded preset to update: like a repair, it
-    /// needs an explicit preset and 换档.
+    /// Only the shared runtime (Python build or dependency lock) has an update: 更新 rebuilds
+    /// it and keeps every role, so any combination, custom ones included, updates in place.
+    /// A record without an active role has nothing to keep (the installer refuses it): like an
+    /// outdated custom combination, it needs a preset.
+    var runtimeUpdateOnly: Bool {
+        guard let record, !record.roles.isEmpty, case let .outdated(_, models) = state else { return false }
+        return models.isEmpty
+    }
+
+    /// An outdated custom combination has no recorded preset to update its models: like a
+    /// repair, it needs an explicit preset and 换档.
     var customUpdateRequiresPreset: Bool {
-        guard case .outdated = state else { return false }
+        guard case .outdated = state, !runtimeUpdateOnly else { return false }
         return record != nil && installedProfile == nil && !recognitionOnlyInstallation
     }
 
@@ -421,7 +438,7 @@ final class EngineComponentsModel {
         case "smoke", "check": return .verify
         default:
             switch op {
-            case .install, .installRecognition, .addModel, .selectTTS: return .download
+            case .install, .installRecognition, .updateRuntime, .addModel, .selectTTS: return .download
             case .check: return .verify
             case .removeModel, .removeActiveModel, .uninstall: return .install
             }
@@ -535,7 +552,8 @@ struct EngineControlRows: View {
 
     /// 下载 while nothing is installed. Otherwise 修复 when the installation needs it (it
     /// reinstalls the recorded profile) and, independently, 换档 once the picker differs from the
-    /// recorded profile (also in the repair states), else 更新 for an outdated installation.
+    /// recorded profile (also in the repair states), else 更新 for an outdated installation
+    /// (runtime only: --update-runtime, which keeps the roles of any combination).
     @ViewBuilder private var primaryButton: some View {
         let recorded = model.installedProfile?.rawValue
         let custom = model.record != nil && recorded == nil
@@ -574,6 +592,12 @@ struct EngineControlRows: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(model.maintenanceBlocked)
                     .help(String(appLocalized: "安装 \(EngineComponentsModel.profileTitle(model.profile))"))
+            } else if model.runtimeUpdateOnly {
+                Button { model.confirmAndRun(.updateRuntime) } label: {
+                    Label("更新", systemImage: Icon.download).labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.maintenanceBlocked)
             } else if case .outdated = model.state, recorded != nil || model.recognitionOnlyInstallation {
                 Button { model.confirmAndRun(model.recognitionOnlyInstallation ? .installRecognition : .install(profile: recorded)) } label: {
                     Label("更新", systemImage: Icon.download).labelStyle(.titleAndIcon)
@@ -629,9 +653,11 @@ struct EngineControlRows: View {
         // run goes its progress row speaks, and after a failed run the result row already
         // says 未完成.
         // A failed repair without a record may be a custom combination the installer cannot
-        // repeat: choosing a preset and 换档 is the way out.
+        // repeat: choosing a preset and 换档 is the way out. A failed 更新 is not such a case:
+        // the bare 修复 resumes it with the recorded roles.
         let presetRepair = (model.customRepairRequiresPreset
-            || (model.record == nil && model.needsRepair && model.lastResult?.status == .failed))
+            || (model.record == nil && model.needsRepair && model.lastResult?.status == .failed
+                && model.lastOp != .updateRuntime))
             && model.pendingPresetID == nil
         if model.progress != nil || (model.state == .unfinished && model.lastResult?.status == .failed && !presetRepair) {
             EmptyView()

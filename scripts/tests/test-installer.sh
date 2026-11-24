@@ -158,6 +158,10 @@ inst && [ ! -e "$eng/install.json.prev" ] \
   && [ ! -e "$eng/models/Fake-TTS@111111111111" ] && [ ! -e "$eng/warmup/ref-zh.wav" ] \
   && ! /usr/bin/grep -q '^--tts$' "$work/smoke_args" \
   && ok "bare Repair resumes unfinished ASR-only install without adding TTS" || no "recognition repair scope"
+inst --update-runtime && [ "$(/usr/bin/jq -c '.roles | keys' "$eng/install.json")" = '["asr"]' ] \
+  && [ ! -e "$eng/warmup/ref-zh.wav" ] && [ ! -e "$eng/install.json.prev" ] \
+  && /usr/bin/grep -q '^--asr$' "$work/smoke_args" && ! /usr/bin/grep -q '^--tts$' "$work/smoke_args" \
+  && ok "runtime update of a video-only install adds no TTS role or voice reference" || no "ASR-only runtime update"
 asr_before="$(/usr/bin/jq -cS .roles.asr "$eng/install.json")"
 for f in ref-zh.wav ref-zh.txt; do printf 'x' > "$eng/warmup/$f"; done
 inst && [ "$(/usr/bin/jq -cS .roles.asr "$eng/install.json")" = "$asr_before" ] \
@@ -391,6 +395,67 @@ inst && [ "$(/usr/bin/jq -cS .roles.asr "$eng/install.json")" = "$asr_before" ] 
   && ok "later speech setup retains the selected larger ASR" || no "larger ASR speech upgrade"
 inst --profile standard
 inst --remove-model fake-asr-large
+
+# 7c. A new app with a new dependency lock keeps a previous, compatible runtime running:
+# model downloads and removals keep its recorded metadata, --check accepts it, and
+# --update-runtime rebuilds only the dependencies while keeping a custom combination.
+runtime_fields='{engine_api,runtime,flavour,lock_sha256,build_lock_sha256,recipe,python,mlx_audio_commit}'
+inst --select-tts fake-ming
+lock_a="$(tt_sha256 "$tree/engine/requirements-engine.lock")"
+printf 'fake-engine-lock==2\n' > "$tree/engine/requirements-engine.lock"
+lock_b="$(tt_sha256 "$tree/engine/requirements-engine.lock")"
+printf '\nTT_LOCK_SHA256="%s"\nTT_LOCK_COMPAT="%s %s"\n' "$lock_b" "$lock_b" "$lock_a" >> "$tree/scripts/lib/versions.sh"
+runtime_before="$(/usr/bin/jq -cS "$runtime_fields" "$eng/install.json")"
+inst --check && /usr/bin/grep -q 'compatible runtime that differs' "$work/err" \
+  && ok "check accepts a previous compatible lock" || no "check of a previous lock"
+inst --add-model fake-asr-large \
+  && [ "$(/usr/bin/jq -cS "$runtime_fields" "$eng/install.json")" = "$runtime_before" ] \
+  && inst --remove-model fake-asr-large \
+  && [ "$(/usr/bin/jq -cS "$runtime_fields" "$eng/install.json")" = "$runtime_before" ] \
+  && [ "$(/usr/bin/jq -r .lock_sha256 "$eng/install.json")" = "$lock_a" ] \
+  && ok "model add and remove keep the recorded earlier runtime" || no "add/remove runtime metadata"
+inst --update-runtime --profile standard && no "runtime update rejects a profile" || ok "runtime update rejects a profile"
+inst --update-runtime --no-smoke && no "runtime update cannot bypass smoke" || ok "runtime update cannot bypass smoke"
+record_before="$(tt_sha256 "$eng/install.json")"
+/bin/mv "$eng/models/Fake-ASR@222222222222/config.json" "$work/asr-config"
+inst --update-runtime && no "runtime update rejects a damaged preserved model" || ok "runtime update rejects a damaged preserved model"
+[ "$(tt_sha256 "$eng/install.json")" = "$record_before" ] && [ ! -e "$eng/install.json.prev" ] \
+  && /usr/bin/grep -q "^lock=$lock_a " "$eng/venv/.talktalk-venv" \
+  && /usr/bin/grep -q 'repair speech resources first' "$work/err" \
+  && ok "damaged preserved model stops a runtime update before mutation" || no "runtime update damaged model state"
+/bin/mv "$work/asr-config" "$eng/models/Fake-ASR@222222222222/config.json"
+roles_before="$(/usr/bin/jq -cS .roles "$eng/install.json")"
+models_before="$(/usr/bin/jq -cS .models "$eng/install.json")"
+inst --update-runtime --json-progress \
+  && [ "$(/usr/bin/jq -r .lock_sha256 "$eng/install.json")" = "$lock_b" ] \
+  && /usr/bin/grep -q "^lock=$lock_b " "$eng/venv/.talktalk-venv" \
+  && [ "$(/usr/bin/jq -cS .roles "$eng/install.json")" = "$roles_before" ] \
+  && [ "$(/usr/bin/jq -cS .models "$eng/install.json")" = "$models_before" ] \
+  && [ "$(/usr/bin/jq -r .profile "$eng/install.json")" = custom ] \
+  && /usr/bin/grep -q 'python: ok' "$work/err" && ! /usr/bin/grep -q '"event":"download"' "$work/out" \
+  && /usr/bin/grep -q '^fake-ming$' "$work/smoke_args" && /usr/bin/grep -q '^fake-asr$' "$work/smoke_args" \
+  && ok "runtime update rebuilds only dependencies and keeps the custom combination" || no "runtime update"
+inst --check && ! /usr/bin/grep -q 'compatible runtime that differs' "$work/err" \
+  && ok "updated runtime passes check as current" || no "check after runtime update"
+# Back to the previous runtime, then a failed update: unfinished, and a bare Repair resumes it.
+set_record ".lock_sha256 = \"$lock_a\""
+printf 'lock=%s build=%s python=%s recipe=1\n' "$lock_a" "$(/usr/bin/jq -r .build_lock_sha256 "$eng/install.json")" \
+  "$(/usr/bin/jq -r .python.sha256 "$eng/install.json")" > "$eng/venv/.talktalk-venv"
+echo 1 > "$work/smoke_rc"
+inst --update-runtime && no "failed smoke cannot complete a runtime update" || ok "failed smoke cannot complete a runtime update"
+[ ! -f "$eng/install.json" ] && [ -f "$eng/install.json.prev" ] \
+  && ok "failed runtime update remains unfinished" || no "runtime update failure state"
+inst --update-runtime && no "runtime update needs a finished installation" || ok "runtime update needs a finished installation"
+echo 0 > "$work/smoke_rc"
+inst && [ "$(/usr/bin/jq -cS .roles "$eng/install.json")" = "$roles_before" ] \
+  && [ "$(/usr/bin/jq -r .lock_sha256 "$eng/install.json")" = "$lock_b" ] && [ ! -e "$eng/install.json.prev" ] \
+  && ok "bare Repair finishes an interrupted runtime update with the same roles" || no "runtime update recovery"
+inst --profile compact16 && inst --update-runtime \
+  && [ "$(/usr/bin/jq -c '.roles | keys' "$eng/install.json")" = '["tts"]' ] \
+  && /usr/bin/grep -q '^--tts$' "$work/smoke_args" && ! /usr/bin/grep -q '^--asr$' "$work/smoke_args" \
+  && ok "runtime update of an Apple-recognition install smokes only its TTS" || no "TTS-only runtime update"
+inst --profile standard
+inst --remove-model fake-ming
 
 # 8. uninstall keeps foreign files
 printf 'mine' > "$eng/models/Fake-TTS@111111111111/notes.txt"
