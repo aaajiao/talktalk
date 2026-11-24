@@ -2,9 +2,12 @@
 
 The upstream ``generate(stream=True)`` blocks until a whole text fragment is decoded.
 Here ``sample`` advances one latent at a time on TalkTalk's shared GPU scheduler, so
-ASR and cancellation keep their existing scheduling boundaries. A completed fragment
-is decoded once, resampled to 24 kHz and drained in at most 160 ms PCM chunks before
-the next fragment starts. This is fragment synthesis, not low-latency codec streaming.
+ASR and cancellation keep their existing scheduling boundaries. A clause the guard holds
+to its end (``release_s`` None) decodes each completed fragment once, as the approved
+audition did. Other clauses decode each fragment incrementally with the upstream
+streaming decoder; the trailing-silence trim and the 44.1 -> 24 kHz resampling then run
+forward and keep the one-pass result. PCM leaves in chunks of at most 160 ms, and a
+fragment's audio drains before the next fragment starts.
 
 No imports of MLX/MLX-Audio at module import time, no downloads and no audio devices.
 """
@@ -17,6 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .guards import fade_out
 from .tts import FRAME_HZ, SAMPLE_RATE, expected_seconds
 from .voice import _encode_safetensors
 
@@ -26,6 +30,19 @@ MAX_REFERENCE_S = 30
 MAX_FRAGMENT_UNITS = 24
 MAX_FRAGMENT_LATENTS = 400
 MIN_OUTPUT_LATENTS = 16
+# Defaults of the pinned _trim_trailing_silence; tests/test_ming.py checks the forward form.
+TRIM_THRESHOLD = 1e-3
+TRIM_FRAME_S = 0.1
+TRIM_TAIL_S = 0.3
+# Input context for each streaming resample step: resample_poly's 44.1 -> 24 kHz filter spans
+# about 19 input samples on each side. 294 = 2 x 147, the input step of one output phase cycle.
+RESAMPLE_CONTEXT = 294
+# Native samples held back from release, at least the 25 ms fade used when generation is cut
+# (8 x 147 = 1176 samples = 640 output samples).
+RELEASE_HOLD = 1176
+FADE_MS = 25.0
+SECOND_DECODE_LATENTS = 2   # streaming decodes of a single latent differ more (about 50 dB SNR)
+DECODE_LATENTS = 4
 
 
 class ReferenceBudgetError(ValueError):
@@ -107,8 +124,131 @@ def resample(pcm, source_rate, target_rate):
     return resample_poly(audio, int(target_rate) // divisor, int(source_rate) // divisor).astype(np.float32)
 
 
+class ForwardTrim:
+    """Streaming form of the pinned ``_trim_trailing_silence``.
+
+    That function keeps whole 0.1 s frames up to 0.3 s past the last frame whose mean
+    absolute value is above 1e-3, the first 0.3 s if no frame is, and everything when the
+    fragment is shorter than one frame. Audio arriving later can only move that cut later,
+    so a sample before both the end of the complete frames and 0.3 s past the last loud
+    frame is kept whatever follows.
+    """
+
+    def __init__(self, rate):
+        self.frame = int(rate * TRIM_FRAME_S)
+        self.tail = int(rate * TRIM_TAIL_S)
+        self.partial = np.zeros(0, np.float32)
+        self.total = 0
+        self.frames = 0
+        self.loud_end = 0
+
+    def push(self, samples):
+        self.total += int(samples.size)
+        data = np.concatenate([self.partial, samples])
+        whole = data.size // self.frame * self.frame
+        if whole:
+            scores = np.abs(data[:whole]).reshape(-1, self.frame).mean(axis=-1)
+            loud = np.nonzero(scores > TRIM_THRESHOLD)[0]
+            if loud.size:
+                self.loud_end = (self.frames + int(loud[-1]) + 1) * self.frame
+            self.frames += whole // self.frame
+        self.partial = data[whole:]
+
+    def kept(self, final=False):
+        """Samples certainly kept; with ``final``, the fragment's trimmed length."""
+        if final and self.total < self.frame:
+            return self.total
+        return min(self.frames * self.frame, self.loud_end + self.tail)
+
+
+class StreamResampler:
+    """``resample`` over a growing signal, sample for sample the same as one call on the whole.
+
+    resample_poly treats samples outside the signal as zero. Each step resamples from
+    RESAMPLE_CONTEXT input samples before the converted point to the last final input sample
+    and keeps the outputs up to ``end``. Step boundaries are multiples of the input step of
+    one output phase cycle (147 at 44.1 -> 24 kHz), so every window has the polyphase phase
+    of the whole signal. Without ``final``, ``end`` stays ``hold`` samples short of the final
+    input, which also leaves the filter support complete.
+    """
+
+    def __init__(self, source_rate, target_rate, hold):
+        divisor = math.gcd(int(source_rate), int(target_rate))
+        self.up, self.down = int(target_rate) // divisor, int(source_rate) // divisor
+        self.hold = hold
+        self.buffer = np.zeros(0, np.float32)
+        self.base = 0   # signal index of buffer[0]
+        self.done = 0   # input samples already converted
+
+    def push(self, samples):
+        self.buffer = np.concatenate([self.buffer, samples])
+
+    def take(self, limit, final=False):
+        """Output for the input up to ``limit`` final samples (all of them with ``final``)."""
+        end = limit if final else (limit - self.hold) // self.down * self.down
+        if end <= self.done:
+            return np.zeros(0, np.float32)
+        if self.up == self.down:
+            out = self.buffer[self.done - self.base:end - self.base].copy()
+        else:
+            from scipy.signal import resample_poly
+            start = max(0, (self.done - RESAMPLE_CONTEXT) // self.down * self.down)
+            converted = resample_poly(self.buffer[start - self.base:limit - self.base], self.up, self.down)
+            first = (self.done - start) * self.up // self.down
+            last = converted.size if final else (end - start) * self.up // self.down
+            out = converted[first:last].astype(np.float32)
+        self.done = end
+        drop = max(0, (self.done - RESAMPLE_CONTEXT) // self.down * self.down) - self.base
+        if drop > 0:
+            self.buffer = self.buffer[drop:]
+            self.base += drop
+        return out
+
+
+class FragmentDecoder:
+    """Incremental AudioVAE decode of one fragment, then the forward trim and resampler.
+
+    A streaming decode returns the audio of the latents given in earlier calls, short of
+    the ISTFT overlap; the last call flushes the rest. Calls take ``first`` latents, then
+    SECOND_DECODE_LATENTS, then DECODE_LATENTS each. ``first`` is sized so that the second
+    call can already release the guard's hold.
+    """
+
+    def __init__(self, mx, audio, native_rate, first):
+        self.mx, self.audio = mx, audio
+        self.sizes = [first, SECOND_DECODE_LATENTS]
+        self.past = None
+        self.state = (None, None, None)
+        self.trim = ForwardTrim(native_rate)
+        self.resampler = StreamResampler(native_rate, SAMPLE_RATE, RELEASE_HOLD)
+
+    def due(self, pending):
+        return pending >= (self.sizes[0] if self.sizes else DECODE_LATENTS)
+
+    def decode(self, latents, last=False):
+        wav, self.state, self.past = self.audio.decode(
+            self.mx.concatenate(latents, axis=1), past_key_values=self.past, use_cache=True,
+            stream_state=self.state, last_chunk=last)
+        if self.sizes:
+            self.sizes.pop(0)
+        samples = np.asarray(wav[0], dtype=np.float32).reshape(-1)
+        if not np.isfinite(samples).all():
+            raise ValueError("Ming generated nonfinite audio")
+        self.trim.push(samples)
+        self.resampler.push(samples)
+        if last:
+            return self.finish()
+        return self.resampler.take(self.trim.kept())
+
+    def finish(self, fade=False):
+        """The rest of the trimmed fragment; ``fade`` when generation was cut before EOS."""
+        pcm = self.resampler.take(self.trim.kept(final=True), final=True)
+        return fade_out(pcm, FADE_MS) if fade else pcm
+
+
 class MingTTSModel:
     supports_continuation = False
+    incremental_decode = True
 
     def __init__(self, key, path, rev):
         if key != MODEL_KEY:
@@ -139,6 +279,9 @@ class MingTTSModel:
         if not getattr(self.model, "ming3", False):
             raise ValueError("expected Ming 3.0 dense TTS weights")
         self.native_rate = int(self.model.sample_rate)
+        head = self.model.audio.decoder.head
+        # ISTFT samples the first streaming decode with output drops from its start.
+        self._decode_lag = (head.n_fft - head.hop_length) // 2
         self.speaker = SpeakerEncoder(speaker_path)
         self._languages = MING3_TARGET_LANGUAGES
         self._add_period = _add_period
@@ -239,6 +382,21 @@ class MingTTSModel:
         self._reference_memo = (digest, mu, std)
         return mu, std
 
+    def _first_decode_latents(self, release_s):
+        """Latents in a fragment's first streaming decode, so that the second decode, two
+        latents later, can already release ``release_s`` of audio when speech starts at once."""
+        target = math.ceil(release_s * SAMPLE_RATE)
+        per_latent = round(self.native_rate / FRAME_HZ)
+        frame = int(self.native_rate * TRIM_FRAME_S)
+        divisor = math.gcd(self.native_rate, SAMPLE_RATE)
+        up, down = SAMPLE_RATE // divisor, self.native_rate // divisor
+        for latents in range(1, MAX_FRAGMENT_LATENTS):
+            kept = (latents * per_latent - self._decode_lag) // frame * frame
+            end = (kept - RELEASE_HOLD) // down * down
+            if end * up // down >= target:
+                return latents
+        return MAX_FRAGMENT_LATENTS
+
     def speaker_cosine(self, ref_pcm, sample_pcm):
         def unit(embedding):
             vector = np.asarray(embedding, dtype=np.float64).reshape(-1)
@@ -247,9 +405,12 @@ class MingTTSModel:
 
     def stream(self, text, voice, language, interval=0.16, compiled=False, temperature=None, top_k=None,
                top_p=None, repetition_penalty=None, seed=None, max_frames=None, stats=None, prime=True,
-               capture_codes=False):
-        """One scheduler step per latent; PCM drain steps never synthesize another fragment.
+               capture_codes=False, release_s=None):
+        """One scheduler step per latent or decode; PCM drain steps never synthesize.
 
+        ``release_s`` is the guard's hold before audio is released, or None for a clause
+        held to its end: then each fragment is decoded once after EOS. Otherwise fragments
+        decode incrementally, and a fragment cut before EOS ends with a 25 ms fade.
         ``frames`` counts Ming latents for diagnostics and the hard generation budget.
         ``audio_samples`` is the actual 24 kHz output clock used by duration guards. Ming
         has no Qwen codebook, so no fake CB0 values or synthetic continuation are exposed.
@@ -259,6 +420,8 @@ class MingTTSModel:
             raise ValueError("unsupported Ming output language")
         if not math.isfinite(interval) or interval <= 0:
             raise ValueError("invalid Ming chunk interval")
+        if release_s is not None and not (math.isfinite(release_s) and release_s >= 0):
+            raise ValueError("invalid Ming release hold")
         mx, model = self.mx, self.model
         st = stats if stats is not None else {}
         budget = int(max_frames) if max_frames is not None else int(FRAME_HZ * (3 * expected_seconds(text, language) + 2))
@@ -270,6 +433,14 @@ class MingTTSModel:
         start = time.perf_counter()
         sampler = None
         latents = []
+
+        def drain(pcm):
+            for offset in range(0, pcm.size, chunk_samples):
+                chunk = pcm[offset:offset + chunk_samples].copy()
+                st["audio_samples"] += int(chunk.size)
+                st["chunk_at_ms"].append((time.perf_counter() - start) * 1e3)
+                yield chunk
+
         try:
             if seed is not None:
                 mx.random.seed(int(seed))
@@ -285,6 +456,7 @@ class MingTTSModel:
             prompt_latent = (mu + std * mx.random.normal(mu.shape, dtype=mu.dtype)).transpose(0, 2, 1)
             mx.eval(prompt_latent)
             fragments = self._split_fragments(self._add_period(text), MAX_FRAGMENT_UNITS)
+            first_decode = None if release_s is None else self._first_decode_latents(release_s)
             st["prepare_ms"] = (time.perf_counter() - start) * 1e3
             for fragment in fragments:
                 positions = self._check_budget(voice, fragment, prompt)
@@ -297,6 +469,8 @@ class MingTTSModel:
                                        max_decode_steps=min(remaining, MAX_FRAGMENT_LATENTS), cfg=2.0, sigma=0.25,
                                        temperature=0.0 if temperature is None else temperature, flow_steps=10,
                                        prompt_latent=prompt_latent, spk_emb=speaker)
+                decoder = None if first_decode is None else FragmentDecoder(mx, model.audio, self.native_rate,
+                                                                            first_decode)
                 latents = []
                 ended = False
                 while True:
@@ -317,8 +491,34 @@ class MingTTSModel:
                     yield None
                     if ended:
                         break
+                    if decoder is not None and decoder.due(len(latents)):
+                        decode_start = time.perf_counter()
+                        pcm = decoder.decode(latents)
+                        latents = []
+                        st["decode_ms"].append((time.perf_counter() - decode_start) * 1e3)
+                        if pcm.size:
+                            yield from drain(pcm)
+                        else:
+                            yield None  # the first decode returns no audio yet
                 sampler.close()
                 sampler = None
+                if decoder is not None:
+                    decode_start = time.perf_counter()
+                    if ended:
+                        pcm = decoder.decode(latents, last=True)
+                    else:
+                        # Cache exhaustion or the latent budget is not EOS. Earlier audio may
+                        # already play: end what was decoded with a fade, not mid-waveform.
+                        st["runaway"] = True
+                        pcm = decoder.finish(fade=True)
+                    latents = []
+                    st["decode_ms"].append((time.perf_counter() - decode_start) * 1e3)
+                    if ended:
+                        st["fragments"] += 1
+                    yield from drain(pcm)
+                    if not ended:
+                        return
+                    continue
                 if not ended or not latents:
                     st["runaway"] = True  # Cache exhaustion or the latent budget is not EOS.
                     return
@@ -332,11 +532,7 @@ class MingTTSModel:
                     raise ValueError("Ming generated nonfinite audio")
                 st["decode_ms"].append((time.perf_counter() - decode_start) * 1e3)
                 st["fragments"] += 1
-                for offset in range(0, pcm.size, chunk_samples):
-                    chunk = pcm[offset:offset + chunk_samples].copy()
-                    st["audio_samples"] += int(chunk.size)
-                    st["chunk_at_ms"].append((time.perf_counter() - start) * 1e3)
-                    yield chunk
+                yield from drain(pcm)
             st["eos"] = bool(fragments)
         finally:
             if sampler is not None:

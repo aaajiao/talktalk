@@ -187,8 +187,10 @@ class EngineState:
         # Reference encoding/compilation is a startup long step; yield before decoder work
         # so waiting ASR can run immediately after it, without changing synthesis inputs.
         yield None
-        for lang, sentence in (("en", "Thanks, everyone."), ("de", "Danke Ihnen allen.")):
-            yield from self.tts.stream(sentence, voice, lang, interval=0.16, max_frames=40, seed=0)
+        # One sentence through each Ming decode path (whole clause, then incremental).
+        for lang, sentence, release in (("en", "Thanks, everyone.", None), ("de", "Danke Ihnen allen.", True)):
+            yield from self.tts.stream(sentence, voice, lang, interval=0.16, max_frames=40, seed=0,
+                                       **self._decode_options(release))
 
     def _queue_generic_warmup(self):
         def done(err):
@@ -295,9 +297,11 @@ class EngineState:
             self.voice_state = "loading"
 
         def warm():
-            # #1096 decoder warmup for this voice (P3): one short en and de sentence, discarded.
-            for lang, s in (("en", "Thank you."), ("de", "Vielen Dank.")):
-                yield from self.tts.stream(s, v, lang, interval=0.16, max_frames=30, seed=0)
+            # #1096 decoder warmup for this voice (P3): one short en and de sentence, discarded;
+            # the de one through Ming's incremental decode.
+            for lang, s, release in (("en", "Thank you.", None), ("de", "Vielen Dank.", True)):
+                yield from self.tts.stream(s, v, lang, interval=0.16, max_frames=30, seed=0,
+                                           **self._decode_options(release))
 
         def done(err):
             with self.voice_lock:
@@ -306,6 +310,17 @@ class EngineState:
 
         self.sched.submit(Job("voice_warmup", P3, warm, deadline_ms=float("inf"), on_done=done))
         return True
+
+    def _decode_options(self, release):
+        """Ming decodes a clause held to its end once per fragment and streams the others, so
+        the guard's hold fills early. ``release`` is the hold in seconds, True for the default
+        hold, or None for a whole clause. Qwen's stream has no such option."""
+        if not getattr(self.tts, "incremental_decode", False):
+            return {}
+        if release is True:
+            from .guards import Policy
+            release = Policy().hold_s
+        return {"release_s": release}
 
     def _clear_cache(self):
         mx = getattr(self, "mx", None)
@@ -394,7 +409,8 @@ class EngineState:
                 text, synthesis_voice, lang, interval=float(req.get("interval", 0.16)),
                 compiled=bool(req.get("compiled", False)), seed=seed, temperature=req.get("temperature"),
                 max_frames=max_frames, prime=bool(req.get("prime", True)), stats=stats,
-                capture_codes=context_id is not None and len(text) <= CONTINUATION_MAX_TEXT),
+                capture_codes=context_id is not None and len(text) <= CONTINUATION_MAX_TEXT,
+                **self._decode_options(None if guard.whole else guard.p.hold_s)),
             text, exp, req.get("seed"), policy=policy, whole=req.get("whole_clause"),
             clear_cache=self._clear_cache, max_frames=req.get("max_frames"))
 

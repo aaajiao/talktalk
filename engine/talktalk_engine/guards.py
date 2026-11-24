@@ -196,8 +196,8 @@ class Guarded:
                 for item in self._timed(self._inner):
                     frames = st.get("frames", 0)
                     cb0 = st.get("cb0", [])
-                    # Ming latents are decoded per text fragment. Its actual decoded PCM
-                    # clock is independent of the latent step count; Qwen keeps its original
+                    # Ming PCM comes from per-fragment or incremental decodes; its decoded PCM
+                    # clock is independent of the latent step count. Qwen keeps its original
                     # codec-frame checks. Empty CB0 means codec loop/echo checks do not apply.
                     duration_s = st["audio_samples"] / SAMPLE_RATE if "audio_samples" in st else frames / FRAME_HZ
                     if duration_s > self.p.slow_ratio * self.expected_s:
@@ -209,9 +209,10 @@ class Guarded:
                             verdict = "echo"
                             break
                     if item is None:
-                        # Ming cannot release PCM before a full fragment has decoded. Only
-                        # confirmed, completed latent work may keep its existing wire stall
-                        # timer alive; no wall-clock heartbeat and no Qwen behavior change.
+                        # Ming yields no PCM for many latents: a whole clause decodes after its
+                        # fragment ends, other clauses after their first decodes. Only confirmed,
+                        # completed latent work may keep its existing wire stall timer alive; no
+                        # wall-clock heartbeat and no Qwen behavior change.
                         progress_steps = st.get("progress_steps", 0)
                         now = time.perf_counter()
                         if (progress_steps > last_progress_steps and

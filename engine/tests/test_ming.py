@@ -5,6 +5,7 @@ import queue
 import sys
 import time
 import types
+import typing
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,12 +13,68 @@ from unittest.mock import patch
 
 import numpy as np
 
-from talktalk_engine.guards import Guarded, Policy, Progress
+from talktalk_engine.guards import Guarded, Policy, Progress, fade_out
 from talktalk_engine.main import EngineState
-from talktalk_engine.ming import MODEL_KEY, VOICE_FORMAT, MingTTSModel, MingVoice, resample
+from talktalk_engine.ming import (MODEL_KEY, VOICE_FORMAT, ForwardTrim, MingTTSModel, MingVoice, StreamResampler,
+                                   resample)
 from talktalk_engine.scheduler import GpuScheduler, Job, P0, P1
 from talktalk_engine.tts import TTSModel
 from talktalk_engine import voice as V
+
+
+# The pinned mlx-audio _trim_trailing_silence; PinnedUpstreamTests checks it against the installed
+# source, and the fake one-pass decode trims with it as ming.py does.
+TRIM_SOURCE = '''
+def _trim_trailing_silence(
+    speech: mx.array,
+    sample_rate: int,
+    threshold: float = 1e-3,
+    tail_seconds: float = 0.3,
+) -> mx.array:
+    """Cut trailing near-silence, keeping a fixed tail."""
+    frame = int(sample_rate * 0.1)
+    tail = int(sample_rate * tail_seconds)
+    if speech.shape[-1] < frame:
+        return speech
+    num_frames = speech.shape[-1] // frame
+    # Discard any incomplete analysis frame.
+    speech = speech[: num_frames * frame]
+    scores = np.abs(np.array(speech, dtype=np.float32))
+    scores = scores.reshape(num_frames, frame).mean(axis=-1)
+    loud = np.nonzero(scores > threshold)[0]
+    if loud.size == 0:
+        return speech[:tail]
+    return speech[: int(loud[-1]) * frame + frame + tail]
+'''
+_trim_namespace = {"np": np, "mx": SimpleNamespace(array=np.ndarray)}
+exec(TRIM_SOURCE, _trim_namespace)
+upstream_trim = _trim_namespace["_trim_trailing_silence"]
+
+# The pinned mlx-audio AudioVAE.encode_latent, also AST-locked. Evaluated with NumPy, it gives the
+# prompt latent the adapter's cached path must reproduce.
+ENCODE_LATENT_SOURCE = '''
+def encode_latent(
+    self, waveform: mx.array, waveform_length: mx.array
+) -> Tuple[mx.array, mx.array]:
+    frame_num = mx.ceil(
+        waveform_length / self.config["enc_kwargs"]["input_dim"]
+    ).astype(mx.int32)
+    if self.patch_size != -1:
+        frame_num = mx.ceil(frame_num / self.patch_size).astype(mx.int32)
+    h = self.encoder(waveform)  # (B, T, 2*latent)
+    h = h.transpose(0, 2, 1)
+    mu, logvar = mx.split(h, 2, axis=1)
+    std = mx.exp(0.5 * mx.clip(logvar, -30, 20))
+    latent = mu + std * mx.random.normal(mu.shape, dtype=mu.dtype)
+    latent = latent.transpose(0, 2, 1)
+    return latent, frame_num
+'''
+
+# Fake decoder geometry per native rate: samples per 80 ms latent and the first streaming
+# decode's ISTFT pad. 44.1 kHz is Ming 3.0's (3528 = 4 x 882 hop, pad (3528 - 882) / 2).
+GEOMETRY = {24000: (1920, 600), 44100: (3528, 1323)}
+# Fake encoder logvar per reference frame, including values outside encode_latent's clip.
+FAKE_LOGVAR = np.linspace(-40, 25, 10, dtype=np.float32)
 
 
 class FakeRandom:
@@ -52,11 +109,14 @@ class FakeModel:
     latent_dim = 2
     sample_rate = 24000
 
-    def __init__(self, steps=4, natural_stop=True):
+    def __init__(self, steps=4, natural_stop=True, signal=None, native_rate=24000):
         self.steps, self.natural_stop = steps, natural_stop
+        self.samples_per_latent, self.lag = GEOMETRY[native_rate]
+        self.signal = signal or (lambda index: 0.2 + 0.05 * np.sin(index * 0.01))
         self.closed = 0
         self.calls = []
         self.decode_calls = 0
+        self.stream_calls = []
         self.nonfinite = False
         self.reference_encodes = 0
         self.audio = SimpleNamespace(decode=self.decode, encoder=self.encoder)
@@ -71,10 +131,11 @@ class FakeModel:
         return np.asarray(audio)[None, :]
 
     def encoder(self, waveform):
-        # (B, T, 2 * latent_dim): mu is the first reference sample, logvar 0 (std 1).
+        # (B, T, 2 * latent_dim): mu is the first reference sample, logvar FAKE_LOGVAR per frame.
         self.reference_encodes += 1
         hidden = np.zeros((1, 10, 4), np.float32)
         hidden[..., :2] = waveform[0, 0]
+        hidden[0, :, 2:] = FAKE_LOGVAR[:, None]
         return hidden
 
     def sample(self, **kwargs):
@@ -85,31 +146,59 @@ class FakeModel:
         finally:
             self.closed += 1
 
-    def decode(self, latents, **kwargs):
+    def wave(self, start, stop):
+        index = np.arange(start, stop)
+        if self.nonfinite:
+            return np.full((1, index.size), np.nan, np.float32)
+        return self.signal(index).astype(np.float32)[None, :]
+
+    def decode(self, latents, past_key_values=None, use_cache=False, stream_state=(None, None, None),
+               last_chunk=False):
+        """One-pass decode, or the upstream streaming API's sample accounting: a call returns
+        the audio of the latents of earlier calls minus the first call's ISTFT pad, and the
+        last call flushes the rest."""
         self.decode_calls += 1
-        if kwargs != {"use_cache": False, "last_chunk": True}:
-            raise AssertionError("Ming must decode each completed fragment without shared decoder cache")
-        pcm = np.full((1, latents.shape[1] * 1920), np.nan if self.nonfinite else 0.2, np.float32)
-        return pcm, None, None
+        count = latents.shape[1]
+        if not use_cache:
+            if not last_chunk or past_key_values is not None:
+                raise AssertionError("a whole clause decodes each completed fragment once, without decoder cache")
+            return self.wave(0, count * self.samples_per_latent), None, None
+        started = isinstance(stream_state, dict)
+        if past_key_values != ("cache" if started else None):
+            raise AssertionError("the decoder cache must carry over between calls of one fragment")
+        state = dict(stream_state) if started else {"seen": 0, "emitted": 0}
+        before = state["seen"]
+        state["seen"] += count
+        per_latent = self.samples_per_latent
+        target = state["seen"] * per_latent if last_chunk else max(0, before * per_latent - self.lag)
+        out = self.wave(state["emitted"], target)
+        state["emitted"] = target
+        self.stream_calls.append((count, last_chunk))
+        return out, None if last_chunk else state, "cache"
 
 
-def adapter(**kwargs):
+def adapter(native_rate=24000, **kwargs):
     tts = MingTTSModel(MODEL_KEY, "/unused", "rev")
     tts.mx = FakeMX()
-    tts.model = FakeModel(**kwargs)
-    tts.native_rate = 24000
+    tts.model = FakeModel(native_rate=native_rate, **kwargs)
+    tts.native_rate = native_rate
     tts._languages = {"de": "German", "fr": "French"}
     tts._add_period = lambda text: text
     tts._split_fragments = lambda text, limit: text.split("|")
-    tts._trim_silence = lambda audio, rate: audio
+    tts._trim_silence = upstream_trim
     tts._resample_reference = resample
+    tts._decode_lag = tts.model.lag
     return tts
 
 
-def voice():
+def pcm_of(items):
+    return np.concatenate([item for item in items if isinstance(item, np.ndarray)])
+
+
+def voice(native_rate=24000):
     return MingVoice("human", MODEL_KEY, "Human reference.", np.ones(24000, np.float32) * 0.1,
                      np.ones((1, 10, 2), np.float32), np.ones((1, 192), np.float32),
-                     {"native_rate": 24000, "ref_s": 1.0})
+                     {"native_rate": native_rate, "ref_s": 1.0})
 
 
 class MingStreamTests(unittest.TestCase):
@@ -128,13 +217,14 @@ class MingStreamTests(unittest.TestCase):
             self.assertEqual(stats["frames"], index + 1)
             self.assertEqual(stats["progress_steps"], index + 1)
             self.assertEqual(tts.model.decode_calls, 0)
-        for _ in range(2):
-            self.assertEqual(next(stream).shape, (3840,))
-            self.assertEqual(len(tts.model.calls), 1)
+        # 4 latents = 7680 samples; the pinned trim keeps three whole 0.1 s frames.
+        self.assertEqual(next(stream).shape, (3840,))
+        self.assertEqual(next(stream).shape, (3360,))
+        self.assertEqual(len(tts.model.calls), 1)
         rest = list(stream)
         self.assertEqual(sum(item is None for item in rest), 4)
-        self.assertEqual([len(item) for item in rest if item is not None], [3840, 3840])
-        self.assertEqual(stats["audio_samples"], 15360)
+        self.assertEqual([len(item) for item in rest if item is not None], [3840, 3360])
+        self.assertEqual(stats["audio_samples"], 14400)
         self.assertEqual(stats["frames"], 8)
         self.assertTrue(stats["eos"])
         self.assertEqual(stats["cb0"], [])
@@ -152,16 +242,26 @@ class MingStreamTests(unittest.TestCase):
         def latent(seed, reference=v):
             list(tts.stream("A sentence.", reference, "en", seed=seed))
             return tts.model.calls[-1]["prompt_latent"]
+        def upstream(seed, reference=v):
+            # The pinned encode_latent itself, with NumPy as mx, seeded like the job.
+            mx = FakeMX()
+            mx.ceil, mx.array = np.ceil, np.ndarray
+            namespace = {"mx": mx, "Tuple": typing.Tuple}
+            exec(ENCODE_LATENT_SOURCE, namespace)
+            vae = SimpleNamespace(config={"enc_kwargs": {"input_dim": 4}}, patch_size=4,
+                                  encoder=FakeModel().encoder)
+            waveform = FakeModel()._pad_prompt_waveform(resample(reference.reference24k, 24000, 24000))
+            mx.random.seed(seed)
+            return namespace["encode_latent"](vae, waveform, np.array([waveform.shape[1]]))[0]
         first, again, other = latent(7), latent(7), latent(8)
         self.assertEqual(tts.model.reference_encodes, 1)
         np.testing.assert_array_equal(first, again)
         self.assertFalse(np.array_equal(first, other))
-        # encode_latent's mu + std * normal(mu.shape), drawn after this job's seed.
-        noise = np.random.default_rng(7).standard_normal((1, 2, 10)).astype(np.float32)
-        np.testing.assert_array_equal(first, (0.1 + noise).transpose(0, 2, 1))
+        np.testing.assert_array_equal(first, upstream(7))
+        np.testing.assert_array_equal(other, upstream(8))
         changed = voice()
         changed.reference24k = changed.reference24k * 2
-        np.testing.assert_array_equal(latent(7, changed), (0.2 + noise).transpose(0, 2, 1))
+        np.testing.assert_array_equal(latent(7, changed), upstream(7, changed))
         self.assertEqual(tts.model.reference_encodes, 2)
 
     def test_cancel_after_one_latent_closes_sampler_without_decode(self):
@@ -202,13 +302,138 @@ class MingStreamTests(unittest.TestCase):
                 self.assertEqual(tts.model.decode_calls, 0)
 
     def test_nonfinite_output_is_rejected_before_any_pcm(self):
+        for release in (None, 0.64):
+            with self.subTest(release_s=release):
+                tts = adapter(steps=14)
+                tts.model.nonfinite = True
+                stream = tts.stream("A sentence.", voice(), "en", release_s=release)
+                with self.assertRaisesRegex(ValueError, "nonfinite"):
+                    for item in stream:
+                        self.assertNotIsInstance(item, np.ndarray)
+
+    def test_incremental_decode_releases_the_hold_two_latents_after_the_first_decode(self):
+        signals = (("speech", None), ("trailing silence", lambda i: np.where(i < 40000, 0.2, 0.0)))
+        for rate, (name, signal) in [(rate, item) for rate in (24000, 44100) for item in signals]:
+            with self.subTest(native_rate=rate, signal=name):
+                whole = adapter(rate, steps=30, signal=signal)
+                expected = pcm_of(whole.stream("A long sentence.", voice(rate), "en", seed=5, max_frames=60))
+                tts, stats = adapter(rate, steps=30, signal=signal), {}
+                stream = tts.stream("A long sentence.", voice(rate), "en", seed=5, max_frames=60, stats=stats,
+                                    release_s=0.64)
+                items, pcm_at = [], []
+                for item in stream:
+                    items.append(item)
+                    if isinstance(item, np.ndarray):
+                        pcm_at.append((stats["frames"], len(item)))
+                # 10 latents first: the second decode, at 12 latents, returns 10 latents of audio
+                # minus the ISTFT pad; whole 0.1 s frames minus the release hold still exceed
+                # 0.64 s at 24 kHz (15624 samples at a 24 kHz native rate, 16160 at 44.1 kHz).
+                self.assertEqual(pcm_at[0][0], 12)
+                self.assertGreaterEqual(sum(length for frames, length in pcm_at if frames == 12), 15360)
+                self.assertEqual(tts.model.stream_calls, [(10, False), (2, False)] + [(4, False)] * 4 + [(2, True)])
+                emitted = pcm_of(items)
+                # The forward trim and (at 44.1 kHz) the streaming resampler give the one-pass
+                # result exactly when the decoder returns the same samples.
+                np.testing.assert_array_equal(emitted, expected)
+                self.assertTrue(stats["eos"])
+                self.assertEqual(stats["fragments"], 1)
+                self.assertEqual(stats["audio_samples"], expected.size)
+                self.assertTrue(all(len(x) <= 3840 for x in items if isinstance(x, np.ndarray)))
+
+    def test_whole_clause_keeps_one_decode_per_fragment(self):
+        tts = adapter(steps=30)
+        list(tts.stream("A long sentence.", voice(), "en", max_frames=60, release_s=None))
+        self.assertEqual(tts.model.stream_calls, [])
+        self.assertEqual(tts.model.decode_calls, 1)
+
+    def test_generation_cut_before_eos_fades_the_audio_already_decoded(self):
+        tts, stats = adapter(steps=40, natural_stop=False), {}
+        guarded = Guarded(lambda seed, cap, inner: tts.stream("A long sentence.", voice(), "en", seed=seed,
+                                                              max_frames=20, stats=inner, release_s=0.64),
+                          "A long sentence.", 10.0, 3, policy=Policy(max_attempts=1))
+        items = list(guarded)
+        pcm = pcm_of(items)
+        # Decodes of 10, 2, 4 and 4 latents; 16 x 1920 - 600 decoded samples keep 12 whole frames.
+        # The last 1176 (RELEASE_HOLD) were never released, so the 25 ms fade covers 600 of them.
+        self.assertEqual(tts.model.stream_calls, [(10, False), (2, False), (4, False), (4, False)])
+        self.assertEqual(pcm.size, 28800)
+        self.assertEqual(len([x for x in items if isinstance(x, np.ndarray)][-1]), 1176)
+        np.testing.assert_array_equal(pcm[:27624], tts.model.wave(0, 27624)[0])
+        np.testing.assert_array_equal(pcm[27624:], fade_out(tts.model.wave(27624, 28800)[0], 25.0))
+        self.assertEqual(pcm[-1], 0.0)
+        self.assertTrue(guarded.stats["runaway"])
+        self.assertFalse(guarded.stats["eos"])
+        self.assertTrue(guarded.report["runaway"])
+        self.assertEqual(guarded.report["audio_s"], 1.2)
+        # At 44.1 kHz the held-back 1176 input samples are 640 output samples: still >= 600.
+        tts = adapter(44100, steps=40, natural_stop=False)
+        items = list(tts.stream("A long sentence.", voice(44100), "en", max_frames=20, release_s=0.64))
+        last = [x for x in items if isinstance(x, np.ndarray)][-1]
+        self.assertGreaterEqual(len(last), 600)
+        self.assertEqual(last[-1], 0.0)
+        self.assertTrue(np.isfinite(pcm_of(items)).all())
+
+    def test_first_decode_is_sized_from_the_hold_at_the_native_rate(self):
         tts = adapter()
-        tts.model.nonfinite = True
-        stream = tts.stream("A sentence.", voice(), "en")
-        for _ in range(4):
-            self.assertIsNone(next(stream))
-        with self.assertRaisesRegex(ValueError, "nonfinite"):
-            next(stream)
+        tts.native_rate, tts._decode_lag = 44100, 1323   # Ming 3.0: 3528 samples per latent
+        # 0.64 s at 24 kHz is 28224 input samples; plus the 1176-sample hold that is 7 whole
+        # 4410-sample frames, which 10 x 3528 - 1323 decoded samples reach.
+        self.assertEqual(tts._first_decode_latents(0.64), 10)
+        self.assertEqual(tts._first_decode_latents(0.0), 2)
+        with self.assertRaisesRegex(ValueError, "release hold"):
+            next(adapter().stream("A sentence.", voice(), "en", release_s=float("nan")))
+
+
+class ForwardDecodeTests(unittest.TestCase):
+    def test_forward_trim_keeps_exactly_what_the_pinned_trim_keeps(self):
+        rng = np.random.default_rng(11)
+        rate = 44100
+        silence = np.zeros(20000, np.float32)   # longer than the 0.3 s tail: the verdict sets the cut
+        signals = [np.zeros(1000, np.float32), np.full(4000, 0.3, np.float32), np.zeros(30000, np.float32)]
+        signals += [np.concatenate([np.full(4410, level, np.float32), silence])
+                    for level in (0.0011, 0.0010002, 0.001, 0.0009998, 0.0009)]
+        for _ in range(60):
+            parts = []
+            for _ in range(int(rng.integers(1, 7))):
+                size = int(rng.integers(50, 25000))
+                level = rng.choice([0.1, 1e-5, 0.00101, 0.0010002, 0.0009998, 0.00099, 0.0])
+                if rng.random() < 0.5:   # constant magnitude: whole frames score exactly the level
+                    parts.append((rng.choice([-1.0, 1.0], size) * level).astype(np.float32))
+                else:
+                    parts.append((rng.standard_normal(size) * level).astype(np.float32))
+            signals.append(np.concatenate(parts))
+        for index, signal in enumerate(signals):
+            with self.subTest(case=index):
+                final = upstream_trim(signal, rate).shape[-1]
+                trim, offset, safe = ForwardTrim(rate), 0, 0
+                while offset < signal.size:
+                    step = int(rng.integers(1, 9000))
+                    trim.push(signal[offset:offset + step])
+                    offset += step
+                    self.assertGreaterEqual(trim.kept(), safe)
+                    safe = trim.kept()
+                    self.assertLessEqual(safe, final)
+                self.assertEqual(trim.kept(final=True), final)
+
+    def test_stream_resampler_matches_whole_fragment_resampling(self):
+        rng = np.random.default_rng(13)
+        for case in range(12):
+            with self.subTest(case=case):
+                signal = (rng.standard_normal(int(rng.integers(100, 60000))) * 0.2).astype(np.float32)
+                resampler, pushed, limit, out = StreamResampler(44100, 24000, 1176), 0, 0, []
+                while pushed < signal.size:
+                    step = int(rng.integers(1, 12000))
+                    resampler.push(signal[pushed:pushed + step])
+                    pushed = min(signal.size, pushed + step)
+                    limit = int(rng.integers(limit, pushed + 1))
+                    out.append(resampler.take(limit))
+                final = int(rng.integers(limit, signal.size + 1))
+                out.append(resampler.take(final, final=True))
+                streamed = np.concatenate(out)
+                whole = resample(signal[:final], 44100, 24000)
+                self.assertEqual(streamed.dtype, np.float32)
+                self.assertEqual(streamed.shape, whole.shape)
+                np.testing.assert_array_equal(streamed, whole)
 
     def test_resampling_preserves_duration_and_float32_contract(self):
         audio = np.sin(np.arange(44100, dtype=np.float32) * (2 * np.pi * 440 / 44100))
@@ -246,25 +471,12 @@ class PinnedUpstreamTests(unittest.TestCase):
     def assertSource(self, node, expected):
         self.assertEqual(ast.dump(node), ast.dump(ast.parse(expected).body[0]))
 
+    def test_forward_trim_mirrors_the_pinned_trailing_silence_trim(self):
+        self.assertSource(self.function("_trim_trailing_silence"), TRIM_SOURCE)
+
     def test_reference_latent_is_encoder_output_plus_seeded_noise(self):
         # Cached by MingTTSModel._reference_conditioning; only the normal draw stays per job.
-        self.assertSource(self.function("encode_latent", "AudioVAE"), '''
-def encode_latent(
-    self, waveform: mx.array, waveform_length: mx.array
-) -> Tuple[mx.array, mx.array]:
-    frame_num = mx.ceil(
-        waveform_length / self.config["enc_kwargs"]["input_dim"]
-    ).astype(mx.int32)
-    if self.patch_size != -1:
-        frame_num = mx.ceil(frame_num / self.patch_size).astype(mx.int32)
-    h = self.encoder(waveform)  # (B, T, 2*latent)
-    h = h.transpose(0, 2, 1)
-    mu, logvar = mx.split(h, 2, axis=1)
-    std = mx.exp(0.5 * mx.clip(logvar, -30, 20))
-    latent = mu + std * mx.random.normal(mu.shape, dtype=mu.dtype)
-    latent = latent.transpose(0, 2, 1)
-    return latent, frame_num
-''')
+        self.assertSource(self.function("encode_latent", "AudioVAE"), ENCODE_LATENT_SOURCE)
         self.assertSource(self.function("_encode_prompt_latent", "Model"), '''
 def _encode_prompt_latent(self, prompt_waveform: mx.array) -> mx.array:
     prompt_waveform = self._pad_prompt_waveform(prompt_waveform)
@@ -424,7 +636,36 @@ class MingGuardTests(unittest.TestCase):
         tail = [value for kind, value in out.queue if kind == "tail"][0]
         self.assertFalse(tail["context_used"])
         self.assertIsNone(state.tts_context)
-        self.assertEqual(tail["audio_s"], 0.32)
+        self.assertEqual(tail["audio_s"], 0.3)  # 4 latents; the trim keeps whole 0.1 s frames
+
+    def test_engine_state_streams_only_clauses_that_are_not_held_to_their_end(self):
+        for whole in (False, True):
+            with self.subTest(whole_clause=whole):
+                state = EngineState(SimpleNamespace(horizon_ms=1000, asr_thread="shared"))
+                state.tts, state.voice, state.voice_state = adapter(steps=16), voice(), "ready"
+                out = queue.Queue()
+                job = state.tts_job({"job": "ming", "text": "A somewhat longer sentence here.", "lang": "en",
+                                     "seed": 42, "voice_key": "human", "whole_clause": whole,
+                                     "max_attempts": 1}, out)
+                for item in job.factory():
+                    if item is not None:
+                        job.on_item(item)
+                job.on_done(None)
+                tail = [value for kind, value in out.queue if kind == "tail"][0]
+                # Default policy: a 0.64 s hold, so the first decode takes 10 latents.
+                self.assertEqual(state.tts.model.stream_calls, [] if whole else [(10, False), (2, False), (4, True)])
+                self.assertEqual(state.tts.model.decode_calls, 1 if whole else 3)
+                self.assertGreater(tail["audio_s"], 0)
+                self.assertGreaterEqual(tail["timing"]["first_pcm_ms"], tail["timing"]["queue_ms"])
+
+    def test_decode_options_reach_only_ming(self):
+        state = EngineState(SimpleNamespace(horizon_ms=1000, asr_thread="shared"))
+        state.tts = adapter()
+        self.assertEqual(state._decode_options(None), {"release_s": None})
+        self.assertEqual(state._decode_options(True), {"release_s": Policy().hold_s})
+        self.assertEqual(state._decode_options(0.2), {"release_s": 0.2})
+        state.tts = TTSModel("qwen", "/unused", "rev")
+        self.assertEqual(state._decode_options(True), {})
 
 
 if __name__ == "__main__":
