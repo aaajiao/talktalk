@@ -1,9 +1,12 @@
 """Ming adapter, voice isolation and cooperative cancellation without MLX/Metal."""
+import ast
+import importlib.util
 import queue
 import sys
 import time
 import types
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -17,16 +20,32 @@ from talktalk_engine.tts import TTSModel
 from talktalk_engine import voice as V
 
 
+class FakeRandom:
+    def __init__(self):
+        self.seeds = []
+        self.rng = np.random.default_rng(0)
+
+    def seed(self, value):
+        self.seeds.append(value)
+        self.rng = np.random.default_rng(value)
+
+    def normal(self, shape, dtype=np.float32):
+        return self.rng.standard_normal(tuple(shape)).astype(dtype)
+
+
 class FakeMX:
     array = staticmethod(np.array)
     concatenate = staticmethod(np.concatenate)
     eval = staticmethod(lambda *args: None)
+    split = staticmethod(np.split)
+    exp = staticmethod(np.exp)
+    clip = staticmethod(np.clip)
     float32 = np.float32
     int32 = np.int32
 
     def __init__(self):
-        self.seeds = []
-        self.random = SimpleNamespace(seed=self.seeds.append)
+        self.random = FakeRandom()
+        self.seeds = self.random.seeds
 
 
 class FakeModel:
@@ -40,7 +59,7 @@ class FakeModel:
         self.decode_calls = 0
         self.nonfinite = False
         self.reference_encodes = 0
-        self.audio = SimpleNamespace(decode=self.decode)
+        self.audio = SimpleNamespace(decode=self.decode, encoder=self.encoder)
 
     def _speaker_embeddings(self, embedding, zero):
         return [embedding]
@@ -48,9 +67,15 @@ class FakeModel:
     def _encode(self, text):
         return text.split()
 
-    def _encode_prompt_latent(self, audio):
+    def _pad_prompt_waveform(self, audio):
+        return np.asarray(audio)[None, :]
+
+    def encoder(self, waveform):
+        # (B, T, 2 * latent_dim): mu is the first reference sample, logvar 0 (std 1).
         self.reference_encodes += 1
-        return np.full((1, 10, 2), self.reference_encodes, np.float32)
+        hidden = np.zeros((1, 10, 4), np.float32)
+        hidden[..., :2] = waveform[0, 0]
+        return hidden
 
     def sample(self, **kwargs):
         self.calls.append(kwargs)
@@ -121,6 +146,24 @@ class MingStreamTests(unittest.TestCase):
         self.assertIs(tts.model.calls[0]["prompt_latent"], tts.model.calls[1]["prompt_latent"])
         self.assertEqual(tts.model.closed, 2)
 
+    def test_reference_encoder_runs_once_per_reference_and_noise_follows_each_seed(self):
+        tts, v = adapter(), voice()
+
+        def latent(seed, reference=v):
+            list(tts.stream("A sentence.", reference, "en", seed=seed))
+            return tts.model.calls[-1]["prompt_latent"]
+        first, again, other = latent(7), latent(7), latent(8)
+        self.assertEqual(tts.model.reference_encodes, 1)
+        np.testing.assert_array_equal(first, again)
+        self.assertFalse(np.array_equal(first, other))
+        # encode_latent's mu + std * normal(mu.shape), drawn after this job's seed.
+        noise = np.random.default_rng(7).standard_normal((1, 2, 10)).astype(np.float32)
+        np.testing.assert_array_equal(first, (0.1 + noise).transpose(0, 2, 1))
+        changed = voice()
+        changed.reference24k = changed.reference24k * 2
+        np.testing.assert_array_equal(latent(7, changed), (0.2 + noise).transpose(0, 2, 1))
+        self.assertEqual(tts.model.reference_encodes, 2)
+
     def test_cancel_after_one_latent_closes_sampler_without_decode(self):
         tts = adapter()
         stream = tts.stream("A sentence.", voice(), "en", seed=3)
@@ -177,6 +220,60 @@ class MingStreamTests(unittest.TestCase):
     def test_missing_speaker_asset_fails_before_import_or_download(self):
         with self.assertRaisesRegex(ValueError, "not installed"):
             MingTTSModel(MODEL_KEY, "/missing-ming-model", "rev").load()
+
+
+class PinnedUpstreamTests(unittest.TestCase):
+    """ming.py mirrors parts of the pinned mlx-audio BailingMM source. These checks read the
+    installed source without importing MLX. After an mlx-audio upgrade a failure means the
+    adapter must be verified again on the GPU before the expected source is updated."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.find_spec("mlx_audio")
+        if spec is None or not spec.submodule_search_locations:
+            raise unittest.SkipTest("mlx-audio is not installed in this Python")
+        path = Path(list(spec.submodule_search_locations)[0], "tts", "models", "bailingmm", "bailingmm.py")
+        cls.tree = ast.parse(path.read_text(encoding="utf-8"))
+
+    def function(self, name, owner=None):
+        scopes = [node for node in self.tree.body if isinstance(node, ast.ClassDef) and node.name == owner] \
+            if owner else [self.tree]
+        found = [node for scope in scopes for node in scope.body
+                 if isinstance(node, ast.FunctionDef) and node.name == name]
+        self.assertEqual(len(found), 1, f"{owner}.{name}")
+        return found[0]
+
+    def assertSource(self, node, expected):
+        self.assertEqual(ast.dump(node), ast.dump(ast.parse(expected).body[0]))
+
+    def test_reference_latent_is_encoder_output_plus_seeded_noise(self):
+        # Cached by MingTTSModel._reference_conditioning; only the normal draw stays per job.
+        self.assertSource(self.function("encode_latent", "AudioVAE"), '''
+def encode_latent(
+    self, waveform: mx.array, waveform_length: mx.array
+) -> Tuple[mx.array, mx.array]:
+    frame_num = mx.ceil(
+        waveform_length / self.config["enc_kwargs"]["input_dim"]
+    ).astype(mx.int32)
+    if self.patch_size != -1:
+        frame_num = mx.ceil(frame_num / self.patch_size).astype(mx.int32)
+    h = self.encoder(waveform)  # (B, T, 2*latent)
+    h = h.transpose(0, 2, 1)
+    mu, logvar = mx.split(h, 2, axis=1)
+    std = mx.exp(0.5 * mx.clip(logvar, -30, 20))
+    latent = mu + std * mx.random.normal(mu.shape, dtype=mu.dtype)
+    latent = latent.transpose(0, 2, 1)
+    return latent, frame_num
+''')
+        self.assertSource(self.function("_encode_prompt_latent", "Model"), '''
+def _encode_prompt_latent(self, prompt_waveform: mx.array) -> mx.array:
+    prompt_waveform = self._pad_prompt_waveform(prompt_waveform)
+    prompt_waveform_length = mx.array([prompt_waveform.shape[1]], dtype=mx.int32)
+    prompt_latent, _ = self.audio.encode_latent(
+        prompt_waveform, prompt_waveform_length
+    )
+    return prompt_latent
+''')
 
 
 class MingVoiceTests(unittest.TestCase):

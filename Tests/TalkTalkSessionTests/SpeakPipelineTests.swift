@@ -208,7 +208,8 @@ private final class SpeakTestTTS: TTSEngine, Sendable {
         let samples = (0..<12_000).map { Float(sin(Double($0) * 0.1) * 0.1) }
         c.yield(.init(job: request.job, seq: 0, samples24k: samples, isLast: true, producedAt: now,
             summary: .init(audioS: 0.5, frames: 12_000,
-                           timing: .init(received: now, started: now, firstOutput: now, finished: now))))
+                           timing: .init(received: now, started: now, firstOutput: now, finished: now),
+                           engineStages: .init(queueMs: 2.4, prepareMs: 3.6, prefillMs: nil, firstPCMMs: 310.5))))
         c.finish()
     }
     func report(_ p: PlayoutReport) async {}
@@ -483,6 +484,8 @@ struct SpeakPipelineTests {
         #expect(complete["job"] as? Int == request["job"] as? Int)
         #expect(complete["audio_ms"] as? Int == 500)
         #expect(complete["attempts"] as? Int == 1 && complete["echo_aborts"] as? Int == 0)
+        #expect(complete["engine_queue_ms"] as? Int == 2 && complete["engine_prepare_ms"] as? Int == 4)
+        #expect(complete["engine_prefill_ms"] == nil && complete["engine_first_pcm_ms"] as? Int == 311)
         for event in [source, recognized, request, complete] {
             let line = String(decoding: try JSONSerialization.data(withJSONObject: event), as: UTF8.self)
             #expect(DiagnosticsWhitelist.scrubEventLine(Substring(line)) != nil)

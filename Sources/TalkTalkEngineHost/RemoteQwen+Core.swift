@@ -328,7 +328,10 @@ extension RemoteQwenTTS: TTSEngine {
         TTSSummary(audioS: t.audioS, frames: t.frames, runaway: t.runaway, short: t.short, slow: t.slow ?? false,
                    echoAborts: t.echoAborts ?? 0, attempts: t.attempts ?? 1, leadTrimMs: t.leadTrimMs ?? 0, timing: timing,
                    computeRTF: t.audioS > 0 ? (t.timing["gpu_ms_all_attempts"] ?? nil).map { $0 / 1000 / t.audioS } : nil,
-                   contextUsed: t.contextUsed)
+                   contextUsed: t.contextUsed,
+                   engineStages: TTSEngineStages(queueMs: t.timing["queue_ms"] ?? nil, prepareMs: t.timing["prepare_ms"] ?? nil,
+                                                 prefillMs: t.timing["prefill_ms"] ?? nil,
+                                                 firstPCMMs: t.timing["first_pcm_ms"] ?? nil))
     }
 
     /// `VoiceReference.pcm24k` is "bytes, not a path" (§4.1). Accepted: a PCM16 mono RIFF/WAVE file

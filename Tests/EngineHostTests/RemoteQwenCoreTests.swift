@@ -16,6 +16,10 @@ import TalkTalkTestSupport
         let summary = RemoteQwenTTS.summary(tail, timing: .init(received: 0, started: 0, firstOutput: 0, finished: 10_000_000_000))
         #expect(summary.computeRTF == 0.5)
         #expect(summary.contextUsed == true)
+        #expect(summary.engineStages == TTSEngineStages())
+        let staged = try JSONDecoder().decode(EngineTTSTail.self, from: Data(#"{"audio_s":2,"frames":25,"timing":{"queue_ms":3.5,"prepare_ms":4,"prefill_ms":41,"first_pcm_ms":null}}"#.utf8))
+        #expect(RemoteQwenTTS.summary(staged, timing: .init(received: 0, started: 0, firstOutput: 0, finished: 1)).engineStages
+                == TTSEngineStages(queueMs: 3.5, prepareMs: 4, prefillMs: 41, firstPCMMs: nil))
         let request = EngineTTSRequest(text: "Next sentence.", lang: "en", voiceKey: "real-voice-key",
                                        contextID: "turn-1", previousJob: "tts-4")
         let wire = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as! [String: Any]

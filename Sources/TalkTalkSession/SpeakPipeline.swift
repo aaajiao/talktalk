@@ -764,6 +764,13 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 fields["echo_aborts"] = .int(summary.echoAborts)
                 if let used = summary.contextUsed { fields["context_used"] = .bool(used) }
                 if let rtf = summary.computeRTF, rtf.isFinite, rtf >= 0 { fields["compute_rtf"] = .double(rtf) }
+                if let stages = summary.engineStages {
+                    // Engine-side split of the time to first audio; timings only, never text.
+                    for (key, value) in [("engine_queue_ms", stages.queueMs), ("engine_prepare_ms", stages.prepareMs),
+                                         ("engine_prefill_ms", stages.prefillMs), ("engine_first_pcm_ms", stages.firstPCMMs)] {
+                        if let value, value.isFinite, value >= 0, value < 1e9 { fields[key] = .int(Int(value.rounded())) }
+                    }
+                }
                 // Engine/system TTS summary: generated duration, not elapsed or heard duration.
                 if summary.audioS.isFinite, summary.audioS >= 0, summary.audioS < Double(Int.max) / 1000 {
                     fields["audio_ms"] = .int(Int((summary.audioS * 1000).rounded()))

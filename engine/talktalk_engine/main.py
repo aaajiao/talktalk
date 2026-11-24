@@ -432,6 +432,9 @@ class EngineState:
             if isinstance(chunk, Progress):
                 out.put(("progress", chunk.payload()))      # held audio: proof of life, no samples
                 return
+            if "pcm_ms" not in first:
+                # Request receipt to the first released PCM: queue, guard hold and retries included.
+                first["pcm_ms"] = (time.perf_counter() - t_req) * 1e3
             ms = len(chunk) / 24.0
             self.sched.note_audio(job, ms)
             out.put(("pcm", chunk.astype("<f4").tobytes()))
@@ -484,6 +487,7 @@ class EngineState:
                                "prime_ms": round(st.get("prime_ms", 0.0), 3),
                                "prefill_ms": round(st.get("prefill_ms", 0.0), 3),
                                "first_chunk_ms": round(st["chunk_at_ms"][0], 3) if st.get("chunk_at_ms") else None,
+                               "first_pcm_ms": round(first["pcm_ms"], 3) if "pcm_ms" in first else None,
                                "frame_ms_p50": pick(0.5), "frame_ms_p95": pick(0.95), "frame_ms_p99": pick(0.99),
                                "frame_ms_max": pick(1.0), "chunk_gap_ms_p99": round(sorted(gaps[1:])[int(0.99 * (len(gaps) - 2))], 3) if len(gaps) > 2 else None,
                                "total_ms": round(st.get("total_ms", 0.0), 3),

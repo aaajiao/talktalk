@@ -117,6 +117,7 @@ class MingTTSModel:
         self.model = None
         self.stats = {"speaker_embed_calls": 0, "speaker_embed_hits": 0}
         self._spk_memo = {}
+        self._reference_memo = None
 
     def load(self):
         # Native weights must be provisioned by the verified installer. SpeakerEncoder has
@@ -133,6 +134,7 @@ class MingTTSModel:
         from mlx_audio.resample import resample_audio_array
 
         self.mx = mx
+        self._reference_memo = None
         self.model = load_model(self.path)
         if not getattr(self.model, "ming3", False):
             raise ValueError("expected Ming 3.0 dense TTS weights")
@@ -212,6 +214,31 @@ class MingTTSModel:
             raise ReferenceBudgetError()
         return positions
 
+    def _reference_conditioning(self, voice):
+        """The seed-independent part of the reference latent, cached for the active voice.
+
+        The pinned AudioVAE.encode_latent returns ``mu + std * normal(mu.shape)``. Resampling
+        the reference to 44.1 kHz, padding it and running the encoder draw no random numbers,
+        so only the noise depends on the job's seed. Caching mu and std keeps the prompt latent
+        and every later random draw identical, and saves about 80 ms per request and retry.
+        tests/test_ming.py pins the upstream code this mirrors.
+        """
+        reference = np.ascontiguousarray(voice.reference24k, dtype=np.float32)
+        digest = hashlib.sha256(reference.tobytes()).hexdigest()
+        memo = self._reference_memo
+        if memo is not None and memo[0] == digest:
+            return memo[1], memo[2]
+        mx, model = self.mx, self.model
+        # Match MLX-Audio load_audio used for the approved audition (see build_voice).
+        audio = mx.array(self._resample_reference(reference, SAMPLE_RATE, self.native_rate))
+        hidden = model.audio.encoder(model._pad_prompt_waveform(audio)).transpose(0, 2, 1)
+        mu, logvar = mx.split(hidden, 2, axis=1)
+        std = mx.exp(0.5 * mx.clip(logvar, -30, 20))
+        mx.eval(mu, std)
+        # One active voice: replace the entry, never accumulate earlier references.
+        self._reference_memo = (digest, mu, std)
+        return mu, std
+
     def speaker_cosine(self, ref_pcm, sample_pcm):
         def unit(embedding):
             vector = np.asarray(embedding, dtype=np.float64).reshape(-1)
@@ -250,11 +277,12 @@ class MingTTSModel:
             speaker = model._speaker_embeddings(voice.speaker_embed, False)
             mx.eval(speaker)
             # AudioVAE.encode_latent samples mu + std * normal. The audition seeds before
-            # this operation on every request; reusing a latent sampled during enrollment
-            # changes both the reference and the subsequent RNG sequence. The blob's latent
-            # is only a shape/budget check. Re-encode the original PCM under this job's seed.
-            reference = mx.array(self._resample_reference(voice.reference24k, SAMPLE_RATE, self.native_rate))
-            prompt_latent = model._encode_prompt_latent(reference)
+            # this draw on every request; reusing a latent sampled during enrollment changes
+            # both the reference and the subsequent RNG sequence. The blob's latent is only a
+            # shape/budget check. Draw this job's noise over the cached encoder output, exactly
+            # as encode_latent does after the seed.
+            mu, std = self._reference_conditioning(voice)
+            prompt_latent = (mu + std * mx.random.normal(mu.shape, dtype=mu.dtype)).transpose(0, 2, 1)
             mx.eval(prompt_latent)
             fragments = self._split_fragments(self._add_period(text), MAX_FRAGMENT_UNITS)
             st["prepare_ms"] = (time.perf_counter() - start) * 1e3

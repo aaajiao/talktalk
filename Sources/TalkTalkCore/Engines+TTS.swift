@@ -65,6 +65,26 @@ public struct TTSRequest: Codable, Sendable, Equatable {
     }
 }
 
+/// Engine-side stages of one TTS job in milliseconds, for diagnostics only (no text).
+public struct TTSEngineStages: Codable, Sendable, Equatable {
+    /// Request receipt to the job's first GPU step.
+    public var queueMs: Double?
+    /// Per-request conditioning before the first generation step.
+    public var prepareMs: Double?
+    /// The first generation step (prompt prefill).
+    public var prefillMs: Double?
+    /// Request receipt to the first PCM sent, including the guard hold and retries.
+    public var firstPCMMs: Double?
+
+    public init(queueMs: Double? = nil, prepareMs: Double? = nil, prefillMs: Double? = nil, firstPCMMs: Double? = nil) {
+        self.queueMs = queueMs; self.prepareMs = prepareMs; self.prefillMs = prefillMs; self.firstPCMMs = firstPCMMs
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case queueMs = "queue_ms", prepareMs = "prepare_ms", prefillMs = "prefill_ms", firstPCMMs = "first_pcm_ms"
+    }
+}
+
 /// End-of-stream summary (§4.4 `/v1/tts` tail). Coding keys are the wire keys of the tail.
 public struct TTSSummary: Codable, Sendable, Equatable {
     public var audioS: Double
@@ -77,19 +97,21 @@ public struct TTSSummary: Codable, Sendable, Equatable {
     /// Actual compute/audio ratio from the engine, excluding legal horizon parking and HTTP.
     public var computeRTF: Double?
     public var contextUsed: Bool?
+    /// Engine TTS only; nil for system voices.
+    public var engineStages: TTSEngineStages?
 
     public init(audioS: Double, frames: Int, runaway: Bool = false, short: Bool = false, slow: Bool = false,
                 echoAborts: Int = 0, attempts: Int = 1, leadTrimMs: Int = 0, timing: StageTiming,
-                computeRTF: Double? = nil, contextUsed: Bool? = nil) {
+                computeRTF: Double? = nil, contextUsed: Bool? = nil, engineStages: TTSEngineStages? = nil) {
         self.audioS = audioS; self.frames = frames; self.runaway = runaway; self.short = short; self.slow = slow
         self.echoAborts = echoAborts; self.attempts = attempts; self.leadTrimMs = leadTrimMs; self.timing = timing; self.computeRTF = computeRTF
-        self.contextUsed = contextUsed
+        self.contextUsed = contextUsed; self.engineStages = engineStages
     }
 
     private enum CodingKeys: String, CodingKey {
         case audioS = "audio_s", frames, runaway, short, slow, echoAborts = "echo_aborts", attempts
         case leadTrimMs = "lead_trim_ms", timing, computeRTF
-        case contextUsed = "context_used"
+        case contextUsed = "context_used", engineStages = "engine_stages"
     }
 }
 
@@ -100,7 +122,7 @@ extension TTSSummary {
         a.audioS == b.audioS && a.frames == b.frames && a.runaway == b.runaway && a.short == b.short
             && a.slow == b.slow && a.echoAborts == b.echoAborts && a.attempts == b.attempts
             && a.leadTrimMs == b.leadTrimMs && a.computeRTF == b.computeRTF && a.timing.received == b.timing.received
-            && a.contextUsed == b.contextUsed
+            && a.contextUsed == b.contextUsed && a.engineStages == b.engineStages
             && a.timing.started == b.timing.started && a.timing.firstOutput == b.timing.firstOutput
             && a.timing.finished == b.timing.finished
     }
