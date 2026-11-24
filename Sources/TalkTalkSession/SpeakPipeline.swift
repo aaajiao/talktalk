@@ -27,6 +27,8 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         var ttsJob: JobID?
         var voice: HUDModel.Voice = .mine
         var speechS: Double
+        /// The recognizer got the preceding sentence of this press as context.
+        var previousContext = false
         var readyAt: HostTime = 0
         var mode: MTMode = .normal
         var summary = false
@@ -480,10 +482,13 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private func recognize(_ clip: SpeakClip, clause id: UInt64, job: JobID, token: UInt32) async throws -> ASRFinal {
         guard active(id, token: token), let row = clauses[id] else { throw CancellationError() }
         if let primaryASR {
-            // Release tails and early short replies can contain little speech: keep glossary hints, but not a full
-            // preceding sentence that the recognizer could repeat in place of the remaining audio.
-            let previous = (clip.isFinal || clip.cutReason == .release || clip.cutReason == .shortReply) ? nil
+            // Release tails, early short replies and force-cut fragments with less speech than a silence commit
+            // needs keep glossary hints, but not a full preceding sentence: on little audio the recognizer can
+            // repeat that sentence in place of the speech.
+            let short = Double(clip.speechMs) / 1000 < profile.speak.commitMin(for: target).speechS
+            let previous = (short || clip.isFinal || clip.cutReason == .release || clip.cutReason == .shortReply) ? nil
                 : lastSource.flatMap { $0.press == row.press ? $0.text : nil }
+            clauses[id]?.previousContext = previous != nil
             let context = [previous, asrContext()].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
             do {
                 // The 600 ms budget begins when this clip actually reaches the recognizer,
@@ -496,6 +501,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 guard active(id, token: token) else { throw CancellationError() }
             }
         }
+        clauses[id]?.previousContext = false
         await preview?.pauseForFinalASR()
         do {
             try Task.checkCancellation()
@@ -526,6 +532,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             let samePrevious = lastSource.map { $0.press == row.press && $0.text == text && !text.isEmpty } ?? false
             log.event("speak.asr_result", ["clause": .int(Int(id)), "press": .int(Int(row.press)),
                 "source_characters": .int(text.count), "same_previous": .bool(samePrevious),
+                "previous_context": .bool(clauses[id]?.previousContext ?? false),
                 "cut_reason": .tag(clip.cutReason.rawValue)])
             if gate.isFiller(text) { log.event("seg.filler"); discard(id, warning: nil); return }
             let external = speakerMode()

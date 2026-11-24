@@ -18,12 +18,14 @@ class FakeModel:
     def __init__(self, output=" b"):
         self._tokenizer = FakeTokenizer()
         self.prompts = []
+        self.system_prompts = []
         self.output = output
 
     def _build_prompt(self, num_audio_tokens, language, system_prompt):
         return np.array([[1, 2]], dtype=np.int32)
 
     def stream_generate(self, audio, max_tokens, language, system_prompt):
+        self.system_prompts.append(system_prompt)
         self.prompts.append(self._build_prompt(0, language, system_prompt)[0].tolist())
         for c in self.output:
             yield ord(c), None
@@ -78,6 +80,13 @@ class PinnedTextTests(unittest.TestCase):
     def test_a_hint_overrides_any_tag(self):
         self.asr.model.output = "language English<asr_text>b"
         self.assertEqual(run(self.asr, hint="fr")["language"], "French")
+
+    def test_context_keeps_the_newline_the_older_runtime_added(self):
+        # mlx-audio 0.6.4 built "{context}\n"; 0.6.8 builds "{context}" as given.
+        run(self.asr, hint="zh", context="上一句。")
+        run(self.asr, hint="zh")
+        run(self.asr, hint="zh", context="")
+        self.assertEqual(self.asr.model.system_prompts, ["上一句。\n", None, None])
 
 
 if __name__ == "__main__":

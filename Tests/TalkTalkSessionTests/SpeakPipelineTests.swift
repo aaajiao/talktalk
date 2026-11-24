@@ -265,9 +265,9 @@ struct SpeakPipelineTests {
             asrContext: asrContext, commitWhileHeld: whileHeld)
         return (pipeline, mic, host, tts)
     }
-    private func clip(at: HostTime, isFinal: Bool = true) -> SpeakClip {
+    private func clip(at: HostTime, isFinal: Bool = true, speechMs: Int = 1000) -> SpeakClip {
         .init(pcm: .init(samples: Array(repeating: 0.1, count: 16_000), start: at, end: at + 1_000_000_000),
-              index: 0, isFinal: isFinal, speechMs: 1000, cutReason: isFinal ? .release : .vadDip)
+              index: 0, isFinal: isFinal, speechMs: speechMs, cutReason: isFinal ? .release : .vadDip)
     }
 
     @Test func releaseUsesASRFallbackAndProducesOneTargetLanguageClause() async throws {
@@ -327,13 +327,13 @@ struct SpeakPipelineTests {
                                                asrContext: { "TalkTalk" })
         let now = HostClock.now()
         await pipeline.handle(.began(at: now))
-        mic.press.cc.yield(clip(at: now, isFinal: false))
+        mic.press.cc.yield(clip(at: now, isFinal: false, speechMs: 1500))
         #expect(await until { await mt.calls == 1 })
-        mic.press.cc.yield(clip(at: now + 1_000_000_000, isFinal: false))
+        mic.press.cc.yield(clip(at: now + 1_000_000_000, isFinal: false, speechMs: 1500))
         #expect(await until { await mt.calls == 2 })
         await pipeline.handle(.released(at: now + 2_000_000_000, reason: .keyUp))
         await pipeline.handle(.began(at: now + 3_000_000_000))
-        mic.press.cc.yield(clip(at: now + 3_000_000_000, isFinal: false))
+        mic.press.cc.yield(clip(at: now + 3_000_000_000, isFinal: false, speechMs: 1500))
         #expect(await until { await mt.calls == 3 })
         let contexts = await primary.contexts
         #expect(contexts == ["TalkTalk", "上一轮的第一句。\nTalkTalk", "TalkTalk"])
@@ -363,6 +363,32 @@ struct SpeakPipelineTests {
         }
     }
 
+    @Test(arguments: [SpeakClip.CutReason.vadDip, .limit, .energyMinimum])
+    func forceCutFragmentWithLittleSpeechKeepsGlossaryWithoutPreviousContext(reason: SpeakClip.CutReason) async throws {
+        let preceding = "我们讨论竹子的材料。"
+        for tail in ["新的安排。", preceding] {
+            let primary = SpeakTestASR(texts: [preceding, tail], repeatsFirstFromContextOnShortClip: true)
+            let mt = SpeakTestMT(), log = EventLog(inMemory: HostClock.now)
+            let (pipeline, mic, _, _) = try fixture(mt: mt, primary: primary, whileHeld: true, log: log,
+                                                   asrContext: { "TalkTalk" })
+            let now = HostClock.now()
+            await pipeline.handle(.began(at: now))
+            mic.press.cc.yield(clip(at: now, isFinal: false, speechMs: 1500))
+            #expect(await until { await mt.calls == 1 })
+            // A mid-press force cut with less speech than a silence commit needs (1.2 s).
+            mic.press.cc.yield(.init(pcm: .init(samples: Array(repeating: 0.1, count: 8_960),
+                start: now + 1_000_000_000, end: now + 1_560_000_000),
+                index: 1, isFinal: false, speechMs: 560, cutReason: reason))
+            #expect(await until { await mt.calls == 2 })
+            #expect(await primary.contexts == ["TalkTalk", "TalkTalk"])
+            // A genuine repetition still reaches MT.
+            #expect(await mt.requests.map(\.text) == [preceding, tail])
+            let used = log.recorded.filter { $0["ev"] as? String == "speak.asr_result" }.map { $0["previous_context"] as? Bool }
+            #expect(used == [false, false])
+            await pipeline.stop()
+        }
+    }
+
     @Test func shortReplyKeepsGlossaryAndRestoresContextForTheNextOrdinaryClip() async throws {
         let reply = "谢谢。", following = "我们明天继续讨论。"
         for preceding in ["我们讨论竹子的材料。", reply] {
@@ -386,7 +412,7 @@ struct SpeakPipelineTests {
             // Do not suppress an intentional repeated reply, or disable context for later
             // ordinary speech: it should use the actual reply recognized from the short PCM.
             #expect(await mt.requests.map(\.text) == [preceding, reply])
-            mic.press.cc.yield(clip(at: now + 1_890_000_000, isFinal: false))
+            mic.press.cc.yield(clip(at: now + 1_890_000_000, isFinal: false, speechMs: 1500))
             #expect(await until { await mt.calls == 3 })
             #expect(await primary.contexts == ["TalkTalk", "TalkTalk", reply + "\nTalkTalk"])
             #expect(await mt.requests.map(\.text) == [preceding, reply, following])
@@ -448,6 +474,7 @@ struct SpeakPipelineTests {
         #expect(source["clip_ms"] as? Int == 1000 && source["speech_ms"] as? Int == 1000)
         #expect(source["clip_overlap_ms"] as? Int == 0)
         #expect(recognized["source_characters"] as? Int == 4 && recognized["same_previous"] as? Bool == false)
+        #expect(recognized["previous_context"] as? Bool == false)
         #expect(source["cut_reason"] as? String == "release")
         #expect(request["clause"] as? Int == source["clause"] as? Int)
         #expect(request["members"] as? Int == 1)

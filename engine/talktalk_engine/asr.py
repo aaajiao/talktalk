@@ -69,8 +69,11 @@ class ASRModel:
         pinned = self.model._tokenizer.encode(pinned_text, add_special_tokens=False) if pinned_text and lang else []
         st.update(step_ms=[], tokens=0, audio_s=round(len(audio) / SAMPLE_RATE, 3), pinned_tokens=len(pinned))
         tokens = []
+        # mlx-audio 0.6.8 (#1236) dropped the newline after the context; with it, short clips copy
+        # the context (the previous sentence) more often. Keep the 0.6.4 prompt bytes the product
+        # was tuned on.
         gen = self.model.stream_generate(self.mx.array(audio), max_tokens=max_tokens, language=lang,
-                                         system_prompt=context or None)
+                                         system_prompt=f"{context}\n" if context else None)
         try:
             ts = time.perf_counter()
             self._pin = pinned   # taken when the first step below builds the prompt
