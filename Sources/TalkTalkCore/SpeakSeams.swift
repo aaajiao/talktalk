@@ -39,11 +39,15 @@ public struct SpeakClip: Sendable {
     /// First and last voiced instants in ms from `pcm.start`; diagnostics only.
     public var speechFirstMs: Int?
     public var speechLastMs: Int?
+    /// Preview updates the segmenter ignored as older than this clip; diagnostics only.
+    public var previewsIgnored: Int?
     public init(pcm: PCMClip16k, index: Int, isFinal: Bool, speechMs: Int, cutReason: CutReason,
-                cutDetail: SpeakSegmenter.Reason? = nil, speechFirstMs: Int? = nil, speechLastMs: Int? = nil) {
+                cutDetail: SpeakSegmenter.Reason? = nil, speechFirstMs: Int? = nil, speechLastMs: Int? = nil,
+                previewsIgnored: Int? = nil) {
         self.pcm = pcm; self.index = index; self.isFinal = isFinal
         self.speechMs = speechMs; self.cutReason = cutReason
         self.cutDetail = cutDetail; self.speechFirstMs = speechFirstMs; self.speechLastMs = speechLastMs
+        self.previewsIgnored = previewsIgnored
     }
 }
 

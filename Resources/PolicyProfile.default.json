@@ -6,7 +6,7 @@
   "display":{"lines":2,"maxCps":9},"echoFilter":{"overlap":0.6,"windowS":20,"afterPlayS":2}},
  "speak":{"ptt":{"minHoldMs":150,"prerollMs":300,"tailMs":250,"maxHoldS":60,
     "chordCancelWindowMs":400,"chordCancelOnlyBeforeFirstCommit":true,"doubleTap":{"maxPressMs":150,"maxGapMs":300,"requireNoVad":true}},
-  "boundary":{"punct":"，。？！；：,.!?;:","punctHoldMs":300,"vadSilenceMs":350,"stallMs":1000,"punctOnlyAdvances":true},
+  "boundary":{"punct":"，。？！；：,.!?;:","punctHoldMs":300,"vadSilenceMs":350,"stallMs":1000,"punctOnlyAdvances":true,"clauseDipAfterS":2.5},
   "commitMin":{"estCjk":8,"defaultCjkPerS":4.5,"speechS":1.2,"sinceOnsetS":1.2,"previewVetoCaughtUpMs":200},
   "fillers":["嗯","啊","呃","那个","就是","然后"],
   "forceCut":{"cjk":24,"sinceLastS":4.0,"dipMs":150,"clipMaxS":6.0,"clipMaxSUntilSteppedASR":4.5,"minEnergyWindowMs":50},

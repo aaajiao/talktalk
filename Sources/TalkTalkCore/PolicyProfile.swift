@@ -190,6 +190,9 @@ extension PolicyProfile {
         public struct Boundary: Codable, Sendable, Equatable {
             public var punct: String; public var punctHoldMs: Int; public var vadSilenceMs: Int; public var stallMs: Int
             public var punctOnlyAdvances: Bool
+            /// From this segment age on, a forceCut.dipMs pause that passes the commit test commits
+            /// without waiting for vadSilenceMs.
+            public var clauseDipAfterS: Double
         }
         public struct CommitMin: Codable, Sendable, Equatable {
             public var estCjk: Int; public var defaultCjkPerS: Double; public var speechS: Double

@@ -142,9 +142,14 @@ import TalkTalkCore
         #expect(await eventuallyMic { rig.latest != nil })
         let reader = Task { for await clip in press.clips { clips.withLock { $0.append(clip) } } }
         let capture = try #require(rig.latest)
-        for i in 0..<120 { capture.feed(at: start + UInt64(i) * 20_000_000, frame: UInt64(i * 320)) }
+        // 2 s of speech, a 160 ms pause, more speech: the cut lands in the pause, never on a voiced frame.
+        for i in 0..<140 {
+            capture.feed(at: start + UInt64(i) * 20_000_000, frame: UInt64(i * 320), value: i < 100 || i >= 108 ? 0.1 : 0)
+        }
         #expect(await eventuallyMic { !clips.withLock { $0.isEmpty } })
-        #expect(clips.withLock { !$0[0].isFinal && $0[0].pcm.start >= start - 300_000_000 })
+        let clip = try #require(clips.withLock { $0.first })
+        #expect(!clip.isFinal && clip.pcm.start >= start - 300_000_000 && clip.cutDetail == .clauseDip)
+        #expect(clip.speechLastMs == 2_000 && clip.pcm.end == start + 2_080_000_000 && clip.previewsIgnored == 0)
         press.cancel(); mic.stop(); await reader.value
     }
 

@@ -507,6 +507,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         if let detail = clip.cutDetail { fields["cut_detail"] = .tag(detail.rawValue) }
         if let first = clip.speechFirstMs { fields["speech_first_ms"] = .int(first) }
         if let last = clip.speechLastMs { fields["speech_last_ms"] = .int(last) }
+        if let ignored = clip.previewsIgnored { fields["preview_ignored"] = .int(ignored) }
         if let listen = selfListen() { fields["self_listen"] = .tag(listen) }
         log.event("speak.clip_committed", fields, at: committedAt)
         let previous = asrTail

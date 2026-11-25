@@ -104,6 +104,28 @@ struct SpeakShortReplyTests {
         #expect(second.speechMs == 800 && second.index == first.index + 1)
     }
 
+    @Test func previewFloorOneSampleBeforeTheCutStillReachesTheNextSegment() throws {
+        // The pipeline's preview floor is the clip's sample-aligned end, which can be one 16 kHz
+        // sample (62.5 µs) before a cut that falls between samples.
+        for (lag, replies) in [(UInt64(62_500), true), (2_000_000, false)] {
+            var s = try make()
+            _ = feed(&s, 0, 0.8, speech: true)
+            _ = preview(&s)
+            let first = try #require(feed(&s, 0.8, 1.3, speech: false).first)
+            _ = feed(&s, 1.3, 2.1, speech: true)
+            _ = s.preview(stableText: "Yes.", through: ns(2.1), at: ns(2.6),
+                          boundary: .init(from: first.end - lag, fullyStable: true))
+            let second = feed(&s, 2.1, 2.9, speech: false)
+            #expect((second.first?.reason == .shortReply) == replies)
+            if replies {
+                #expect(second.first?.end == ns(2.35) && second.first?.previewsIgnored == 0)
+            } else {
+                // Two milliseconds is an earlier segment's callback: ignored, and counted.
+                #expect(second.isEmpty && s.release(at: ns(2.9)).first?.previewsIgnored == 1)
+            }
+        }
+    }
+
     @Test func audioGapIsNotCountedAsObservedPauseAndSubminimumSpeechStaysPending() throws {
         var gap = try make()
         _ = feed(&gap, 0, 0.8, speech: true)

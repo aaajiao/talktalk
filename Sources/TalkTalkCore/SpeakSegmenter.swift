@@ -35,7 +35,9 @@ public struct SpeakSegmenter: Sendable {
             self.start = start; self.end = end; self.speech = speech; self.energy = energy
         }
     }
-    public enum Reason: String, Sendable { case punctuation, asrFinal, silence, stall, forcedDip, hardCap, release, shortReply }
+    public enum Reason: String, Sendable {
+        case punctuation, asrFinal, silence, clauseDip, stall, forcedDip, hardCap, release, shortReply
+    }
     public struct Commit: Sendable, Equatable {
         public var start, end: HostTime
         public var index: Int
@@ -45,6 +47,8 @@ public struct SpeakSegmenter: Sendable {
         /// First and last voiced instants inside [start, end]; nil when no frame was voiced. Diagnostics only.
         public var speechStart: HostTime?
         public var speechEnd: HostTime?
+        /// Preview updates ignored as belonging to an earlier segment while this one was open. Diagnostics only.
+        public var previewsIgnored = 0
     }
     public let profile: PolicyProfile.Speak
     public let committer: SpeakCommitter
@@ -57,6 +61,7 @@ public struct SpeakSegmenter: Sendable {
     private var stable = ""
     private var previewCharacters: Int?
     private var previewThrough: HostTime?
+    private var previewsIgnored = 0
     private var lastStableAt: HostTime
     private var punctuationAt: HostTime?
     private var finalThrough: HostTime?
@@ -100,8 +105,11 @@ public struct SpeakSegmenter: Sendable {
                                   isFinal: Bool = false, boundary: SpeakPreviewBoundary? = nil) -> [Commit] {
         guard !finished, through > start else { return [] }
         // A callback queued before the microphone worker cut a segment can arrive after
-        // the cut but before SpeakPipeline has advanced its preview floor.
-        if let boundary, boundary.from < start { return [] }
+        // the cut but before SpeakPipeline has advanced its preview floor. The floor is the
+        // clip's sample-aligned end, up to one 16 kHz sample before a cut that falls between
+        // samples, so that rounding does not make the rest of the press text-blind.
+        if let boundary, boundary.from + Self.shortTimestampTolerance < start { previewsIgnored += 1; return [] }
+        let boundary = boundary.map { SpeakPreviewBoundary(from: max($0.from, start), fullyStable: $0.fullyStable) }
         let text = stableText.trimmingCharacters(in: .whitespacesAndNewlines)
         if let boundary, boundary.fullyStable, Self.isCompleteShortReply(text) {
             let settledAt: HostTime
@@ -157,12 +165,13 @@ public struct SpeakSegmenter: Sendable {
                 || speechSeconds(through: audioEnd) * committer.charactersPerSecond >= Double(profile.forceCut.cjk)
             if due, (!forceOnly || hard) {
                 let limit = min(cap, audioEnd)
-                if let dip = latestDip(through: limit) {
+                let head = forcedHeadSpeechS(through: limit)
+                if hard || !pauseIsOpening(at: limit), let dip = latestDip(through: limit, leavingSpeechS: head) {
                     if let c = commit(at: dip, reason: .forcedDip) { out.append(c) }
                     continue
                 }
                 if hard {
-                    if let c = commit(at: energyCut(through: cap), reason: .hardCap) { out.append(c) }
+                    if let c = commit(at: energyCut(through: cap, leavingSpeechS: head), reason: .hardCap) { out.append(c) }
                     continue
                 }
             }
@@ -178,13 +187,16 @@ public struct SpeakSegmenter: Sendable {
             if let silence = silenceStart(at: audioEnd), HostClock.ms(silence, to: audioEnd) >= profile.boundary.vadSilenceMs {
                 candidates.append((silence + (audioEnd - silence) / 2, .silence))
             }
-            if HostClock.ms(lastStableAt, to: audioEnd) >= profile.boundary.stallMs { candidates.append((audioEnd, .stall)) }
-            guard let candidate = candidates.sorted(by: { $0.0 < $1.0 }).first(where: { cut, _ in
-                let onset = frames.first(where: { $0.speech && $0.start < cut })?.start ?? cut
-                return committer.allows(speechS: speechSeconds(through: cut),
-                    sinceOnsetS: Double(HostClock.ms(onset, to: cut)) / 1000, cutAt: cut,
-                    previewCharacters: previewCharacters, previewThrough: previewThrough)
-            }) else { break }
+            // From clauseDipAfterS on, or once the preview is stale (it says nothing about the
+            // audio), a dipMs pause that closes a clause and already has the release floor of
+            // speech after it commits without waiting for vadSilenceMs or the forced cut.
+            let aged = Double(HostClock.ms(start, to: audioEnd)) / 1000 >= profile.boundary.clauseDipAfterS
+            if aged || HostClock.ms(lastStableAt, to: audioEnd) >= profile.boundary.stallMs, let dip = shortPauseCut() {
+                candidates.append((dip, aged ? .clauseDip : .stall))
+            }
+            // Earliest allowed cut; a tie keeps the order above.
+            guard let candidate = candidates.enumerated().sorted(by: { ($0.element.0, $0.offset) < ($1.element.0, $1.offset) })
+                .map(\.element).first(where: { cut, _ in closesClause(at: cut) }) else { break }
             if let c = commit(at: candidate.0, reason: candidate.1) { out.append(c) }
         }
         return out
@@ -248,7 +260,17 @@ public struct SpeakSegmenter: Sendable {
         return beginning
     }
 
-    private func latestDip(through end: HostTime) -> HostTime? {
+    /// The normal commit test for a cut at `cut`, preview veto included.
+    private func closesClause(at cut: HostTime) -> Bool {
+        let onset = frames.first(where: { $0.speech && $0.start < cut })?.start ?? cut
+        return committer.allows(speechS: speechSeconds(through: cut),
+            sinceOnsetS: Double(HostClock.ms(onset, to: cut)) / 1000, cutAt: cut,
+            previewCharacters: previewCharacters, previewThrough: previewThrough)
+    }
+
+    /// Midpoints of the quiet runs of at least dipMs before `end`, oldest first; a run still
+    /// open at `end` counts once it is long enough.
+    private func dips(through end: HostTime) -> [HostTime] {
         var quietStart: HostTime?, quietEnd: HostTime?, cuts: [HostTime] = []
         func collect() {
             if let lo = quietStart, let hi = quietEnd, HostClock.ms(lo, to: hi) >= profile.forceCut.dipMs {
@@ -260,10 +282,41 @@ public struct SpeakSegmenter: Sendable {
             else { if quietStart == nil { quietStart = max(start, f.start) }; quietEnd = min(end, f.end) }
         }
         collect()
-        return cuts.last { $0 > start && speechSeconds(through: $0) >= profile.release.commitRemainderMinSpeechS }
+        return cuts
     }
 
-    private func energyCut(through end: HostTime) -> HostTime {
+    /// The latest dip that closes a clause and is already followed by the release floor of speech.
+    /// A pause still open at the end waits for vadSilenceMs instead: cutting it at dipMs would strand
+    /// a short last word after it in a remainder that release drops.
+    private func shortPauseCut() -> HostTime? {
+        let total = speechSeconds(through: audioEnd), floor = profile.release.commitRemainderMinSpeechS
+        return dips(through: audioEnd).last {
+            $0 > start && total - speechSeconds(through: $0) + 1e-9 >= floor && closesClause(at: $0)
+        }
+    }
+
+    private func latestDip(through end: HostTime, leavingSpeechS head: Double) -> HostTime? {
+        dips(through: end).last { $0 > start && speechSeconds(through: $0) >= head }
+    }
+
+    /// A forced cut leaves the commit minimum before it once the segment holds that much speech,
+    /// so a sub-minimum head never waits out the forced-cut timer of its own; a sparse segment
+    /// keeps the release floor.
+    private func forcedHeadSpeechS(through end: HostTime) -> Double {
+        let floor = profile.release.commitRemainderMinSpeechS
+        let full = max(floor, committer.minimum.speechS)
+        return speechSeconds(through: end) >= full ? full : floor
+    }
+
+    /// The forced point fell inside a pause still shorter than dipMs, after a commit minimum of
+    /// speech: let it become a dip (at most dipMs) instead of cutting back to an older one.
+    private func pauseIsOpening(at end: HostTime) -> Bool {
+        guard let quiet = silenceStart(at: end) else { return false }
+        return HostClock.ms(quiet, to: end) < profile.forceCut.dipMs
+            && speechSeconds(through: quiet) >= max(profile.release.commitRemainderMinSpeechS, committer.minimum.speechS)
+    }
+
+    private func energyCut(through end: HostTime, leavingSpeechS head: Double) -> HostTime {
         let window = UInt64(max(1, profile.forceCut.minEnergyWindowMs)) * 1_000_000
         var best: (energy: Double, cut: HostTime)?
         for frame in frames where frame.start >= start && frame.start < end {
@@ -271,7 +324,7 @@ public struct SpeakSegmenter: Sendable {
             guard hi - lo == window else { continue }
             let cut = lo + window / 2
             // Do not repeatedly select the silent pre-roll and generate tiny empty clips.
-            guard speechSeconds(through: cut) >= profile.release.commitRemainderMinSpeechS else { continue }
+            guard speechSeconds(through: cut) >= head else { continue }
             var sum = 0.0, duration = 0.0
             for f in frames where f.start < hi && f.end > lo {
                 let n = Double(min(hi, f.end) - max(lo, f.start))
@@ -291,8 +344,9 @@ public struct SpeakSegmenter: Sendable {
         let result = Commit(start: start, end: end, index: index, speechMs: Int((seconds * 1000).rounded()),
                             isFinalChunk: final, reason: reason,
                             speechStart: voiced.first.map { max(start, $0.start) },
-                            speechEnd: voiced.last.map { min(end, $0.end) })
+                            speechEnd: voiced.last.map { min(end, $0.end) }, previewsIgnored: previewsIgnored)
         start = end
+        previewsIgnored = 0
         frames.removeAll { $0.end <= end }
         if !frames.isEmpty, frames[0].start < end { frames[0].start = end }
         stable = ""; previewCharacters = nil; previewThrough = nil; punctuationAt = nil; finalThrough = nil
