@@ -440,7 +440,7 @@ final class SpeakController {
                     let terms = AppGlossary.store.snapshot().flatMap { [$0.zh, $0.en] }
                         .filter { !$0.isEmpty && seen.insert($0).inserted }
                     return terms.isEmpty ? nil : terms.joined(separator: ", ")
-                })
+                }, selfListen: { Self.monitorTag(output.monitor.selfListen) })
             self.pipeline = pipeline
             if !demo {
                 announcementEnabled = AppUIModels.shared.general.announcementEnabled
@@ -1145,7 +1145,7 @@ final class SpeakController {
         }
     }
 
-    private static func monitorTag(_ state: MonitorOutput.SelfListen) -> String {
+    nonisolated private static func monitorTag(_ state: MonitorOutput.SelfListen) -> String {
         switch state {
         case .audible: "audible"
         case .off: "off"

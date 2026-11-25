@@ -34,9 +34,16 @@ public struct SpeakClip: Sendable {
     public var isFinal: Bool
     public var speechMs: Int
     public var cutReason: CutReason
-    public init(pcm: PCMClip16k, index: Int, isFinal: Bool, speechMs: Int, cutReason: CutReason) {
+    /// The segmenter's own reason (`cutReason` groups them); diagnostics only.
+    public var cutDetail: SpeakSegmenter.Reason?
+    /// First and last voiced instants in ms from `pcm.start`; diagnostics only.
+    public var speechFirstMs: Int?
+    public var speechLastMs: Int?
+    public init(pcm: PCMClip16k, index: Int, isFinal: Bool, speechMs: Int, cutReason: CutReason,
+                cutDetail: SpeakSegmenter.Reason? = nil, speechFirstMs: Int? = nil, speechLastMs: Int? = nil) {
         self.pcm = pcm; self.index = index; self.isFinal = isFinal
         self.speechMs = speechMs; self.cutReason = cutReason
+        self.cutDetail = cutDetail; self.speechFirstMs = speechFirstMs; self.speechLastMs = speechLastMs
     }
 }
 

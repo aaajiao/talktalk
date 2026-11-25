@@ -42,6 +42,9 @@ public struct SpeakSegmenter: Sendable {
         public var speechMs: Int
         public var isFinalChunk: Bool
         public var reason: Reason
+        /// First and last voiced instants inside [start, end]; nil when no frame was voiced. Diagnostics only.
+        public var speechStart: HostTime?
+        public var speechEnd: HostTime?
     }
     public let profile: PolicyProfile.Speak
     public let committer: SpeakCommitter
@@ -284,8 +287,11 @@ public struct SpeakSegmenter: Sendable {
     private mutating func commit(at end: HostTime, reason: Reason, final: Bool = false) -> Commit? {
         guard end > start else { return nil }
         let seconds = speechSeconds(through: end)
+        let voiced = frames.filter { $0.speech && $0.start < end && $0.end > start }
         let result = Commit(start: start, end: end, index: index, speechMs: Int((seconds * 1000).rounded()),
-                            isFinalChunk: final, reason: reason)
+                            isFinalChunk: final, reason: reason,
+                            speechStart: voiced.first.map { max(start, $0.start) },
+                            speechEnd: voiced.last.map { min(end, $0.end) })
         start = end
         frames.removeAll { $0.end <= end }
         if !frames.isEmpty, frames[0].start < end { frames[0].start = end }

@@ -250,6 +250,7 @@ struct SpeakPipelineTests {
                          preview: (any StreamingASREngine)? = nil, whileHeld: Bool = false, source: Lang = .zh, target: Lang = .en,
                          captureFromKeyDown: Bool = false, log: EventLog? = nil, echo: any SpeakEchoSink = SpeakTestEcho(),
                          asrContext: @escaping @Sendable () -> String? = { nil },
+                         selfListen: @escaping @Sendable () -> String? = { nil },
                          onCommit: @escaping @Sendable () -> Void = {},
                          onWorkChange: @escaping @Sendable (Bool) -> Void = { _ in },
                          onUI: @escaping @Sendable (SpeakUIEvent) -> Void = { _ in },
@@ -267,8 +268,14 @@ struct SpeakPipelineTests {
             engine: SpeakTestControl(), echo: echo, previewASR: preview, source: source, target: target, jobs: JobIDSequence(),
             log: log ?? EventLog(inMemory: HostClock.now), speakerMode: { false }, captureFromKeyDown: captureFromKeyDown,
             ui: onUI, onCommit: onCommit, onWorkChange: onWorkChange, onSpoken: onSpoken,
-            asrContext: asrContext, commitWhileHeld: whileHeld)
+            asrContext: asrContext, selfListen: selfListen, commitWhileHeld: whileHeld)
         return (pipeline, mic, host, tts)
+    }
+    /// Distinct sentences for tests that commit several default clips in one press, which would
+    /// otherwise be dropped as short repeats of each other.
+    private static let distinctSources = ["今天先看预算。", "然后讨论排期。", "最后确认人选。", "下次再总结。"]
+    private static func repeatDrops(_ log: EventLog) -> Int {
+        log.recorded.filter { $0["ev"] as? String == "gate.drop" && $0["reason"] as? String == "repeat" }.count
     }
     private func clip(at: HostTime, isFinal: Bool = true, speechMs: Int = 1000) -> SpeakClip {
         .init(pcm: .init(samples: Array(repeating: 0.1, count: 16_000), start: at, end: at + 1_000_000_000),
@@ -367,10 +374,10 @@ struct SpeakPipelineTests {
 
     @Test func releaseTailKeepsGlossaryWithoutRepeatingPreviousContext() async throws {
         let preceding = "我们讨论竹子的材料。"
-        for tail in ["新的安排。", preceding] {
+        for (tail, kept) in [("新的安排。", true), (preceding, false)] {
             let primary = SpeakTestASR(texts: [preceding, tail], repeatsFirstFromContextOnShortClip: true)
-            let mt = SpeakTestMT()
-            let (pipeline, mic, _, _) = try fixture(mt: mt, primary: primary, whileHeld: true,
+            let mt = SpeakTestMT(), log = EventLog(inMemory: HostClock.now)
+            let (pipeline, mic, _, _) = try fixture(mt: mt, primary: primary, whileHeld: true, log: log,
                                                    asrContext: { "TalkTalk" })
             let now = HostClock.now()
             await pipeline.handle(.began(at: now))
@@ -380,10 +387,16 @@ struct SpeakPipelineTests {
                 start: now + 1_000_000_000, end: now + 1_640_000_000),
                 index: 1, isFinal: true, speechMs: 640, cutReason: .release))
             await pipeline.handle(.released(at: now + 1_640_000_000, reason: .keyUp))
-            #expect(await until { await mt.calls == 2 })
+            #expect(await until { log.recorded.filter { $0["ev"] as? String == "speak.asr_result" }.count == 2 })
+            #expect(await until {
+                if kept { return await mt.calls == 2 }
+                return Self.repeatDrops(log) == 1
+            })
             #expect(await primary.contexts == ["TalkTalk", "TalkTalk"])
-            // Both a new short utterance and an intentional repetition reach MT unchanged.
-            #expect(await mt.requests.map(\.text) == [preceding, tail])
+            // A new short utterance reaches MT; a short exact repeat of the previous sentence is dropped.
+            #expect(await mt.requests.map(\.text) == (kept ? [preceding, tail] : [preceding]))
+            let used = log.recorded.filter { $0["ev"] as? String == "speak.asr_result" }.map { $0["previous_context"] as? Bool }
+            #expect(used == [false, false])
             await pipeline.stop()
         }
     }
@@ -391,7 +404,7 @@ struct SpeakPipelineTests {
     @Test(arguments: [SpeakClip.CutReason.vadDip, .limit, .energyMinimum])
     func forceCutFragmentWithLittleSpeechKeepsGlossaryWithoutPreviousContext(reason: SpeakClip.CutReason) async throws {
         let preceding = "我们讨论竹子的材料。"
-        for tail in ["新的安排。", preceding] {
+        for (tail, kept) in [("新的安排。", true), (preceding, false)] {
             let primary = SpeakTestASR(texts: [preceding, tail], repeatsFirstFromContextOnShortClip: true)
             let mt = SpeakTestMT(), log = EventLog(inMemory: HostClock.now)
             let (pipeline, mic, _, _) = try fixture(mt: mt, primary: primary, whileHeld: true, log: log,
@@ -404,23 +417,181 @@ struct SpeakPipelineTests {
             mic.press.cc.yield(.init(pcm: .init(samples: Array(repeating: 0.1, count: 8_960),
                 start: now + 1_000_000_000, end: now + 1_560_000_000),
                 index: 1, isFinal: false, speechMs: 560, cutReason: reason))
-            #expect(await until { await mt.calls == 2 })
+            #expect(await until { log.recorded.filter { $0["ev"] as? String == "speak.asr_result" }.count == 2 })
+            #expect(await until {
+                if kept { return await mt.calls == 2 }
+                return Self.repeatDrops(log) == 1
+            })
             #expect(await primary.contexts == ["TalkTalk", "TalkTalk"])
-            // A genuine repetition still reaches MT.
-            #expect(await mt.requests.map(\.text) == [preceding, tail])
+            // A new short utterance reaches MT; a short exact repeat of the previous sentence is dropped.
+            #expect(await mt.requests.map(\.text) == (kept ? [preceding, tail] : [preceding]))
             let used = log.recorded.filter { $0["ev"] as? String == "speak.asr_result" }.map { $0["previous_context"] as? Bool }
             #expect(used == [false, false])
             await pipeline.stop()
         }
     }
 
+    @Test func shortRepeatOfPreviousSourceIsDroppedWithoutTrace() async throws {
+        let a = "我们下周三把样品寄给客户。", b = "样品寄给客户", c = "下午再确认会议室。"
+        let primary = SpeakTestASR(texts: [a, b, c])
+        let mt = SpeakTestMT(translations: [a: "We will send the samples to the customer next Wednesday.",
+                                            c: "We will confirm the meeting room this afternoon."])
+        let log = EventLog(inMemory: HostClock.now), preview = SpeakTestRestartingPreview()
+        let transcripts = Mutex<[SpeakTranscript]>([]), warnings = Mutex<[HUDModel.Warning]>([])
+        let (pipeline, mic, _, tts) = try fixture(mt: mt, primary: primary, holdTTS: true, preview: preview,
+            whileHeld: true, log: log, asrContext: { "TalkTalk" }, selfListen: { "audible" }, onUI: { event in
+                if case .transcript(let value) = event { transcripts.withLock { $0.append(value) } }
+                if case .post(let warning) = event { warnings.withLock { $0.append(warning) } }
+            })
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        #expect(await until { preview.openCount == 1 })
+        mic.press.cc.yield(clip(at: now, isFinal: false, speechMs: 1500))
+        #expect(await until { tts.requests.withLock { $0.count == 1 } })
+        let first = try #require(tts.requests.withLock { $0.first })
+        // The first sentence's translation is still playing while the short fragment is captured.
+        await pipeline.receive([.firstSamplePlayed(clause: first.clause, job: first.job, at: now + 1_200_000_000)])
+        #expect(await until { preview.openCount == 2 })
+        mic.press.pc.yield(.init(samples: Array(repeating: 1, count: 160), at: now + 1_050_000_000, level: 0.1))
+        preview.stream?.emit(.volatile(b, through: now + 1_500_000_000))
+        #expect(await until { transcripts.withLock { $0.last?.source == a + "\n" + b } })
+        mic.press.cc.yield(.init(pcm: .init(samples: Array(repeating: 0.1, count: 8_960),
+            start: now + 1_000_000_000, end: now + 1_560_000_000),
+            index: 1, isFinal: false, speechMs: 560, cutReason: .vadDip,
+            cutDetail: .forcedDip, speechFirstMs: 0, speechLastMs: 560))
+        #expect(await until { Self.repeatDrops(log) == 1 })
+        // Its provisional row disappears instead of turning into 未发送.
+        #expect(await until { transcripts.withLock { $0.last?.source == a } })
+        #expect(transcripts.withLock { $0.last?.unsubmittedSource.isEmpty == true })
+        mic.press.cc.yield(clip(at: now + 1_560_000_000, isFinal: false, speechMs: 1500))
+        #expect(await until { await mt.calls == 2 })
+        #expect(await until { tts.requests.withLock { $0.count == 2 } })
+        await pipeline.handle(.released(at: now + 2_560_000_000, reason: .keyUp))
+        #expect(await until { transcripts.withLock { $0.last?.isFinal == true } })
+
+        let requests = await mt.requests
+        #expect(requests.map(\.text) == [a, c])
+        #expect(requests.count == 2 && requests[1].history.map(\.source) == [a])
+        // The next ordinary clip is recognized with the last accepted sentence, not the dropped one.
+        #expect(await primary.contexts == ["TalkTalk", "TalkTalk", a + "\nTalkTalk"])
+        #expect(tts.requests.withLock { $0.count } == 2)
+        #expect(transcripts.withLock { $0.last?.source } == a + "\n" + c)
+        #expect(transcripts.withLock { $0.allSatisfy { $0.unsubmittedSource.isEmpty } })
+        #expect(!warnings.withLock { $0.contains(.segmentNotSent) })
+
+        let events = log.recorded
+        let drop = try #require(events.first { $0["ev"] as? String == "gate.drop" && $0["reason"] as? String == "repeat" })
+        let dropped = try #require(drop["clause"] as? Int)
+        let recognized = try #require(events.first {
+            $0["ev"] as? String == "speak.asr_result" && $0["clause"] as? Int == dropped
+        })
+        let committed = try #require(events.first {
+            $0["ev"] as? String == "speak.clip_committed" && $0["clause"] as? Int == dropped
+        })
+        #expect(recognized["repeat_check"] as? String == "repeat")
+        #expect(recognized["previous_similarity_pct"] as? Int == 100)
+        #expect(recognized["previous_clause"] as? Int == Int(first.clause))
+        #expect(recognized["source_tokens"] as? Int == 6)
+        #expect(recognized["own_playback_overlap_ms"] as? Int == 360)
+        #expect(committed["cut_reason"] as? String == "vadDip" && committed["cut_detail"] as? String == "forcedDip")
+        #expect(committed["speech_first_ms"] as? Int == 0 && committed["speech_last_ms"] as? Int == 560)
+        #expect(committed["self_listen"] as? String == "audible")
+        for event in [drop, recognized, committed] {
+            let line = String(decoding: try JSONSerialization.data(withJSONObject: event), as: UTF8.self)
+            #expect(DiagnosticsWhitelist.scrubEventLine(Substring(line)) != nil)
+            #expect(!line.contains("样品") && !line.contains("客户"))
+        }
+        await pipeline.stop()
+    }
+
+    @Test func ownPlaybackOverlapMergesSpans() {
+        let t: HostTime = 1_000_000_000, s: HostTime = 1_000_000_000
+        #expect(SpeakPipeline.mergedOverlapMs([(t, t + 3 * s / 2), (t + s, t + 2 * s), (t + 3 * s, t + 4 * s)],
+                                              from: t + s / 2, to: t + 7 * s / 2) == 2000)
+        #expect(SpeakPipeline.mergedOverlapMs([(t, t + s), (t, t + s)], from: t, to: t + 5 * s) == 1000)
+    }
+
+    @Test func shortReSayOfAnUnsentSourceStillReachesTranslation() async throws {
+        let a = "我们下周三把样品寄给客户。", b = "样品寄给客户"
+        // A Chinese "translation" for an English target is refused, so the first sentence is never sent.
+        let mt = SpeakTestMT(translations: [a: "样品"]), log = EventLog(inMemory: HostClock.now)
+        let warnings = Mutex<[HUDModel.Warning]>([])
+        let (pipeline, mic, _, _) = try fixture(mt: mt, primary: SpeakTestASR(texts: [a, b]), whileHeld: true, log: log,
+            onUI: { event in if case .post(let warning) = event { warnings.withLock { $0.append(warning) } } })
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        mic.press.cc.yield(clip(at: now, isFinal: false, speechMs: 1500))
+        #expect(await until { warnings.withLock { $0.contains(.segmentNotSent) } })
+        mic.press.cc.yield(.init(pcm: .init(samples: Array(repeating: 0.1, count: 8_960),
+            start: now + 1_000_000_000, end: now + 1_560_000_000),
+            index: 1, isFinal: false, speechMs: 560, cutReason: .vadDip))
+        #expect(await until { await mt.calls == 2 })
+        #expect(await mt.requests.map(\.text) == [a, b])
+        #expect(Self.repeatDrops(log) == 0)
+        let recognized = log.recorded.filter { $0["ev"] as? String == "speak.asr_result" }
+        #expect(recognized.count == 2 && recognized.last?["repeat_check"] as? String == "previousNotSent")
+        #expect(recognized.last?["previous_similarity_pct"] as? Int == 100)
+        await pipeline.stop()
+    }
+
+    @Test func shortReSayAfterIncompletePlaybackStillReachesTranslation() async throws {
+        let a = "我们下周三把样品寄给客户。", b = "样品寄给客户"
+        let mt = SpeakTestMT(), log = EventLog(inMemory: HostClock.now)
+        let (pipeline, mic, _, tts) = try fixture(mt: mt, primary: SpeakTestASR(texts: [a, b]), holdTTS: true,
+                                                  whileHeld: true, log: log)
+        let now = HostClock.now(), ms: HostTime = 1_000_000
+        await pipeline.handle(.began(at: now))
+        mic.press.cc.yield(clip(at: now, isFinal: false, speechMs: 1500))
+        #expect(await until { tts.requests.withLock { $0.count == 1 } })
+        let first = try #require(tts.requests.withLock { $0.first })
+        // Only the beginning of the first sentence's audio was heard.
+        await pipeline.receive([.firstSamplePlayed(clause: first.clause, job: first.job, at: now + 1100 * ms),
+            .played(.init(clause: first.clause, text: first.text, start: now + 1100 * ms, end: now + 1300 * ms,
+                          incomplete: true))])
+        mic.press.cc.yield(.init(pcm: .init(samples: Array(repeating: 0.1, count: 8_960),
+            start: now + 1000 * ms, end: now + 1560 * ms),
+            index: 1, isFinal: false, speechMs: 560, cutReason: .vadDip))
+        #expect(await until { await mt.calls == 2 })
+        #expect(await mt.requests.map(\.text) == [a, b])
+        let recognized = log.recorded.filter { $0["ev"] as? String == "speak.asr_result" }
+        #expect(recognized.count == 2 && recognized.last?["repeat_check"] as? String == "previousNotSent")
+        await pipeline.stop()
+    }
+
+    @Test func ownPlaybackOverlapCountsFinishedAndCutPlayback() async throws {
+        let log = EventLog(inMemory: HostClock.now)
+        let (pipeline, mic, _, tts) = try fixture(asr: SpeakTestASR(texts: Self.distinctSources), holdTTS: true,
+                                                  whileHeld: true, log: log)
+        let now = HostClock.now(), ms: HostTime = 1_000_000
+        await pipeline.handle(.began(at: now))
+        mic.press.cc.yield(clip(at: now, isFinal: false, speechMs: 1500))
+        #expect(await until { tts.requests.withLock { $0.count == 1 } })
+        let first = try #require(tts.requests.withLock { $0.first })
+        await pipeline.receive([.firstSamplePlayed(clause: first.clause, job: first.job, at: now + 1200 * ms),
+            .played(.init(clause: first.clause, text: first.text, start: now + 1200 * ms, end: now + 1500 * ms,
+                          incomplete: false))])
+        mic.press.cc.yield(clip(at: now + 1000 * ms, isFinal: false, speechMs: 1500))
+        #expect(await until { tts.requests.withLock { $0.count == 2 } })
+        let second = try #require(tts.requests.withLock { $0.dropFirst().first })
+        await pipeline.receive([.firstSamplePlayed(clause: second.clause, job: second.job, at: now + 2100 * ms),
+            .cut(clause: second.clause, reason: .passthroughCut, at: now + 2400 * ms)])
+        mic.press.cc.yield(clip(at: now + 2000 * ms, isFinal: false, speechMs: 1500))
+        #expect(await until { log.recorded.filter { $0["ev"] as? String == "speak.asr_result" }.count == 3 })
+        let overlaps = log.recorded.filter { $0["ev"] as? String == "speak.asr_result" }
+            .map { $0["own_playback_overlap_ms"] as? Int }
+        // Finished playback (1.2–1.5 s) inside the second clip, cut playback (2.1–2.4 s) inside the third.
+        #expect(overlaps == [0, 300, 300])
+        await pipeline.stop()
+    }
+
     @Test func shortReplyKeepsGlossaryAndRestoresContextForTheNextOrdinaryClip() async throws {
-        let reply = "谢谢。", following = "我们明天继续讨论。"
-        for preceding in ["我们讨论竹子的材料。", reply] {
+        // A four-unit reply, so the repeat check would drop the last two cases without the exemption.
+        let reply = "没有问题。", following = "我们明天继续讨论。"
+        for preceding in ["我们讨论竹子的材料。", "这个方案没有问题。", reply] {
             let primary = SpeakTestASR(texts: [preceding, reply, following],
                                        repeatsFirstFromContextOnShortClip: true)
-            let mt = SpeakTestMT()
-            let (pipeline, mic, _, _) = try fixture(mt: mt, primary: primary, whileHeld: true,
+            let mt = SpeakTestMT(), log = EventLog(inMemory: HostClock.now)
+            let (pipeline, mic, _, _) = try fixture(mt: mt, primary: primary, whileHeld: true, log: log,
                                                    asrContext: { "TalkTalk" })
             let now = HostClock.now()
             await pipeline.handle(.began(at: now))
@@ -437,6 +608,8 @@ struct SpeakPipelineTests {
             // Do not suppress an intentional repeated reply, or disable context for later
             // ordinary speech: it should use the actual reply recognized from the short PCM.
             #expect(await mt.requests.map(\.text) == [preceding, reply])
+            let checks = log.recorded.filter { $0["ev"] as? String == "speak.asr_result" }.map { $0["repeat_check"] as? String }
+            #expect(checks == ["noPrevious", "shortReply"])
             mic.press.cc.yield(clip(at: now + 1_890_000_000, isFinal: false, speechMs: 1500))
             #expect(await until { await mt.calls == 3 })
             #expect(await primary.contexts == ["TalkTalk", "TalkTalk", reply + "\nTalkTalk"])
@@ -448,7 +621,8 @@ struct SpeakPipelineTests {
     @Test func cloneContinuityWaitsForItsPredecessorAndResetsOnNewTurn() async throws {
         let mt = SpeakTestMT()
         let log = EventLog(inMemory: HostClock.now)
-        let (pipeline, mic, host, tts) = try fixture(mt: mt, clone: true, holdTTS: true, whileHeld: true, log: log)
+        let (pipeline, mic, host, tts) = try fixture(asr: SpeakTestASR(texts: Self.distinctSources), mt: mt,
+                                                     clone: true, holdTTS: true, whileHeld: true, log: log)
         let now = HostClock.now()
         await pipeline.handle(.began(at: now))
         mic.press.cc.yield(clip(at: now))
@@ -500,6 +674,8 @@ struct SpeakPipelineTests {
         #expect(source["clip_overlap_ms"] as? Int == 0)
         #expect(recognized["source_characters"] as? Int == 4 && recognized["same_previous"] as? Bool == false)
         #expect(recognized["previous_context"] as? Bool == false)
+        #expect(recognized["repeat_check"] as? String == "noPrevious" && recognized["previous_similarity_pct"] == nil)
+        #expect(recognized["own_playback_overlap_ms"] as? Int == 0 && recognized["source_tokens"] as? Int == 4)
         #expect(source["cut_reason"] as? String == "release")
         #expect(request["clause"] as? Int == source["clause"] as? Int)
         #expect(request["members"] as? Int == 1)
@@ -521,7 +697,7 @@ struct SpeakPipelineTests {
 
     @Test func releaseWaitsForOpeningPreviewAndSerializesASRButNotMT() async throws {
         let analyzers = SpeakTestAnalyzers()
-        let asr = SpeakTestASR(delay: .milliseconds(40), analyzers: analyzers)
+        let asr = SpeakTestASR(delay: .milliseconds(40), analyzers: analyzers, texts: Self.distinctSources)
         let mt = SpeakTestMT(delay: .milliseconds(200))
         let (pipeline, mic, _, tts) = try fixture(asr: asr, mt: mt,
             preview: SpeakTestPreviewEngine(analyzers: analyzers))
@@ -581,7 +757,8 @@ struct SpeakPipelineTests {
         let mt = SpeakTestMT()
         let transcripts = Mutex<[SpeakTranscript]>([])
         let output = Mutex<[Bool]>([])
-        let (pipeline, mic, host, tts) = try fixture(mt: mt, clone: true, holdTTS: true, whileHeld: true,
+        let (pipeline, mic, host, tts) = try fixture(asr: SpeakTestASR(texts: Self.distinctSources), mt: mt,
+            clone: true, holdTTS: true, whileHeld: true,
             onUI: { event in
                 if case let .transcript(value) = event { transcripts.withLock { $0.append(value) } }
                 if case let .outputActivity(value) = event { output.withLock { $0.append(value) } }
@@ -622,7 +799,8 @@ struct SpeakPipelineTests {
 
     @Test func aClauseIsOpenForTheEchoFilterWhilePlayingAndKeptWhenCut() async throws {
         let echo = RecordingSpeakEcho()
-        let (pipeline, mic, _, tts) = try fixture(holdTTS: true, whileHeld: true, echo: echo)
+        let (pipeline, mic, _, tts) = try fixture(asr: SpeakTestASR(texts: Self.distinctSources), holdTTS: true,
+                                                  whileHeld: true, echo: echo)
         let now = HostClock.now()
         await pipeline.handle(.began(at: now))
         mic.press.cc.yield(clip(at: now, isFinal: false))
@@ -645,7 +823,8 @@ struct SpeakPipelineTests {
     @Test func outputActivityTracksPlaybackIndependentlyOfCaptureAndQueuedWork() async throws {
         let output = Mutex<[Bool]>([])
         let presses = Mutex<[Set<UInt64>]>([])
-        let (pipeline, mic, host, tts) = try fixture(holdTTS: true, whileHeld: true, onUI: { event in
+        let (pipeline, mic, host, tts) = try fixture(asr: SpeakTestASR(texts: Self.distinctSources), holdTTS: true,
+                                                     whileHeld: true, onUI: { event in
             if case let .outputActivity(value) = event { output.withLock { $0.append(value) } }
             if case let .outputPresses(value) = event { presses.withLock { $0.append(value) } }
         })

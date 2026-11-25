@@ -208,8 +208,13 @@ extension PolicyProfile {
         public struct Gate: Codable, Sendable, Equatable {
             public var minHanRatio: Double
             public var speakerMode: SpeakerMode
+            public var previousRepeat: PreviousRepeat
             public struct SpeakerMode: Codable, Sendable, Equatable {
                 public var remoteOverlapMax: Double; public var latinMatchWindowS: Int
+            }
+            /// Short same-press clips that re-say the previous source's ending (ARCHITECTURE 翻译轮次隔离).
+            public struct PreviousRepeat: Codable, Sendable, Equatable {
+                public var minTokens: Int; public var tokensPerEdit: Int
             }
         }
         public struct MT: Codable, Sendable, Equatable {

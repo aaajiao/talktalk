@@ -340,7 +340,12 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         guard let current else { return }
         for cut in cuts {
             guard let pcm = ring.read(from: cut.start, to: cut.end) else { continue }
-            current.clipContinuation.yield(.init(pcm: pcm, index: index, isFinal: cut.isFinalChunk, speechMs: cut.speechMs, cutReason: Self.reason(cut.reason)))
+            // From pcm.start, not cut.start: the ring read can clamp the start to the privacy floor.
+            let clipMs = HostClock.ms(pcm.start, to: pcm.end)
+            let offset = { (t: HostTime?) -> Int? in t.map { min(clipMs, max(0, HostClock.ms(pcm.start, to: $0))) } }
+            current.clipContinuation.yield(.init(pcm: pcm, index: index, isFinal: cut.isFinalChunk, speechMs: cut.speechMs,
+                cutReason: Self.reason(cut.reason), cutDetail: cut.reason,
+                speechFirstMs: offset(cut.speechStart), speechLastMs: offset(cut.speechEnd)))
             index += 1; previousClipEnd = max(previousClipEnd ?? 0, pcm.end)
         }
     }

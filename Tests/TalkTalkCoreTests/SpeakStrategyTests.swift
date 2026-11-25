@@ -27,6 +27,7 @@ struct SpeakStrategyTests {
         #expect(commits.count == 1)
         #expect(commits.first?.reason == .silence)
         #expect(commits.first?.end == ns(2.18))
+        #expect(commits.first?.speechStart == 0 && commits.first?.speechEnd == ns(2.0))
 
         var capped = SpeakSegmenter(profile: profile, target: .en, start: 0)
         var forced: [SpeakSegmenter.Commit] = []
@@ -42,7 +43,7 @@ struct SpeakStrategyTests {
         #expect(released.releaseThrough == ns(1.05))
         let tail = released.audio(.init(start: ns(0.8), end: ns(1.1), speech: false, energy: 0))
         #expect(tail.count == 1 && tail[0].speechMs == 800 && tail[0].isFinalChunk)
-        #expect(tail[0].end == ns(1.05))
+        #expect(tail[0].end == ns(1.05) && tail[0].speechEnd == ns(0.8))
         #expect(released.finish(at: ns(1.1)).isEmpty)
         var alreadySilent = SpeakSegmenter(profile: profile, target: .en, start: 0)
         _ = alreadySilent.audio(.init(start: 0, end: ns(0.8), speech: true, energy: 1))
@@ -64,6 +65,7 @@ struct SpeakStrategyTests {
         #expect(segmenter.preview(stableText: "We will continue tomorrow.", through: ns(2), at: ns(2)).isEmpty)
         let cuts = segmenter.audio(.init(start: ns(2), end: ns(2.3), speech: true, energy: 1))
         #expect(cuts.count == 1 && cuts.first?.reason == .punctuation && cuts.first?.end == ns(2))
+        #expect(cuts.first?.speechStart == 0 && cuts.first?.speechEnd == ns(2))
     }
 
     @Test func chineseDurationCalibrationUsesCharactersAndStaysLanguageScoped() {

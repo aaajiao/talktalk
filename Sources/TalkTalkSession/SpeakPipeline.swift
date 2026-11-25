@@ -81,10 +81,12 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private let onWorkChange: @Sendable (Bool) -> Void
     private let onDegradation: @Sendable (DegradationLadder.Tier) -> Void
     private let asrContext: @Sendable () -> String?
+    private let selfListen: @Sendable () -> String?
     private let source: Lang
     private let target: Lang
     private let session: MTSession
     private let gate: SpeakLanguageGate
+    private let repeats: SpeakRepeatCheck
     private var ledger: ClauseLedger
     private var ttsQueue: TTSQueue
     private var history = MTHistory()
@@ -98,7 +100,9 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private var latestRTF: Double?
     private var thermalSerious = false, lowPower = false
     /// Recognition context belongs to one recording turn; glossary hints may span turns.
-    private var lastSource: (press: UInt64, text: String)?
+    /// `delivery`: the clause now carrying it (itself, or a backlog summary); `undelivered`: that
+    /// clause is already known not to have been fully sent. Both serve the repeat check only.
+    private var lastSource: (press: UInt64, clause: UInt64, text: String, delivery: UInt64, undelivered: Bool)?
     private var lastClipEnd: (press: UInt64, end: HostTime)?
     private var renderMembers: [UInt64: [UInt64]] = [:]
     private var renderVoice: [JobID: VoiceHandle] = [:]
@@ -143,6 +147,8 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private var playingOutput: [UInt64: JobID] = [:]
     /// What each playing clause said and when it began, for the echo filter.
     private var playingEcho: [UInt64: (text: String, start: HostTime)] = [:]
+    /// Finished own-playback spans (Feed host times, last 60 s), for the text-free overlap diagnostic.
+    private var ownPlayback: [(start: HostTime, end: HostTime)] = []
     private var reportedOutputPlaying = false
     private var reportedOutputPresses: Set<UInt64> = []
     public var commitWhileHeld = true
@@ -169,6 +175,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 onSpoken: @escaping @Sendable (String, String, HostTime) -> Void = { _, _, _ in },
                 onDegradation: @escaping @Sendable (DegradationLadder.Tier) -> Void = { _ in },
                 asrContext: @escaping @Sendable () -> String? = { nil },
+                selfListen: @escaping @Sendable () -> String? = { nil },
                 commitWhileHeld: Bool = true,
                 clock: @escaping @Sendable () -> HostTime = HostClock.now) {
         guard let session = MTSession.speak(source: source, target: target) else {
@@ -185,11 +192,11 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         self.commitWhileHeld = commitWhileHeld
         self.acceptedChunk = onTTSChunk; self.onSpoken = onSpoken
         self.ui = ui; self.onCommit = onCommit; self.onDegradation = onDegradation; self.asrContext = asrContext
-        self.onWorkChange = onWorkChange
+        self.onWorkChange = onWorkChange; self.selfListen = selfListen
         var initialBacklog = BacklogController(config: profile.speak.backlog, language: target)
         backlogDecision = initialBacklog.update(renderedS: 0, unrenderedS: 0, inFlightSourceS: 0)
         backlog = initialBacklog
-        self.clock = clock; gate = SpeakLanguageGate(profile.speak)
+        self.clock = clock; gate = SpeakLanguageGate(profile.speak); repeats = SpeakRepeatCheck(profile.speak)
         ledger = ClauseLedger(sink: log); ttsQueue = TTSQueue(config: .init(profile.speak.tts))
         epoch = queue.currentEpoch
     }
@@ -425,8 +432,42 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     /// Playback stopped short. What already reached the Feed can still come back as echo.
     private func endPlayingEcho(_ id: UInt64, at: HostTime) async {
         guard let open = playingEcho.removeValue(forKey: id) else { return }
+        recordOwnPlayback(start: open.start, end: at)
         await echo.recordPlayed(text: open.text, startHost: open.start, endHost: at)
         await echo.stopPlaying(clause: id)
+    }
+
+    private func recordOwnPlayback(start: HostTime, end: HostTime) {
+        guard end > start else { return }
+        ownPlayback.append((start, end))
+        ownPlayback.removeAll { $0.end + 60_000_000_000 < end }
+    }
+
+    /// Total time in [from, to] covered by any span, counting overlapping spans once.
+    static func mergedOverlapMs(_ spans: [(start: HostTime, end: HostTime)], from: HostTime, to: HostTime) -> Int {
+        let clipped = spans.map { (start: max(from, $0.start), end: min(to, $0.end)) }
+            .filter { $0.end > $0.start }.sorted { $0.start < $1.start }
+        var total: UInt64 = 0, cursor = from
+        for span in clipped where span.end > cursor {
+            total += span.end - max(cursor, span.start)
+            cursor = span.end
+        }
+        return Int(total / 1_000_000)
+    }
+
+    /// How much of the clip's audio coincided with our own translated playback (ended or still open).
+    private func ownPlaybackOverlapMs(_ clip: SpeakClip) -> Int {
+        let open = playingEcho.values.map { (start: $0.start, end: max($0.start, clip.pcm.end)) }
+        return Self.mergedOverlapMs(ownPlayback + open, from: clip.pcm.start, to: clip.pcm.end)
+    }
+
+    /// These clauses will not be (fully) heard, so the next short clip may re-say them.
+    private func markUndelivered(_ ids: [UInt64]) {
+        if let last = lastSource, ids.contains(last.delivery) { lastSource?.undelivered = true }
+    }
+
+    private func isShort(_ clip: SpeakClip) -> Bool {
+        Double(clip.speechMs) / 1000 < profile.speak.commitMin(for: target).speechS
     }
 
     private func cancelCurrentPress() async {
@@ -458,11 +499,16 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             return HostClock.ms(clip.pcm.start, to: previous.end)
         } ?? 0
         lastClipEnd = (press, clip.pcm.end)
-        log.event("speak.clip_committed", ["clause": .int(Int(id)), "press": .int(Int(press)),
+        var fields: [String: EventLog.Value] = ["clause": .int(Int(id)), "press": .int(Int(press)),
             "clip_ms": .int(HostClock.ms(clip.pcm.start, to: clip.pcm.end)), "speech_ms": .int(clip.speechMs),
             "clip_overlap_ms": .int(overlapMs),
             "boundary_wait_ms": .int(max(0, HostClock.ms(clip.pcm.end, to: committedAt))),
-            "cut_reason": .tag(clip.cutReason.rawValue)], at: committedAt)
+            "cut_reason": .tag(clip.cutReason.rawValue)]
+        if let detail = clip.cutDetail { fields["cut_detail"] = .tag(detail.rawValue) }
+        if let first = clip.speechFirstMs { fields["speech_first_ms"] = .int(first) }
+        if let last = clip.speechLastMs { fields["speech_last_ms"] = .int(last) }
+        if let listen = selfListen() { fields["self_listen"] = .tag(listen) }
+        log.event("speak.clip_committed", fields, at: committedAt)
         let previous = asrTail
         let recognition = Task<ASRFinal, Error> { [weak self] in
             await previous?.value
@@ -487,7 +533,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             // Release tails, early short replies and force-cut fragments with less speech than a silence commit
             // needs keep glossary hints, but not a full preceding sentence: on little audio the recognizer can
             // repeat that sentence in place of the speech.
-            let short = Double(clip.speechMs) / 1000 < profile.speak.commitMin(for: target).speechS
+            let short = isShort(clip)
             let previous = (short || clip.isFinal || clip.cutReason == .release || clip.cutReason == .shortReply) ? nil
                 : lastSource.flatMap { $0.press == row.press ? $0.text : nil }
             clauses[id]?.previousContext = previous != nil
@@ -531,11 +577,19 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             try Task.checkCancellation()
             guard active(id, token: token) else { return }
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let samePrevious = lastSource.map { $0.press == row.press && $0.text == text && !text.isEmpty } ?? false
-            log.event("speak.asr_result", ["clause": .int(Int(id)), "press": .int(Int(row.press)),
+            let prior = lastSource.flatMap { $0.press == row.press ? $0 : nil }
+            let check = repeats.evaluate(text, previous: prior?.text, previousUndelivered: prior?.undelivered == true,
+                                         short: isShort(clip), shortReply: clip.cutReason == .shortReply)
+            let samePrevious = prior.map { $0.text == text && !text.isEmpty } ?? false
+            var fields: [String: EventLog.Value] = ["clause": .int(Int(id)), "press": .int(Int(row.press)),
                 "source_characters": .int(text.count), "same_previous": .bool(samePrevious),
                 "previous_context": .bool(clauses[id]?.previousContext ?? false),
-                "cut_reason": .tag(clip.cutReason.rawValue)])
+                "cut_reason": .tag(clip.cutReason.rawValue),
+                "source_tokens": .int(check.tokens), "repeat_check": .tag(check.verdict.rawValue),
+                "own_playback_overlap_ms": .int(ownPlaybackOverlapMs(clip))]
+            if let prior { fields["previous_clause"] = .int(Int(prior.clause)) }
+            if let pct = check.similarityPct { fields["previous_similarity_pct"] = .int(pct) }
+            log.event("speak.asr_result", fields)
             if gate.isFiller(text) { log.event("seg.filler"); discard(id, warning: nil); return }
             let external = speakerMode()
             let overlap = external ? await echo.remoteVADOverlap(from: clip.pcm.start, to: clip.pcm.end) : nil
@@ -546,7 +600,14 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 discard(id, warning: rejection == .unsupportedText ? .unsupportedTextNotSent : .segmentNotSent)
                 return
             }
-            clauses[id]?.source = text; lastSource = (press: row.press, text: text)
+            if check.verdict == .repeated {
+                // It re-says the ending of a source already shown and on its way out. A source already
+                // known to be unsent is exempt (.previousNotSent); one that fails later cannot be.
+                log.event("gate.drop", ["reason": .tag("repeat"), "clause": .int(Int(id)), "press": .int(Int(row.press))])
+                discard(id, warning: nil, hidden: true)
+                return
+            }
+            clauses[id]?.source = text; lastSource = (press: row.press, clause: id, text: text, delivery: id, undelivered: false)
             displayPress?.clauses[id]?.source = text
             displayPress?.clauses[id]?.provisional = ""
             publishTranscript()
@@ -654,8 +715,10 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             }
         }
     }
-    private func discard(_ id: UInt64, warning: HUDModel.Warning?) {
-        displayPress?.clauses[id]?.settled = true
+    /// `hidden` removes the row instead of marking its provisional 未发送.
+    private func discard(_ id: UInt64, warning: HUDModel.Warning?, hidden: Bool = false) {
+        if hidden { displayPress?.clauses[id] = nil } else { displayPress?.clauses[id]?.settled = true }
+        markUndelivered([id])
         publishTranscript()
         ledger.gate(id, at: clock())
         order.removeAll { $0 == id }
@@ -702,6 +765,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             switch choice {
             case .wait: return
             case .refuse:
+                markUndelivered([id])
                 order.removeAll { $0 == id }; rollback(row.mtJob); clauses[id] = nil
                 ui(.post(.segmentNotSent)); continue
             case .send(.system): selected = snapshot.system; handle = snapshot.systemHandle; gain = 0; label = .system
@@ -817,6 +881,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             if case .playsOut = failure { ledger.firstSampleEnqueued(member, job: job, at: now) }
             ledger.streamFailed(member, job: job, reason: reason, at: now)
         }
+        if case .playsOut = failure { markUndelivered(members) } // only its beginning will be heard
         if case .discarded(let leaders) = failure {
             let ids = leaders.flatMap { renderMembers[$0] ?? [$0] }
             for clause in ids where !members.contains(clause) { _ = ledger.resend(clause, at: now) }
@@ -827,6 +892,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 ledger.engineLost(at: now)
                 waitingForEngine = true
             } else if (ledger.row(id)?.attempts ?? 0) >= 2 {
+                markUndelivered(members)
                 for member in members { ledger.renderFailed(member, job: job, reason: reason, at: now) }
                 rollbackJobs(members.compactMap { clauses[$0]?.mtJob })
             }
@@ -893,8 +959,10 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 reportOutputActivity()
                 if announcementClause == played.clause { announcementClause = nil; announcementOutputJob = nil }
                 let members = renderMembers.removeValue(forKey: played.clause) ?? [played.clause]
+                if played.incomplete { markUndelivered(members) }
                 for member in members { ledger.played(member, at: played.end); clauses[member] = nil }
                 await echo.recordPlayed(text: played.text, startHost: played.start, endHost: played.end)
+                recordOwnPlayback(start: played.start, end: played.end)
                 playingEcho[played.clause] = nil
                 await echo.stopPlaying(clause: played.clause)
                 if queue.clauseCount == 0, currentPress == nil { ui(.pushToTalk(.idle)) }
@@ -904,6 +972,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 reportOutputActivity()
                 if let job = clauses[id]?.ttsJob, previousClone?.job == job { previousClone = nil }
                 let members = renderMembers[id] ?? [id]
+                markUndelivered(members)
                 for member in members { ledger.cut(member, reason: reason, at: at) }
                 rollbackJobs(members.compactMap { clauses[$0]?.mtJob })
                 if reason == .passthroughCut { log.event("pt.clause_cut", at: at) }
@@ -936,6 +1005,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
                 }
                 if previousClone?.job == job { previousClone = nil }
                 let members = renderMembers.removeValue(forKey: id) ?? [id]
+                markUndelivered(members)
                 for member in members { ledger.renderFailed(member, job: job, reason: reason, at: clock()) }
                 rollbackJobs(members.compactMap { clauses[$0]?.mtJob })
                 for member in members { clauses[member] = nil }
@@ -983,6 +1053,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         if backlogDecision.dropOldestWaiting, let id = order.first, let row = clauses[id] {
             cancelWork(id, row: row)
             ledger.drop(id, reason: .backlogDrop, at: clock())
+            markUndelivered([id])
             order.removeAll { $0 == id }; rollback(row.mtJob); clauses[id] = nil
             displayPress?.clauses[id]?.settled = true
             publishTranscript()
@@ -1023,6 +1094,8 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             ledger.drop(old, reason: .backlogDrop, at: clock()); clauses[old] = nil
         }
         order.removeAll { ids.contains($0) }; order.insert(id, at: min(position, order.count))
+        // The summary now carries the last source, so its failure marks that source unsent.
+        if let last = lastSource, ids.contains(last.delivery) { lastSource?.delivery = id }
         clauses[id] = Clause(press: row.press, mtJob: job, sourceOrder: row.sourceOrder,
                              committedAt: row.committedAt, releasedAt: row.releasedAt, source: source,
                              speechS: rows.reduce(0) { $0 + $1.speechS }, summary: true)
@@ -1165,6 +1238,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         defer { reportWorkState() }
         let dropped = ledger.tick(at: clock())
         if !dropped.isEmpty { ui(.post(.segmentNotSent)) }
+        markUndelivered(dropped)
         for id in dropped {
             order.removeAll { $0 == id }
             if let row = clauses[id] { rollback(row.mtJob); clauses[id] = nil }

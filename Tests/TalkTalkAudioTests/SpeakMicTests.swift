@@ -168,6 +168,7 @@ import TalkTalkCore
         let captured = clips.withLock { $0 }
         let clip = try #require(captured.first)
         #expect(captured.count == 1 && clip.cutReason == .shortReply && !clip.isFinal)
+        #expect(clip.cutDetail == .shortReply && clip.speechFirstMs == 0 && clip.speechLastMs == 800)
         #expect(clip.pcm.start == start && clip.pcm.end >= start + 1_050_000_000)
         #expect(clip.pcm.samples.prefix(12_800).allSatisfy { abs($0 - 0.1) < 0.0001 })
         #expect(clip.pcm.samples.dropFirst(12_800).allSatisfy { $0 == 0 })
