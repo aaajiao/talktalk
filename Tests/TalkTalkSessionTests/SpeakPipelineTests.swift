@@ -151,6 +151,8 @@ private actor SpeakTestMT: SpeakTranslator {
     /// Holds every translation until this many have started, so a backlog test does not depend
     /// on whether earlier clauses happened to drain before later ones were recognized.
     let holdUntilCalls: Int
+    /// Per call: the backend and whether the cloud refused; later calls use Apple, not refused.
+    let backends: [(HUDModel.MTSource, Bool)]
     private(set) var calls = 0
     private(set) var requests: [SpeakMTRequest] = []
     private(set) var preparations: [Direction] = []
@@ -158,17 +160,19 @@ private actor SpeakTestMT: SpeakTranslator {
     private(set) var peak = 0
     private(set) var cancellations = 0
     init(text: String = "Hello world.", delay: Duration = .zero, cancelDelay: Duration = .zero,
-         translations: [String: String] = [:], holdUntilCalls: Int = 0) {
+         translations: [String: String] = [:], holdUntilCalls: Int = 0, backends: [(HUDModel.MTSource, Bool)] = []) {
         self.text = text; self.delay = delay; self.cancelDelay = cancelDelay
-        self.translations = translations; self.holdUntilCalls = holdUntilCalls
+        self.translations = translations; self.holdUntilCalls = holdUntilCalls; self.backends = backends
     }
     func translate(_ request: SpeakMTRequest) async throws -> SpeakMTOutcome {
         requests.append(request)
         calls += 1; active += 1; peak = max(peak, active)
+        let call = calls   // this call's own index: later calls can start during the awaits below
         defer { active -= 1 }
         while calls < holdUntilCalls { try await Task.sleep(for: .milliseconds(1)) }
         try await Task.sleep(for: delay)
-        return .text(translations[request.text] ?? text, backend: .apple, numberWarning: nil, hedge: nil)
+        let (backend, refused) = call <= backends.count ? backends[call - 1] : (.apple, false)
+        return .text(translations[request.text] ?? text, backend: backend, numberWarning: nil, hedge: nil, cloudRefused: refused)
     }
     func cancel(_ job: JobID) async {
         cancellations += 1
@@ -338,6 +342,26 @@ struct SpeakPipelineTests {
         #expect(await until { await mt.calls == 3 })
         let contexts = await primary.contexts
         #expect(contexts == ["TalkTalk", "上一轮的第一句。\nTalkTalk", "TalkTalk"])
+        await pipeline.stop()
+    }
+
+    /// 我说话翻译's menu line (CloudFallbackStatus): a lone fallback between OpenAI results does
+    /// not count; two in a row or a refusal before sending do, and OpenAI clears it.
+    @Test func cloudFallbackCountsOnlyARunOrARefusal() async throws {
+        let texts = ["第一句。", "第二句。", "第三句。", "第四句。", "第五句。", "第六句。", "第七句。"]
+        let mt = SpeakTestMT(backends: [(.openAI, false), (.apple, false), (.openAI, false), (.apple, false),
+                                        (.apple, false), (.openAI, false), (.apple, true)])
+        let events = Mutex<[Bool]>([])
+        let (pipeline, mic, _, _) = try fixture(mt: mt, primary: SpeakTestASR(texts: texts), whileHeld: true, onUI: { event in
+            if case .cloudFallback(let showing) = event { events.withLock { $0.append(showing) } }
+        })
+        let now = HostClock.now()
+        await pipeline.handle(.began(at: now))
+        for i in 0..<texts.count {
+            mic.press.cc.yield(clip(at: now + UInt64(i) * 1_000_000_000, isFinal: false, speechMs: 1500))
+            #expect(await until { await mt.calls == i + 1 })
+        }
+        #expect(await until { events.withLock { $0 } == [true, false, true] })
         await pipeline.stop()
     }
 

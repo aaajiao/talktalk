@@ -765,6 +765,29 @@ enum Fixture {
     }
 }
 
+/// A primary MT that answers each call as scripted: text, an empty reply or a cloud failure.
+actor ScriptedMT: MTEngine {
+    enum Step: Sendable { case ok, empty, fail(String) }
+    nonisolated let id = EngineID(name: "openai", revision: "test", placement: .network)
+    private var steps: [Step]
+    init(_ steps: [Step]) { self.steps = steps }
+    func translate(_ r: MTRequest) async throws -> MTResult {
+        let step = steps.isEmpty ? .ok : steps.removeFirst()
+        let text: String
+        switch step {
+        case .ok: text = "云:\(r.text)"
+        case .empty: text = ""
+        case .fail(let reason): throw MTError.cloudUnavailable(reason)
+        }
+        let now = HostClock.now()
+        return MTResult(text: text, tokens: 1, reasoningTokens: 0, engine: id,
+                        hedge: HedgeOutcome(fired: false, winner: .A, reason: nil, ms: 5),
+                        timing: StageTiming(received: now, started: now, firstOutput: now, finished: now))
+    }
+    func setContext(_ s: MTSession, glossary: [GlossaryEntry]) async throws {}
+    func cancel(_ job: JobID) async {}
+}
+
 /// A primary MT that can be taken offline: offline it fails at once, like OpenAIMT with no route
 /// (URLError → MTError.cloudUnavailable).
 actor SwitchableMT: MTEngine {
@@ -820,6 +843,29 @@ actor SwitchableMT: MTEngine {
         #expect(reqs == 3)
         // Review fix: the menu follows the actual source of the finals, changes only.
         #expect(statuses.items == [.openAI, .appleFallback(reason: "offline"), .openAI])
+        await p.stop()
+    }
+
+    /// The menu's 字幕翻译 line (CloudFallbackStatus): one fallback between OpenAI finals stays
+    /// OpenAI (2026-11-25: one opening timeout showed Apple 备用 for the rest of the meeting);
+    /// two in a row, or a refusal before sending, show the latest reason.
+    @Test func aLoneFallbackKeepsOpenAIAndARunOrRefusalShowsApple() async throws {
+        let primary = ScriptedMT([.ok, .fail("deadline"), .ok, .empty, .fail("deadline"), .ok, .fail("breakerOpen")])
+        let apple = FakeMT("apple", placement: .systemService, prefix: "苹", delayMs: 5)
+        let stream = FakeStream(), sink = Sink(), statuses = Statuses()
+        let p = ListenPipeline(lang: .de, profile: try Fixture.listen(deadlineMs: 1500),
+                               engines: .init(asr: FakeASR(stream: stream), apple: apple, primary: primary),
+                               log: EventLog(inMemory: HostClock.now), tickMs: 100_000, onUpdate: { sink.add($0) },
+                               onTranslation: { statuses.add($0) })
+        try await p.start()
+        let sentences = ["Eins ist hier.", "Zwei ist hier.", "Drei ist hier.", "Vier ist hier.",
+                         "Fünf ist hier.", "Sechs ist hier.", "Sieben ist hier."]
+        for (i, sentence) in sentences.enumerated() {
+            stream.final(sentence)
+            #expect(await until { sink.finals.count == i + 1 })
+        }
+        #expect(sink.finals.map { $0.2 } == [false, true, false, true, true, false, true])
+        #expect(statuses.items == [.openAI, .appleFallback(reason: "deadline"), .openAI, .appleFallback(reason: "breakerOpen")])
         await p.stop()
     }
 

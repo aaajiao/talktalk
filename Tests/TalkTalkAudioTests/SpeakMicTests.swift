@@ -109,6 +109,30 @@ import TalkTalkCore
         #expect(mic.stats.chunkFramesMin == 320 && mic.stats.chunkFramesMax == 320)
     }
 
+    /// Each capture's figures are reported as it closes, on the mic queue: the session log
+    /// closes before SpeakController.end() runs, so a record written there was lost.
+    @Test func eachClosingCaptureReportsItsChunkSizes() async throws {
+        let rig = FakeMicRig(), ends = Mutex<[MicIngest.Stats]>([])
+        let mic = try MicIngest(profile: profile, onBlock: { rig.block($0) },
+                                onCaptureEnd: { stats in ends.withLock { $0.append(stats) } },
+                                devices: { rig.devices }, makeCapture: { rig.make($0) }, watchHAL: false)
+        defer { mic.stop() }
+        mic.setHot(true)
+        #expect(await eventuallyMic { mic.state.capture == .open })
+        let first = try #require(rig.latest)
+        first.feed(at: 1_000_000_000, frame: 0)
+        #expect(await eventuallyMic { rig.blockCount == 1 })
+        #expect(ends.withLock { $0.isEmpty })
+        mic.setHot(false)
+        #expect(await eventuallyMic { mic.state.capture == .closed && ends.withLock { $0.count } == 1 })
+        #expect(ends.withLock { $0[0].chunkFramesMin == 320 && $0[0].chunkFramesMax == 320 && $0[0].blocks == 1 })
+        // A capture that fails to start ends with no chunk sizes, not the previous one's.
+        rig.failStarts(true)
+        mic.setHot(true)
+        #expect(await eventuallyMic { mic.state.capture == .noDevice && ends.withLock { $0.count } == 2 })
+        #expect(ends.withLock { $0[1].chunkFramesMin == 0 && $0[1].chunkFramesMax == 0 && $0[1].blocks == 1 })
+    }
+
     @Test func heldSpeechEmitsSegmentBeforeRelease() async throws {
         let rig = FakeMicRig(), clips = Mutex<[SpeakClip]>([])
         let mic = try MicIngest(profile: profile, devices: { rig.devices }, makeCapture: { rig.make($0) },
@@ -238,6 +262,7 @@ private final class FakeMicRig: @unchecked Sendable {
     private var systemEvents: [PassthroughSystemEvent] = []
     private var createdAfter: [PassthroughSystemEvent?] = []
     private var didFinish = false
+    private var failStarts = false
     var finished: Bool { lock.withLock { didFinish } }
     func markFinished() { lock.withLock { didFinish = true } }
     var devices: [InputDeviceInfo] { lock.withLock { [.init(objectID: 9, uid: uid, name: "Microphone", transport: "bltn", nominalSampleRate: rate, inputChannels: 1, isAlive: true, isAggregate: false)] } }
@@ -254,9 +279,11 @@ private final class FakeMicRig: @unchecked Sendable {
     func event(_ event: PassthroughSystemEvent) { lock.withLock { systemEvents.append(event) } }
     func make(_ device: InputDeviceInfo) -> any SpeakCapture {
         lock.withLock {
-            let next = FakeSpeakCapture(device); capture = next; createdAfter.append(systemEvents.last); return next
+            let next = FakeSpeakCapture(device, failsToStart: failStarts); capture = next; createdAfter.append(systemEvents.last); return next
         }
     }
+    /// Captures made from now on throw from start().
+    func failStarts(_ on: Bool) { lock.withLock { failStarts = on } }
 }
 private final class FakeSpeakCapture: SpeakCapture, @unchecked Sendable {
     let device: InputDeviceInfo
@@ -264,9 +291,12 @@ private final class FakeSpeakCapture: SpeakCapture, @unchecked Sendable {
     private let lock = NSLock()
     private var chunk: (@Sendable (MicCapture.Chunk) -> Void)?
     private var interruption: (@Sendable (MicCapture.Interruption) -> Void)?
-    init(_ device: InputDeviceInfo) { self.device = device }
+    private let failsToStart: Bool
+    private struct StartFailure: Error {}
+    init(_ device: InputDeviceInfo, failsToStart: Bool = false) { self.device = device; self.failsToStart = failsToStart }
     var isStarted: Bool { lock.withLock { chunk != nil } }
     func start(onChunk: @escaping @Sendable (MicCapture.Chunk) -> Void, onInterruption: @escaping @Sendable (MicCapture.Interruption) -> Void) throws {
+        if failsToStart { throw StartFailure() }
         lock.withLock { chunk = onChunk; interruption = onInterruption }
     }
     func stop() { lock.withLock { chunk = nil; interruption = nil } }

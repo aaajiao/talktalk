@@ -417,3 +417,44 @@ final class Counter: @unchecked Sendable {
         #expect(bad.error?.param == "reasoning.effort")
     }
 }
+
+/// §11: every reason CloudHealth.gate refuses with is a refusal for the menu lines
+/// (MTError.cloudRefused, in Core, matches these strings).
+@Suite struct CloudGateRefusalTests {
+    @Test func everyGateRefusalCountsAsRefused() throws {
+        let profile = try CloudTestResources.profile()
+        let outcome = HedgeOutcome(fired: false, winner: .apple, reason: nil, ms: 0)
+        func decision(breaker: Bool = false, timedOut: Bool = false, pause: String? = nil) -> HedgeDecision {
+            HedgeDecision(outcome: outcome, fallback: timedOut ? .deadline : .allFailed, breakerFailure: breaker,
+                          timedOut: timedOut, primaryRateLimited: false, retryAfterS: nil, pauseReason: pause)
+        }
+        var reasons: [String] = []
+        func note(_ gate: CloudHealth.Gate) { if case let .apple(r) = gate { reasons.append(r) } }
+
+        var offline = CloudHealth(cloud: profile.cloud)
+        offline.setOffline(true)
+        note(offline.gate(.listen, now: 0))
+
+        var breaker = CloudHealth(cloud: profile.cloud)
+        for i in 0..<profile.cloud.breaker.failuresToOpen {
+            _ = breaker.gate(.listen, now: i)
+            breaker.record(.listen, decision: decision(breaker: true), hedgePauseS: nil, now: i)
+        }
+        note(breaker.gate(.listen, now: 10))
+
+        var timeouts = CloudHealth(cloud: profile.cloud)
+        for i in 0..<profile.cloud.timeoutBreaker.timeoutsToOpen {
+            _ = timeouts.gate(.listen, now: i)
+            timeouts.record(.listen, decision: decision(timedOut: true), hedgePauseS: nil, now: i)
+        }
+        note(timeouts.gate(.listen, now: 10))
+
+        var paused = CloudHealth(cloud: profile.cloud)
+        _ = paused.gate(.listen, now: 0)
+        paused.record(.listen, decision: decision(pause: "http401"), hedgePauseS: nil, now: 0)
+        note(paused.gate(.listen, now: 10))
+
+        #expect(reasons == ["offline", "breakerOpen", "timeoutBreakerOpen", "paused:http401"])
+        #expect(reasons.allSatisfy(MTError.cloudRefused))
+    }
+}

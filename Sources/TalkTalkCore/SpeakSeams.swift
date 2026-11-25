@@ -110,7 +110,9 @@ public struct SpeakMTRequest: Sendable {
 
 public enum SpeakMTOutcome: Sendable, Equatable {
     public enum Block: Sendable { case gateRejected, numberMismatch, unavailable }
-    case text(String, backend: HUDModel.MTSource, numberWarning: String?, hedge: HedgeOutcome?)
+    /// `cloudRefused`: an Apple result because there is no cloud or it refused before sending
+    /// (`MTError.cloudRefused`); false for OpenAI and for a fallback after a sent request.
+    case text(String, backend: HUDModel.MTSource, numberWarning: String?, hedge: HedgeOutcome?, cloudRefused: Bool = false)
     case blocked(Block)
 }
 
@@ -220,4 +222,7 @@ public enum SpeakUIEvent: Sendable, Equatable {
     case post(HUDModel.Warning)
     case clear(HUDModel.Warning)
     case pttAvailable(Bool)
+    /// Translations use Apple in place of OpenAI (CloudFallbackStatus), on each change: the
+    /// menu's 我说话翻译：Apple 备用 and the icon. A lone fallback does not count.
+    case cloudFallback(Bool)
 }

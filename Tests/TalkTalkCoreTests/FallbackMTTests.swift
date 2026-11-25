@@ -18,10 +18,10 @@ struct FallbackMTTests {
     @Test func cloudFailureUsesAppleButBlocksIncorrectNumbersAndMetaText() async throws {
         let log = EventLog(inMemory: HostClock.now)
         for (text, expected) in [
-            ("The budget is 300000.", SpeakMTOutcome.text("The budget is 300000.", backend: .apple, numberWarning: nil, hedge: Self.result("", apple: true).hedge)),
+            ("The budget is 300000.", SpeakMTOutcome.text("The budget is 300000.", backend: .apple, numberWarning: nil, hedge: Self.result("", apple: true).hedge, cloudRefused: true)),
             ("The budget is 30000.", .blocked(.numberMismatch)),
             ("Here is the translation: budget.", .blocked(.gateRejected)),
-            ("<none>", .text("", backend: .apple, numberWarning: nil, hedge: Self.result("", apple: true).hedge))
+            ("<none>", .text("", backend: .apple, numberWarning: nil, hedge: Self.result("", apple: true).hedge, cloudRefused: true))
         ] {
             let apple = Apple(text)
             let translator = try make(Cloud(.unavailable), apple, log: log)
@@ -33,10 +33,26 @@ struct FallbackMTTests {
         #expect(!rendered.contains(request.text) && !rendered.contains("300000"))
     }
 
+    /// 我说话翻译's menu line counts only an Apple result OpenAI refused before sending (or no
+    /// cloud at all); a sent request that failed is about that sentence (CloudFallbackStatus).
+    @Test func appleResultSaysWhetherTheCloudRefused() async throws {
+        let cases: [(Cloud?, Bool)] = [(nil, true), (Cloud(.fails("breakerOpen")), true),
+                                       (Cloud(.fails("timeoutBreakerOpen")), true), (Cloud(.fails("paused:401")), true),
+                                       (Cloud(.fails("deadline")), false), (Cloud(.fails("late")), false),
+                                       (Cloud(.fails("allFailed")), false)]
+        for (cloud, refused) in cases {
+            let translator = try make(cloud, Apple("The budget is 300000."))
+            guard case let .text(_, backend, _, _, cloudRefused) = try await translator.translate(request) else {
+                Issue.record("Apple must translate"); continue
+            }
+            #expect(backend == .apple && cloudRefused == refused)
+        }
+    }
+
     @Test func cloudWinsWithoutStartingAppleAndKeepsNumberWarning() async throws {
         let apple = Apple("The budget is 300000.")
         let translator = try make(Cloud(.text("The budget is 30000.")), apple)
-        guard case let .text(text, backend, warning, _) = try await translator.translate(request) else {
+        guard case let .text(text, backend, warning, _, _) = try await translator.translate(request) else {
             Issue.record("cloud translation must remain usable with a warning"); return
         }
         #expect(text == "The budget is 30000." && backend == .openAI && warning == "三十万")
@@ -86,7 +102,7 @@ struct FallbackMTTests {
                 await translator.prepare(source: source, targets: [target])
                 #expect(prepared.withLock { $0 } == [session])
                 let request = SpeakMTRequest(clause: 1, press: 1, job: 1, text: input, source: source, target: target)
-                guard case let .text(text, backend, warning, _) = try await translator.translate(request) else {
+                guard case let .text(text, backend, warning, _, _) = try await translator.translate(request) else {
                     Issue.record("valid translation blocked for \(session)"); continue
                 }
                 #expect(text == output && warning == nil && backend == (offline ? .apple : .openAI))
@@ -138,7 +154,7 @@ struct FallbackMTTests {
     }
 
     actor Cloud: SpeakCloudMT {
-        enum Mode: Sendable { case unavailable, text(String), hedgeThenWait }
+        enum Mode: Sendable { case unavailable, fails(String), text(String), hedgeThenWait }
         nonisolated let id = EngineID(name: "fake-cloud", revision: "1", placement: .network)
         let mode: Mode
         var cancels = 0
@@ -150,6 +166,7 @@ struct FallbackMTTests {
             lastMode = r.mode; lastSession = r.session; lastAppleLate = speak.appleLate
             switch mode {
             case .unavailable: throw MTError.cloudUnavailable("offline")
+            case .fails(let reason): throw MTError.cloudUnavailable(reason)
             case .text(let t): return FallbackMTTests.result(t, apple: false)
             case .hedgeThenWait:
                 speak.onStartApple()

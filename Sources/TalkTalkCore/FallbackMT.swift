@@ -94,6 +94,7 @@ public actor FallbackMT: SpeakTranslator {
     private static func run(_ request: SpeakMTRequest, mt: MTRequest, cloud: (any SpeakCloudMT)?,
                             apple: AppleAttempt, context: SpeakCloudContext, glossary: [GlossaryEntry],
                             gate: TargetTextGate, log: EventLog?) async throws -> SpeakMTOutcome {
+        var refused = cloud == nil
         if let cloud {
             do {
                 try await cloud.setContext(mt.session, glossary: glossary)
@@ -101,19 +102,22 @@ public actor FallbackMT: SpeakTranslator {
                 try Task.checkCancellation()
                 return checked(result, request: request, backend: .openAI, glossary: glossary, gate: gate)
             } catch is CancellationError { throw CancellationError() }
-            catch { try Task.checkCancellation() }
+            catch {
+                try Task.checkCancellation()
+                if case let .cloudUnavailable(reason)? = error as? MTError { refused = MTError.cloudRefused(reason) }
+            }
         }
         // Only codes/IDs enter the event log; provider errors may contain source text.
         log?.event("mt.fallback", ["job": .int(Int(request.job)), "reason": .tag(cloud == nil ? "noCloud" : "cloudUnavailable")])
         do {
             let result = try await apple.value()
             try Task.checkCancellation()
-            return checked(result, request: request, backend: .apple, glossary: glossary, gate: gate)
+            return checked(result, request: request, backend: .apple, refused: refused, glossary: glossary, gate: gate)
         } catch is CancellationError { throw CancellationError() }
         catch { try Task.checkCancellation(); return .blocked(.unavailable) }
     }
 
-    private static func checked(_ result: MTResult, request: SpeakMTRequest, backend: HUDModel.MTSource,
+    private static func checked(_ result: MTResult, request: SpeakMTRequest, backend: HUDModel.MTSource, refused: Bool = false,
                                 glossary: [GlossaryEntry], gate: TargetTextGate) -> SpeakMTOutcome {
         var verdict = gate.check(result.text, target: request.target)
         if request.target != .zh, verdict == .reject(.containsCJK), let recovered = gate.transliterateShortHanRuns(result.text) {
@@ -124,13 +128,13 @@ public actor FallbackMT: SpeakTranslator {
         case .pass(let clean): text = clean
         case .skip:
             // P5 treats an empty successful result as a silent skip, never as a TTS request.
-            return .text("", backend: backend, numberWarning: nil, hedge: result.hedge)
+            return .text("", backend: backend, numberWarning: nil, hedge: result.hedge, cloudRefused: refused)
         case .reject: return .blocked(.gateRejected)
         }
         let numbers = NumberGuard.check(source: request.text, sourceLang: request.source, target: text, targetLang: request.target, glossary: glossary)
         guard numbers.isOK || backend == .openAI else { return .blocked(.numberMismatch) }
         let warning = numbers.isOK ? nil : (numbers.sourceTexts + numbers.missingTerms).joined(separator: "、")
-        return .text(text, backend: backend, numberWarning: warning, hedge: result.hedge)
+        return .text(text, backend: backend, numberWarning: warning, hedge: result.hedge, cloudRefused: refused)
     }
 }
 

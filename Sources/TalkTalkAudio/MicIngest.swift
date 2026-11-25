@@ -19,7 +19,7 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     public struct Stats: Sendable {
         public var blocks = 0, frames16k = 0, onsets = 0, rateRestarts = 0, droppedBlocks = 0
         /// Smallest and largest chunk of the last opened capture, at `deviceRate` (device-rate
-        /// frames; one chunk per HAL buffer).
+        /// frames; one chunk per HAL buffer). `onCaptureEnd` gets them as each capture closes.
         public var chunkFramesMin = 0, chunkFramesMax = 0
         public var deviceRate = 0.0, audioSeconds = 0.0
         public var firstHost: HostTime = 0, lastHost: HostTime = 0
@@ -43,6 +43,7 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     private let onBlock: @Sendable (MicBlock) -> Void
     private let onVAD: @Sendable (SpeakVAD.Event) -> Void
     private let onState: @Sendable (SpeakMicState) -> Void
+    private let onCaptureEnd: @Sendable (Stats) -> Void
     private let onSystemEvent: @Sendable (PassthroughSystemEvent, HostTime) -> Void
     private let watchHAL: Bool
     private var listeners: HALListenerSet?
@@ -70,12 +71,14 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
                 onBlock: @escaping @Sendable (MicBlock) -> Void = { _ in },
                 onVAD: @escaping @Sendable (SpeakVAD.Event) -> Void = { _ in },
                 onState: @escaping @Sendable (SpeakMicState) -> Void = { _ in },
+                onCaptureEnd: @escaping @Sendable (Stats) -> Void = { _ in },
                 onSystemEvent: @escaping @Sendable (PassthroughSystemEvent, HostTime) -> Void = { _, _ in },
                 devices: @escaping @Sendable () -> [InputDeviceInfo] = InputDeviceCatalog.inputDevices,
                 makeCapture: @escaping @Sendable (InputDeviceInfo) throws -> any SpeakCapture = { try MicCapture(device: $0) },
                 watchHAL: Bool = true, vad: SpeakVAD? = nil) throws {
         self.profile = profile; self.target = target; self.charactersPerSecond = charactersPerSecond; self.userUID = userUID; self.devices = devices; factory = makeCapture
-        self.onBlock = onBlock; self.onVAD = onVAD; self.onState = onState; self.onSystemEvent = onSystemEvent
+        self.onBlock = onBlock; self.onVAD = onVAD; self.onState = onState; self.onCaptureEnd = onCaptureEnd
+        self.onSystemEvent = onSystemEvent
         self.watchHAL = watchHAL; self.vad = try vad ?? SpeakVAD()
     }
     deinit { current?.finish(); idleTimer?.cancel(); capture?.stop(); listeners?.stop() }
@@ -211,6 +214,8 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
             capture = new; generation += 1
             let epoch = generation, rate = new.sampleRate
             resetAnalysis()
+            // Before start: a capture that fails to start ends with no chunks, not the last one's.
+            lock.withLock { numbers.deviceRate = rate; numbers.chunkFramesMin = 0; numbers.chunkFramesMax = 0 }
             try new.start(onChunk: { [weak self] chunk in
                 self?.queue.async { [weak self] in
                     guard let self, generation == epoch, capture != nil else { return }
@@ -225,7 +230,6 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
                 }
             })
             new.setDrainCadence(milliseconds: passthrough ? 5 : 10)
-            lock.withLock { numbers.deviceRate = new.sampleRate; numbers.chunkFramesMin = 0; numbers.chunkFramesMax = 0 }
             setState(.init(capture: .open, physicalMicPassesRule2: true))
         } catch {
             closeCapture(); finishPress(cancelled: true)
@@ -235,6 +239,8 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     private func closeCapture() {
         generation += 1
         let old = capture; capture = nil; old?.stop()
+        // On this queue, before any reopen resets the chunk sizes: the stats as this capture ends.
+        if old != nil { onCaptureEnd(lock.withLock { numbers }) }
         setState(.init(capture: .closed, physicalMicPassesRule2: chosenDevice() != nil))
     }
     private func changed(_ event: PassthroughSystemEvent) {

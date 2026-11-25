@@ -51,6 +51,7 @@ final class SpeakController {
     private var meterTask: Task<Void, Never>?
     private var pipeline: SpeakPipeline?
     private var mic: MicIngest?
+    private var captureEnd: CaptureEndLog?
     private var keys: PassthroughRuntime?
     private var reporter: PlayoutReporter?
     private var clauseQueue: ClauseQueue?
@@ -97,6 +98,30 @@ final class SpeakController {
     var onChange: (() -> Void)?
     var isActive: Bool { owner != nil || demoActive }
 
+    /// speak.capture_end, one per capture that opened. MicIngest reports a capture as it closes;
+    /// when the meeting starts to stop, the open one is written at once from the main actor,
+    /// because MeetingSession closes the meeting log before end() closes the capture, and a
+    /// record written that late was dropped. `at`: "close" or "stopping".
+    private final class CaptureEndLog: Sendable {
+        private let log: EventLog
+        private let due = Mutex(false)
+        init(_ log: EventLog) { self.log = log }
+        /// A capture opened (on the mic queue): its record is due.
+        func opened() { due.withLock { $0 = true } }
+        /// MicIngest.onCaptureEnd, on the mic queue.
+        func closed(_ stats: MicIngest.Stats) { write(stats, at: "close") }
+        /// The meeting begins to stop: write the open capture now, while the log is open.
+        func stopping(_ stats: MicIngest.Stats) { write(stats, at: "stopping") }
+        private func write(_ stats: MicIngest.Stats, at: String) {
+            guard due.withLock({ due in defer { due = false }; return due }) else { return }
+            // Counts run since this SPEAK chain began (a language or recognizer change starts a
+            // new one); the chunk sizes are this capture's.
+            log.event("speak.capture_end", ["blocks": .int(stats.blocks), "frames16k": .int(stats.frames16k),
+                "onsets": .int(stats.onsets), "dropped_blocks": .int(stats.droppedBlocks), "rate": .double(stats.deviceRate),
+                "chunk_min": .int(stats.chunkFramesMin), "chunk_max": .int(stats.chunkFramesMax), "at": .tag(at)])
+        }
+    }
+
     private struct Links {
         var mic: MicIngest?
         var keys: PassthroughRuntime?
@@ -132,6 +157,8 @@ final class SpeakController {
             }
             guard ownsMeetingMode else { return }
             switch event {
+            // Synchronous, inside MeetingSession.stop(): before its stop task closes the log.
+            case .stopping: if let mic { captureEnd?.stopping(mic.stats) }
             case .suspended: keys?.systemEvent(.sleep, at: HostClock.now())
             case .ended: keys?.systemEvent(.meetingModeEnded, at: HostClock.now())
             case .audioServiceRestarted(let at): keys?.systemEvent(.coreaudiodRestarted, at: at)
@@ -326,6 +353,7 @@ final class SpeakController {
             let speechRate = source == .zh ? (try? state.voiceStore.loadProfile())?.speakingRateCharsPerSecond : nil
             let target = state.speakLanguage.lang
             sessionSource = source; sessionTarget = target
+            let captureEnd = CaptureEndLog(log)
             let mic = try MicIngest(profile: profile.speak, target: target, charactersPerSecond: { speechRate },
                 userUID: { links.value.withLock { $0.micUID } },
                 onBlock: { block in
@@ -344,15 +372,16 @@ final class SpeakController {
                 }, onState: { [weak self] state in
                     log.event("speak.mic_state", ["capture": .tag(String(describing: state.capture)),
                         "physical": .bool(state.physicalMicPassesRule2)])
+                    if state.capture == .open { captureEnd.opened() }
                     Task { @MainActor in
                         guard self?.generation == token else { return }
                         self?.refreshFacts()
                     }
-                }, onSystemEvent: { event, at in
+                }, onCaptureEnd: { captureEnd.closed($0) }, onSystemEvent: { event, at in
                     log.event("speak.system_event", ["reason": .tag(event.rawValue)], at: at)
                     links.value.withLock { $0.keys }?.systemEvent(event, at: at)
                 })
-            self.mic = mic; links.value.withLock { $0.mic = mic }
+            self.mic = mic; self.captureEnd = captureEnd; links.value.withLock { $0.mic = mic }
             var apple: (any MTEngine)?
             var prepareApple: @Sendable (MTSession) async throws -> Void = { _ in }
             if #available(macOS 26.4, *) {
@@ -881,11 +910,14 @@ final class SpeakController {
                 }
             }
             if case .idle = p { speaking = false } else { speaking = true }
+            // The titlebar's short notice follows each played sentence; the menu line and icon
+            // follow `.cloudFallback`.
             if case .playing(_, _, let backend, _) = p {
-                degraded = backend == .apple
-                if degraded, meeting.cloud.box.speak != nil { hud.post(.openAIUnreachable) }
+                if backend == .apple, meeting.cloud.box.speak != nil { hud.post(.openAIUnreachable) }
                 else { hud.clear(.openAIUnreachable) }
             }
+        case .cloudFallback(let showing):
+            degraded = showing
         case .post(let warning):
             hud.post(warning)
             if demoActive { onDemoStatus?(warning.text) }
@@ -916,11 +948,6 @@ final class SpeakController {
         }
         await pipeline?.stop()
         await owner?.setDraftsPaused(false)
-        if let stats = mic?.stats {
-            sessionLog?.event("speak.capture_end", ["blocks": .int(stats.blocks), "frames16k": .int(stats.frames16k),
-                "onsets": .int(stats.onsets), "dropped_blocks": .int(stats.droppedBlocks), "rate": .double(stats.deviceRate),
-                "chunk_min": .int(stats.chunkFramesMin), "chunk_max": .int(stats.chunkFramesMax)])
-        }
         if wasDemo { sessionLog?.event("demo.stop") }
         mic?.stop(); reporter?.stop()
         await output.endSession()
@@ -939,7 +966,7 @@ final class SpeakController {
         lastInputState = nil
         await engineHost.speakBridge.process?.setMeetingMode(false)
         links.value.withLock { $0.keys = nil; $0.mic = nil }
-        pipeline = nil; mic = nil; keys = nil; reporter = nil; owner = nil; demoActive = false
+        pipeline = nil; mic = nil; captureEnd = nil; keys = nil; reporter = nil; owner = nil; demoActive = false
         clauseQueue = nil
         floor = FloorManager(config: profile.speak.floor)
         remoteSpeech = RemoteSpeechDetector(config: profile.speak.floor)

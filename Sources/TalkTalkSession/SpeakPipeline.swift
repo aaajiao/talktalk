@@ -88,6 +88,8 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private var ledger: ClauseLedger
     private var ttsQueue: TTSQueue
     private var history = MTHistory()
+    /// 我说话翻译's menu line and icon (SpeakUIEvent.cloudFallback).
+    private var fallbacks = CloudFallbackStatus()
     private var firstChunk = RollingP95()
     private var calibration = DurationCalibration()
     private var backlog: BacklogController
@@ -577,7 +579,10 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
             guard active(id, token: token), clauses[id]?.mtJob == row.mtJob else { return }
             switch outcome {
             case .blocked: discard(id, warning: .segmentNotSent)
-            case .text(let translated, let backend, let warning, _):
+            case .text(let translated, let backend, let warning, _, let refused):
+                let showing = fallbacks.showing
+                if backend == .openAI { fallbacks.openAI() } else { fallbacks.fallback(refused: refused) }
+                if fallbacks.showing != showing { ui(.cloudFallback(fallbacks.showing)) }
                 guard !translated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { discard(id, warning: nil); return }
                 let normalized = TextNormalizer.normalize(translated, lang: target)
                 guard target == .zh || !normalized.unicodeScalars.contains(where: TextScript.isCJK) else { discard(id, warning: .segmentNotSent); return }

@@ -34,7 +34,7 @@ extension FakeServerCloudTests {
             let apple = RetryApple("The amount is 300000.")
             let translator = try retryFallback(p, apple: apple)
             let result = try await translator.translate(retryRequest)
-            guard case let .text(text, backend, warning, hedge) = result else {
+            guard case let .text(text, backend, warning, hedge, _) = result else {
                 Issue.record("valid cloud retry must win"); continue
             }
             #expect(text == "The budget is 300000." && backend == .openAI && warning == nil)
@@ -69,7 +69,7 @@ extension FakeServerCloudTests {
             case "number": #expect(result == .blocked(.numberMismatch))
             case "gate": #expect(result == .blocked(.gateRejected))
             default:
-                guard case let .text(text, backend, warning, _) = result else {
+                guard case let .text(text, backend, warning, _, _) = result else {
                     Issue.record("valid prepared fallback must remain usable"); continue
                 }
                 #expect(text == output && backend == .apple && warning == nil)
@@ -95,7 +95,7 @@ extension FakeServerCloudTests {
         let translator = try retryFallback(p, apple: apple, log: events)
         var request = retryRequest
         request.appleLate = true
-        guard case let .text(_, backend, _, _) = try await translator.translate(request) else {
+        guard case let .text(_, backend, _, _, _) = try await translator.translate(request) else {
             Issue.record("late fallback must remain usable"); return
         }
         #expect(backend == .apple && apple.snapshot.starts == 1)
@@ -112,7 +112,7 @@ extension FakeServerCloudTests {
         FakeServer.enqueue(.B, .hang())
         let apple = RetryApple("The budget is 300000.")
         let translator = try retryFallback(p, apple: apple)
-        guard case let .text(text, backend, warning, _) = try await translator.translate(retryRequest) else {
+        guard case let .text(text, backend, warning, _, _) = try await translator.translate(retryRequest) else {
             Issue.record("failed number retry must retain the original cloud result"); return
         }
         #expect(text == "The budget is 30000." && backend == .openAI && warning == "三十万")
@@ -143,7 +143,7 @@ extension FakeServerCloudTests {
 
         FakeServer.enqueue(.A, FakeServer.good("The budget is 300000."))
         let next = SpeakMTRequest(clause: 2, press: 2, job: 302, text: request.text, target: .en)
-        guard case let .text(text, backend, _, _) = try await translator.translate(next) else {
+        guard case let .text(text, backend, _, _, _) = try await translator.translate(next) else {
             Issue.record("next job must be independent of the cancelled retry"); return
         }
         #expect(text == "The budget is 300000." && backend == .openAI)

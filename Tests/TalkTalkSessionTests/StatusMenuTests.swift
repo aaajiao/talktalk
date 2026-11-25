@@ -304,7 +304,10 @@ import Testing
         #expect(rows[3].tone == .warn && rows[3].help == f.asrStatus)
         #expect(rows[4].kind == .action(.open(.recognition)) && rows[4].indented)
         // The tooltip gives the reason in one sentence, without a status sign or the line's words.
-        #expect(rows[5].help == "OpenAI 超时，这句改用 Apple 翻译")
+        #expect(rows[5].help == "OpenAI 超时，改用 Apple 翻译")
+        var breaker = f
+        breaker.translation = .appleFallback(reason: "timeoutBreakerOpen")
+        #expect(row(StatusMenu.rows(breaker), "字幕翻译：Apple 备用")?.help == "OpenAI 多次超时，改用 Apple 翻译")
         #expect(rows[6].kind == .action(.open(.translation)))
         // The status item's word is not repeated when a line explains its glyph.
         #expect(row(rows, "对方能听到原声")?.kind == .status && rows.filter { $0.title == "对方能听到原声" }.count == 1)

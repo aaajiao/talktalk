@@ -1649,18 +1649,34 @@
         }
       }
     },
-    "OpenAI 超时，这句改用 Apple 翻译": {
+    "OpenAI 超时，改用 Apple 翻译": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenAI timed out; this sentence uses Apple Translation"
+            "value": "OpenAI timed out; switching to Apple Translation"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenAI 超时，这句改用 Apple 翻译"
+            "value": "OpenAI 超时，改用 Apple 翻译"
+          }
+        }
+      }
+    },
+    "OpenAI 多次超时，改用 Apple 翻译": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenAI timed out repeatedly; switching to Apple Translation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenAI 多次超时，改用 Apple 翻译"
           }
         }
       }

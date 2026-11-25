@@ -45,12 +45,15 @@ public struct ListenAnalysisEvent: Sendable {
     }
 }
 
-/// Which engine the finals actually come from (menu line and icon, §11): the configured primary
-/// is not enough — offline, deadline, breaker and pause all fall back to Apple per sentence.
+/// Which engine the finals come from (menu line and icon, §11): the configured primary is not
+/// enough — offline, deadline, breaker and pause all fall back to Apple per sentence. A single
+/// fallback between OpenAI finals does not count (CloudFallbackStatus).
 public enum ListenTranslation: Sendable, Equatable {
+    /// OpenAI translates; at most one final fell back since its last result.
     case openAI
-    /// The primary exists but the last final came from Apple. `reason`: the cloud's reason
-    /// ("offline", "breakerOpen", "paused:401", …), "deadline" or "empty".
+    /// The primary exists but finals come from Apple: OpenAI refused before sending, or two or
+    /// more finals in a row fell back. `reason`: the latest one's, from the cloud ("offline",
+    /// "breakerOpen", "paused:401", …), "deadline" or "empty".
     case appleFallback(reason: String)
     /// No primary, cloud disabled, or the user chose Apple for this meeting.
     case appleOnly
@@ -109,6 +112,7 @@ public actor ListenPipeline {
     private let onUpdate: @Sendable (SubtitleUpdate) -> Void
     private let onTranslation: @Sendable (ListenTranslation) -> Void
     private var translation: ListenTranslation?
+    private var fallbacks = CloudFallbackStatus()
     private let tickMs: Int
 
     private var segmenter: ListenSegmenter
@@ -675,21 +679,21 @@ public actor ListenPipeline {
                     let candidate = r.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if candidate.isEmpty || candidate.caseInsensitiveCompare("<none>") == .orderedSame {
                         log.event("mt.fail", ["sentence": .int(Int(f.sentence)), "reason": .tag("empty")])
-                        report(.appleFallback(reason: "empty"))
+                        reportPrimary(fallback: "empty")
                     } else {
                         text = candidate
                         engineTag = r.engine.placement == .network ? "openai" : r.engine.name
-                        report(.openAI)
+                        reportPrimary(fallback: nil)
                     }
                 case let .failure(e):
                     let tag = Self.reasonTag(e)
                     log.event("mt.fail", ["sentence": .int(Int(f.sentence)), "reason": .tag(tag)])
-                    report(.appleFallback(reason: tag.hasPrefix("cloud:") ? String(tag.dropFirst(6)) : tag))
+                    reportPrimary(fallback: tag.hasPrefix("cloud:") ? String(tag.dropFirst(6)) : tag)
                 case .timeout:
                     call.cancel()
                     await primary.cancel(job)
                     log.event("mt.late", ["sentence": .int(Int(f.sentence)), "deadline_ms": .int(deadlineMs - f.triggerAtMs)])
-                    report(.appleFallback(reason: "deadline"))
+                    reportPrimary(fallback: "deadline")
                 }
             }
             if text != nil {
@@ -754,6 +758,14 @@ public actor ListenPipeline {
             return false
         }
         return result
+    }
+
+    /// A final the primary was asked for: `fallback` is the reason it fell back to Apple, nil
+    /// for an OpenAI result. A lone fallback still reports OpenAI (CloudFallbackStatus).
+    private func reportPrimary(fallback reason: String?) {
+        guard let reason else { fallbacks.openAI(); report(.openAI); return }
+        fallbacks.fallback(refused: MTError.cloudRefused(reason))
+        report(fallbacks.showing ? .appleFallback(reason: reason) : .openAI)
     }
 
     /// Only changes are reported.

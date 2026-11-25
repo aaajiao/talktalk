@@ -222,6 +222,35 @@ public struct HedgePolicy: Codable, Sendable, Equatable {
 
 public enum MTError: Error, Sendable, Equatable {
     case cloudUnavailable(String)
+
+    /// The cloud refused before sending (CloudHealth.gate: offline, a key or quota pause, an
+    /// open breaker) or a reply paused it, so the next sentences will not reach OpenAI either.
+    /// Any other reason (a missed deadline, an empty or late reply, a failed request) is about
+    /// that sentence alone.
+    public static func cloudRefused(_ reason: String) -> Bool {
+        reason == "offline" || reason == "breakerOpen" || reason == "timeoutBreakerOpen" || reason.hasPrefix("paused")
+    }
+}
+
+/// Whether a translation path shows as using Apple in place of OpenAI (§11 menu line and
+/// icon). A fallback between OpenAI results is about that sentence alone; in the 2026-11-25
+/// meeting one opening timeout kept 字幕翻译：Apple 备用 up for the rest of the meeting. It
+/// shows when OpenAI refused before sending (`MTError.cloudRefused`) and from the second
+/// fallback in a row, which also covers stalls that open no breaker (no reply by the reply
+/// time). An OpenAI result clears it.
+public struct CloudFallbackStatus: Sendable, Equatable {
+    public static let fallbacksInARow = 2
+    public private(set) var showing = false
+    private var inARow = 0
+
+    public init() {}
+
+    public mutating func openAI() { inARow = 0; showing = false }
+
+    public mutating func fallback(refused: Bool) {
+        inARow += 1
+        showing = refused || inARow >= Self.fallbacksInARow
+    }
 }
 
 public protocol MTEngine: Sendable {

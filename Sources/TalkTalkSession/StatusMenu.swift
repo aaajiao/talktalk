@@ -484,7 +484,10 @@ public enum StatusMenu {
     private static func translationFallbackHelp(_ translation: ListenTranslation, offline: Bool) -> String {
         if case let .appleFallback(reason) = translation, !offline, reason != "offline" {
             if reason.hasPrefix("paused") { return String(appLocalized: "OpenAI key 无效或额度用完，已改用 Apple 翻译") }
-            if reason == "deadline" { return String(appLocalized: "OpenAI 超时，这句改用 Apple 翻译") }
+            // The line shows from the second fallback in a row; only the latest reason is kept,
+            // so a deadline says no more than that one sentence timed out.
+            if reason == "deadline" { return String(appLocalized: "OpenAI 超时，改用 Apple 翻译") }
+            if reason == "timeoutBreakerOpen" { return String(appLocalized: "OpenAI 多次超时，改用 Apple 翻译") }
             return String(appLocalized: "OpenAI 暂不可用，改用 Apple 翻译")
         }
         return String(appLocalized: "离线，改用 Apple 翻译")
