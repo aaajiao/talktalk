@@ -29,6 +29,8 @@ typedef struct ringp_reader {
     uint32_t fade_in_len;    /* 0 = no fade-in running */
     uint32_t seg_active;     /* underrun fade-out over [seg_start, seg_end) */
     uint32_t seg_len;
+    uint32_t gap_pending;    /* an underrun's zeros are playing; the resume reports them */
+    uint32_t gap;            /* zeros counted for it in earlier calls */
     uint64_t seg_start;
     uint64_t seg_end;
 } ringp_reader;
@@ -264,6 +266,7 @@ uint32_t tt_ringp_read(tt_ringp *rp, float *dst, uint32_t frames, uint32_t gener
     };
 
     uint32_t out = 0;
+    uint32_t gap_from = 0;   /* dst index where this call's zeros of a pending gap start */
     for (uint32_t guard = 0; out < frames && guard < 64; guard++) {
         normalize(rp, &v, rep);
         uint64_t vend = valid_end(rp, &v);
@@ -279,6 +282,10 @@ uint32_t tt_ringp_read(tt_ringp *rp, float *dst, uint32_t frames, uint32_t gener
                 rd->seg_active = 0;
                 rd->fade_in_len = 0;
                 rd->playing = 0;
+                rd->gap_pending = 1;
+                rd->gap = 0;
+                gap_from = out;
+                if (!rep->underrun) rep->underrun_offset = out;
                 rep->underrun = 1;
                 atomic_fetch_add_explicit(&rp->underruns, 1, memory_order_relaxed);
             }
@@ -290,6 +297,12 @@ uint32_t tt_ringp_read(tt_ringp *rp, float *dst, uint32_t frames, uint32_t gener
             rd->playing = 1;
             rd->fade_in_pos = 0;
             rd->fade_in_len = rd->first_pending ? TT_RINGP_OPEN_FADE_IN_FRAMES : TT_RINGP_RESUME_FADE_IN_FRAMES;
+            if (rd->gap_pending) {
+                rd->gap_pending = 0;
+                rep->resumed = 1;
+                rep->resume_offset = out;
+                rep->gap_frames = rd->gap + (out - gap_from);
+            }
             continue;
         }
 
@@ -330,6 +343,10 @@ uint32_t tt_ringp_read(tt_ringp *rp, float *dst, uint32_t frames, uint32_t gener
         if (avail == 0) {
             rd->playing = 0;
             rd->fade_in_len = 0;
+            rd->gap_pending = 1;
+            rd->gap = 0;
+            gap_from = out;
+            if (!rep->underrun) rep->underrun_offset = out;
             rep->underrun = 1;
             atomic_fetch_add_explicit(&rp->underruns, 1, memory_order_relaxed);
             continue;
@@ -340,6 +357,7 @@ uint32_t tt_ringp_read(tt_ringp *rp, float *dst, uint32_t frames, uint32_t gener
         rd->seg_len = (uint32_t)avail;
     }
     for (; out < frames; out++) dst[out] = 0.0f;
+    if (rd->gap_pending) rd->gap += frames - gap_from;
     publish(rp, &v, rep);
     return frames;
 }

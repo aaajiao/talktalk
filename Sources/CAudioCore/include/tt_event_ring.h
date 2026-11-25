@@ -31,10 +31,13 @@ extern "C" {
 #define TT_EV_OUT_ENDED         7u   /* a clause END reached with nothing after it */
 #define TT_EV_PT_OPEN_SEEN      16u  /* a = generation: first cycle feedIOProc played ringP */
 #define TT_EV_PT_FIRST_SAMPLE   17u  /* a = generation, host = arrival, b = capture host ticks */
-#define TT_EV_PT_UNDERRUN       18u  /* a = generation */
+#define TT_EV_PT_UNDERRUN       18u  /* a = generation, host = arrival of the first zero after the
+                                      * 2 ms fade-out (before 1.0.24: the start of that read) */
 #define TT_EV_PT_LEASE_EXPIRED  19u  /* a = generation: open but the lease / deadline ran out */
 #define TT_EV_PT_ZERO           20u  /* a = generation, host = arrival of the first zero after the close fade */
 #define TT_EV_PT_DISCARDED      21u  /* a = generation, b = frames out of interval or expired */
+#define TT_EV_PT_RESUMED        22u  /* a = generation, host = arrival of the first resumed frame,
+                                      * b = zero frames since the underrun's fade-out */
 #define TT_EV_MON_UNDERRUN      32u
 
 /* Order: each producer pushes its events in output order, each with the arrival time of its own

@@ -584,6 +584,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         // quit() never cancels termination, so the window may leave first, in one step.
         conversationPanel.endSession()
+        // As with 结束: the session stays .running until its stop below, and the input restore in
+        // quit() refreshes the speech facts at once. From here no original-audio window or press
+        // may start (SpeakFacts `ending`).
+        if state.meetingActive { state.meetingStopping = true }
         let reply = systemInput?.quit() ?? .terminateNow
         guard reply == .terminateNow else { return reply }
         quitting = true

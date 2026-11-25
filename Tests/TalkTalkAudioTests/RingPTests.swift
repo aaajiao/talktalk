@@ -7,6 +7,7 @@ import Testing
 @Suite struct RingPTests {
     static let tpf = 500.0          // mach ticks per 48 kHz frame on Apple silicon
     static let host0: UInt64 = 1_000_000
+    static let start = Int(TT_RINGP_START_FRAMES)   // 1200: 25 ms
 
     private func ticks(_ frame: Int) -> UInt64 { Self.host0 + UInt64(Double(frame) * Self.tpf) }
 
@@ -37,13 +38,14 @@ import Testing
     @Test func waitsForTheStartBufferThenFadesInOverFiveMilliseconds() throws {
         let rp = try #require(tt_ringp_create(Self.tpf))
         defer { tt_ringp_destroy(rp) }
-        write(rp, at: 0, frames: 700, gen: 1, value: 1)
+        #expect(Self.start == 1200)   // one Feed read + one 44.1 kHz / 512 chunk + the hold + jitter
+        write(rp, at: 0, frames: Self.start - 20, gen: 1, value: 1)
         let (z, rz) = read(rp, 480)
         #expect(z.allSatisfy { $0 == 0 })
         #expect(rz.audio_frames == 0 && rz.underrun == 0)
-        write(rp, at: 700, frames: 300, gen: 1, value: 1)
+        write(rp, at: Self.start - 20, frames: 300, gen: 1, value: 1)
         let (a, ra) = read(rp, 480)
-        #expect(ra.first_audio == 1)
+        #expect(ra.first_audio == 1 && ra.resumed == 0)   // an open, not a resume
         #expect(ra.first_offset == 0)
         #expect(ra.first_src_ticks == ticks(0))
         for i in 0..<240 { #expect(a[i] == tt_fade_in_gain(UInt32(i), 240)) }
@@ -53,35 +55,96 @@ import Testing
     @Test func runningDryFadesOutOverTwoMillisecondsAndCountsAnUnderrun() throws {
         let rp = try #require(tt_ringp_create(Self.tpf))
         defer { tt_ringp_destroy(rp) }
-        write(rp, at: 0, frames: 1000, gen: 1, value: 1)
+        let left = Self.start - 480   // after the first read
+        write(rp, at: 0, frames: Self.start, gen: 1, value: 1)
         _ = read(rp, 480)
-        let (b, rb) = read(rp, 600)
-        #expect(b[0..<424].allSatisfy { $0 == 1 })
-        for i in 0..<96 { #expect(b[424 + i] == tt_fade_out_gain(UInt32(i), 96)) }
-        #expect(b[520..<600].allSatisfy { $0 == 0 })
-        #expect(rb.underrun == 1)
-        #expect(rb.audio_frames == 520)
+        let (b, rb) = read(rp, left + 80)
+        #expect(b[0..<(left - 96)].allSatisfy { $0 == 1 })
+        for i in 0..<96 { #expect(b[left - 96 + i] == tt_fade_out_gain(UInt32(i), 96)) }
+        #expect(b[left..<(left + 80)].allSatisfy { $0 == 0 })
+        #expect(rb.underrun == 1 && rb.resumed == 0 && rb.underrun_offset == UInt32(left))
+        #expect(rb.audio_frames == UInt32(left))
         #expect(tt_ringp_underruns(rp) == 1)
         #expect(tt_ringp_fill(rp) == 0)
         // Resume: the start buffer again, then a 2 ms fade-in (not the 5 ms one of an open).
-        write(rp, at: 1000, frames: 719, gen: 1, value: 1)
-        #expect(read(rp, 480).1.audio_frames == 0)
-        write(rp, at: 1719, frames: 100, gen: 1, value: 1)
+        write(rp, at: Self.start, frames: Self.start - 1, gen: 1, value: 1)
+        let (_, rw) = read(rp, 480)
+        #expect(rw.audio_frames == 0 && rw.resumed == 0)
+        write(rp, at: 2 * Self.start - 1, frames: 100, gen: 1, value: 1)
         let (c, rc) = read(rp, 480)
         #expect(rc.first_audio == 0)
         for i in 0..<96 { #expect(c[i] == tt_fade_in_gain(UInt32(i), 96)) }
         #expect(c[96..<480].allSatisfy { $0 == 1 })
+        // The report gives the zeros between the fades: 80 + 480 over two calls.
+        #expect(rc.resumed == 1 && rc.resume_offset == 0 && rc.gap_frames == 560)
+        #expect(rc.underrun == 0)
+    }
+
+    /// A fade-out that ends with a call, then enough data for the next one: a notch, no zeros.
+    /// A resume inside a call reports its offset in that call.
+    @Test func resumeReportsItsOffsetAndAZeroGapWhenTheFadesMeet() throws {
+        let rp = try #require(tt_ringp_create(Self.tpf))
+        defer { tt_ringp_destroy(rp) }
+        let left = Self.start - 480
+        write(rp, at: 0, frames: Self.start, gen: 1, value: 1)
+        _ = read(rp, 480)
+        let (_, rb) = read(rp, left)   // ends exactly with the fade-out
+        #expect(rb.underrun == 1 && rb.audio_frames == UInt32(left) && rb.underrun_offset == UInt32(left))
+        write(rp, at: Self.start, frames: Self.start, gen: 1, value: 1)
+        let (_, rc) = read(rp, 480)
+        #expect(rc.resumed == 1 && rc.resume_offset == 0 && rc.gap_frames == 0)
+        // Run dry again, then resume in the middle of a long read.
+        _ = read(rp, left)
+        #expect(tt_ringp_underruns(rp) == 2)
+        write(rp, at: 2 * Self.start, frames: Self.start, gen: 1, value: 1)
+        let (_, rd) = read(rp, 2000)
+        #expect(rd.resumed == 1 && rd.resume_offset == 0 && rd.gap_frames == 0)
+        #expect(rd.underrun == 1 && rd.underrun_offset == UInt32(Self.start))   // ran dry after the resume
+        let (_, re) = read(rp, 300)
+        #expect(re.resumed == 0)
+        write(rp, at: 3 * Self.start, frames: Self.start, gen: 1, value: 1)
+        var out = [Float](repeating: 0, count: 300)
+        var rf = tt_ringp_report()
+        _ = out.withUnsafeMutableBufferPointer { tt_ringp_read(rp, $0.baseAddress!, 300, 1, 0, .max, &rf) }
+        #expect(rf.resumed == 1 && rf.resume_offset == 0)
+        #expect(rf.gap_frames == UInt32(2000 - Self.start) + 300)   // tail of the long read + one call
+        // A flush forgets a pending gap: the next start is an open.
+        _ = read(rp, 2000)
+        tt_ringp_flush(rp)
+        write(rp, at: 4 * Self.start, frames: Self.start, gen: 1, value: 1)
+        let (_, rg) = read(rp, 480)
+        #expect(rg.first_audio == 1 && rg.resumed == 0)
+    }
+
+    /// A fade-out begun in one call ends in the next, and the frames written meanwhile restart
+    /// playback in that same call: the underrun comes first, then the resume, both where the
+    /// fade-out ends.
+    @Test func aFadeOutEndingInTheNextCallCanResumeInThatCall() throws {
+        let rp = try #require(tt_ringp_create(Self.tpf))
+        defer { tt_ringp_destroy(rp) }
+        write(rp, at: 0, frames: 1500, gen: 1, value: 1)
+        _ = read(rp, 480)
+        _ = read(rp, 480)
+        let (_, r3) = read(rp, 480)   // 444 frames, then 36 of the 96-frame fade-out
+        #expect(r3.underrun == 0 && r3.audio_frames == 480)
+        write(rp, at: 1500, frames: Self.start + 100, gen: 1, value: 1)
+        let (o, r4) = read(rp, 480)
+        #expect(r4.underrun == 1 && r4.underrun_offset == 60)
+        #expect(r4.resumed == 1 && r4.resume_offset == 60 && r4.gap_frames == 0)
+        for i in 0..<60 { #expect(o[i] == tt_fade_out_gain(UInt32(36 + i), 96)) }
+        for i in 0..<96 { #expect(o[60 + i] == tt_fade_in_gain(UInt32(i), 96)) }
+        #expect(tt_ringp_underruns(rp) == 1)
     }
 
     @Test func olderGenerationsAreDiscardedAndNewerOnesWait() throws {
         let rp = try #require(tt_ringp_create(Self.tpf))
         defer { tt_ringp_destroy(rp) }
         write(rp, at: 0, frames: 500, gen: 1, value: .nan)   // leftovers of an earlier open
-        write(rp, at: 500, frames: 1000, gen: 2, value: 1)
+        write(rp, at: 500, frames: Self.start + 300, gen: 2, value: 1)
         // Reading generation 1 sees only its own blocks: generation 2 is neither read nor dropped.
         let (_, r1) = read(rp, 100, gen: 1)
         #expect(r1.stale == 0)
-        #expect(tt_ringp_fill(rp) == 1500)
+        #expect(tt_ringp_fill(rp) == UInt32(Self.start + 800))
         let (out, rep) = read(rp, 480, gen: 2)
         #expect(rep.stale == 500)
         #expect(tt_ringp_stale_frames(rp) == 500)
@@ -127,15 +190,16 @@ import Testing
         write(rp, at: 0, frames: 5000, gen: 1)
         _ = read(rp, 480)   // the 5 ms fade-in runs first; no drop meanwhile
         let (out, rep) = read(rp, 480)
-        // keep = need (480) + start buffer (720) = 1200 frames: jump from 480 to 3800.
-        #expect(rep.dropped_old == 3320)
+        // keep = need (480) + start buffer (1200) = 1680 frames: jump from 480 to 3320.
+        let to = 5000 - 480 - Self.start
+        #expect(rep.dropped_old == UInt32(to - 480))
         for i in 0..<96 {
             let g = tt_fade_in_gain(UInt32(i), 96)
-            let expected = Float(481 + i) * (1 - g) + Float(3801 + i) * g
+            let expected = Float(481 + i) * (1 - g) + Float(to + 1 + i) * g
             #expect(abs(out[i] - expected) <= 0.01)
         }
-        for j in 0..<384 { #expect(out[96 + j] == Float(3897 + j)) }
-        #expect(tt_ringp_dropped_old_frames(rp) == 3320)
+        for j in 0..<384 { #expect(out[96 + j] == Float(to + 97 + j)) }
+        #expect(tt_ringp_dropped_old_frames(rp) == UInt64(to - 480))
     }
 
     @Test func flushEmptiesTheRingAndTheNextOpenFadesInAgain() throws {
@@ -147,7 +211,7 @@ import Testing
         #expect(tt_ringp_fill(rp) == 0)
         #expect(tt_ringp_flushed_frames(rp) == 1520)
         #expect(read(rp, 480).0.allSatisfy { $0 == 0 })
-        write(rp, at: 2000, frames: 1000, gen: 2, value: 1)
+        write(rp, at: 2000, frames: Self.start, gen: 2, value: 1)
         let (out, rep) = read(rp, 480, gen: 2)
         #expect(rep.first_audio == 1)
         for i in 0..<240 { #expect(out[i] == tt_fade_in_gain(UInt32(i), 240)) }
@@ -158,9 +222,9 @@ import Testing
         defer { tt_ringp_destroy(rp) }
         write(rp, at: 0, frames: 300, gen: 1, value: .nan)
         write(rp, at: 300, frames: 300, gen: 2, value: .nan)
-        write(rp, at: 600, frames: 1000, gen: 3, value: 1)
+        write(rp, at: 600, frames: Self.start, gen: 3, value: 1)
         tt_ringp_discard_through(rp, 2)
-        #expect(tt_ringp_fill(rp) == 1000)
+        #expect(tt_ringp_fill(rp) == UInt32(Self.start))
         #expect(tt_ringp_stale_frames(rp) == 600)
         let (out, rep) = read(rp, 480, gen: 3)
         #expect(rep.first_audio == 1)

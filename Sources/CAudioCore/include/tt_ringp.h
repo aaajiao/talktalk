@@ -22,7 +22,8 @@
  *  - after a flush, playback starts once TT_RINGP_START_FRAMES are buffered, with a 5 ms fade-in;
  *  - the last TT_RINGP_HOLD_FRAMES (2 ms) are only played as a fade-out: when the ring runs dry
  *    they fade out, zeros follow and an underrun is counted (pt.underrun); playback resumes
- *    after TT_RINGP_START_FRAMES again with a 2 ms fade-in;
+ *    after TT_RINGP_START_FRAMES again with a 2 ms fade-in, and the report gives the zeros
+ *    between the two fades (pt.resumed);
  *  - when more than TT_RINGP_MAX_FILL_FRAMES (60 ms) are buffered, the oldest frames are dropped
  *    so that TT_RINGP_START_FRAMES remain after this call, with a 2 ms crossfade over the cut.
  * Fade shapes: tt_fade.h. */
@@ -39,7 +40,13 @@ extern "C" {
 
 #define TT_RINGP_CAPACITY_FRAMES       9600u  /* 200 ms */
 #define TT_RINGP_MAX_BLOCKS            256u
-#define TT_RINGP_START_FRAMES          720u   /* 15 ms start buffer (§3.8 latency table) */
+/* 25 ms start buffer. A read needs its 480 frames plus the 96-frame hold, and the next mic chunk
+ * can miss one Feed cycle: the built-in mic runs at 44.1 kHz, and its HAL buffer, assumed to be
+ * the default 512 frames (not yet measured), is about 557 frames at 48 kHz; the worker drains on
+ * a 5 ms grid. 480 + 557 + 96 leaves about 1.4 ms for delivery jitter. The
+ * earlier 15 ms covered only one Feed cycle plus the hold, so about a quarter of opens ran dry
+ * within their first 50 ms (2026-11-25 meeting logs and the ring model). */
+#define TT_RINGP_START_FRAMES          1200u
 #define TT_RINGP_HOLD_FRAMES           96u    /* 2 ms underrun fade-out */
 #define TT_RINGP_MAX_FILL_FRAMES       2880u  /* 60 ms */
 #define TT_RINGP_XFADE_FRAMES          96u    /* 2 ms crossfade over a drop */
@@ -55,6 +62,15 @@ typedef struct tt_ringp_report {
     uint64_t first_src_ticks;  /* its capture host time (mach ticks) */
     uint32_t underrun;         /* 1: an underrun began in this call (a read longer than the
                                 * start buffer can hold two: tt_ringp_underruns counts each) */
+    uint32_t underrun_offset;  /* index in dst of the first zero after the first one's fade-out */
+    uint32_t resumed;          /* 1: playback resumed after an underrun in this call; at most once
+                                * per call. It can end an underrun of the same call (a fade-out
+                                * begun in the previous call ends, then frames written meanwhile
+                                * restart playback) or, in a read longer than the start buffer,
+                                * come before one */
+    uint32_t resume_offset;    /* index in dst of its first frame (the 2 ms fade-in) */
+    uint32_t gap_frames;       /* zeros played between the underrun's fade-out and this resume;
+                                * 0 when both meet */
     uint32_t dropped_old;      /* frames dropped by the 60 ms bound */
     uint32_t stale;            /* frames of older generations discarded */
     uint32_t out_of_interval;  /* frames captured before valid_from discarded */

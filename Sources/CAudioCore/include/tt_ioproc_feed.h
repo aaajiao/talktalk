@@ -36,8 +36,8 @@
  * after each 30 s without one. Time is counted in Feed frames, not host time.
  *
  * Measurements go to the event ring (tt_event_ring.h): out.first_sample per clause start,
- * out.underrun, pt.first_sample (arrival and capture time), pt.underrun, pt.lease_expired,
- * pt.zero. Arrival = output host time of the frame + mic_latency_frames frames. What goes to
+ * out.underrun, pt.first_sample (arrival and capture time), pt.underrun, pt.resumed (zeros
+ * since the underrun), pt.lease_expired, pt.zero. Arrival = output host time of the frame + mic_latency_frames frames. What goes to
  * channel 1 is also pushed into the Feed output envelope. */
 
 #include <CoreAudio/AudioHardware.h>

@@ -28,7 +28,7 @@
   "passthrough":{"enabled":true,"key":"rightCommand","altKey":"rightControl","armHoldMs":400,"maxHoldS":30,"countdownS":5,
     "requireHidSource":true,"denyIfSpeechBeforeOpen":true,"mouseMoveMaxPt":10,"coldMicPreOpenVadMs":100,"finishClauseMaxMs":1500,"clauseCutFadeMs":30,
     "fadeInMs":5,"fadeOutMs":10,"leaseMs":100,"keyPollMs":20,"workerPollMs":5,
-    "ringP":{"capacityMs":200,"startMs":15,"maxFillMs":60},"gainDb":{"targetLufs":-20,"min":-6,"max":18,"uncalibrated":0},
+    "ringP":{"capacityMs":200,"startMs":25,"maxFillMs":60},"gainDb":{"targetLufs":-20,"min":-6,"max":18,"uncalibrated":0},
     "limiterDbtp":-1,"resumeAfterCloseMs":700,"echoDropAfterCloseS":2,
     "cues":{"enabled":true,"beforeOpen":true,"headphonesOnly":true,"dbfs":-30,"ms":30},"allowInSpeakerMode":false},
   "de":{"commitMin":{"estCjk":10,"speechS":1.5}}},

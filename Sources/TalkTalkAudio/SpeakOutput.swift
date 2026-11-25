@@ -309,6 +309,10 @@ public final class SpeakOutput: SpeakPlayoutHost, @unchecked Sendable {
             log?.event("pt.first_sample", ["generation": .int(Int(event.a)),
                 "latMs": .int(HostClock.ms(HostClock.nanos(fromMachTicks: event.b), to: time))], at: time)
         case TT_EV_PT_UNDERRUN: log?.event("pt.underrun", fields, at: time)
+        case TT_EV_PT_RESUMED:
+            // Zeros between the underrun's 2 ms fade-out and the resume's 2 ms fade-in (48 kHz).
+            log?.event("pt.resumed", ["generation": .int(Int(event.a)),
+                "gapMs": .double((Double(event.b) / 4.8).rounded() / 10)], at: time)
         case TT_EV_PT_LEASE_EXPIRED: log?.event("pt.lease_expired", fields, at: time)
         case TT_EV_PT_ZERO: log?.event("pt.zero", fields, at: time)
         case TT_EV_PT_DISCARDED: log?.event("pt.discarded", ["frames": .int(Int(clamping: event.b))], at: time)

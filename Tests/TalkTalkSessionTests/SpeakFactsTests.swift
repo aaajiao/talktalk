@@ -7,12 +7,26 @@ import TalkTalkCore
     func facts(guardState: MeetingMicGuardPlan.State = .init(verdict: .green(appID: "zoom", app: "Zoom")),
                speaker: Bool? = false, enabled: Bool = true, mic: Bool? = true,
                tap: Bool? = true, secure: Bool? = false, active: Bool = true,
-               mode: MeetingMode = .meeting, phoneReady: Bool = false, selfTest: Bool? = false) -> SpeakFacts {
+               mode: MeetingMode = .meeting, phoneReady: Bool = false, selfTest: Bool? = false,
+               ending: Bool = false) -> SpeakFacts {
         SpeakFacts(meetingState: active ? .running(app: "Zoom") : .suspended(app: "Zoom"),
                    micGuard: guardState, route: .init(speakerMode: speaker), passthroughEnabled: enabled,
                    mode: mode, phoneLocalReady: phoneReady,
                    physicalMicPassesRule2: mic, tapHealthy: tap, secureInput: secure,
-                   pushToTalkActive: false, selfTestRunning: selfTest)
+                   pushToTalkActive: false, selfTestRunning: selfTest, ending: ending)
+    }
+
+    /// A stop has begun but the session is still .running: no original-audio window and no
+    /// press may start, in a meeting or a prepared Phone call.
+    @Test func anEndingSessionStartsNoSpeech() {
+        let ending = facts(ending: true)
+        #expect(!ending.pushToTalkAvailable)
+        #expect(ending.passthrough.meetingModeActive == false)
+        #expect(PassthroughPolicy.evaluate(ending.passthrough) == .unavailable(.meetingModeOff))
+        let waiting = MeetingMicGuardPlan.State(verdict: .noReader, awaitingConfirmation: true)
+        let phone = facts(guardState: waiting, speaker: nil, mode: .phone, phoneReady: true, ending: true)
+        #expect(!phone.pushToTalkAvailable)
+        #expect(phone.passthrough.meetingModeActive == false)
     }
 
     @Test func confirmedPhysicalAndKeyFactsControlAvailability() {

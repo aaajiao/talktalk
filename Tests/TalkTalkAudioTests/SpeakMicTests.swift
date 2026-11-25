@@ -86,6 +86,29 @@ import TalkTalkCore
         mic.stop()
     }
 
+    /// Device enumeration runs on the queue that delivers mic chunks, so an open capture is
+    /// re-checked only on a device notification, never on each setHot or cadence change.
+    @Test func openCaptureEnumeratesDevicesOnlyOnADeviceNotification() async throws {
+        let rig = FakeMicRig(), lookups = Mutex(0)
+        let mic = try MicIngest(profile: profile, onBlock: { rig.block($0) },
+                                devices: { lookups.withLock { $0 += 1 }; return rig.devices },
+                                makeCapture: { rig.make($0) }, watchHAL: false)
+        defer { mic.stop() }
+        mic.setHot(true)
+        #expect(await eventuallyMic { mic.state.capture == .open })
+        let capture = try #require(rig.latest)
+        let opened = lookups.withLock { $0 }
+        for _ in 0..<20 { mic.setHot(true) }
+        mic.setPassthroughCadence(true)
+        capture.feed(at: 1_000_000_000, frame: 0)   // delivered after the calls above
+        #expect(await eventuallyMic { rig.blockCount == 1 })
+        #expect(lookups.withLock { $0 } == opened)
+        mic.refreshDevices()
+        #expect(await eventuallyMic { lookups.withLock { $0 } == opened + 1 })
+        #expect(rig.latest === capture)   // the same device stays open
+        #expect(mic.stats.chunkFramesMin == 320 && mic.stats.chunkFramesMax == 320)
+    }
+
     @Test func heldSpeechEmitsSegmentBeforeRelease() async throws {
         let rig = FakeMicRig(), clips = Mutex<[SpeakClip]>([])
         let mic = try MicIngest(profile: profile, devices: { rig.devices }, makeCapture: { rig.make($0) },
@@ -218,7 +241,9 @@ private final class FakeMicRig: @unchecked Sendable {
     var finished: Bool { lock.withLock { didFinish } }
     func markFinished() { lock.withLock { didFinish = true } }
     var devices: [InputDeviceInfo] { lock.withLock { [.init(objectID: 9, uid: uid, name: "Microphone", transport: "bltn", nominalSampleRate: rate, inputChannels: 1, isAlive: true, isAggregate: false)] } }
-    var latest: FakeSpeakCapture? { lock.withLock { capture } }
+    /// The newest capture once MicIngest has started it. make() runs before start() installs the
+    /// chunk callback; a test that fed chunks in between lost them (a flake under parallel load).
+    var latest: FakeSpeakCapture? { lock.withLock { capture }.flatMap { $0.isStarted ? $0 : nil } }
     var blockCount: Int { lock.withLock { blocks.count } }
     var lastBlock: MicBlock? { lock.withLock { blocks.last } }
     var events: [PassthroughSystemEvent] { lock.withLock { systemEvents } }
@@ -240,6 +265,7 @@ private final class FakeSpeakCapture: SpeakCapture, @unchecked Sendable {
     private var chunk: (@Sendable (MicCapture.Chunk) -> Void)?
     private var interruption: (@Sendable (MicCapture.Interruption) -> Void)?
     init(_ device: InputDeviceInfo) { self.device = device }
+    var isStarted: Bool { lock.withLock { chunk != nil } }
     func start(onChunk: @escaping @Sendable (MicCapture.Chunk) -> Void, onInterruption: @escaping @Sendable (MicCapture.Interruption) -> Void) throws {
         lock.withLock { chunk = onChunk; interruption = onInterruption }
     }

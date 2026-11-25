@@ -18,6 +18,9 @@ extension MicCapture: SpeakCapture {}
 public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     public struct Stats: Sendable {
         public var blocks = 0, frames16k = 0, onsets = 0, rateRestarts = 0, droppedBlocks = 0
+        /// Smallest and largest chunk of the last opened capture, at `deviceRate` (device-rate
+        /// frames; one chunk per HAL buffer).
+        public var chunkFramesMin = 0, chunkFramesMax = 0
         public var deviceRate = 0.0, audioSeconds = 0.0
         public var firstHost: HostTime = 0, lastHost: HostTime = 0
     }
@@ -189,14 +192,19 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         guard !lock.withLock({ stopped }) else { return }
         ensureWatching()
         guard hot || passthrough || current != nil else { closeCapture(); return }
+        // An open capture is re-checked only on a device notification (refreshDevices, the HAL
+        // device-list listener); an interruption closes it first. Enumerating devices takes many
+        // HAL reads on this queue, which also delivers every mic chunk: doing it for each setHot
+        // (every ~100 ms refreshFacts) held chunks back and made passthrough run dry.
+        if capture != nil && !checkDevice { return }
         guard let device = chosenDevice() else {
             if capture != nil { changed(.micUnplugged) }
             closeCapture(); finishPress(cancelled: true)
             setState(.init(capture: .noDevice, physicalMicPassesRule2: false)); return
         }
         if let capture {
-            if checkDevice && capture.device != device { changed(capture.device.uid == device.uid ? .micFormatChanged : .micUnplugged) }
-            else { return }
+            guard capture.device != device else { return }
+            changed(capture.device.uid == device.uid ? .micFormatChanged : .micUnplugged)
         }
         do {
             let new = try factory(device)
@@ -217,7 +225,7 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
                 }
             })
             new.setDrainCadence(milliseconds: passthrough ? 5 : 10)
-            lock.withLock { numbers.deviceRate = new.sampleRate }
+            lock.withLock { numbers.deviceRate = new.sampleRate; numbers.chunkFramesMin = 0; numbers.chunkFramesMax = 0 }
             setState(.init(capture: .open, physicalMicPassesRule2: true))
         } catch {
             closeCapture(); finishPress(cancelled: true)
@@ -269,6 +277,9 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         lock.withLock {
             inputActivity = inputLevel.flatMap { $0.isFinite ? (min(1, max(0, $0)), end) : nil }
             numbers.blocks += 1; numbers.audioSeconds += Double(chunk.samples.count) / rate
+            let n = chunk.samples.count
+            numbers.chunkFramesMin = numbers.chunkFramesMin == 0 ? n : min(numbers.chunkFramesMin, n)
+            numbers.chunkFramesMax = max(numbers.chunkFramesMax, n)
             if numbers.firstHost == 0 { numbers.firstHost = chunk.hostTime }; numbers.lastHost = end
         }
         onBlock(MicBlock(origin: .mic, hostTime: chunk.hostTime, sampleRate: rate, samples: chunk.samples))

@@ -645,7 +645,11 @@ final class SpeakController {
             route: systemInput.route.state, passthroughEnabled: true,
             mode: owner.mode, phoneLocalReady: localPhoneReady,
             physicalMicPassesRule2: mic.state.physicalMicPassesRule2, tapHealthy: existing.tapHealthy,
-            secureInput: existing.secureInput, pushToTalkActive: existing.pushToTalkActive, selfTestRunning: selfTestRunning())
+            secureInput: existing.secureInput, pushToTalkActive: existing.pushToTalkActive, selfTestRunning: selfTestRunning(),
+            // Any end sets meetingStopping while the session is still .running. The End click's
+            // input restore refreshes these facts at once; without this it reopened original
+            // audio, which then ran dry as capture shut down.
+            ending: state.meetingStopping)
         if owner.mode == .phone {
             let ready = running && output.isFeedAttached && feedConfirmed && pipeline != nil
                 && facts.pushToTalkAvailable && mic.state.capture == .open
@@ -914,7 +918,8 @@ final class SpeakController {
         await owner?.setDraftsPaused(false)
         if let stats = mic?.stats {
             sessionLog?.event("speak.capture_end", ["blocks": .int(stats.blocks), "frames16k": .int(stats.frames16k),
-                "onsets": .int(stats.onsets), "dropped_blocks": .int(stats.droppedBlocks), "rate": .double(stats.deviceRate)])
+                "onsets": .int(stats.onsets), "dropped_blocks": .int(stats.droppedBlocks), "rate": .double(stats.deviceRate),
+                "chunk_min": .int(stats.chunkFramesMin), "chunk_max": .int(stats.chunkFramesMax)])
         }
         if wasDemo { sessionLog?.event("demo.stop") }
         mic?.stop(); reporter?.stop()

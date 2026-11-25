@@ -252,15 +252,27 @@ static void handle_o_report(tt_feed_ctx *ctx, const tt_ring_playout_report *rep,
     }
 }
 
+static void pt_underrun(tt_feed_ctx *ctx, const tt_ringp_report *rep, uint64_t out_host,
+                        uint32_t offset) TT_NONBLOCKING {
+    add(&ctx->pt_underruns, 1);
+    emit(ctx, TT_EV_PT_UNDERRUN, arrival(ctx, out_host, offset + rep->underrun_offset), ctx->gen, 0);
+}
+
 static void handle_p_report(tt_feed_ctx *ctx, const tt_ringp_report *rep, uint64_t out_host,
                             uint32_t offset, bool closing) TT_NONBLOCKING {
     if (rep->first_audio) {
         emit(ctx, TT_EV_PT_FIRST_SAMPLE, arrival(ctx, out_host, offset + rep->first_offset), ctx->gen, rep->first_src_ticks);
     }
-    if (rep->underrun && !closing) {
-        add(&ctx->pt_underruns, 1);
-        emit(ctx, TT_EV_PT_UNDERRUN, arrival(ctx, out_host, offset), ctx->gen, 0);
+    /* In output order: a resume can end an underrun of the same read or, in a read longer than
+     * the start buffer, come before one (tt_ringp_report). */
+    bool under = rep->underrun && !closing;
+    bool resumed = rep->resumed && !closing;
+    bool under_first = under && (!resumed || rep->underrun_offset <= rep->resume_offset);
+    if (under_first) pt_underrun(ctx, rep, out_host, offset);
+    if (resumed) {
+        emit(ctx, TT_EV_PT_RESUMED, arrival(ctx, out_host, offset + rep->resume_offset), ctx->gen, rep->gap_frames);
     }
+    if (under && !under_first) pt_underrun(ctx, rep, out_host, offset);
     uint32_t bad = rep->out_of_interval + rep->expired;
     if (bad) {
         add(&ctx->pt_out_of_interval, bad);

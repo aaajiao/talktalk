@@ -246,6 +246,60 @@ private func validUntil(_ s: tt_pt_snapshot) -> UInt64 { var c = s; return tt_pt
         #expect(rig.ch0.allSatisfy { $0 == 0 })
     }
 
+    /// ringP runs dry while open: pt.underrun in the cycle its 2 ms fade-out ends, pt.resumed at
+    /// the first resumed frame with the zeros in between. The open itself is no resume.
+    @Test func passthroughUnderrunAndResumeAreReportedWithTheGap() {
+        let rig = FeedRig(startFrame: 2000)
+        let start = Int(TT_RINGP_START_FRAMES)
+        let g = rig.open(TT_PT_SOURCE_MIC, at: 0, leaseUntil: 100_000)
+        rig.writeP(at: 0, start + 280, gen: g, 1)
+        rig.cycle(480)
+        rig.cycle(480)
+        rig.cycle(480)   // 424 frames, then 56 of the 96-frame fade-out
+        #expect(!rig.drain().contains { $0.type == evType(TT_EV_PT_UNDERRUN) || $0.type == evType(TT_EV_PT_RESUMED) })
+        rig.cycle(480)   // the last 40 fade frames, then 440 zeros
+        let dry = rig.drain()
+        // Arrival of the first zero: cycle start + 40 fade frames + the driver's 480-frame lag.
+        #expect(dry.filter { $0.type == evType(TT_EV_PT_UNDERRUN) }.map(\.host_ticks) == [FeedRig.tk(3440 + 40 + 480)])
+        #expect(!dry.contains { $0.type == evType(TT_EV_PT_RESUMED) })
+        #expect(tt_feed_pt_underruns(rig.ctx) == 1)
+        rig.writeP(at: start + 280, start, gen: g, 1)
+        rig.cycle(480)
+        for i in 0..<96 { #expect(rig.ch0[i] == fadeIn(i, 96)) }
+        let resumed = rig.drain().filter { $0.type == evType(TT_EV_PT_RESUMED) }
+        #expect(resumed.count == 1)
+        #expect(resumed.first?.a == g && resumed.first?.b == 440)
+        #expect(resumed.first?.host_ticks == FeedRig.tk(3920 + 480))
+    }
+
+    /// pt.underrun and pt.resumed of one read come out in frame order: a read can end a fade-out
+    /// begun in the previous one and resume at once, and a long read can resume and run dry.
+    @Test func underrunAndResumeInOneReadComeOutInFrameOrder() {
+        let rig = FeedRig(startFrame: 2000)
+        let start = Int(TT_RINGP_START_FRAMES)
+        let g = rig.open(TT_PT_SOURCE_MIC, at: 0, leaseUntil: 100_000)
+        let kinds = [evType(TT_EV_PT_UNDERRUN), evType(TT_EV_PT_RESUMED)]
+        rig.writeP(at: 0, 1500, gen: g, 1)
+        for _ in 0..<3 { rig.cycle(480) }   // the third ends 36 frames into the fade-out
+        rig.discardEvents()
+        rig.writeP(at: 1500, start + 100, gen: g, 1)
+        rig.cycle(480)                       // frames 3440..<3920
+        let first = rig.drain().filter { kinds.contains($0.type) }
+        #expect(first.map(\.type) == kinds)
+        #expect(first.map(\.host_ticks) == [FeedRig.tk(3440 + 60 + 480), FeedRig.tk(3440 + 60 + 480)])
+        #expect(first.last?.b == 0)
+        rig.cycle(480)
+        rig.cycle(480)                       // runs dry 400 frames in; 80 zeros
+        rig.discardEvents()
+        rig.writeP(at: 2800, start, gen: g, 1)
+        rig.cycle(2000)                      // frames 4880..<6880: resume at 0, dry at 1200
+        let long = rig.drain().filter { kinds.contains($0.type) }
+        #expect(long.map(\.type) == [evType(TT_EV_PT_RESUMED), evType(TT_EV_PT_UNDERRUN)])
+        #expect(long.map(\.host_ticks) == [FeedRig.tk(4880 + 480), FeedRig.tk(4880 + start + 480)])
+        #expect(long.first?.b == 80)
+        #expect(tt_feed_pt_underruns(rig.ctx) == 3)
+    }
+
     @Test func expiredLeaseClosesLikeACloseAndALateRenewalNeverReplays() {
         let rig = FeedRig(startFrame: 2000)
         let g = rig.open(TT_PT_SOURCE_MIC, at: 0, leaseUntil: 2600)

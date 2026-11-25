@@ -123,4 +123,17 @@ private func outputProfile() throws -> PolicyProfile {
         #expect(row["generation"] as? Int == 7)
         await output.close()
     }
+
+    @Test func passthroughResumeLogsTheGapInMilliseconds() async throws {
+        let feed = OutputFeed(), profile = try outputProfile(), log = EventLog(inMemory: { 0 })
+        let output = try SpeakOutput(profile: profile, log: log, liveIO: false, hooks: feed.hooks)
+        #expect(tt_event_push4(output.events.raw, UInt16(TT_EV_PT_RESUMED), UInt16(TT_EV_SRC_FEED),
+                               HostClock.machTicks(fromNanos: 75_000_000), 3, 440))
+        await output.pumpForTesting()
+        let row = try #require(log.recorded.first)
+        #expect(row["ev"] as? String == "pt.resumed")
+        #expect(row["gapMs"] as? Double == 9.2)   // 440 frames at 48 kHz = 9.17 ms
+        #expect(row["generation"] as? Int == 3)
+        await output.close()
+    }
 }

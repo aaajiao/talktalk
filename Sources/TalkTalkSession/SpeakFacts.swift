@@ -14,9 +14,12 @@ public struct SpeakFacts: Sendable {
                 route: OutputRouteProbe.State, passthroughEnabled: Bool,
                 mode: MeetingMode = .meeting, phoneLocalReady: Bool = false,
                 passthroughKey: ModifierKey = .rightCommand, physicalMicPassesRule2: Bool?,
-                tapHealthy: Bool?, secureInput: Bool?, pushToTalkActive: Bool?, selfTestRunning: Bool?) {
+                tapHealthy: Bool?, secureInput: Bool?, pushToTalkActive: Bool?, selfTestRunning: Bool?,
+                ending: Bool = false) {
+        // `ending`: a stop has begun while the session is still .running (its stop task has not
+        // run yet). No new speech starts then: no original-audio window, no press.
         let running: Bool
-        if case .running = meetingState { running = true } else { running = false }
+        if case .running = meetingState { running = !ending } else { running = false }
         self.passthroughKey = passthroughKey
         allowsPhoneLocalSpeech = mode == .phone && phoneLocalReady && micGuard.verdict == .noReader
         let readerAllowsSpeech = mode == .phone ? micGuard.verified : micGuard.allowsPushToTalk
