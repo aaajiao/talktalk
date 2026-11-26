@@ -144,6 +144,12 @@ public actor OpenAIMT: SpeakCloudMT {
                 if missing { log.event("mt.store_echo_missing", ["leg": .tag(leg.rawValue)]) }
             case .keepWarm(let leg, let ok, let ms):
                 log.event("cloud.keepwarm", ["leg": .tag(leg.rawValue), "ok": .bool(ok), "ms": .double(ms)])
+            case .prime(let leg, let id, let status, let headersMs, let ms):
+                var fields: [String: EventLog.Value] = ["leg": .tag(leg.rawValue), "ms": .double(ms)]
+                if let id { fields["req"] = .tag(id) }
+                if let status { fields["status"] = .int(status) }
+                if let headersMs { fields["headers_ms"] = .double(headersMs) }
+                log.event("cloud.prime", fields)
             case .sessionReset(let leg, let reason):
                 log.event("cloud.session_reset", ["leg": .tag(leg.rawValue), "reason": .tag(reason)])
             case .breaker(let s):
@@ -187,7 +193,8 @@ public actor OpenAIMT: SpeakCloudMT {
                               onResult: { [weak self] leg, ok in
                                   guard let self else { return }
                                   Task { await self.keepWarmResult(leg, ok: ok) }
-                              }, sink: Self.eventSink(log))
+                              }, primerBody: { [weak self] in await self?.primerBody() },
+                              sink: Self.eventSink(log))
             keepWarm = kw
         }
         await keepWarm?.start()
@@ -217,6 +224,12 @@ public actor OpenAIMT: SpeakCloudMT {
 
     private func keepWarmResult(_ leg: Leg, ok: Bool) {
         apply(resets.recordKeepWarm(leg, ok: ok))
+    }
+
+    /// The primer a new connection sends first (KeepWarm): this meeting's model, effort and tier.
+    private func primerBody() -> Data? {
+        try? builder.primerBody(model: config.model, effort: config.effort,
+                                serviceTier: fastModeOn ? Self.fastTier : profile.cloud.serviceTier)
     }
 
     /// NetworkHealth changes (§6.4): offline → straight to Apple; path change / wake → rebuild.

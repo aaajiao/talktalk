@@ -16,15 +16,38 @@ extension FakeServerCloudTests {
                   priority: .p1Speak, maxOutputTokens: 48)
     }
 
-    @Test func speakKeyDownSchedulesBothWarmConnectionsAndStopCancelsThem() async throws {
+    @Test func speakKeepWarmPrimesBothConnectionsAndStopCancelsThem() async throws {
         FakeServer.enqueue(.A, .hang())
         FakeServer.enqueue(.B, .hang())
         let engine = try speakMT(profile)
         await engine.startKeepWarm(isEnabled: { true }, warmB: { true })
-        await engine.keyDown() // returns while GETs are still pending
+        await engine.keyDown() // the press finds the primers pending and sends none twice
         #expect(await eventually { FakeServer.requests(.A).count == 1 && FakeServer.requests(.B).count == 1 })
+        #expect(FakeServer.requests().allSatisfy { $0.method == "POST" && $0.path == "/v1/responses" })
         await engine.stopKeepWarm()
         #expect(await eventually { FakeServer.stopped(.A) == 1 && FakeServer.stopped(.B) == 1 })
+    }
+
+    @Test func speakKeyDownReWarmDoesNotHoldUpThePressAndStopCancelsIt() async throws {
+        FakeServer.enqueue(.A, FakeServer.good("OK."))
+        FakeServer.enqueue(.B, FakeServer.good("OK."))
+        let engine = try speakMT(profile)
+        await engine.startKeepWarm(isEnabled: { true }, warmB: { true })
+        let kw = try #require(await engine.keepWarm)
+        #expect(await settled {
+            let a = await kw.state(.A).lastActivityMs, b = await kw.state(.B).lastActivityMs
+            return a != nil && b != nil
+        })
+        // A's connection was not reused: the press re-warms it with a GET that hangs.
+        await kw.noteReused(.A, false)
+        FakeServer.enqueue(.A, .hang(headersAtMs: nil))
+        let pressed = ContinuousClock.now
+        await engine.keyDown()
+        #expect(ContinuousClock.now - pressed < .milliseconds(500))
+        #expect(await eventually { FakeServer.requests(.A).map(\.method) == ["POST", "GET"] })
+        await engine.stopKeepWarm()
+        #expect(await eventually { FakeServer.stopped(.A) == 1 })
+        #expect(FakeServer.requests(.B).count == 1)
     }
 
     @Test func speakHedgeStartsAppleBeforeDeadline() async throws {

@@ -292,6 +292,9 @@ struct Runner: Sendable {
             r.write(partial ? "mt.validate_partial" : "mt.validate", ["leg": leg.rawValue, "reject": reject ?? NSNull(), "store_echo_missing": missing])
         case .keepWarm(let leg, let ok, let ms):
             r.write("keepwarm", ["leg": leg.rawValue, "ok": ok, "ms": ms])
+        case .prime(let leg, let id, let status, let headersMs, let ms):
+            r.write("prime", ["leg": leg.rawValue, "client_request_id": id ?? NSNull(), "status": status ?? NSNull(),
+                              "headers_ms": headersMs ?? NSNull(), "ms": ms])
         case .sessionReset(let leg, let reason):
             r.write("session_reset", ["leg": leg.rawValue, "reason": reason])
         case .breaker(let s):

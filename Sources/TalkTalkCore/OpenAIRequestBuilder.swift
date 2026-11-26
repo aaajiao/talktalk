@@ -173,6 +173,32 @@ public struct OpenAIRequestBuilder: Sendable {
                                    options: [.sortedKeys, .withoutEscapingSlashes])
     }
 
+    /// The fixed user text of a connection's primer request; never user content.
+    public static let primerText = "ok"
+
+    /// A new connection's first `POST /v1/responses` (KeepWarm): the model, effort, tier and stream
+    /// setting of a real request with the fixed `primerText`, no instructions, history or glossary,
+    /// `"store":false` and the smallest output budget.
+    public func primerBodyObject(model: String, effort: String, serviceTier: String?) -> [String: Any] {
+        var body: [String: Any] = [
+            "model": model,
+            "input": [["role": "user", "content": Self.primerText]],
+            "reasoning": ["effort": effort],
+            "max_output_tokens": Self.minOutputTokens,
+            "stream": cloud.stream,
+            "store": false,
+            "service_tier": serviceTier ?? cloud.serviceTier,
+            "prompt_cache_options": ["mode": "explicit"],
+        ]
+        if effort == "none" { body["temperature"] = cloud.temperature }   // only legal with effort none
+        return body
+    }
+
+    public func primerBody(model: String, effort: String, serviceTier: String?) throws -> Data {
+        try JSONSerialization.data(withJSONObject: primerBodyObject(model: model, effort: effort, serviceTier: serviceTier),
+                                   options: [.sortedKeys, .withoutEscapingSlashes])
+    }
+
     /// Request headers except Authorization (added by OpenAIClient only). A fresh
     /// X-Client-Request-Id per attempt; never OpenAI-Organization / OpenAI-Project.
     public static func headers(clientRequestID: UUID, streaming: Bool) -> [String: String] {

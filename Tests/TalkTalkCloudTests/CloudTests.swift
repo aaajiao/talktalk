@@ -106,6 +106,22 @@ final class Counter: @unchecked Sendable {
         return cond()
     }
 
+    /// `eventually` for a condition that has to await (actor state).
+    func settled(_ ms: Int = 1000, _ cond: () async -> Bool) async -> Bool {
+        let end = ContinuousClock.now + .milliseconds(ms)
+        while ContinuousClock.now < end { if await cond() { return true }; try? await Task.sleep(for: .milliseconds(10)) }
+        return await cond()
+    }
+
+    /// Primers logged so far, oldest first.
+    func primes() -> [(leg: Leg, status: Int?)] {
+        log.events.compactMap { if case let .prime(leg, _, status, _, _) = $0 { (leg, status) } else { nil } }
+    }
+
+    static func unreachable(_ code: URLError.Code) -> FakeServer.Script {
+        FakeServer.Script(steps: [.init(atMs: 0, kind: .fail(code))])
+    }
+
     // MARK: hedging
 
     @Test func fastPrimaryWinsAndBIsNeverSent() async {
@@ -385,6 +401,116 @@ final class Counter: @unchecked Sendable {
         await kw.onKeyDown()                       // A's connection was not reused → re-warm A
         #expect(FakeServer.requests(.A).count == 2)
         #expect(log.events.filter { if case .keepWarm = $0 { true } else { false } }.count == 4)
+    }
+
+    @Test func keepWarmPrimesEachNewConnectionOnce() async {
+        let c = client()
+        let results = Counter()
+        let kw = KeepWarm(client: c, cloud: profile.cloud, model: "gpt-6-luna", isEnabled: { true }, warmB: { true },
+                          onResult: { _, _ in results.bump() }, primerBody: { Data(#"{"input":"ok"}"#.utf8) }, sink: log.sink)
+        FakeServer.enqueue(.A, FakeServer.good("OK."))
+        FakeServer.enqueue(.B, .json(500, #"{"error":{"type":"server_error"}}"#))
+        await kw.tick()                            // both legs: one primer each, no GET
+        #expect(await eventually { primes().count == 2 })
+        for leg in [Leg.A, .B] {
+            #expect(FakeServer.requests(leg).map(\.path) == ["/v1/responses"])
+            #expect(FakeServer.requests(leg).map(\.method) == ["POST"])
+        }
+        await kw.tick()                            // primed and just active: nothing
+        await kw.onKeyDown()
+        #expect(FakeServer.requests().count == 2)
+        // Not a keep-warm result: B's 500 starts no failure streak.
+        #expect(results.value == 0)
+        let answered = log.events.compactMap { e -> (Leg, Int?)? in
+            if case let .prime(leg, id, status, headersMs, _) = e, id != nil, headersMs != nil { (leg, status) } else { nil }
+        }
+        #expect(answered.count == 2 && answered.contains { $0 == (.A, 200) } && answered.contains { $0 == (.B, 500) })
+        c.rebuild(.A)                              // a new pool: A primes again, B does not
+        FakeServer.enqueue(.A, FakeServer.good("OK."))
+        await kw.tick()
+        #expect(await eventually { primes().count == 3 })
+        #expect(FakeServer.requests(.A).map(\.path) == ["/v1/responses", "/v1/responses"])
+        #expect(FakeServer.requests(.B).count == 1)
+    }
+
+    @Test func keepWarmRetriesAPrimerThatNeverReachedTheServer() async {
+        let c = client()
+        let kw = KeepWarm(client: c, cloud: profile.cloud, model: "gpt-6-luna", isEnabled: { true }, warmB: { false },
+                          primerBody: { Data(#"{"input":"ok"}"#.utf8) }, sink: log.sink)
+        FakeServer.enqueue(.A, Self.unreachable(.notConnectedToInternet))
+        await kw.tick()
+        #expect(await eventually { primes().count == 1 })
+        // Not the session's primer and not activity: the loop waits keepWarmIntervalS to retry.
+        let failed = await kw.state(.A)
+        #expect(failed.primedGeneration == nil && failed.lastActivityMs == nil)
+        #expect(failed.primeRetry?.generation == c.generation(.A) && primes().first?.status == nil)
+        await kw.tick()
+        #expect(FakeServer.requests(.A).count == 1)
+        // A key press sends it at once.
+        FakeServer.enqueue(.A, FakeServer.good("OK."))
+        await kw.onKeyDown()
+        #expect(await eventually { primes().count == 2 })
+        let primed = await kw.state(.A)
+        #expect(primed.primedGeneration == c.generation(.A) && primed.primeRetry == nil && primed.lastActivityMs != nil)
+        // After another unreached primer, a rebuilt session primes on the next tick, without the wait.
+        c.rebuild(.A)
+        FakeServer.enqueue(.A, Self.unreachable(.cannotConnectToHost))
+        await kw.tick()
+        #expect(await eventually { primes().count == 3 })
+        c.rebuild(.A)
+        FakeServer.enqueue(.A, FakeServer.good("OK."))
+        await kw.tick()
+        #expect(await eventually { primes().count == 4 })
+        // One that went out and timed out before headers stays the session's only primer.
+        c.rebuild(.A)
+        FakeServer.enqueue(.A, Self.unreachable(.timedOut))
+        await kw.tick()
+        #expect(await eventually { primes().count == 5 })
+        let timedOut = await kw.state(.A)
+        #expect(timedOut.primedGeneration == c.generation(.A) && timedOut.primeRetry == nil)
+        await kw.tick()
+        #expect(FakeServer.requests(.A).count == 5)
+        #expect(FakeServer.requests(.A).allSatisfy { $0.method == "POST" && $0.path == "/v1/responses" })
+    }
+
+    @Test func keepWarmPrimerStuckBeforeHeadersHoldsUpNeitherLeg() async {
+        let c = client()
+        let kw = KeepWarm(client: c, cloud: profile.cloud, model: "gpt-6-luna", isEnabled: { true }, warmB: { true },
+                          primerBody: { Data(#"{"input":"ok"}"#.utf8) }, sink: log.sink)
+        FakeServer.enqueue(.A, .hang(headersAtMs: nil))
+        FakeServer.enqueue(.B, FakeServer.good("OK."))
+        await kw.start()
+        #expect(await eventually { FakeServer.requests(.A).count == 1 && primes().count == 1 })
+        // B is rebuilt while A's primer still waits for headers: the loop primes B's new session at once.
+        c.rebuild(.B)
+        FakeServer.enqueue(.B, FakeServer.good("OK."))
+        #expect(await eventually(2500) { FakeServer.requests(.B).count == 2 && primes().count == 2 })
+        #expect(FakeServer.stopped(.A) == 0)
+        await kw.stop()
+        #expect(await eventually { FakeServer.stopped(.A) == 1 })
+        #expect(FakeServer.requests().allSatisfy { $0.method == "POST" && $0.path == "/v1/responses" })
+    }
+
+    @Test func keepWarmStoppedDuringAPrimerPrimesAgainOnRestart() async {
+        FakeServer.enqueue(.A, .hang())
+        let kw = KeepWarm(client: client(), cloud: profile.cloud, model: "gpt-6-luna", isEnabled: { true },
+                          warmB: { false }, primerBody: { Data(#"{"input":"ok"}"#.utf8) }, sink: log.sink)
+        await kw.start()
+        #expect(await eventually { FakeServer.requests(.A).count == 1 })
+        await kw.stop()
+        #expect(await eventually { FakeServer.stopped(.A) == 1 })
+        var reset = false
+        for _ in 0..<100 where !reset {
+            reset = await kw.state(.A).primedGeneration == nil
+            if !reset { try? await Task.sleep(for: .milliseconds(10)) }
+        }
+        #expect(reset)
+        FakeServer.enqueue(.A, FakeServer.good("OK."))
+        await kw.start()
+        #expect(await eventually(3000) { FakeServer.requests(.A).count == 2 })
+        #expect(await eventually { primes().map(\.status) == [200] }) // finished before the stop
+        await kw.stop()
+        #expect(FakeServer.requests(.A).allSatisfy { $0.method == "POST" && $0.path == "/v1/responses" })
     }
 
     @Test func modelListGoesThroughTheFilter() async throws {

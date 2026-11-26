@@ -78,11 +78,12 @@ public struct SpeakSegmenter: Sendable {
         /// Faint audio after the clip's last voiced frame, up to the cut; nil without a voiced frame.
         /// Diagnostics only.
         public var faintTailMs: Int?
-        /// How long faint runs held back a textSilence cut the VAD silence alone would have made in
-        /// this segment, to this commit's decision; nil when none did. Diagnostics only.
+        /// How long faint runs held back a textSilence cut (under the release floor, a longSilence cut)
+        /// the VAD silence alone would have made in this segment, to this commit's decision; nil when
+        /// none did. Diagnostics only.
         public var faintHeldMs: Int?
         /// The clip holds voiced audio that arrived after faint runs first held this segment's textSilence
-        /// cut: the held short clause merged with the speech that followed. Implies faintHeldMs.
+        /// or longSilence cut: the held short clause merged with the speech that followed. Implies faintHeldMs.
         /// Diagnostics only.
         public var faintHeldMerged = false
     }
@@ -117,11 +118,18 @@ public struct SpeakSegmenter: Sendable {
     /// boundLeadingSilence left out an onset-length faint run of this segment (faintOnlyDropped).
     private var trimmedFaintRun = false
     /// Set when the last emitted commit was a textSilence or longSilence cut: when that segment's
-    /// forced cut would have come due. A word in the release remainder that was voiced by then
-    /// would have been in that clip had the commit test allowed no cut there.
+    /// forced cut would have come due, or under the release floor its hard cap (the forced cut needs
+    /// the floor before its dip). A word in the release remainder that was voiced by then would have
+    /// been in that clip had the commit test allowed no cut there.
     private var relaxedCutDeadline: HostTime?
-    /// When faint runs first held back this segment's textSilence cut (see textSilenceCut).
+    /// When faint runs first held back this segment's textSilence cut, or under the release floor its
+    /// longSilence cut (see textSilenceCut, longSilenceCut).
     private var faintHeldAt: HostTime?
+    /// `through` of the first preview since the last cut whose stable text named a word
+    /// (wordIdeographsMin ideographs beyond fillers): under the release floor a longSilence cut needs
+    /// it by the cut, so words recognized from the next phrase's soft onset do not keep a click or a
+    /// filler as a clip of its own (see pauseCloses).
+    private var wordTextThrough: HostTime?
     /// Release and stop remainders dropped with no voiced frame but an onset-length faint run, in the
     /// remainder or in its leading silence the leading-silence bound left out (key-up more than about
     /// leadKeep after the soft words); keepsBelowFloor keeps only voiced audio. Counted only with
@@ -223,6 +231,7 @@ public struct SpeakSegmenter: Sendable {
         previewCharacters = text.filter { $0.isLetter || $0.isNumber }.count
         previewCjk = text.unicodeScalars.filter(\.properties.isIdeographic).count
         previewThrough = through
+        if wordTextThrough == nil, ideographsBeyondFillers() >= Self.wordIdeographsMin { wordTextThrough = through }
         if let last = text.last, profile.boundary.punct.contains(last) {
             if punctuationAt == nil { punctuationAt = now }
         } else { punctuationAt = nil }
@@ -303,14 +312,16 @@ public struct SpeakSegmenter: Sendable {
             // A silence the commit test refuses still closes once the caught-up preview holds the
             // character minimum (clear of faint runs), or after boundary.longSilenceMs of captured
             // silence once the covering preview shows a word. longSilence treats faint audio as quiet
-            // for its timing, so it caps a held textSilence cut, but it does not cut inside a faint run
-            // that has ended; on a tie textSilence, listed first, wins.
+            // for its timing, so it caps a held textSilence cut, but it does not cut inside faint
+            // audio that has ended, nor below the release floor (where it is the only text cut) inside
+            // faint audio at all; on a tie textSilence, listed first, wins.
             if let silence = silenceStart(at: audioEnd), HostClock.ms(silence, to: audioEnd) >= profile.boundary.vadSilenceMs {
                 let mid = silence + (audioEnd - silence) / 2
                 candidates.append((mid, .silence))
                 if let cut = textSilenceCut(from: silence, mid: mid) { candidates.append((cut, .textSilence)) }
                 else if faintHeldAt == nil, !closesClause(at: mid), textCloses(at: mid) { faintHeldAt = audioEnd }
-                candidates.append((longSilenceCut(from: silence, mid: mid), .longSilence))
+                if let cut = longSilenceCut(from: silence, mid: mid) { candidates.append((cut, .longSilence)) }
+                else if faintHeldAt == nil, pauseCloses(at: mid) { faintHeldAt = audioEnd }
             }
             // From clauseDipAfterS on, or once the preview is stale (it says nothing about the
             // audio), a dipMs pause that closes a clause and already has the release floor of
@@ -505,31 +516,49 @@ public struct SpeakSegmenter: Sendable {
     }
 
     /// Where a longSilence cut goes in the VAD quiet run from `silence`: its midpoint `mid`, unless
-    /// (with `trustsFaint`) a faint run (voicedRunMin or longer) holds `mid` and has already ended; then
-    /// past every following such run that has also ended, in the middle of the quiet up to the next run
-    /// still going or the newest audio (where all have ended, textSilence's point, which wins the tie).
-    /// A run holding `mid` that is still going at the decision keeps `mid`, so longSilence still caps a
-    /// held textSilence cut. Faint frames under voicedRunMin at the newest audio count as quiet here.
-    /// No voiced frame lies between the two points, so pauseCloses answers the same at either.
-    private func longSilenceCut(from silence: HostTime, mid: HostTime) -> HostTime {
+    /// (with `trustsFaint`) a faint run (voicedRunMin or longer) holds `mid` (`mid` lies in it, or in a
+    /// gap of less than faintQuietMs between it and the next run) and has already ended; then past every
+    /// following such run that has also ended, in the middle of the quiet up to the next run still going
+    /// or the newest audio (where all have ended, textSilence's point, which wins the tie). A run holding
+    /// `mid` that is still going at the decision keeps `mid`, so longSilence still caps a held
+    /// textSilence cut. Under the release floor no textSilence cut is held and nothing else closes the
+    /// phrase at this pause, so the cut waits as textSilence's does (nil until then; the hard cap
+    /// bounds the wait): a cut inside the soft words would strand them in a remainder with no voiced
+    /// frame. Faint frames under voicedRunMin at the newest audio count as quiet here. No voiced frame
+    /// lies between `mid` and the cut, so pauseCloses answers the same at either.
+    private func longSilenceCut(from silence: HostTime, mid: HostTime) -> HostTime? {
         guard trustsFaint else { return mid }
+        if speechSeconds(through: silence) + 1e-9 < profile.release.commitRemainderMinSpeechS {
+            return textSilenceCut(from: silence, mid: mid)
+        }
         let runs = faintRuns(from: silence, through: audioEnd)
-        guard var i = runs.firstIndex(where: { $0.start <= mid && mid < $0.end }), runs[i].end < audioEnd else { return mid }
+        let gap = UInt64(Self.faintQuietMs) * 1_000_000
+        guard var i = runs.indices.first(where: { k in
+            runs[k].start <= mid && (mid < runs[k].end
+                || (k + 1 < runs.count && mid < runs[k + 1].start && runs[k + 1].start < runs[k].end + gap))
+        }), runs[i].end < audioEnd else { return mid }
         while i + 1 < runs.count, runs[i + 1].end < audioEnd { i += 1 }
         let next = i + 1 < runs.count ? runs[i + 1].start : audioEnd
         return runs[i].end + (next - runs[i].end) / 2
     }
 
     /// After boundary.longSilenceMs of captured silence, a phrase the commit test (preview veto
-    /// included) and the character minimum refuse still closes when it holds the release floor of
-    /// speech and the covering preview shows two ideographs beyond leading fillers. Noise,
-    /// filler-only heads, unrecognized phrases, text ending in a continuation mark and a complete
-    /// short reply still settling wait.
+    /// included) and the character minimum refuse still closes when the covering preview shows two
+    /// ideographs beyond leading fillers, also under the release floor of speech (VAD misses soft
+    /// speech): keepsBelowFloor keeps that clip by the same preview test, as it would at the hard cap,
+    /// which only came later, cut at the cap and could trim the lead for the trailing quiet. Under the
+    /// floor the text decides alone, so its word must have been recognized through the cut (within
+    /// previewVetoCaughtUpMs): the preview may already show the soft onset of the next phrase.
+    /// previewCovers needs a voiced frame. Noise, filler-only heads, unrecognized phrases, text
+    /// ending in a continuation mark and a complete short reply still settling wait.
     private func pauseCloses(at cut: HostTime) -> Bool {
         let continues = (stable.last.map { Self.continuationMarks.contains($0) } ?? false) || stable.hasSuffix("...")
         guard !replySettling, !continues,
-              speechSeconds(through: cut) + 1e-9 >= profile.release.commitRemainderMinSpeechS,
               ideographsBeyondFillers() >= Self.wordIdeographsMin, previewCovers(cut) else { return false }
+        if speechSeconds(through: cut) + 1e-9 < profile.release.commitRemainderMinSpeechS {
+            let tolerance = UInt64(max(0, committer.minimum.previewVetoCaughtUpMs)) * 1_000_000
+            guard let word = wordTextThrough, word <= cut + tolerance else { return false }
+        }
         return observedQuiet().ms >= profile.boundary.longSilenceMs
     }
 
@@ -545,7 +574,8 @@ public struct SpeakSegmenter: Sendable {
     /// least two CJK ideographs beyond leading fillers, such as a short last word after a cut,
     /// or when it is the release remainder right after a textSilence or longSilence cut, holds an
     /// onset-length voiced run before that segment's forced cut would have come due (that forced
-    /// cut would have taken the pause after the word), and key-up or a device stop ends it (`final`)
+    /// cut would have taken the pause after the word; under the release floor it could not, so
+    /// until that segment's hard cap), and key-up or a device stop ends it (`final`)
     /// before the remainder's own hard cap (its clock + clipMaxS). A cap or cap-restart cut before
     /// then is not final and drops it unless the covering preview keeps it. The preview reopens at
     /// the cut and stops at key-up, so it rarely covers that remainder in time.
@@ -733,7 +763,7 @@ public struct SpeakSegmenter: Sendable {
         frames.removeAll { $0.end <= end }
         if !frames.isEmpty, frames[0].start < end { frames[0].start = end }
         stable = ""; previewCharacters = nil; previewCjk = nil; previewThrough = nil; punctuationAt = nil; finalThrough = nil
-        shortPreview = nil
+        shortPreview = nil; wordTextThrough = nil
         lastStableAt = end
         openedByCapRestart = restart; faintHeldAt = nil; trimmedFaintRun = false
         guard keep else {
@@ -742,7 +772,8 @@ public struct SpeakSegmenter: Sendable {
             return nil
         }
         previewsIgnored = 0; textFloor = end; droppedSpeech = false; droppedSpeechMs = 0; faintTrimmed = 0
-        relaxedCutDeadline = reason == .textSilence || reason == .longSilence ? clock + nanos(profile.forceCut.sinceLastS) : nil
+        let due = reachesFloor ? profile.forceCut.sinceLastS : clipMaxS
+        relaxedCutDeadline = reason == .textSilence || reason == .longSilence ? clock + nanos(due) : nil
         index += 1
         return result
     }

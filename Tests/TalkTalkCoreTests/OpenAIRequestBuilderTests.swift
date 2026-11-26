@@ -51,6 +51,21 @@ import Testing
         }
     }
 
+    @Test func primerBodyIsFixedAndMinimal() throws {
+        let data = try builder.primerBody(model: "gpt-6-luna", effort: "none", serviceTier: "fast")
+        let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        #expect(Set(obj.keys) == ["model", "input", "reasoning", "max_output_tokens", "stream", "store",
+                                  "service_tier", "prompt_cache_options", "temperature"])
+        #expect(obj["store"] as? Bool == false && String(decoding: data, as: UTF8.self).contains("\"store\":false"))
+        #expect((obj["input"] as? [[String: String]]) == [["role": "user", "content": OpenAIRequestBuilder.primerText]])
+        #expect(obj["max_output_tokens"] as? Int == OpenAIRequestBuilder.minOutputTokens)
+        #expect(obj["model"] as? String == "gpt-6-luna" && obj["service_tier"] as? String == "fast")
+        #expect(obj["temperature"] as? Double == 0 && obj["stream"] as? Bool == true)
+        let low = builder.primerBodyObject(model: "gpt-6.1-sol", effort: "low", serviceTier: nil)
+        #expect(low["temperature"] == nil && low["service_tier"] as? String == "default")
+        #expect((low["reasoning"] as? [String: String])?["effort"] == "low")
+    }
+
     @Test func yellowPathDropsTemperatureAndAddsReasoningBudget() throws {
         let o = OpenAIRequestBuilder.Options(model: "gpt-6.1-sol", effort: "low", reasoningBudget: 512,
                                              contextTokensSoft: 300, contextTokensHard: 800)

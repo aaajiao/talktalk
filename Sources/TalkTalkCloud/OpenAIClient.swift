@@ -80,6 +80,8 @@ public enum CloudEvent: Sendable, Equatable {
     case hedge(HedgeOutcome)
     case validation(leg: Leg, reject: String?, storeEchoMissing: Bool, partial: Bool)
     case keepWarm(leg: Leg, ok: Bool, ms: Double)
+    /// A new connection's primer request (KeepWarm.prime): status and time to headers when they came.
+    case prime(leg: Leg, clientRequestID: String?, status: Int?, headersMs: Double?, ms: Double)
     case sessionReset(leg: Leg, reason: String)
     case breaker(String)
     case fallback(String)
@@ -147,10 +149,16 @@ public final class OpenAIClient: Sendable {
         let old = sessions.withLock { s -> URLSession? in
             let o = s[leg]
             s[leg] = Self.makeSession(cloud: cloud, protocols: protocolClasses[leg])
+            generations.withLock { $0[leg, default: 0] += 1 }
             return o
         }
         old?.invalidateAndCancel()
     }
+
+    private let generations = Mutex<[Leg: Int]>([:])
+
+    /// Counts `rebuild`s of `leg`: each one is a new pool, so new connections (KeepWarm primes each once).
+    public func generation(_ leg: Leg) -> Int { generations.withLock { $0[leg] ?? 0 } }
 
     func session(_ leg: Leg) -> URLSession { sessions.withLock { $0[leg]! } }
 
