@@ -36,8 +36,9 @@ public struct SpeakSegmenter: Sendable {
         /// no clock, speech total or dropped-speech flag, and silence and dip runs count it as quiet. With
         /// `trustsFaint` it extends the lead kept before the first voiced frame (leadBound, for leading
         /// silence and a cap restart's cut), holds a textSilence cut (textSilenceCut), keeps a longSilence
-        /// cut out of a faint run that has ended (longSilenceCut) and counts faintOnlyDropped; the faint
-        /// diagnostics measure it either way.
+        /// cut out of a faint run that has ended (longSilenceCut), makes a soft phrase of a segment with no
+        /// voiced frame whose words the covering preview shows (softPhraseEnd) and counts faintOnlyDropped;
+        /// the faint diagnostics measure it either way.
         public var faint: Bool
         public init(start: HostTime, end: HostTime, speech: Bool, energy: Double, faint: Bool = false) {
             self.start = start; self.end = end; self.speech = speech; self.energy = energy; self.faint = faint && !speech
@@ -70,7 +71,8 @@ public struct SpeakSegmenter: Sendable {
         /// on across the cap (see capRestart). Diagnostics only.
         public var capRestart = false
         /// Faint audio in the clip before its first voiced frame, and the faint lead the clipMaxS bound
-        /// left out before the clip; nil without a voiced frame. Diagnostics only.
+        /// left out before the clip; in a clip with no voiced frame (a soft phrase), all of its faint audio
+        /// and what that bound left out. Diagnostics only.
         public var faintLeadMs: Int?
         public var faintCutMs: Int?
         /// Faint audio the leading-silence bound left out since the previous emitted commit. Diagnostics only.
@@ -91,9 +93,10 @@ public struct SpeakSegmenter: Sendable {
     public let committer: SpeakCommitter
     public let clipMaxS: Double
     /// Faint frames count as the user's own soft speech: a faint chain may keep a longer lead
-    /// (leadBound), faint runs hold a textSilence cut (textSilenceCut) and keep a longSilence
-    /// cut out of a faint run that has ended (longSilenceCut), and faint-only drops are counted
-    /// (faintOnlyDropped). Off in speaker mode, where remote speech leaks into the faint band; the
+    /// (leadBound, softPhraseLead), faint runs hold a textSilence cut (textSilenceCut) and keep a
+    /// longSilence cut out of a faint run that has ended (longSilenceCut), a segment with no voiced
+    /// frame can be a soft phrase (softPhraseEnd), and faint-only drops are counted (faintOnlyDropped).
+    /// Off in speaker mode, where remote speech leaks into the faint band; the
     /// measurement-only diagnostics (faintLeadMs, faintCutMs, faintTrimmedMs, faintTailMs) are still measured.
     private let trustsFaint: Bool
     public private(set) var start: HostTime
@@ -130,9 +133,20 @@ public struct SpeakSegmenter: Sendable {
     /// it by the cut, so words recognized from the next phrase's soft onset do not keep a click or a
     /// filler as a clip of its own (see pauseCloses).
     private var wordTextThrough: HostTime?
+    /// Ideographs beyond fillers the text since the last cut already held for faint audio this segment
+    /// left out: a soft phrase must name wordIdeographsMin more, so the words of soft speech left out do
+    /// not make a later breath or noise a clip (softWordsNamed). Raised when boundLeadingSilence moves
+    /// `start` past the `through` a preview reached with them (wordRecords), also as a soft phrase's hold
+    /// slides with clipMaxS; to the whole text when it trims an onset-length faint run outside that hold;
+    /// when a preview first names them with nothing of this segment heard before its `through`; and when
+    /// a preview arrives only for audio before `start`.
+    private var staleIdeographs = 0
+    /// Each new high of ideographsBeyondFillers since the last cut, with the `through` of the first
+    /// preview that reached it: its words were named from audio before that point.
+    private var wordRecords: [(ideographs: Int, through: HostTime)] = []
     /// Release and stop remainders dropped with no voiced frame but an onset-length faint run, in the
-    /// remainder or in its leading silence the leading-silence bound left out (key-up more than about
-    /// leadKeep after the soft words); keepsBelowFloor keeps only voiced audio. Counted only with
+    /// remainder or in its leading silence the leading-silence bound left out; keepsBelowFloor keeps such
+    /// a remainder only as a soft phrase the covering preview shows (softPhraseEnd). Counted only with
     /// `trustsFaint`. Diagnostics only.
     public private(set) var faintOnlyDropped = 0
     private var lastStableAt: HostTime
@@ -146,14 +160,19 @@ public struct SpeakSegmenter: Sendable {
     private static let shortTimestampTolerance: UInt64 = 1_000_000 // 1 ms hardware/SRC timestamp rounding
     /// Unvoiced audio kept before a segment's first voiced frame: VAD misses soft onsets, and
     /// the preview may already show their words. A faint chain reaching that frame keeps more, up to
-    /// faintLeadMax (see leadBound); older leading audio is left out of the clip (boundLeadingSilence)
-    /// or, after a cap restart, dropped with the segment before it (restartPause).
+    /// faintLeadMax (see leadBound), and a soft phrase's held lead up to clipMaxS (softPhraseLead), which
+    /// voiced speech arriving within its hold keeps; older leading audio is left out of the clip
+    /// (boundLeadingSilence) or, after a cap restart, dropped with the segment before it (restartPause).
     /// The clip stays within clipMaxS, so a cut more than clipMaxS minus the kept lead after that
     /// frame keeps less of this lead, down to the press pre-roll at the hard cap.
     private static let leadKeep: UInt64 = 1_000_000_000
     /// A chain of faint runs reaching the first voiced frame (while nothing is voiced, the newest audio)
-    /// keeps the lead from the press pre-roll before its first run, up to this much before that frame.
+    /// keeps the lead from the press pre-roll before its first run, up to this much before that frame
+    /// (a soft phrase's held lead goes further: softPhraseLead).
     private static let faintLeadMax: UInt64 = 2_500_000_000
+    /// Faint runs past the point the preview reached that a soft phrase still takes as its tail (a
+    /// breath or noise the recognizer never names): more waits for the preview (previewCovers).
+    private static let softTailMax: UInt64 = 300_000_000
     /// SpeakVAD reports speech only after 3 voiced 20 ms frames in a row; a shorter voiced run
     /// (a key click) does not make a remainder worth a clip of its own.
     private static let voicedRunMin: UInt64 = 60_000_000
@@ -207,7 +226,14 @@ public struct SpeakSegmenter: Sendable {
     /// Late updates through an earlier emitted cut are ignored.
     public mutating func preview(stableText: String, through: HostTime, at now: HostTime,
                                   isFinal: Bool = false, boundary: SpeakPreviewBoundary? = nil) -> [Commit] {
-        guard !finished, through > start else { return [] }
+        guard !finished else { return [] }
+        guard through > start else {
+            // Text only for audio left out since the last emitted cut names no word a soft phrase may claim.
+            if through > textFloor, boundary.map({ $0.from + Self.shortTimestampTolerance >= textFloor }) ?? true {
+                noteStaleWords(ideographsBeyondFillers(stableText.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+            return []
+        }
         // A callback queued before the microphone worker cut a segment can arrive after
         // the cut but before SpeakPipeline has advanced its preview floor. The floor is the
         // clip's sample-aligned end, up to one 16 kHz sample before a cut that falls between
@@ -231,7 +257,16 @@ public struct SpeakSegmenter: Sendable {
         previewCharacters = text.filter { $0.isLetter || $0.isNumber }.count
         previewCjk = text.unicodeScalars.filter(\.properties.isIdeographic).count
         previewThrough = through
-        if wordTextThrough == nil, ideographsBeyondFillers() >= Self.wordIdeographsMin { wordTextThrough = through }
+        let named = ideographsBeyondFillers()
+        if wordTextThrough == nil, named >= Self.wordIdeographsMin { wordTextThrough = through }
+        if named > (wordRecords.last?.ideographs ?? 0) {
+            wordRecords.append((named, through))
+            // Stable text lags `through`: words first named with no voiced frame or faint run of this
+            // segment before it come from audio left out.
+            if !frames.contains(where: { $0.speech && $0.start < through }), faintRuns(from: start, through: through).isEmpty {
+                noteStaleWords(named)
+            }
+        }
         if let last = text.last, profile.boundary.punct.contains(last) {
             if punctuationAt == nil { punctuationAt = now }
         } else { punctuationAt = nil }
@@ -253,8 +288,8 @@ public struct SpeakSegmenter: Sendable {
     }
 
     /// End-of-capture (normal release or a device stop). No final clip is emitted when the
-    /// remainder contains less than the profile's 0.4 s of actual VAD speech, unless the
-    /// covering preview already shows its words or it follows a textSilence or longSilence cut
+    /// remainder contains less than the profile's 0.4 s of actual VAD speech (none in a soft phrase),
+    /// unless the covering preview already shows its words or it follows a textSilence or longSilence cut
     /// and was voiced before that segment's forced cut would have come due (see keepsBelowFloor);
     /// a remainder its own hard cap reached first was cut there, and kept only by the covering preview.
     public mutating func finish(at now: HostTime) -> [Commit] {
@@ -387,15 +422,16 @@ public struct SpeakSegmenter: Sendable {
             || HostClock.ms(evidence.settledAt, to: audioEnd) < max(300, profile.boundary.punctHoldMs)
     }
 
-    /// Captured silence at the segment end; a timestamp gap over 1 ms ends it (a device gap is no pause).
-    private func observedQuiet() -> (start: HostTime, ms: Int) {
+    /// Captured silence at the segment end, from `floor` at the earliest; a timestamp gap over 1 ms ends
+    /// it (a device gap is no pause).
+    private func observedQuiet(since floor: HostTime = 0) -> (start: HostTime, ms: Int) {
         var quietStart = audioEnd, observed: UInt64 = 0
         for frame in frames.reversed() {
-            guard !frame.speech,
+            guard !frame.speech, frame.end > floor,
                   frame.end >= quietStart || quietStart - frame.end <= Self.shortTimestampTolerance else { break }
-            let end = min(frame.end, quietStart)
-            if end > frame.start { observed += end - frame.start }
-            quietStart = frame.start
+            let end = min(frame.end, quietStart), lo = max(frame.start, floor)
+            if end > lo { observed += end - lo }
+            quietStart = lo
         }
         return (quietStart, Int(observed / 1_000_000))
     }
@@ -425,14 +461,23 @@ public struct SpeakSegmenter: Sendable {
         return anchor > start + preroll ? anchor - preroll : start
     }
 
-    /// While nothing is voiced, keep the lead leadBound allows before the newest audio, never before
-    /// the segment start.
+    /// While nothing is voiced, keep the lead leadBound allows before the newest audio (a soft phrase
+    /// the preview shows: softPhraseLead), never before the segment start.
     private mutating func boundLeadingSilence() {
         guard !frames.contains(where: \.speech) else { return }
-        let bounded = leadBound(before: audioEnd, chainFrom: start)
+        var bounded = leadBound(before: audioEnd, chainFrom: start)
+        let held = softPhraseLead()
+        if let held { bounded = min(bounded, held) }
         guard bounded > start else { return }
         faintTrimmed += faintNanos(from: start, to: bounded)
-        if !faintRuns(from: start, through: bounded).isEmpty { trimmedFaintRun = true }
+        // Words named only from audio now left out stay in the text: they no longer count for a soft
+        // phrase, also when its hold slides past them. Trimming an onset-length faint run outside that
+        // hold leaves the whole text to the audio left out.
+        if let named = wordRecords.last(where: { $0.through <= bounded }) { noteStaleWords(named.ideographs) }
+        if !faintRuns(from: start, through: bounded).isEmpty {
+            trimmedFaintRun = true
+            if held == nil { noteStaleWords(ideographsBeyondFillers()) }
+        }
         start = bounded
         frames.removeAll { $0.end <= bounded }
         if !frames.isEmpty, frames[0].start < bounded { frames[0].start = bounded }
@@ -463,16 +508,62 @@ public struct SpeakSegmenter: Sendable {
         return bounded
     }
 
-    /// First instant of the faint chain in [lo, hi) reaching `hi`: the newest run ends within leadKeep
-    /// of `hi` and each earlier run less than leadKeep before the next. Nil when there is none.
-    private func faintChainStart(from lo: HostTime, through hi: HostTime) -> HostTime? {
+    /// First instant of the faint chain in [lo, hi) reaching `hi`: the newest run ends within `reach`
+    /// of `hi` and each earlier run less than `link` before the next (both leadKeep unless given). Nil
+    /// when there is none.
+    private func faintChainStart(from lo: HostTime, through hi: HostTime, reach: UInt64 = SpeakSegmenter.leadKeep,
+                                 link: UInt64 = SpeakSegmenter.leadKeep) -> HostTime? {
         let runs = faintRuns(from: lo, through: hi)
-        guard var first = runs.last, hi <= first.end + Self.leadKeep else { return nil }
+        guard var first = runs.last, hi <= first.end + reach else { return nil }
         for run in runs.dropLast().reversed() {
-            guard first.start < run.end + Self.leadKeep else { break }
+            guard first.start < run.end + link else { break }
             first = run
         }
         return first.start
+    }
+
+    /// The stable text names a soft phrase's word: wordIdeographsMin ideographs beyond fillers past
+    /// those it held for soft audio already left out (staleIdeographs).
+    private var softWordsNamed: Bool {
+        ideographsBeyondFillers() >= staleIdeographs + Self.wordIdeographsMin
+    }
+
+    /// Text with `ideographs` (beyond fillers) describes faint audio left out of this segment. Only ever
+    /// raised: a later revision of that text with fewer ideographs (三点 as 3点) keeps the higher count.
+    private mutating func noteStaleWords(_ ideographs: Int) {
+        staleIdeographs = max(staleIdeographs, ideographs)
+    }
+
+    /// wordTextThrough for a soft phrase: `through` of the first preview since the last cut whose text
+    /// named wordIdeographsMin ideographs beyond staleIdeographs.
+    private var softWordThrough: HostTime? {
+        wordRecords.first { $0.ideographs >= staleIdeographs + Self.wordIdeographsMin }?.through
+    }
+
+    /// A segment with no voiced frame whose words the stable preview text since the last emitted cut
+    /// shows (softWordsNamed, no voiced segment dropped since) is a soft phrase: VAD heard its speech
+    /// only as faint frames. While the long-pause cut can still take it (its newest faint run ended at
+    /// most longSilenceMs plus vadSilenceMs before the newest audio, and so did each earlier run of the
+    /// chain before the next), its faint chain is kept from the press pre-roll before the chain, up to
+    /// clipMaxS (not faintLeadMax) before where that cut would go (the middle of the quiet after the
+    /// newest run), so the clip can carry the words the preview shows. Nil otherwise.
+    private func softPhraseLead() -> HostTime? {
+        guard trustsFaint, !droppedSpeech, softWordsNamed,
+              let newest = faintRuns(from: start, through: audioEnd).last?.end else { return nil }
+        let reach = UInt64(max(0, profile.boundary.longSilenceMs + profile.boundary.vadSilenceMs)) * 1_000_000
+        guard let chain = faintChainStart(from: start, through: audioEnd, reach: reach, link: reach) else { return nil }
+        let preroll = nanos(Double(max(0, profile.ptt.prerollMs)) / 1000), clip = nanos(clipMaxS)
+        let cut = newest + (audioEnd - newest) / 2
+        return max(chain > preroll ? chain - preroll : 0, cut > clip ? cut - clip : 0)
+    }
+
+    /// With `trustsFaint` and softWordsNamed, the end of the newest faint run (voicedRunMin or longer)
+    /// before `cut` in a segment with no voiced frame before `cut`: where a soft phrase ends for its long
+    /// pause and cut (previewCovers takes a short tail past what the preview reached). Nil with a voiced
+    /// frame, without a faint run, without those words, or without `trustsFaint`.
+    private func softPhraseEnd(before cut: HostTime) -> HostTime? {
+        guard trustsFaint, softWordsNamed, !frames.contains(where: { $0.speech && $0.start < cut }) else { return nil }
+        return faintRuns(from: start, through: cut).last?.end
     }
 
     /// Faint audio inside [from, to).
@@ -483,13 +574,22 @@ public struct SpeakSegmenter: Sendable {
         }
     }
 
-    /// The caught-up preview covers the segment's last voiced frame before `cut`; no voiced
-    /// segment was dropped since the last emitted cut, so all of its text belongs to this audio.
+    /// The caught-up preview covers the segment's last voiced frame before `cut`; no voiced segment was
+    /// dropped since the last emitted cut, so all of its text belongs to this audio. In a soft phrase
+    /// (softPhraseEnd) it reached one of its faint runs and less than softTailMax of faint runs lies past
+    /// that point: a short trailing run the recognizer never names (a breath) does not hold it up, as
+    /// trailing faint audio after a voiced frame does not.
     private func previewCovers(_ cut: HostTime) -> Bool {
-        guard !droppedSpeech, let previewThrough,
-              let last = frames.last(where: { $0.speech && $0.start < cut }) else { return false }
+        guard !droppedSpeech, let previewThrough else { return false }
         let tolerance = UInt64(max(0, committer.minimum.previewVetoCaughtUpMs)) * 1_000_000
-        return previewThrough + tolerance >= min(cut, last.end)
+        if let last = frames.last(where: { $0.speech && $0.start < cut }) {
+            return previewThrough + tolerance >= min(cut, last.end)
+        }
+        guard softPhraseEnd(before: cut) != nil else { return false }
+        let reached = min(cut, previewThrough + tolerance)
+        let runs = faintRuns(from: start, through: cut)
+        let untold = runs.reduce(UInt64(0)) { $0 + ($1.end > reached ? $1.end - max($1.start, reached) : 0) }
+        return runs.contains { $0.end <= reached } && untold < Self.softTailMax
     }
 
     /// A silence cut that the speech estimate refuses (VAD undercounts fast or soft speech):
@@ -525,9 +625,12 @@ public struct SpeakSegmenter: Sendable {
     /// phrase at this pause, so the cut waits as textSilence's does (nil until then; the hard cap
     /// bounds the wait): a cut inside the soft words would strand them in a remainder with no voiced
     /// frame. Faint frames under voicedRunMin at the newest audio count as quiet here. No voiced frame
-    /// lies between `mid` and the cut, so pauseCloses answers the same at either.
+    /// lies between `mid` and the cut, so pauseCloses answers the same at either. A soft phrase
+    /// (softPhraseEnd), whose VAD quiet run is the whole segment, is cut in the middle of the quiet after
+    /// its last faint run, where softPhraseLead bounds its lead.
     private func longSilenceCut(from silence: HostTime, mid: HostTime) -> HostTime? {
         guard trustsFaint else { return mid }
+        if let soft = softPhraseEnd(before: audioEnd) { return soft + (audioEnd - soft) / 2 }
         if speechSeconds(through: silence) + 1e-9 < profile.release.commitRemainderMinSpeechS {
             return textSilenceCut(from: silence, mid: mid)
         }
@@ -549,29 +652,34 @@ public struct SpeakSegmenter: Sendable {
     /// which only came later, cut at the cap and could trim the lead for the trailing quiet. Under the
     /// floor the text decides alone, so its word must have been recognized through the cut (within
     /// previewVetoCaughtUpMs): the preview may already show the soft onset of the next phrase.
-    /// previewCovers needs a voiced frame. Noise, filler-only heads, unrecognized phrases, text
-    /// ending in a continuation mark and a complete short reply still settling wait.
+    /// previewCovers needs a voiced frame or, with `trustsFaint`, a soft phrase (softPhraseEnd), whose
+    /// pause is the captured quiet after its last faint run and whose word is the one beyond the text
+    /// of soft audio left out (softWordThrough). Noise, filler-only heads, unrecognized
+    /// phrases, text ending in a continuation mark and a complete short reply still settling wait.
     private func pauseCloses(at cut: HostTime) -> Bool {
         let continues = (stable.last.map { Self.continuationMarks.contains($0) } ?? false) || stable.hasSuffix("...")
         guard !replySettling, !continues,
               ideographsBeyondFillers() >= Self.wordIdeographsMin, previewCovers(cut) else { return false }
         if speechSeconds(through: cut) + 1e-9 < profile.release.commitRemainderMinSpeechS {
             let tolerance = UInt64(max(0, committer.minimum.previewVetoCaughtUpMs)) * 1_000_000
-            guard let word = wordTextThrough, word <= cut + tolerance else { return false }
+            let word = softPhraseEnd(before: cut) != nil ? softWordThrough : wordTextThrough
+            guard let word, word <= cut + tolerance else { return false }
         }
-        return observedQuiet().ms >= profile.boundary.longSilenceMs
+        let quiet = softPhraseEnd(before: audioEnd).map { observedQuiet(since: $0) } ?? observedQuiet()
+        return quiet.ms >= profile.boundary.longSilenceMs
     }
 
-    /// CJK ideographs in the stable text once leading fillers are stripped.
-    private func ideographsBeyondFillers() -> Int {
-        var rest = Substring(stable.filter { $0.isLetter || $0.isNumber })
+    /// CJK ideographs in `text` (the stable text) once leading fillers are stripped.
+    private func ideographsBeyondFillers(_ text: String? = nil) -> Int {
+        var rest = Substring((text ?? stable).filter { $0.isLetter || $0.isNumber })
         let fillers = profile.fillers.filter { !$0.isEmpty }.sorted { $0.count > $1.count }
         while let filler = fillers.first(where: { rest.hasPrefix($0) }) { rest = rest.dropFirst(filler.count) }
         return rest.unicodeScalars.filter(\.properties.isIdeographic).count
     }
 
-    /// Voiced audio under the release floor is still a clip when the covering preview shows at
-    /// least two CJK ideographs beyond leading fillers, such as a short last word after a cut,
+    /// Voiced audio under the release floor, or a soft phrase (softPhraseEnd), is still a clip when the
+    /// covering preview shows at least two CJK ideographs beyond leading fillers, such as a short last
+    /// word after a cut,
     /// or when it is the release remainder right after a textSilence or longSilence cut, holds an
     /// onset-length voiced run before that segment's forced cut would have come due (that forced
     /// cut would have taken the pause after the word; under the release floor it could not, so
@@ -728,7 +836,8 @@ public struct SpeakSegmenter: Sendable {
     /// `restart`: a hard-cap cut moved back to the pause before speech going on across the cap.
     private mutating func commit(at end: HostTime, reason: Reason, final: Bool = false, restart: Bool = false) -> Commit? {
         guard end > start else { return nil }
-        let clock = clockStart
+        // A soft phrase has no voiced frame to start a clock; its kept lead stands in for it (relaxedCutDeadline).
+        let clock = frames.contains(where: { $0.speech && $0.start < end }) ? clockStart : start
         let seconds = speechSeconds(through: end)
         let voiced = frames.filter { $0.speech && $0.start < end && $0.end > start }
         let reachesFloor = seconds + 1e-9 >= profile.release.commitRemainderMinSpeechS
@@ -736,7 +845,9 @@ public struct SpeakSegmenter: Sendable {
         // words of the speech after the cut, so only text recognized through the cut can keep it.
         let textBeforeCut = !restart || previewThrough.map {
             $0 <= end + UInt64(max(0, committer.minimum.previewVetoCaughtUpMs)) * 1_000_000 } ?? false
-        let keep = reachesFloor || (!voiced.isEmpty && textBeforeCut && keepsBelowFloor(through: end, final: final))
+        // keepsBelowFloor needs a voiced run (rule one) or the covering preview (rule two), whose
+        // anchor is a voiced frame or, in a soft phrase, a faint run (softPhraseEnd).
+        let keep = reachesFloor || (textBeforeCut && keepsBelowFloor(through: end, final: final))
         // Cuts never pass clockStart + clipMaxS, so this bound only leaves out audio before the
         // clock; a cut more than clipMaxS minus the kept lead after the first voiced frame trims
         // the oldest lead first, faint audio included (faintCutMs).
@@ -754,8 +865,8 @@ public struct SpeakSegmenter: Sendable {
                             speechEnd: voiced.last.map { min(end, $0.end) }, previewsIgnored: previewsIgnored,
                             previewCjk: previewCjk, keptBelowFloor: !reachesFloor,
                             droppedSpeechMs: droppedSpeechMs, capRestart: openedByCapRestart,
-                            faintLeadMs: firstVoiced.map { ms(faintNanos(from: pcmStart, to: $0)) },
-                            faintCutMs: firstVoiced.map { ms(faintNanos(from: start, to: min(pcmStart, $0))) },
+                            faintLeadMs: ms(faintNanos(from: pcmStart, to: firstVoiced ?? end)),
+                            faintCutMs: ms(faintNanos(from: start, to: min(pcmStart, firstVoiced ?? end))),
                             faintTrimmedMs: ms(faintTrimmed),
                             faintTailMs: voiced.last.map { ms(faintNanos(from: min(end, $0.end), to: end)) },
                             faintHeldMs: held.flatMap { $0 > 0 ? $0 : nil }, faintHeldMerged: merged)
@@ -763,7 +874,7 @@ public struct SpeakSegmenter: Sendable {
         frames.removeAll { $0.end <= end }
         if !frames.isEmpty, frames[0].start < end { frames[0].start = end }
         stable = ""; previewCharacters = nil; previewCjk = nil; previewThrough = nil; punctuationAt = nil; finalThrough = nil
-        shortPreview = nil; wordTextThrough = nil
+        shortPreview = nil; wordTextThrough = nil; wordRecords = []; staleIdeographs = 0
         lastStableAt = end
         openedByCapRestart = restart; faintHeldAt = nil; trimmedFaintRun = false
         guard keep else {

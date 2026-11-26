@@ -24,9 +24,9 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         public var deviceRate = 0.0, audioSeconds = 0.0
         public var firstHost: HostTime = 0, lastHost: HostTime = 0
         /// Release and stop remainders the segmenter dropped with no voiced frame but an onset-length
-        /// faint run, in the remainder or in leading silence the segmenter left out of it (key-up more
-        /// than about 1 s after the soft words); not counted in presses that do not trust faint frames
-        /// (speaker mode).
+        /// faint run, in the remainder or in leading silence the segmenter left out of it, unless the
+        /// covering preview kept it as a soft phrase; not counted in presses that do not trust faint
+        /// frames (speaker mode).
         public var faintOnlyDropped = 0
     }
     private let queue = DispatchQueue(label: "com.aaajiao.talktalk.speak-mic", qos: .userInteractive)
@@ -69,7 +69,8 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     private let target: Lang
     private let charactersPerSecond: @Sendable () -> Double?
     /// Read once per press: whether its segmenter trusts faint frames as the user's soft speech (faint
-    /// lead, textSilence hold, longSilence placement, faint-only drop count); off in speaker mode, where
+    /// lead, textSilence hold, longSilence placement, soft phrases: clips with no voiced frame kept on the
+    /// covering preview, faint-only drop count); off in speaker mode, where
     /// remote speech leaks into the faint band. The faint diagnostics are measured either way.
     private let trustsFaint: @Sendable () -> Bool
     private var index = 0

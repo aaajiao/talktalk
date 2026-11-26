@@ -357,7 +357,8 @@ final class SpeakController {
             let captureEnd = CaptureEndLog(log)
             let mic = try MicIngest(profile: profile.speak, target: target, charactersPerSecond: { speechRate },
                 // Speaker mode, also an unknown route, leaks remote speech into the faint band: the press
-                // ignores faint frames (no faint lead, textSilence hold, longSilence placement or faint-only count).
+                // ignores faint frames (no faint lead, textSilence hold, longSilence placement, soft phrase or
+                // faint-only count).
                 // In Phone mode before the call (no app reads input) the local output stands in for the
                 // unknown route, as for self-listen (refreshFacts); there is no remote audio then.
                 trustsFaint: { !links.value.withLock { $0.speakerMode } },
