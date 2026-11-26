@@ -4,13 +4,14 @@
 
 - 内容：1.0.23 之后的修复，见下面构建 92–101 各条与“Ming 首声提速”一条。
 - 正式包 `build/TalkTalk.app` 为 **1.0.24（构建 101）**，与本机 `/Applications` 里试用的是同一个构建（二进制 SHA-256 `9aa8def9508649201f229b642b8b1ab54556f56a67257ea3a7770202f33a0a54`），release 编译、严格签名、源码指纹和双语 smoke 通过。正式版本重新运行的 `scripts/check.sh --skip-stress` 整条通过：Swift 1831 个（含按条件跳过的 5 个），引擎 145 个（跳过 1 个），安装器、许可证和字符串检查都通过。运行环境 lock、引擎 API 与配方不变，已有安装不需要更新运行环境。
-- 跳过的 6 个都需要真实设备、GPU、改系统设置，或只供人工查看，常规检查一直跳过：
-  - `DeviceDriverTests` 2 个：读已装驱动的属性，要 `TALKTALK_TEST_DRIVER=1`。
-  - `DeviceSysInputTests` 1 个：真实切换系统默认输入，要 `TALKTALK_TEST_AUDIO=1` 且驱动为 0.1.0；现装驱动不让测试进程写入，本机跑不了，同样的验收走应用内入口。
-  - `renderComponentRows`：要 `TALKTALK_RENDER_DIR`，只出截图。
+- 删去 6 个多余的测试，它们在常规检查里一直跳过：
+  - `DeviceSysInputTests`（1 个）：真实切换系统默认输入，要求驱动 0.1.0；现在的驱动是 0.2.3，不让测试进程写入，永远跑不起来。同样的验收走应用内入口。
+  - `DeviceDriverTests`（2 个）：读已装驱动的属性。应用内置的驱动自检（`DriverSelfTest`）已覆盖设备属性、版本一致和拒绝未授权进程，用的还是应用自己的权限。
+  - 引擎 `InterleaveTest`：真 GPU 上合成与识别交替跑 10,000 步，属于负载测试，已决定不跑。
+  - `renderComponentRows`：只为人工查看出截图；界面验收用正式应用。
   - `defaultFileIsTheArchitectureBlock`：公开的 ARCHITECTURE 已没有 §5.3 JSON 块，一直跳过；`PolicyProfile.default.json` 是唯一来源，由其他参数测试覆盖。
-  - 引擎 `InterleaveTest`：真 GPU 加载已装的 Qwen 合成与识别模型，要 `TALKTALK_INTERLEAVE=1`。
-  - 驱动、系统输入切换和这块界面自 1.0.23 没有改；引擎的改动只在 Ming 路径，`InterleaveTest` 用 Qwen 合成，不经过它。之前各条记录写的“跳过 1 个”只算了引擎。
+  - 上面的检查计数是删除前那次：删掉的 6 个当时都是跳过，实际跑过并通过的是 Swift 1826 个、引擎 144 个。删除后按用户要求没有重跑检查；删除只去掉整个测试文件或测试函数及只供它们用的辅助函数，import 保持不变。之前各条记录写的“跳过 1 个”只算了引擎，Swift 另有 5 个按条件跳过。
+  - 测试不在构建指纹里：删除后 `scripts/source-provenance.py verify` 与已签名应用的收据一致（496 个输入），不用重建。`Package.swift` 第 68–74 行和 `DriverHAL.swift` 第 140 行的注释还提到这些测试；它们在指纹里，留到下次改源码时一起改。
 - 发布说明（英文）在 Git 忽略的 `build/release-notes-v1.0.24.md`。发布前做了多代理核对（3 个视角，每条发现配对抗核实）：说明里核实成立的 16 条都已改（数字出处、只对中文成立的规则、试用只覆盖中文译英文、遗漏的取舍和限制）；推送内容的隐私扫描没有发现问题。双语 README 已更新下载入口。
 
 **2026-11-26 构建 100 会议试用：按键最后一句识别出来了，却没有翻译也没有语音（构建 101 修复，已会议试用，试用时没有触发轻声句）。**

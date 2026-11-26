@@ -324,48 +324,4 @@ struct ComponentsWiringTests {
         #expect(DriverComponentModel.result(.failed("退出码 1")) == SettingsProblem(.failed, "未成功", help: "退出码 1"))
         #expect(DriverComponentModel.result(.staging) == nil)
     }
-
-    // MARK: rendering (for review: TALKTALK_RENDER_DIR=<dir> swift test --filter ComponentsWiringTests)
-
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["TALKTALK_RENDER_DIR"] != nil))
-    func renderComponentRows() async throws {
-        let dir = URL(fileURLWithPath: ProcessInfo.processInfo.environment["TALKTALK_RENDER_DIR"]!)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        // not installed, nothing run yet
-        try render(model(restore: .noRecord), to: dir.appendingPathComponent("components-idle.png"))
-        // wiring (d): restored, then stopped at the driver
-        try FakeDriver.make(in: t.sub("HAL"), version: "9.9.9", sign: true)
-        let stopped = model(meetingModeOn: true, restore: .restored("MacBook Pro 麦克风"), runner: CountingRunner())
-        await stopped.confirm(.fullUninstall)
-        try render(stopped, to: dir.appendingPathComponent("components-stopped.png"))
-        // finished with two problems
-        try FileManager.default.createDirectory(at: t.sub("home/engine"), withIntermediateDirectories: true)
-        let partial = model(restore: .noRecord, keychain: "errSecInteractionNotAllowed")
-        await partial.confirm(.fullUninstall)
-        try render(partial, to: dir.appendingPathComponent("components-incomplete.png"))
-    }
-
-    func render(_ m: DriverComponentModel, to url: URL) throws {
-        // 完全卸载 as Settings › 通用 shows it: its own section of a grouped Form.
-        let root = Form {
-            Section { DriverComponentRows(model: m) }
-            Section { FullUninstallSection(model: m) }
-        }
-        .formStyle(.grouped)
-        .labelStyle(.settingsRow)
-        .driverComponentLifecycle(m)
-        .frame(width: 640, height: 560)
-        .background(Color(nsColor: .windowBackgroundColor))
-        _ = NSApplication.shared
-        let host = NSHostingView(rootView: root)
-        host.frame = NSRect(x: 0, y: 0, width: 640, height: 560)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.appearance = NSAppearance(named: .aqua)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        try #require(rep.representation(using: .png, properties: [:])).write(to: url)
-    }
 }
