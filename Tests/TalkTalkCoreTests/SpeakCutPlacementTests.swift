@@ -17,12 +17,14 @@ struct SpeakCutPlacementTests {
         if let stallMs { profile.boundary.stallMs = stallMs }
         return profile
     }
-    private func feed(_ s: inout SpeakSegmenter, _ frames: Range<Int>, speech: (Int) -> Bool,
+    private func feed(_ s: inout SpeakSegmenter, _ frames: Range<Int>, faint: (Int) -> Bool = { _ in false },
+                      speech: (Int) -> Bool,
                       energy: ((Int) -> Double)? = nil) -> [(frame: Int, commit: SpeakSegmenter.Commit)] {
         var out: [(frame: Int, commit: SpeakSegmenter.Commit)] = []
         for i in frames {
             let voiced = speech(i)
-            for c in s.audio(.init(start: t(i), end: t(i + 1), speech: voiced, energy: energy?(i) ?? (voiced ? 1 : 0))) {
+            for c in s.audio(.init(start: t(i), end: t(i + 1), speech: voiced, energy: energy?(i) ?? (voiced ? 1 : 0),
+                                   faint: faint(i))) {
                 out.append((i, c))
             }
         }
@@ -167,6 +169,91 @@ struct SpeakCutPlacementTests {
         #expect(capped[0].speechMs == 3625 && capped[0].end - capped[0].start == 4_500_000_000)
     }
 
+    /// Feeds a layout with its faint frames and again without them. The faint lead never moves a cut
+    /// or its speech facts; it only starts the clip at or before the plain one.
+    private func feedBoth(_ frames: Range<Int>, start: HostTime = 0, trustsFaint: Bool = true,
+                           faint: (Int) -> Bool, speech: (Int) -> Bool) throws -> [(frame: Int, commit: SpeakSegmenter.Commit)] {
+        let profile = try profile()
+        var with = SpeakSegmenter(profile: profile, target: .en, start: start, trustsFaint: trustsFaint)
+        var plain = SpeakSegmenter(profile: profile, target: .en, start: start)
+        let cuts = feed(&with, frames, faint: faint, speech: speech), old = feed(&plain, frames, speech: speech)
+        #expect(cuts.map(\.frame) == old.map(\.frame))
+        for (new, old) in zip(cuts.map(\.commit), old.map(\.commit)) {
+            #expect(new.end == old.end && new.reason == old.reason && new.speechMs == old.speechMs)
+            #expect(new.speechStart == old.speechStart && new.start <= old.start)
+        }
+        return cuts
+    }
+
+    @Test func faintLeadBeforeTheFirstVoicedFrameStaysInTheClip() throws {
+        // A soft start 0.3 s before the first voiced frame: the clip keeps it from 300 ms before it.
+        let soft = try feedBoth(0..<260, faint: { (40..<105).contains($0) }) { (120..<220).contains($0) }
+        #expect(soft.count == 1 && soft[0].frame == 237)
+        let clip = soft[0].commit
+        #expect(clip.reason == .silence && near(clip.start, 0.5) && near(clip.end, 4.58))
+        #expect(clip.speechMs == 2000 && clip.speechStart == t(120))
+        #expect(clip.faintLeadMs == 1300 && clip.faintCutMs == 0 && clip.faintTrimmedMs == 0)
+        var plain = SpeakSegmenter(profile: try profile(), target: .en, start: 0)
+        let old = feed(&plain, 0..<260) { (120..<220).contains($0) }
+        #expect(near(old.first?.commit.start, 1.4) && old.first?.commit.faintLeadMs == 0)
+        // Speaker mode keeps the 1 s rule; the faint audio it leaves out is counted.
+        let speaker = try feedBoth(0..<260, trustsFaint: false, faint: { (40..<105).contains($0) }) { (120..<220).contains($0) }
+        #expect(near(speaker.first?.commit.start, 1.4) && speaker.first?.commit.faintLeadMs == 700)
+        #expect(speaker.first?.commit.faintTrimmedMs == 600)
+
+        // Runs less than 1 s apart chain; a 1.1 s gap breaks the chain, 40 ms blips never anchor it,
+        // and a chain ending more than 1 s before the first voiced frame is stale.
+        for (frames, faint, speech, frame, start) in [
+            (0..<260, { (20..<45).contains($0) || (80..<100).contains($0) }, { (115..<215).contains($0) }, 232, 0.10),
+            (0..<270, { (20..<45).contains($0) || (100..<120).contains($0) }, { (130..<230).contains($0) }, 247, 1.60),
+            (0..<260, { $0 < 115 && $0 % 10 < 2 }, { (120..<220).contains($0) }, 237, 1.40),
+            (0..<290, { (40..<90).contains($0) }, { (150..<250).contains($0) }, 267, 2.00),
+        ] as [(Range<Int>, (Int) -> Bool, (Int) -> Bool, Int, Double)] {
+            let cuts = try feedBoth(frames, faint: faint, speech: speech)
+            #expect(cuts.map(\.frame) == [frame] && near(cuts.first?.commit.start, start), "start \(start)")
+        }
+        // A long faint chain keeps at most 2.5 s before the newest audio.
+        let long = try feedBoth(0..<330, faint: { $0 < 200 }) { (200..<290).contains($0) }
+        #expect(long.map(\.frame) == [307] && near(long.first?.commit.start, 1.5) && near(long.first?.commit.end, 5.98))
+        #expect(long.first?.commit.faintLeadMs == 2500 && long.first?.commit.faintTrimmedMs == 1500)
+        // Never before the segment start (the press floor): build 98 started at 1.50 s.
+        let floor = try feedBoth(0..<250, start: ns(1), faint: { (55..<120).contains($0) }) { (125..<230).contains($0) }
+        #expect(floor.map(\.frame) == [247] && floor.first?.commit.start == ns(1) && near(floor.first?.commit.end, 4.78))
+        #expect(floor.first?.commit.faintLeadMs == 1300)
+        // After an emitted cut, the next clip's faint lead starts after it (build 98: 5.80 s).
+        let second = try feedBoth(0..<520, faint: { (250..<262).contains($0) || (290..<330).contains($0) }) {
+            (20..<200).contains($0) || (340..<440).contains($0)
+        }
+        #expect(second.map(\.frame) == [207, 457] && second.map(\.commit.reason) == [.forcedDip, .silence])
+        #expect(second.first?.commit.start == 0 && near(second.first?.commit.end, 4.08))
+        #expect(near(second.last?.commit.start, 4.7) && near(second.last?.commit.end, 8.98))
+        #expect(second.last?.commit.faintLeadMs == 1040)
+        // Faint audio left out before a dropped blip is reported on the next emitted clip, then reset.
+        let carried = try feedBoth(0..<730, faint: { $0 < 150 }) {
+            (150..<160).contains($0) || (400..<500).contains($0) || (600..<700).contains($0)
+        }
+        #expect(carried.map(\.commit.reason) == [.silence, .silence] && near(carried.first?.commit.start, 7.2))
+        #expect(carried.first?.commit.droppedSpeechMs == 200 && carried.map(\.commit.faintTrimmedMs) == [500, 0])
+    }
+
+    @Test func faintLeadNeverMovesTheClockOrCountsAsSpeech() throws {
+        // Continuous speech after a faint lead: the cap still counts from 300 ms before the first voiced
+        // frame, and the 4.5 s clip bound trims the faint lead (a clock anchored on it would cap near 5.0 s).
+        let capped = try feedBoth(0..<360, faint: { (40..<105).contains($0) }) { (120..<360).contains($0) }
+        #expect(capped.map(\.frame) == [329])
+        let clip = try #require(capped.first?.commit)
+        #expect(clip.reason == .hardCap && clip.end == t(327) + 25_000_000 && clip.end - clip.start == 4_500_000_000)
+        #expect(clip.speechStart == t(120) && clip.faintLeadMs == 35 && clip.faintCutMs == 1265)
+        // 0.3 s of speech with a faint tail stays under the release floor: dropped on release, and at the cap.
+        let layout: (Int) -> Bool = { $0 < 15 }, tail: (Int) -> Bool = { (15..<60).contains($0) }
+        var released = SpeakSegmenter(profile: try profile(), target: .en, start: 0)
+        var cuts = feed(&released, 0..<80, faint: tail, speech: layout).map(\.commit)
+        cuts += released.release(at: t(80))
+        #expect(released.finished && cuts.isEmpty)
+        var held = SpeakSegmenter(profile: try profile(), target: .en, start: 0)
+        #expect(feed(&held, 0..<300, faint: tail, speech: layout).isEmpty)
+    }
+
     @Test func caughtUpCharactersCloseAShortClauseAtASilence() throws {
         let profile = try profile(stallMs: 10_000)
         func run(speechFrames: Int, text: String, through: Int, frames: Range<Int>,
@@ -185,13 +272,18 @@ struct SpeakCutPlacementTests {
         let head = run(speechFrames: 70, text: "明天下午三点开会吧", through: 70, frames: 71..<95)
         #expect(head.count == 1 && head[0].reason == .textSilence && near(head[0].end, 1.58))
         // A German target needs 10 ideographs.
-        #expect(run(speechFrames: 35, text: "明天下午三点开会吧", through: 35, frames: 36..<190, target: .de).isEmpty)
         let german = run(speechFrames: 35, text: "明天下午三点钟开会吧", through: 35, frames: 36..<60, target: .de)
         #expect(german.count == 1 && german[0].reason == .textSilence && german[0].previewCjk == 10)
-        // Too few ideographs, a preview that has not reached the last word, Latin letters, or
-        // less than the 0.4 s release floor of speech: the clause still waits.
-        for (frames, text, through) in [(35, "明天下午开会", 35), (35, "明天下午三点开会吧", 20),
-                                        (35, "see you at three", 35), (15, "明天下午三点开会吧", 15)] {
+        // Too few ideographs for the character minimum: the clause closes once 1 s of quiet is captured.
+        for (text, target) in [("明天下午三点开会吧", Lang.de), ("明天下午开会", .en)] {
+            #expect(run(speechFrames: 35, text: text, through: 35, frames: 36..<84, target: target).isEmpty)
+            let pause = run(speechFrames: 35, text: text, through: 35, frames: 36..<190, target: target)
+            #expect(pause.map(\.reason) == [.longSilence] && near(pause.first?.end, 1.2))
+        }
+        // A preview that has not reached the last word, Latin letters, or less than the 0.4 s
+        // release floor of speech: the clause still waits.
+        for (frames, text, through) in [(35, "明天下午三点开会吧", 20), (35, "see you at three", 35),
+                                        (15, "明天下午三点开会吧", 15)] {
             #expect(run(speechFrames: frames, text: text, through: through, frames: (frames + 1)..<190).isEmpty)
         }
         // After a dropped voiced blip the text may hold its words, so the clause waits for the forced cut.
@@ -202,6 +294,66 @@ struct SpeakCutPlacementTests {
                                 boundary: .init(from: 0, fullyStable: true))
         late += feed(&dropped, 336..<490, speech: blip).map(\.commit)
         #expect(late.count == 1 && late[0].reason == .forcedDip)
+    }
+
+    @Test func longPauseClosesAShortPhraseItsPreviewShows() throws {
+        let profile = try profile(stallMs: 10_000)
+        // `speech` voiced frames, then quiet; the preview arrives one frame after the last voiced one.
+        func run(_ text: String?, through: Int? = nil, speech: Int = 30, target: Lang = .en,
+                 feeds: [Range<Int>]? = nil) -> [(frame: Int, commit: SpeakSegmenter.Commit)] {
+            var s = SpeakSegmenter(profile: profile, target: target, start: 0)
+            var cuts = feed(&s, 0..<(speech + 1)) { $0 < speech }
+            if let text {
+                cuts += s.preview(stableText: text, through: t(through ?? speech), at: t(speech + 1),
+                                  boundary: .init(from: 0, fullyStable: true)).map { (speech, $0) }
+            }
+            for range in feeds ?? [(speech + 1)..<230] { cuts += feed(&s, range) { $0 < speech } }
+            return cuts
+        }
+        // 0.6 s of speech, 4 ideographs covering it: commits at 1 s of captured quiet, not at 4 s.
+        for target in [Lang.en, .de] {
+            let cuts = run("明天开会", target: target)
+            #expect(cuts.map(\.frame) == [79] && cuts.first?.commit.reason == .longSilence)
+            let cut = try #require(cuts.first?.commit)
+            #expect(near(cut.end, 1.1) && cut.speechMs == 600 && cut.previewCjk == 4 && !cut.keptBelowFloor)
+        }
+        // No preview, only fillers, one ideograph beyond them, a preview short of the last voiced
+        // frame, Latin letters, or text the recognizer hears going on: the forced cut takes the pause.
+        for (text, through) in [(nil, 30), ("那个嗯", 30), ("嗯好", 30), ("明天开会", 15), ("see you", 30),
+                                ("明天开会，", 30), ("明天开会...", 30)] as [(String?, Int)] {
+            let forced = run(text, through: through)
+            #expect(forced.map(\.frame) == [199] && forced.first?.commit.reason == .forcedDip)
+            #expect(near(forced.first?.commit.end, 2.3))
+        }
+        // Under the 0.4 s release floor the phrase waits; its covering preview keeps it at the cap.
+        let short = run("好吗", speech: 15)
+        #expect(short.map(\.frame) == [224] && short.first?.commit.reason == .hardCap)
+        #expect(short.first?.commit.keptBelowFloor == true && short.first?.commit.speechMs == 300)
+        // A 300 ms timestamp gap is no pause: 1 s of quiet must be captured after it. The cut
+        // stays at the middle of the whole quiet span.
+        let gap = run("明天开会", feeds: [31..<55, 70..<130])
+        #expect(gap.map(\.frame) == [119] && gap.first?.commit.reason == .longSilence && near(gap.first?.commit.end, 1.5))
+        // A 2 s clause the caught-up preview vetoes (4 < 8 characters) closes at the long pause,
+        // not at the forced cut. The refreshed preview stays caught up with the pause.
+        var vetoed = SpeakSegmenter(profile: profile, target: .en, start: 0)
+        var closed: [(frame: Int, commit: SpeakSegmenter.Commit)] = []
+        for i in 0..<230 {
+            closed += feed(&vetoed, i..<(i + 1)) { $0 < 100 }
+            if i >= 100 {
+                closed += vetoed.preview(stableText: "明天开会", through: t(i + 1), at: t(i + 1),
+                                         boundary: .init(from: 0, fullyStable: true)).map { (i, $0) }
+            }
+        }
+        #expect(closed.map(\.frame) == [149] && closed.first?.commit.reason == .longSilence)
+        #expect(near(closed.first?.commit.end, 2.5) && closed.first?.commit.speechMs == 2000)
+        // After a dropped voiced blip the text may hold its words, so the phrase waits for the forced cut.
+        var dropped = SpeakSegmenter(profile: profile, target: .en, start: 0)
+        let blip: (Int) -> Bool = { $0 < 10 || (300..<330).contains($0) }
+        var late = feed(&dropped, 0..<331, speech: blip)
+        late += dropped.preview(stableText: "明天开会", through: t(330), at: t(331),
+                                boundary: .init(from: 0, fullyStable: true)).map { (330, $0) }
+        late += feed(&dropped, 331..<500, speech: blip)
+        #expect(late.map(\.frame) == [484] && late.first?.commit.reason == .forcedDip && near(late.first?.commit.end, 8.15))
     }
 
     @Test func shortLastWordAfterATextSilenceCutIsKept() throws {
@@ -225,7 +377,7 @@ struct SpeakCutPlacementTests {
             cuts += s.release(at: t(keyUp))
             return cuts + feed(&s, keyUp..<(keyUp + 10), speech: layout).map(\.commit)
         }
-        // Key-up: the preview reopens at the cut and stops at key-up, so a remainder that ends
+        // Key-up: the preview reopens at the cut and stops at key-up, so a remainder voiced
         // before the clause's forced cut would have come due is kept whatever it has shown.
         for text in ["好吗", "嗯", nil] as [String?] {
             let released = run(text)
@@ -233,11 +385,13 @@ struct SpeakCutPlacementTests {
             #expect(released.first?.keptBelowFloor == false && released.last?.keptBelowFloor == true)
             #expect(released.last?.speechMs == 300 && released.last?.isFinalChunk == true)
         }
-        // A 60 ms voiced run is enough; a single voiced frame (a key click) or a key-up after
-        // that forced cut would have come due is not, without a covering preview.
+        // A 60 ms voiced run is enough, also with a key-up after that forced cut would have come
+        // due (4.0 s); a single voiced frame (a key click) or a word voiced only after it is not,
+        // without a covering preview.
         #expect(run(nil, tail: { (60..<63).contains($0) }).last?.speechMs == 60)
         #expect(run(nil, tail: { $0 == 60 }).map(\.reason) == [.textSilence])
-        #expect(run(nil, keyUp: 205).map(\.reason) == [.textSilence])
+        #expect(run(nil, keyUp: 205).map(\.reason) == [.textSilence, .release])
+        #expect(run(nil, keyUp: 230, tail: { (205..<220).contains($0) }).map(\.reason) == [.textSilence])
         #expect(run("好吗", keyUp: 205).map(\.reason) == [.textSilence, .release])
         // Hands-free: no release, so the covering preview decides at the cap.
         let latched = run("好吗", latched: true)
@@ -247,6 +401,218 @@ struct SpeakCutPlacementTests {
         for (text, through) in [("嗯", 70), ("那个", 70), ("好吗", 55), (nil, 70)] as [(String?, Int)] {
             #expect(run(text, through: through, latched: true).map(\.reason) == [.textSilence])
         }
+    }
+
+    /// `speech` and `faint` frames; `text` covers the clause through frame 35 (sent at frame 36) and,
+    /// with `again`, through frame 75 (sent at frame 76); `keyUp` releases before that frame;
+    /// `trustsFaint` false is speaker mode.
+    private func faintRun(_ frames: Range<Int>, text: String? = "明天下午三点开会吧", again: Bool = false,
+                          keyUp: Int? = nil, trustsFaint: Bool = true, faint: @escaping (Int) -> Bool,
+                          speech: @escaping (Int) -> Bool = { $0 < 35 })
+        throws -> (cuts: [(frame: Int, commit: SpeakSegmenter.Commit)], segmenter: SpeakSegmenter) {
+        var s = SpeakSegmenter(profile: try profile(stallMs: 10_000), target: .en, start: 0, trustsFaint: trustsFaint)
+        var cuts: [(frame: Int, commit: SpeakSegmenter.Commit)] = []
+        for i in frames {
+            if let text, i == 36 || (again && i == 76) {
+                cuts += s.preview(stableText: text, through: t(i - 1), at: t(i),
+                                  boundary: .init(from: 0, fullyStable: true)).map { (i, $0) }
+            }
+            if i == keyUp { cuts += s.release(at: t(i)).map { (i, $0) } }
+            cuts += feed(&s, i..<(i + 1), faint: faint, speech: speech)
+        }
+        return (cuts, s)
+    }
+
+    @Test func textSilenceStaysClearOfFaintRuns() throws {
+        // A 0.7 s clause whose 9 ideographs cover it; build 98 cut every layout here at the silence
+        // midpoint, 0.88 s, on frame 52. Soft words VAD misses (faint 35..<60): the cut waits for 350 ms
+        // of quiet after them and goes in its middle.
+        let soft: (Int) -> Bool = { (35..<60).contains($0) }
+        let held = try faintRun(0..<80, faint: soft).cuts
+        #expect(held.map(\.frame) == [77])
+        let clip = try #require(held.first?.commit)
+        #expect(clip.reason == .textSilence && near(clip.end, 1.38) && clip.speechMs == 700 && clip.speechEnd == t(35))
+        #expect(clip.faintTailMs == 500 && clip.faintHeldMs == 500 && !clip.faintHeldMerged)
+        // Speaker mode does not trust faint frames: the cut stays at the midpoint, as in build 98; the
+        // faint tail is still measured.
+        let speaker = try faintRun(0..<80, trustsFaint: false, faint: soft).cuts
+        #expect(speaker.map(\.frame) == [52] && speaker.first?.commit.reason == .textSilence)
+        #expect(near(speaker.first?.commit.end, 0.88) && speaker.first?.commit.faintTailMs == 180)
+        #expect(speaker.first?.commit.faintHeldMs == nil)
+        // Remote speech leaking into the faint band after a clause whose text goes on ("，", so the
+        // long-pause rule waits): trusted, it holds the cut to 1.88 s and pulls the leak into the clip.
+        for trusts in [true, false] {
+            let leak = try faintRun(0..<120, text: "明天下午三点开会，", trustsFaint: trusts, faint: { (38..<85).contains($0) }).cuts
+            #expect(leak.map(\.frame) == [trusts ? 102 : 52] && leak.first?.commit.reason == .textSilence, "trusts \(trusts)")
+            #expect(near(leak.first?.commit.end, trusts ? 1.88 : 0.88) && leak.first?.commit.faintHeldMs == (trusts ? 1000 : nil))
+        }
+        // Key-up during the soft words: one release clip holds them (build 98 dropped 0.88-1.20 s).
+        let released = try faintRun(0..<70, keyUp: 60, faint: soft)
+        #expect(released.segmenter.finished && released.cuts.map(\.frame) == [60])
+        let tail = try #require(released.cuts.first?.commit)
+        #expect(tail.reason == .release && tail.isFinalChunk && tail.start == 0 && near(tail.end, 1.2))
+        #expect(tail.speechMs == 700 && !tail.keptBelowFloor && tail.faintTailMs == 500 && tail.faintHeldMs == 140)
+        // Blips under 60 ms and up to 6 faint frames right after the clause (libfvad's hangover) cost
+        // nothing: the midpoint stays 60 ms clear of them. Each further frame costs 40 ms.
+        for (faint, frame, end, tailMs, heldMs) in [
+            ({ [38, 39, 42].contains($0) }, 52, 0.88, 60, nil),
+            ({ (35..<40).contains($0) }, 52, 0.88, 100, nil),
+            ({ (35..<41).contains($0) }, 52, 0.88, 120, nil),
+            ({ (35..<42).contains($0) }, 54, 0.90, 140, 40),
+        ] as [((Int) -> Bool, Int, Double, Int, Int?)] {
+            let cuts = try faintRun(0..<80, faint: faint).cuts
+            #expect(cuts.map(\.frame) == [frame] && cuts.first?.commit.reason == .textSilence, "frame \(frame)")
+            #expect(near(cuts.first?.commit.end, end) && cuts.first?.commit.faintTailMs == tailMs)
+            #expect(cuts.first?.commit.faintHeldMs == heldMs)
+        }
+        // Speech resuming after the soft words: one clip (build 98 split them across two), marked merged.
+        // The next clip (a word after it, kept on release) carries no hold.
+        let resumed = try faintRun(0..<150, text: "明天下午三点开会好不好", again: true, keyUp: 140, faint: soft,
+                                   speech: { $0 < 35 || (60..<75).contains($0) || (100..<130).contains($0) }).cuts
+        #expect(resumed.map(\.frame) == [92, 142] && resumed.map(\.commit.reason) == [.textSilence, .release])
+        #expect(near(resumed.first?.commit.end, 1.68) && resumed.first?.commit.speechMs == 1000)
+        #expect(resumed.first?.commit.faintHeldMs == 800 && resumed.first?.commit.faintHeldMerged == true)
+        #expect(resumed.last?.commit.faintHeldMs == nil && resumed.last?.commit.faintHeldMerged == false)
+        // A forced cut back to the held pause after speech resumed: that clip is the short clause alone,
+        // so it is not marked merged; the resumed speech is the next clip, with neither field.
+        let back = try faintRun(0..<310, again: true, faint: { (77..<92).contains($0) },
+                                speech: { $0 < 75 || (100..<300).contains($0) }).cuts
+        #expect(back.map(\.frame) == [199, 307] && back.map(\.commit.reason) == [.forcedDip, .forcedDip])
+        #expect(near(back.first?.commit.end, 1.75) && back.first?.commit.faintHeldMs == 2140)
+        #expect(back.first?.commit.faintHeldMerged == false && back.last?.commit.faintHeldMerged == false)
+        #expect(back.last?.commit.faintHeldMs == nil)
+        // Faint audio that never ends (noise libfvad takes for voice): the long-pause rule, which treats
+        // it as quiet, takes the held cut at the silence midpoint once 1 s of quiet is captured. Where
+        // that rule waits too (text going on), the forced cut does, as in build 97.
+        let capped = try faintRun(0..<230, faint: { $0 >= 35 }).cuts
+        #expect(capped.map(\.frame) == [84] && capped.first?.commit.reason == .longSilence)
+        #expect(near(capped.first?.commit.end, 1.2) && capped.first?.commit.faintTailMs == 500)
+        #expect(capped.first?.commit.faintHeldMs == 640)
+        let forced = try faintRun(0..<230, text: "明天下午三点开会吧，", faint: { $0 >= 35 }).cuts
+        #expect(forced.map(\.frame) == [199] && forced.first?.commit.reason == .forcedDip)
+        let fallback = try #require(forced.first?.commit)
+        #expect(near(fallback.end, 2.35) && fallback.speechMs == 700 && fallback.faintTailMs == 1650)
+        #expect(fallback.faintHeldMs == 2940 && !fallback.faintHeldMerged)
+        // A breath in the faint band right after the clause counts as voice for the text cut: in a 500 ms
+        // pause the clause merges with the next one (faintHeldMerged), in a 700 ms pause it is cut 340 ms
+        // later, and a 60 ms blip at build 98's decision costs 360 ms.
+        let breath: (Int) -> Bool = { (37..<52).contains($0) }
+        let merged = try faintRun(0..<150, faint: breath, speech: { $0 < 35 || (60..<120).contains($0) }).cuts
+        #expect(merged.map(\.frame) == [137] && merged.first?.commit.reason == .silence)
+        #expect(near(merged.first?.commit.end, 2.58) && merged.first?.commit.speechMs == 1900)
+        #expect(merged.first?.commit.faintHeldMs == 1700 && merged.first?.commit.faintHeldMerged == true)
+        let later = try faintRun(0..<140, faint: breath, speech: { $0 < 35 || (70..<130).contains($0) }).cuts
+        #expect(later.map(\.frame) == [69] && later.first?.commit.reason == .textSilence)
+        #expect(near(later.first?.commit.end, 1.22) && later.first?.commit.faintHeldMs == 340)
+        let blip = try faintRun(0..<90, faint: { (50..<53).contains($0) }).cuts
+        #expect(blip.map(\.frame) == [70] && blip.first?.commit.reason == .textSilence)
+        #expect(near(blip.first?.commit.end, 1.24) && blip.first?.commit.faintHeldMs == 360)
+    }
+
+    @Test func longSilenceDoesNotCutInsideAnEndedFaintRun() throws {
+        // A 0.7 s clause whose 4 ideographs are under the character minimum, so only the long-pause rule
+        // closes it, and soft words VAD misses (faint 50..<75) that end before its decision. The cut goes
+        // in the middle of the quiet after them; the midpoint, 1.20 s, left 300 ms of them to key-up's drop.
+        let soft: (Int) -> Bool = { (50..<75).contains($0) }
+        let run = try faintRun(0..<100, text: "明天开会", keyUp: 95, faint: soft)
+        #expect(run.cuts.map(\.frame) == [84] && run.cuts.first?.commit.reason == .longSilence)
+        let clip = try #require(run.cuts.first?.commit)
+        #expect(near(clip.end, 1.6) && clip.speechMs == 700 && clip.faintTailMs == 500)
+        #expect(run.segmenter.finished && run.segmenter.faintOnlyDropped == 0)
+        // A later faint run still going at the decision (78..<90) bounds that quiet: the cut stays before it.
+        let bounded = try faintRun(0..<100, text: "明天开会", faint: { soft($0) || (78..<90).contains($0) }).cuts
+        #expect(bounded.map(\.frame) == [84] && bounded.first?.commit.reason == .longSilence)
+        #expect(near(bounded.first?.commit.end, 1.53))
+        // A later run that has ended too (78..<82) is passed: the cut goes after it and nothing is dropped.
+        let passed = try faintRun(0..<100, text: "明天开会", keyUp: 95, faint: { soft($0) || (78..<82).contains($0) })
+        #expect(passed.cuts.map(\.frame) == [84] && passed.cuts.first?.commit.reason == .longSilence)
+        #expect(near(passed.cuts.first?.commit.end, 1.67) && passed.segmenter.finished)
+        #expect(passed.segmenter.faintOnlyDropped == 0)
+        // With 9 ideographs and soft words in two ended runs, textSilence's point after both wins the tie
+        // (stopping at the gap between them, 1.24 s, left the second run to key-up's drop).
+        let pair = try faintRun(0..<100, keyUp: 95, faint: { (50..<61).contains($0) || (63..<67).contains($0) })
+        #expect(pair.cuts.map(\.frame) == [84] && pair.cuts.first?.commit.reason == .textSilence)
+        #expect(near(pair.cuts.first?.commit.end, 1.52) && pair.segmenter.finished)
+        #expect(pair.segmenter.faintOnlyDropped == 0)
+        // Speaker mode keeps the midpoint; the faint-only remainder is dropped and not counted.
+        let speaker = try faintRun(0..<100, text: "明天开会", keyUp: 95, trustsFaint: false, faint: soft)
+        #expect(speaker.cuts.map(\.frame) == [84] && speaker.cuts.first?.commit.reason == .longSilence)
+        #expect(near(speaker.cuts.first?.commit.end, 1.2) && speaker.segmenter.finished)
+        #expect(speaker.segmenter.faintOnlyDropped == 0)
+        // 9 ideographs and faint 50..<67: both rules come due on frame 84 at the same point, the middle of
+        // the quiet after the run; textSilence, listed first, wins the tie.
+        let tie = try faintRun(0..<100, faint: { (50..<67).contains($0) }).cuts
+        #expect(tie.map(\.frame) == [84] && tie.first?.commit.reason == .textSilence)
+        #expect(near(tie.first?.commit.end, 1.52) && tie.first?.commit.faintTailMs == 340)
+    }
+
+    @Test func faintLeavesTheAudioSilenceCutAndFaintOnlyRemaindersAlone() throws {
+        // The audio silence cut treats faint audio as quiet: a 1.9 s clause is still cut inside the
+        // soft words after it, which faintTailMs shows.
+        let silence = try faintRun(0..<140, text: nil, faint: { (95..<125).contains($0) }, speech: { $0 < 95 }).cuts
+        #expect(silence.map(\.frame) == [112] && silence.first?.commit.reason == .silence)
+        let clip = try #require(silence.first?.commit)
+        #expect(near(clip.end, 2.08) && clip.speechMs == 1900 && clip.faintTailMs == 180 && clip.faintHeldMs == nil)
+        // A faint-only remainder after a textSilence cut is still dropped at key-up (rule (a) needs a
+        // voiced run) and counted, also when key-up comes more than 1 s after the soft words and the
+        // leading-silence bound has already left them out; a 40 ms blip is not counted, in the remainder
+        // or left out by the bound.
+        for (faint, keyUp, counted) in [({ (80..<95).contains($0) }, 95, 1), ({ (80..<95).contains($0) }, 150, 1),
+                                        ({ (80..<82).contains($0) }, 95, 0), ({ (80..<82).contains($0) }, 150, 0)]
+                as [((Int) -> Bool, Int, Int)] {
+            let run = try faintRun(0..<(keyUp + 15), keyUp: keyUp, faint: { (35..<60).contains($0) || faint($0) })
+            #expect(run.cuts.map(\.commit.reason) == [.textSilence] && near(run.cuts.first?.commit.end, 1.38))
+            #expect(run.segmenter.finished && run.segmenter.faintOnlyDropped == counted, "key-up \(keyUp)")
+        }
+        // Soft audio the bound left out before a kept clip's speech is not counted for a later empty remainder.
+        let early = try faintRun(0..<210, text: nil, keyUp: 200, faint: { $0 < 5 }, speech: { (60..<160).contains($0) })
+        #expect(early.cuts.map(\.commit.reason) == [.silence] && near(early.cuts.first?.commit.start, 0.2))
+        #expect(early.segmenter.finished && early.segmenter.faintOnlyDropped == 0)
+    }
+
+    @Test func shortLastWordAfterALongSilenceCutIsKept() throws {
+        let profile = try profile(stallMs: 10_000)
+        // A 0.6 s phrase with 4 ideographs, a long pause, then (by default) a 0.3 s last word.
+        let word: (Int) -> Bool = { (100..<115).contains($0) }
+        func run(_ text: String? = nil, keyUp: Int? = 125,
+                 tail: @escaping (Int) -> Bool = word) -> [SpeakSegmenter.Commit] {
+            let layout: (Int) -> Bool = { $0 < 30 || tail($0) }
+            var s = SpeakSegmenter(profile: profile, target: .en, start: 0)
+            var cuts = feed(&s, 0..<31, speech: layout).map(\.commit)
+            cuts += s.preview(stableText: "明天开会", through: t(30), at: t(31), boundary: .init(from: 0, fullyStable: true))
+            cuts += feed(&s, 31..<116, speech: layout).map(\.commit)
+            if let text, let floor = cuts.first?.end {
+                cuts += s.preview(stableText: text, through: t(115), at: t(116),
+                                  boundary: .init(from: floor, fullyStable: true))
+            }
+            guard let keyUp else { return cuts + feed(&s, 116..<320, speech: layout).map(\.commit) }
+            cuts += feed(&s, 116..<keyUp, speech: layout).map(\.commit)
+            cuts += s.release(at: t(keyUp))
+            return cuts + feed(&s, keyUp..<(keyUp + 10), speech: layout).map(\.commit)
+        }
+        // No preview covers the word; it is kept because it was voiced before the phrase's forced
+        // cut would have come due (4.0 s), also with a key-up after that, up to the remainder's own
+        // 4.5 s cap (its clock 1.70 s + 4.5 s = 6.20 s, the end of frame 309).
+        for keyUp in [125, 205] {
+            let released = run(keyUp: keyUp)
+            #expect(released.map(\.reason) == [.longSilence, .release] && near(released.first?.end, 1.1))
+            #expect(released.first?.keptBelowFloor == false && released.last?.keptBelowFloor == true)
+            #expect(released.last?.speechMs == 300 && released.last?.isFinalChunk == true)
+        }
+        // A key-up at or after that cap comes too late: the cap cut is not final, so it drops the word.
+        #expect(run(keyUp: 310).map(\.reason) == [.longSilence])
+        // Only the voicing before that point counts: 80 ms of a word straddling it is enough, 20 ms,
+        // a word voiced after it or a single voiced frame (a key click) is not.
+        #expect(run(keyUp: 230, tail: { (196..<211).contains($0) }).map(\.reason) == [.longSilence, .release])
+        for (keyUp, tail) in [(230, { (199..<214).contains($0) }), (230, { (205..<220).contains($0) }),
+                              (125, { $0 == 100 })] as [(Int, (Int) -> Bool)] {
+            #expect(run(keyUp: keyUp, tail: tail).map(\.reason) == [.longSilence])
+        }
+        // Hands-free: no release, so the covering preview decides at the cap.
+        let latched = run("好吗", keyUp: nil)
+        #expect(latched.map(\.reason) == [.longSilence, .hardCap] && latched.last?.keptBelowFloor == true)
+        #expect(latched.last?.speechMs == 300)
+        for text in [nil, "好"] as [String?] { #expect(run(text, keyUp: nil).map(\.reason) == [.longSilence]) }
     }
 
     @Test func shortLastWordAfterAnAudioSilenceCutNeedsItsPreview() throws {
@@ -288,5 +654,147 @@ struct SpeakCutPlacementTests {
         #expect(cuts.count == 1 && cuts[0].reason == .punctuation && cuts[0].end == t(500))
         // The clip starts at the dropped segment's cap cut; both late updates are counted.
         #expect(near(cuts[0].start, 7.2) && cuts[0].previewsIgnored == 2 && cuts[0].previewCjk == 13)
+    }
+
+    /// An 80 ms blip at 0.40 s: the clock starts at 0.10 s, so the 4.5 s cap falls at 4.60 s
+    /// (frame 230) with under 0.4 s of speech.
+    private func capBlip(_ i: Int) -> Bool { (20..<24).contains(i) }
+    /// Feeds `layout` (and `faint` frames) through key-up, releases there and feeds 15 more frames; an
+    /// optional preview (from 0, fully stable) arrives once `at` frames are in.
+    private func press(_ layout: (Int) -> Bool, keyUp: Int, target: Lang = .en, trustsFaint: Bool = true,
+                       faint: (Int) -> Bool = { _ in false },
+                       preview: (text: String, through: Int, at: Int)? = nil) throws -> [SpeakSegmenter.Commit] {
+        var s = SpeakSegmenter(profile: try profile(stallMs: 10_000), target: target, start: 0, trustsFaint: trustsFaint)
+        let at = preview?.at ?? 0
+        var cuts = feed(&s, 0..<at, faint: faint, speech: layout).map(\.commit)
+        if let preview {
+            cuts += s.preview(stableText: preview.text, through: t(preview.through), at: t(at),
+                              boundary: .init(from: 0, fullyStable: true))
+        }
+        cuts += feed(&s, at..<keyUp, faint: faint, speech: layout).map(\.commit)
+        cuts += s.release(at: t(keyUp))
+        return cuts + feed(&s, keyUp..<(keyUp + 15), faint: faint, speech: layout).map(\.commit)
+    }
+
+    @Test func capCutsBackToThePauseBeforeAWordStartingAtIt() throws {
+        // A word voiced just before the cap goes on across it: the cut moves back to the pause before the
+        // word (one ending at most 0.75 s before the last voiced end before the cap, or the cap if voicing
+        // reaches it), at most 1 s before the word, and only the blip is dropped (build 98 cut at 4.60 s).
+        let cases: [(layout: (Int) -> Bool, keyUp: Int, start: Double, end: Double, speechMs: Int, first: Int)] = [
+            ({ (220..<300).contains($0) }, 330, 3.40, 6.60, 1600, 220),                           // build 98: 1400
+            ({ (215..<220).contains($0) || (228..<300).contains($0) }, 330, 3.30, 6.60, 1540, 215), // a 160 ms dip
+            ({ (222..<229).contains($0) || (232..<300).contains($0) }, 330, 3.44, 6.60, 1500, 222), // cap in a 60 ms gap
+            ({ (216..<240).contains($0) }, 240, 3.32, 5.05, 480, 216),                            // build 98: nothing
+            ({ (220..<240).contains($0) }, 230, 3.40, 4.85, 400, 220),                            // key-up at the cap
+            ({ (205..<208).contains($0) || (222..<300).contains($0) }, 330, 3.10, 6.60, 1620, 205), // 0.5 s before the cap
+            // Single voiced frames up to 4.30 s, the phrase from 4.60 s: the pause ends 0.60 s before the
+            // last voiced end (0.90 s before the cap).
+            ({ [185, 200, 214].contains($0) || (230..<300).contains($0) }, 330, 2.70, 6.60, 1460, 185),
+        ]
+        for c in cases {
+            for target in [Lang.en, .de] {
+                let cuts = try press({ capBlip($0) || c.layout($0) }, keyUp: c.keyUp, target: target)
+                #expect(cuts.map(\.reason) == [.release])
+                let cut = try #require(cuts.first)
+                #expect(near(cut.start, c.start) && near(cut.end, c.end) && cut.speechMs == c.speechMs)
+                #expect(cut.speechStart == t(c.first) && !cut.keptBelowFloor)
+                #expect(cut.droppedSpeechMs == 80 && cut.capRestart)
+            }
+        }
+        // A faint onset before the word (3.00-4.40 s) keeps the lead a leading silence would keep, from
+        // 300 ms before it (a 1 s bound cut it at 3.40 s); speaker mode keeps the 1 s.
+        for trusts in [true, false] {
+            let soft = try press({ capBlip($0) || (220..<300).contains($0) }, keyUp: 305, trustsFaint: trusts,
+                                 faint: { (150..<220).contains($0) })
+            #expect(soft.map(\.reason) == [.release] && near(soft.first?.start, trusts ? 2.7 : 3.4), "trusts \(trusts)")
+            #expect(soft.first?.faintLeadMs == (trusts ? 1400 : 1000) && soft.first?.droppedSpeechMs == 80)
+            #expect(soft.first?.capRestart == true && soft.first?.speechMs == 1600)
+        }
+        // Real frames are re-anchored per IO block, so a voiced frame can straddle the cap: a 30 ms
+        // frame at 2.00 s shifts the rest by 10 ms, and frame 229 spans 4.59-4.61 s.
+        var straddle = SpeakSegmenter(profile: try profile(stallMs: 10_000), target: .en, start: 0)
+        let shift: (Int) -> HostTime = { $0 <= 100 ? t($0) : t($0) + 10_000_000 }
+        var shifted: [SpeakSegmenter.Commit] = []
+        for i in 0..<345 {
+            if i == 330 { shifted += straddle.release(at: shift(330)) }
+            let voiced = capBlip(i) || (220..<300).contains(i)
+            shifted += straddle.audio(.init(start: shift(i), end: shift(i + 1), speech: voiced, energy: voiced ? 1 : 0))
+        }
+        #expect(shifted.map(\.reason) == [.release] && shifted.first?.capRestart == true)
+        #expect(near(shifted.first?.start, 3.41) && near(shifted.first?.end, 6.61) && shifted.first?.speechMs == 1600)
+        // Hands-free: the phrase commits whole at its own forced cut, 4.0 s after its clock; the next
+        // clip carries no restart marks.
+        var latched = SpeakSegmenter(profile: try profile(stallMs: 10_000), target: .en, start: 0)
+        let held = feed(&latched, 0..<700) { capBlip($0) || (220..<300).contains($0) || (450..<530).contains($0) }
+        #expect(held.map(\.frame) == [404, 634] && held.map(\.commit.reason) == [.forcedDip, .forcedDip])
+        let phrase = try #require(held.first?.commit), next = try #require(held.last?.commit)
+        #expect(near(phrase.start, 3.40) && near(phrase.end, 7.05) && phrase.speechMs == 1600)
+        #expect(phrase.droppedSpeechMs == 80 && phrase.capRestart)
+        #expect(next.speechMs == 1600 && next.droppedSpeechMs == 0 && !next.capRestart)
+    }
+
+    @Test func capStillDropsASparseSegmentWhenNoSpeechCrossesIt() throws {
+        // Voiced audio before the cap ends more than 350 ms before the next speech (a 100 ms word, then
+        // a phrase from 4.80 s), or no 350 ms pause precedes it (single voiced frames every 300 ms):
+        // the whole segment is dropped at the cap, as in build 98.
+        for (layout, speechMs, dropped) in [
+            ({ (210..<215).contains($0) || (240..<300).contains($0) }, 1200, 180),
+            ({ ($0 >= 24 && $0 < 230 && ($0 - 24) % 15 == 0) || (232..<300).contains($0) }, 1360, 360),
+        ] as [((Int) -> Bool, Int, Int)] {
+            let cuts = try press({ capBlip($0) || layout($0) }, keyUp: 330)
+            #expect(cuts.map(\.reason) == [.release])
+            #expect(near(cuts.first?.start, 4.6) && cuts.first?.speechMs == speechMs)
+            #expect(cuts.first?.droppedSpeechMs == dropped && cuts.first?.capRestart == false)
+        }
+        // Single voiced frames every 300 ms from 3.00 s, after a real pause (0.48-3.00 s), then a phrase
+        // crossing the cap: that pause ends more than 0.75 s before the last voiced end before the cap,
+        // so the frames cannot be the phrase's onset; the phrase commits whole from the cap (a restart
+        // at that pause cut it at 7.165 s).
+        let flicker = try press({
+            capBlip($0) || ($0 >= 150 && $0 <= 225 && ($0 - 150) % 15 == 0) || (232..<400).contains($0)
+        }, keyUp: 420)
+        #expect(flicker.map(\.reason) == [.silence] && near(flicker.first?.start, 4.6) && near(flicker.first?.end, 8.18))
+        #expect(flicker.first?.speechMs == 3360 && flicker.first?.droppedSpeechMs == 200 && flicker.first?.capRestart == false)
+        // 0.4 s of speech by the cap: the energy cut is unchanged.
+        let split = try press({ capBlip($0) || (210..<300).contains($0) }, keyUp: 330)
+        #expect(split.map(\.reason) == [.hardCap, .release] && split.first?.end == t(227) + 25_000_000)
+        #expect(split.first?.speechMs == 445 && split.allSatisfy { $0.droppedSpeechMs == 0 && !$0.capRestart })
+        // A covering preview keeps the cap clip, also when it arrives while the cut waits.
+        for (layout, preview, speechMs) in [
+            ({ (220..<300).contains($0) }, ("明天", 226, 226), 1400),
+            ({ (216..<226).contains($0) || (236..<300).contains($0) }, ("我们", 224, 231), 1280),
+        ] as [((Int) -> Bool, (String, Int, Int), Int)] {
+            let kept = try press({ capBlip($0) || layout($0) }, keyUp: 330,
+                                 preview: (preview.0, preview.1, preview.2))
+            #expect(kept.map(\.reason) == [.hardCap, .release])
+            #expect(kept.first?.keptBelowFloor == true && near(kept.first?.start, 0.1) && kept.first?.end == t(230))
+            #expect(kept.first?.speechMs == 280 && near(kept.last?.start, 4.6) && kept.last?.speechMs == speechMs)
+            #expect(kept.allSatisfy { !$0.capRestart })
+        }
+        // Two sparse segments dropped in a row: the next clip counts both.
+        let twice = try press({ capBlip($0) || (250..<254).contains($0) || (470..<550).contains($0) }, keyUp: 580)
+        #expect(twice.map(\.reason) == [.release] && near(twice.first?.start, 9.2) && twice.first?.speechMs == 1600)
+        #expect(twice.first?.droppedSpeechMs == 160 && twice.first?.capRestart == false)
+    }
+
+    @Test func capRestartKeepsACoveredShortWordBeforeThePause() throws {
+        // The preview has recognized the short word through the moved-back cut: it is kept on its own,
+        // and the phrase starts the next clip whole (build 98 dropped the word and 200 ms of the phrase).
+        let cuts = try press({ capBlip($0) || (220..<300).contains($0) }, keyUp: 330, preview: ("好的", 25, 30))
+        #expect(cuts.map(\.reason) == [.forcedDip, .release])
+        let word = try #require(cuts.first), phrase = try #require(cuts.last)
+        #expect(word.keptBelowFloor && word.speechMs == 80 && near(word.end, 3.4) && !word.capRestart)
+        #expect(near(phrase.start, 3.4) && phrase.speechMs == 1600 && phrase.capRestart && phrase.droppedSpeechMs == 0)
+    }
+
+    @Test func capRestartIgnoresPreviewTextFromAfterTheCut() throws {
+        // A 60 ms click, then speech whose soft onset VAD missed: the preview through 4.28 s covers the
+        // click, but its words come from after the moved-back cut, so the click is still dropped.
+        let cuts = try press({ (20..<23).contains($0) || (222..<300).contains($0) }, keyUp: 330,
+                             preview: ("我们明天", 214, 229))
+        #expect(cuts.map(\.reason) == [.release])
+        let cut = try #require(cuts.first)
+        #expect(near(cut.start, 3.44) && near(cut.end, 6.6) && cut.speechMs == 1560)
+        #expect(cut.droppedSpeechMs == 60 && cut.capRestart && !cut.keptBelowFloor)
     }
 }

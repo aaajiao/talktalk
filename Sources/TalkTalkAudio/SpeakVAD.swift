@@ -8,7 +8,17 @@ public final class SpeakVAD {
         public let start, end: HostTime
         public let rmsDb: Double
         public let voiced: Bool
+        /// libfvad hears voice and rmsDb is in [thresholdDb - faintMarginDb, thresholdDb) and at least
+        /// faintMarginDb above the 10th-percentile level of the frames before it since the reset (at most
+        /// the last 150); none in the first 10 frames after a reset. Speech too soft for `voiced` (or noise
+        /// libfvad takes for voice). Never set with `voiced`; moves no onset, hangover, event or level.
+        public let faint: Bool
     }
+    /// A libfvad-voiced frame this far under thresholdDb is still faint (half the 12 dB speech margin)
+    /// if it is also this far above the 10th-percentile level, so the band [thresholdDb - 6, thresholdDb) is
+    /// always at least 6 dB above that level. Once warm, thresholdDb is at least that level + 12; the fixed
+    /// -55 dBFS threshold of the first 150 frames gives no such margin.
+    public static let faintMarginDb = 6.0
     public enum Event: Sendable, Equatable { case began(HostTime), ended(HostTime) }
     public struct Result: Sendable { public var frames: [Frame]; public var events: [Event] }
     private let vad: OpaquePointer
@@ -43,9 +53,15 @@ public final class SpeakVAD {
             let end = start + 20_000_000
             pendingHost = end
             let rms = frame.withUnsafeBufferPointer { Double(tt_vad_rms_dbfs($0.baseAddress!, $0.count)) }
+            let sorted = levels.sorted()
             // During the first three seconds there is not yet a complete noise window.
-            thresholdDb = levels.count == 150 ? max(-55, levels.sorted()[14] + 12) : -55
-            let speech = (classify?(frame) ?? frame.withUnsafeBufferPointer { tt_vad_process_f32(vad, $0.baseAddress!, $0.count) == 1 }) && rms >= thresholdDb
+            thresholdDb = levels.count == 150 ? max(-55, sorted[14] + 12) : -55
+            let voice = classify?(frame) ?? frame.withUnsafeBufferPointer { tt_vad_process_f32(vad, $0.baseAddress!, $0.count) == 1 }
+            let speech = voice && rms >= thresholdDb
+            // The fixed warm-up threshold has no margin over the noise, so faint also needs one over the
+            // 10th-percentile level so far (at 150 levels sorted[14], which thresholdDb clears by 12 dB).
+            let faint = voice && !speech && rms >= thresholdDb - Self.faintMarginDb
+                && levels.count >= 10 && rms >= sorted[levels.count / 10 - 1] + Self.faintMarginDb
             levels.append(rms); if levels.count > 150 { levels.removeFirst() }
             if speech {
                 lastVoiceEnd = end; quiet = 0; onset += 1
@@ -57,7 +73,7 @@ public final class SpeakVAD {
                     if quiet >= 6 { speechActive = false; quiet = 0; result.events.append(.ended(end - 120_000_000)) }
                 }
             }
-            result.frames.append(Frame(start: start, end: end, rmsDb: rms, voiced: speech))
+            result.frames.append(Frame(start: start, end: end, rmsDb: rms, voiced: speech, faint: faint))
         }
         return result
     }

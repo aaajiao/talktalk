@@ -23,6 +23,11 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         public var chunkFramesMin = 0, chunkFramesMax = 0
         public var deviceRate = 0.0, audioSeconds = 0.0
         public var firstHost: HostTime = 0, lastHost: HostTime = 0
+        /// Release and stop remainders the segmenter dropped with no voiced frame but an onset-length
+        /// faint run, in the remainder or in leading silence the segmenter left out of it (key-up more
+        /// than about 1 s after the soft words); not counted in presses that do not trust faint frames
+        /// (speaker mode).
+        public var faintOnlyDropped = 0
     }
     private let queue = DispatchQueue(label: "com.aaajiao.talktalk.speak-mic", qos: .userInteractive)
     private let lock = NSLock()
@@ -63,11 +68,16 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     private var segmenter: SpeakSegmenter?
     private let target: Lang
     private let charactersPerSecond: @Sendable () -> Double?
+    /// Read once per press: whether its segmenter trusts faint frames as the user's soft speech (faint
+    /// lead, textSilence hold, longSilence placement, faint-only drop count); off in speaker mode, where
+    /// remote speech leaks into the faint band. The faint diagnostics are measured either way.
+    private let trustsFaint: @Sendable () -> Bool
     private var index = 0
     private var idleTimer: DispatchSourceTimer?
 
     public init(profile: PolicyProfile.Speak, target: Lang = .en,
-                charactersPerSecond: @escaping @Sendable () -> Double? = { nil }, userUID: @escaping @Sendable () -> String? = { nil },
+                charactersPerSecond: @escaping @Sendable () -> Double? = { nil }, trustsFaint: @escaping @Sendable () -> Bool = { true },
+                userUID: @escaping @Sendable () -> String? = { nil },
                 onBlock: @escaping @Sendable (MicBlock) -> Void = { _ in },
                 onVAD: @escaping @Sendable (SpeakVAD.Event) -> Void = { _ in },
                 onState: @escaping @Sendable (SpeakMicState) -> Void = { _ in },
@@ -76,7 +86,8 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
                 devices: @escaping @Sendable () -> [InputDeviceInfo] = InputDeviceCatalog.inputDevices,
                 makeCapture: @escaping @Sendable (InputDeviceInfo) throws -> any SpeakCapture = { try MicCapture(device: $0) },
                 watchHAL: Bool = true, vad: SpeakVAD? = nil) throws {
-        self.profile = profile; self.target = target; self.charactersPerSecond = charactersPerSecond; self.userUID = userUID; self.devices = devices; factory = makeCapture
+        self.profile = profile; self.target = target; self.charactersPerSecond = charactersPerSecond; self.trustsFaint = trustsFaint
+        self.userUID = userUID; self.devices = devices; factory = makeCapture
         self.onBlock = onBlock; self.onVAD = onVAD; self.onState = onState; self.onCaptureEnd = onCaptureEnd
         self.onSystemEvent = onSystemEvent
         self.watchHAL = watchHAL; self.vad = try vad ?? SpeakVAD()
@@ -150,10 +161,13 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
                                             previousClipEnd: previousClipEnd, passthroughClosedAt: passthroughClosedAt)
             ring.beginPress(floor: floor)
             segmenter = SpeakSegmenter(profile: profile, target: target, start: floor,
-                                        charactersPerSecond: charactersPerSecond())
+                                        charactersPerSecond: charactersPerSecond(), trustsFaint: trustsFaint())
+            // Open (or keep) the capture first. A cold open resets the ring, VAD and history, so
+            // pre-roll left by a closed capture is gone: replaying it would let the segmenter count,
+            // time from and cut on audio no clip can carry, and the preview show its words.
+            reconcile()
             if let end = ring.endHostTime, let clip = ring.read(from: floor, to: end) { preview(clip) }
             for frame in history where frame.end > floor { consume(frame) }
-            reconcile()
         }
         return press
     }
@@ -323,13 +337,13 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
         if let boundary = lock.withLock({ handoffEnds[current.id] }), frame.end >= boundary {
             if frame.start < boundary {
                 emit(segmenter?.audio(.init(start: frame.start, end: boundary, speech: frame.voiced,
-                                           energy: pow(10, frame.rmsDb / 10))) ?? [])
+                                           energy: pow(10, frame.rmsDb / 10), faint: frame.faint)) ?? [])
             }
             finishForHandoff(at: boundary)
             return
         }
         emit(segmenter?.audio(.init(start: frame.start, end: frame.end, speech: frame.voiced,
-                                   energy: pow(10, frame.rmsDb / 10))) ?? [])
+                                   energy: pow(10, frame.rmsDb / 10), faint: frame.faint)) ?? [])
     }
     private func preview(_ clip: PCMClip16k) {
         let int16 = clip.samples.map { Int16(clamping: Int((max(-1, min(1, $0)) * 32767).rounded())) }
@@ -346,14 +360,17 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
             current.clipContinuation.yield(.init(pcm: pcm, index: index, isFinal: cut.isFinalChunk, speechMs: cut.speechMs,
                 cutReason: Self.reason(cut.reason), cutDetail: cut.reason,
                 speechFirstMs: offset(cut.speechStart), speechLastMs: offset(cut.speechEnd),
-                previewsIgnored: cut.previewsIgnored, previewCjk: cut.previewCjk, keptBelowFloor: cut.keptBelowFloor))
+                previewsIgnored: cut.previewsIgnored, previewCjk: cut.previewCjk, keptBelowFloor: cut.keptBelowFloor,
+                droppedSpeechMs: cut.droppedSpeechMs, capRestart: cut.capRestart,
+                faintLeadMs: cut.faintLeadMs, faintCutMs: cut.faintCutMs, faintTrimmedMs: cut.faintTrimmedMs,
+                faintTailMs: cut.faintTailMs, faintHeldMs: cut.faintHeldMs, faintHeldMerged: cut.faintHeldMerged))
             index += 1; previousClipEnd = max(previousClipEnd ?? 0, pcm.end)
         }
     }
     private static func reason(_ reason: SpeakSegmenter.Reason) -> SpeakClip.CutReason {
         switch reason {
         case .release: .release
-        case .silence, .textSilence, .clauseDip, .forcedDip: .vadDip
+        case .silence, .textSilence, .longSilence, .clauseDip, .forcedDip: .vadDip
         case .hardCap: .energyMinimum
         case .punctuation, .asrFinal, .stall: .limit
         case .shortReply: .shortReply
@@ -362,6 +379,7 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
     private func finishPress(cancelled: Bool) {
         guard let current else { return }
         if cancelled { previousClipEnd = max(previousClipEnd ?? 0, ring.endHostTime ?? 0, HostClock.now()) }
+        if let n = segmenter?.faintOnlyDropped, n > 0 { lock.withLock { numbers.faintOnlyDropped += n } }
         current.finish(); self.current = nil; segmenter = nil
         lock.withLock {
             handoffEnds[current.id] = nil

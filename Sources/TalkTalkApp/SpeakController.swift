@@ -118,7 +118,8 @@ final class SpeakController {
             // new one); the chunk sizes are this capture's.
             log.event("speak.capture_end", ["blocks": .int(stats.blocks), "frames16k": .int(stats.frames16k),
                 "onsets": .int(stats.onsets), "dropped_blocks": .int(stats.droppedBlocks), "rate": .double(stats.deviceRate),
-                "chunk_min": .int(stats.chunkFramesMin), "chunk_max": .int(stats.chunkFramesMax), "at": .tag(at)])
+                "chunk_min": .int(stats.chunkFramesMin), "chunk_max": .int(stats.chunkFramesMax),
+                "faint_only_dropped": .int(stats.faintOnlyDropped), "at": .tag(at)])
         }
     }
 
@@ -355,6 +356,11 @@ final class SpeakController {
             sessionSource = source; sessionTarget = target
             let captureEnd = CaptureEndLog(log)
             let mic = try MicIngest(profile: profile.speak, target: target, charactersPerSecond: { speechRate },
+                // Speaker mode, also an unknown route, leaks remote speech into the faint band: the press
+                // ignores faint frames (no faint lead, textSilence hold, longSilence placement or faint-only count).
+                // In Phone mode before the call (no app reads input) the local output stands in for the
+                // unknown route, as for self-listen (refreshFacts); there is no remote audio then.
+                trustsFaint: { !links.value.withLock { $0.speakerMode } },
                 userUID: { links.value.withLock { $0.micUID } },
                 onBlock: { block in
                     recorder?.appendMic(block.samples, host: block.hostTime, rate: block.sampleRate)

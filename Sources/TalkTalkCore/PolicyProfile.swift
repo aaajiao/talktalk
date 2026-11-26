@@ -193,6 +193,9 @@ extension PolicyProfile {
             /// From this segment age on, a forceCut.dipMs pause that passes the commit test commits
             /// without waiting for vadSilenceMs.
             public var clauseDipAfterS: Double
+            /// After this much captured silence, a phrase the commit test refuses still closes when
+            /// its covering preview shows two ideographs beyond fillers and it holds the release floor (§5.2).
+            public var longSilenceMs: Int
         }
         public struct CommitMin: Codable, Sendable, Equatable {
             public var estCjk: Int; public var defaultCjkPerS: Double; public var speechS: Double

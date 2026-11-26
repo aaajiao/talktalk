@@ -482,7 +482,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
 
     private func submit(_ clip: SpeakClip, press: UInt64, releasedAt: HostTime? = nil) {
         // The segmenter already applies the release floor; a clip it kept below it (a covered short
-        // word, or the release remainder after a text-permitted silence cut) is not dropped here.
+        // word, or the release remainder after a textSilence or longSilence cut) is not dropped here.
         guard clip.keptBelowFloor || clip.speechMs >= Int(profile.speak.release.commitRemainderMinSpeechS * 1000) else { return }
         if announcementEnabled, !announced { announced = true; requestAnnouncement() }
         let id = jobs.next(), mtJob = jobs.next(), token = epoch, committedAt = clock()
@@ -512,6 +512,14 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         if let ignored = clip.previewsIgnored { fields["preview_ignored"] = .int(ignored) }
         if let cjk = clip.previewCjk { fields["preview_cjk"] = .int(cjk) }
         if clip.keptBelowFloor { fields["kept_below_floor"] = .bool(true) }
+        if let dropped = clip.droppedSpeechMs, dropped > 0 { fields["dropped_speech_ms"] = .int(dropped) }
+        if clip.capRestart { fields["cap_restart"] = .bool(true) }
+        if let ms = clip.faintLeadMs, ms > 0 { fields["faint_lead_ms"] = .int(ms) }
+        if let ms = clip.faintCutMs, ms > 0 { fields["faint_cut_ms"] = .int(ms) }
+        if let ms = clip.faintTrimmedMs, ms > 0 { fields["faint_trimmed_ms"] = .int(ms) }
+        if let ms = clip.faintTailMs, ms > 0 { fields["faint_tail_ms"] = .int(ms) }
+        if let ms = clip.faintHeldMs, ms > 0 { fields["faint_held_ms"] = .int(ms) }
+        if clip.faintHeldMerged { fields["faint_held_merged"] = .bool(true) }
         if let listen = selfListen() { fields["self_listen"] = .tag(listen) }
         log.event("speak.clip_committed", fields, at: committedAt)
         let previous = asrTail
@@ -536,7 +544,7 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         guard active(id, token: token), let row = clauses[id] else { throw CancellationError() }
         if let primaryASR {
             // Release tails, early short replies and any clip with less speech than the commit minimum (force-cut
-            // fragments, text-permitted silence cuts, kept sub-floor words) keep glossary hints, but not a full
+            // fragments, textSilence and longSilence cuts, kept sub-floor words) keep glossary hints, but not a full
             // preceding sentence: on little audio the recognizer can repeat that sentence in place of the speech.
             let short = isShort(clip)
             let previous = (short || clip.isFinal || clip.cutReason == .release || clip.cutReason == .shortReply) ? nil

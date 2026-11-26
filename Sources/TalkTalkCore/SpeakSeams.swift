@@ -47,13 +47,38 @@ public struct SpeakClip: Sendable {
     /// The segmenter kept this clip although its speech is under the release floor; the
     /// pipeline does not apply that floor again.
     public var keptBelowFloor: Bool
+    /// VAD speech in sub-floor segments the segmenter dropped since the previous emitted clip;
+    /// diagnostics only.
+    public var droppedSpeechMs: Int?
+    /// This clip's segment was opened by a hard-cap cut moved back to the pause before speech
+    /// going on across the cap; diagnostics only.
+    public var capRestart: Bool
+    /// Faint audio (libfvad voice just under the VAD energy threshold) in the clip before its first
+    /// voiced frame, the faint lead the clip length bound left out, and the faint audio the leading-
+    /// silence bound left out since the previous emitted clip; diagnostics only.
+    public var faintLeadMs: Int?
+    public var faintCutMs: Int?
+    public var faintTrimmedMs: Int?
+    /// Faint audio after the clip's last voiced frame, and how long faint runs held back a textSilence
+    /// cut before this clip's decision; diagnostics only.
+    public var faintTailMs: Int?
+    public var faintHeldMs: Int?
+    /// The clip holds voiced audio that arrived after faint runs held that textSilence cut: the held
+    /// short clause merged with the speech after it (SpeakSegmenter.Commit.faintHeldMerged); diagnostics only.
+    public var faintHeldMerged: Bool
     public init(pcm: PCMClip16k, index: Int, isFinal: Bool, speechMs: Int, cutReason: CutReason,
                 cutDetail: SpeakSegmenter.Reason? = nil, speechFirstMs: Int? = nil, speechLastMs: Int? = nil,
-                previewsIgnored: Int? = nil, previewCjk: Int? = nil, keptBelowFloor: Bool = false) {
+                previewsIgnored: Int? = nil, previewCjk: Int? = nil, keptBelowFloor: Bool = false,
+                droppedSpeechMs: Int? = nil, capRestart: Bool = false,
+                faintLeadMs: Int? = nil, faintCutMs: Int? = nil, faintTrimmedMs: Int? = nil,
+                faintTailMs: Int? = nil, faintHeldMs: Int? = nil, faintHeldMerged: Bool = false) {
         self.pcm = pcm; self.index = index; self.isFinal = isFinal
         self.speechMs = speechMs; self.cutReason = cutReason
         self.cutDetail = cutDetail; self.speechFirstMs = speechFirstMs; self.speechLastMs = speechLastMs
         self.previewsIgnored = previewsIgnored; self.previewCjk = previewCjk; self.keptBelowFloor = keptBelowFloor
+        self.droppedSpeechMs = droppedSpeechMs; self.capRestart = capRestart
+        self.faintLeadMs = faintLeadMs; self.faintCutMs = faintCutMs; self.faintTrimmedMs = faintTrimmedMs
+        self.faintTailMs = faintTailMs; self.faintHeldMs = faintHeldMs; self.faintHeldMerged = faintHeldMerged
     }
 }
 

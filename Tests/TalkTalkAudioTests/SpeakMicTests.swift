@@ -51,6 +51,48 @@ import TalkTalkCore
         for i in 0...150 { _ = noise.push(Array(repeating: 0.001, count: 320), at: UInt64(i) * 20_000_000) }
         #expect(abs(noise.thresholdDb - (-48)) < 0.01)
     }
+    @Test func faintMarksLibfvadVoiceJustUnderTheEnergyThreshold() throws {
+        let frame = { (value: Float) in Array(repeating: value, count: 320) }
+        let vad = SpeakVAD(classify: { _ in true })
+        var now: HostTime = 1_000_000_000
+        func push(_ value: Float) -> SpeakVAD.Result { defer { now += 20_000_000 }; return vad.push(frame(value), at: now) }
+        for _ in 0..<150 { _ = push(0.001) }   // -60 dBFS: the threshold becomes -48
+        // -52 dBFS is faint, never voiced: four in a row raise no onset and move no voice end.
+        for _ in 0..<4 {
+            let faint = push(0.0025)
+            #expect(faint.frames.map(\.faint) == [true] && faint.frames.map(\.voiced) == [false] && faint.events.isEmpty)
+        }
+        #expect(abs(vad.thresholdDb - (-48)) < 0.01 && !vad.speechActive && vad.lastVoiceEnd == nil)
+        #expect(push(0.005).frames.map { [$0.voiced, $0.faint] } == [[true, false]])    // -46 dBFS
+        #expect(push(0.0015).frames.map { [$0.voiced, $0.faint] } == [[false, false]])  // -56.5 dBFS
+        // Without libfvad voice the same energy is neither.
+        let noise = SpeakVAD(classify: { _ in false })
+        for i in 0..<150 { _ = noise.push(frame(0.001), at: UInt64(i) * 20_000_000) }
+        #expect(noise.push(frame(0.0025), at: 3_000_000_000).frames.map { [$0.voiced, $0.faint] } == [[false, false]])
+    }
+    /// The warm-up threshold is a fixed -55 dBFS, so faint also needs 6 dB over the 10th-percentile level
+    /// seen so far: steady noise libfvad calls voice from the first frame on is not faint at the start of
+    /// a cold press. Once warm, that level is sorted[14], the one thresholdDb uses.
+    @Test func warmUpFaintNeedsAMarginOverTheQuietestLevels() throws {
+        var now: HostTime = 1_000_000_000
+        func push(_ vad: SpeakVAD, _ value: Float, _ count: Int) -> [SpeakVAD.Frame] {
+            (0..<count).flatMap { _ in defer { now += 20_000_000 }; return vad.push(Array(repeating: value, count: 320), at: now).frames }
+        }
+        // -58 dBFS noise lies in [-61, -55) but not 6 dB above its own level.
+        #expect(push(SpeakVAD(classify: { _ in true }), 0.00126, 40).allSatisfy { !$0.faint && !$0.voiced })
+        // After a -63 dBFS room, -56.5 dBFS soft speech is faint, not voiced.
+        let vad = SpeakVAD(classify: { _ in true })
+        _ = push(vad, 0.000708, 40)
+        #expect(push(vad, 0.0015, 5).allSatisfy { $0.faint && !$0.voiced })
+        // None in the first 10 frames after a reset: the 10th sees nine levels, the 11th ten.
+        vad.reset(); _ = push(vad, 0.000708, 9)
+        #expect(push(vad, 0.0015, 2).map(\.faint) == [false, true])
+        // Warm with 15 frames at -80 dBFS and 135 at -62: the threshold is -55 and -58 dBFS is faint
+        // (the 16th-quietest level, -62, would leave it out).
+        let warm = SpeakVAD(classify: { _ in true })
+        _ = push(warm, 0.0001, 15); _ = push(warm, 0.000794, 135)
+        #expect(push(warm, 0.00126, 1).map(\.faint) == [true] && abs(warm.thresholdDb - (-55)) < 0.01)
+    }
     @Test func coldHotCaptureAndRateReplacementUseStampedBlocks() async throws {
         let rig = FakeMicRig()
         let mic = try MicIngest(profile: profile, onBlock: { rig.block($0) }, onSystemEvent: { event, _ in rig.event(event) },
@@ -151,6 +193,182 @@ import TalkTalkCore
         #expect(!clip.isFinal && clip.pcm.start >= start - 300_000_000 && clip.cutDetail == .clauseDip)
         #expect(clip.speechLastMs == 2_000 && clip.pcm.end == start + 2_080_000_000 && clip.previewsIgnored == 0)
         press.cancel(); mic.stop(); await reader.value
+    }
+
+    /// A cold press reopens the capture, which erases the pre-roll a closed capture left behind.
+    /// The segmenter and preview must start at the new capture, or they count, time from and cut
+    /// on audio no clip can carry, and the preview shows its words. Host times start at the real
+    /// clock, so the idle eraser (ring audio over 1 s old) keeps the warm audio until the press; on a
+    /// machine too slow for that the preview check passes without testing anything. Each VAD instance
+    /// sees fewer than 150 frames (no threshold adaptation).
+    @Test(arguments: [false, true]) func coldPressIgnoresPrerollTheReopenErases(longOpen: Bool) async throws {
+        let rig = FakeMicRig(), clips = Mutex<[SpeakClip]>([]), previews = Mutex<[HostTime]>([])
+        let mic = try MicIngest(profile: profile, devices: { rig.devices }, makeCapture: { rig.make($0) },
+                                watchHAL: false, vad: SpeakVAD(classify: { _ in true }))
+        defer { mic.stop() }
+        let preroll: HostTime = 300_000_000, start = HostClock.now() + preroll
+        mic.setHot(true)
+        #expect(await eventuallyMic { mic.state.capture == .open })
+        let warm = try #require(rig.latest)
+        for i in 0..<15 { warm.feed(at: start - preroll + UInt64(i) * 20_000_000, frame: UInt64(i * 320)) }
+        #expect(await eventuallyMic { mic.stats.frames16k == 4800 })
+        mic.setHot(false)   // VAD history still holds the 300 ms of speech.
+        #expect(await eventuallyMic { mic.state.capture == .closed })
+        let press = try #require(mic.beginPress(id: 1, keyDownAt: start, passthroughClosedAt: nil))
+        let viewer = Task { for await frame in press.preview { previews.withLock { $0.append(frame.at) } } }
+        #expect(await eventuallyMic { rig.latest.map { $0 !== warm } ?? false })
+        let fresh = try #require(rig.latest)
+        let reader = Task { for await clip in press.clips { clips.withLock { $0.append(clip) } } }
+        let first = start + (longOpen ? 4_600_000_000 : 200_000_000)
+        // Invented text standing for the pre-roll's words.
+        press.updatePreview(stableText: "明天", through: start, at: start, isFinal: false,
+                            boundary: .init(from: start - preroll, fullyStable: false))
+        for i in 0..<120 {
+            if i == 50 {   // What the pipeline sends while its preview floor has not moved.
+                // Drained so far, so the 100-frame preview buffer drops none.
+                #expect(await eventuallyMic { previews.withLock { $0.count } >= 50 })
+                press.updatePreview(stableText: "后来我们", through: first + 900_000_000, at: first + 1_000_000_000,
+                                    isFinal: false, boundary: .init(from: start - preroll, fullyStable: false))
+            }
+            fresh.feed(at: first + UInt64(i) * 20_000_000, frame: UInt64(i * 320), value: i < 100 ? 0.1 : 0)
+        }
+        #expect(await eventuallyMic { mic.stats.frames16k == 4800 + 120 * 320 && !clips.withLock { $0.isEmpty } })
+        press.cancel(); await reader.value; await viewer.value
+        let captured = clips.withLock { $0 }, shown = previews.withLock { $0 }
+        let clip = try #require(captured.first)
+        #expect(captured.count == 1 && clip.index == 0 && clip.cutDetail == .silence)
+        #expect(clip.pcm.start == first && clip.pcm.end == first + 2_180_000_000)
+        #expect(clip.speechMs == 2000 && clip.previewsIgnored == 0 && clip.previewCjk == 4)
+        #expect(shown.first == first && shown.allSatisfy { $0 >= first })
+    }
+
+    /// Soft speech in the faint band (libfvad voice at -58.4 dBFS, under the -55 dBFS threshold) before
+    /// the first voiced frame reaches the clip, unless the controller does not trust faint frames.
+    @Test(arguments: [true, false]) func faintLeadReachesTheClip(trustsFaint: Bool) async throws {
+        let rig = FakeMicRig(), clips = Mutex<[SpeakClip]>([])
+        let mic = try MicIngest(profile: profile, trustsFaint: { trustsFaint }, devices: { rig.devices },
+                                makeCapture: { rig.make($0) }, watchHAL: false, vad: SpeakVAD(classify: { _ in true }))
+        defer { mic.stop() }
+        let start: HostTime = 1_000_000_000
+        let press = try #require(mic.beginPress(id: 1, keyDownAt: start, passthroughClosedAt: start))
+        #expect(await eventuallyMic { rig.latest != nil })
+        let reader = Task { for await clip in press.clips { clips.withLock { $0.append(clip) } } }
+        let capture = try #require(rig.latest)
+        for i in 0..<230 {
+            let value: Float = (30..<90).contains(i) ? 0.0012 : (105..<205).contains(i) ? 0.1 : 0
+            capture.feed(at: start + UInt64(i) * 20_000_000, frame: UInt64(i * 320), value: value)
+        }
+        #expect(await eventuallyMic { !clips.withLock { $0.isEmpty } })
+        press.cancel(); await reader.value
+        let captured = clips.withLock { $0 }
+        let clip = try #require(captured.first)
+        #expect(captured.count == 1 && clip.cutDetail == .silence && clip.pcm.end == start + 4_280_000_000)
+        if trustsFaint {
+            #expect(clip.pcm.start == start + 300_000_000 && clip.speechFirstMs == 1800 && clip.speechLastMs == 3800)
+            #expect(clip.faintLeadMs == 1200 && clip.faintTrimmedMs == 0 && clip.faintCutMs == 0)
+        } else {
+            // The 1 s rule: the faint audio before it is counted as left out.
+            #expect(clip.pcm.start == start + 1_100_000_000 && clip.speechFirstMs == 1000)
+            #expect(clip.faintLeadMs == 700 && clip.faintTrimmedMs == 500)
+        }
+    }
+
+    /// Faint frames (libfvad voice at -56.5 dBFS, under the -55 dBFS threshold) reach the segmenter: the
+    /// textSilence cut waits for quiet after them, and a faint-only remainder dropped at key-up is counted.
+    /// The press opens with 200 ms of quiet, so the 10th-percentile level is the room's, not the speech's.
+    @Test func faintReachesTheTextSilenceCutAndTheStats() async throws {
+        let rig = FakeMicRig(), clips = Mutex<[SpeakClip]>([])
+        let mic = try MicIngest(profile: profile, devices: { rig.devices }, makeCapture: { rig.make($0) },
+                                watchHAL: false, vad: SpeakVAD(classify: { _ in true }))
+        defer { mic.stop() }
+        let start: HostTime = 1_000_000_000
+        let press = try #require(mic.beginPress(id: 1, keyDownAt: start, passthroughClosedAt: start))
+        #expect(await eventuallyMic { rig.latest != nil })
+        let reader = Task { for await clip in press.clips { clips.withLock { $0.append(clip) } } }
+        let capture = try #require(rig.latest)
+        let feed = { (frames: Range<Int>) in
+            for i in frames {
+                let value: Float = (10..<45).contains(i) ? 0.1 : (45..<70).contains(i) || (90..<105).contains(i) ? 0.0015 : 0
+                capture.feed(at: start + UInt64(i) * 20_000_000, frame: UInt64(i * 320), value: value)
+            }
+        }
+        feed(0..<46)
+        #expect(await eventuallyMic { mic.stats.frames16k == 14_720 })
+        press.updatePreview(stableText: "明天下午三点开会吧", through: start + 900_000_000, at: start + 920_000_000,
+                            isFinal: false, boundary: .init(from: start, fullyStable: true))
+        feed(46..<105)
+        #expect(await eventuallyMic { mic.stats.frames16k == 33_600 })
+        press.release(at: start + 2_100_000_000, reason: .keyUp)
+        feed(105..<120)
+        await reader.value
+        let captured = clips.withLock { $0 }
+        let clip = try #require(captured.first)
+        #expect(captured.count == 1 && clip.cutDetail == .textSilence && clip.pcm.end == start + 1_580_000_000)
+        #expect(clip.speechMs == 700 && clip.faintTailMs == 500 && clip.faintHeldMs == 500)
+        #expect(mic.stats.faintOnlyDropped == 1)
+    }
+
+    /// Speech resuming while faint frames hold the textSilence cut: the release clip holds both clauses
+    /// and is marked merged (the mark passes through MicIngest to the clip).
+    @Test func faintHoldMergeReachesTheClip() async throws {
+        let rig = FakeMicRig(), clips = Mutex<[SpeakClip]>([])
+        let mic = try MicIngest(profile: profile, devices: { rig.devices }, makeCapture: { rig.make($0) },
+                                watchHAL: false, vad: SpeakVAD(classify: { _ in true }))
+        defer { mic.stop() }
+        let start: HostTime = 1_000_000_000
+        let press = try #require(mic.beginPress(id: 1, keyDownAt: start, passthroughClosedAt: start))
+        #expect(await eventuallyMic { rig.latest != nil })
+        let reader = Task { for await clip in press.clips { clips.withLock { $0.append(clip) } } }
+        let capture = try #require(rig.latest)
+        let feed = { (frames: Range<Int>) in
+            for i in frames {
+                let value: Float = (10..<45).contains(i) || (75..<90).contains(i) ? 0.1 : (45..<70).contains(i) ? 0.0015 : 0
+                capture.feed(at: start + UInt64(i) * 20_000_000, frame: UInt64(i * 320), value: value)
+            }
+        }
+        feed(0..<46)
+        #expect(await eventuallyMic { mic.stats.frames16k == 14_720 })
+        press.updatePreview(stableText: "明天下午三点开会吧", through: start + 900_000_000, at: start + 920_000_000,
+                            isFinal: false, boundary: .init(from: start, fullyStable: true))
+        feed(46..<105)
+        #expect(await eventuallyMic { mic.stats.frames16k == 33_600 })
+        press.release(at: start + 2_100_000_000, reason: .keyUp)
+        feed(105..<120)
+        await reader.value
+        let captured = clips.withLock { $0 }
+        let clip = try #require(captured.first)
+        #expect(captured.count == 1 && clip.cutDetail == .release && clip.speechMs == 1000)
+        #expect(clip.faintHeldMs == 840 && clip.faintHeldMerged)
+        #expect(mic.stats.faintOnlyDropped == 0)
+    }
+
+    /// The cap-restart marks reach the clip: an 80 ms blip, then a phrase voiced across the 4.5 s cap
+    /// (4.40-6.00 s); the cut moves back to 3.40 s and the blip is dropped.
+    @Test func capRestartDiagnosticsReachTheClip() async throws {
+        let rig = FakeMicRig(), clips = Mutex<[SpeakClip]>([])
+        let mic = try MicIngest(profile: profile, devices: { rig.devices }, makeCapture: { rig.make($0) },
+                                watchHAL: false, vad: SpeakVAD(classify: { _ in true }))
+        defer { mic.stop() }
+        let start: HostTime = 1_000_000_000
+        let press = try #require(mic.beginPress(id: 1, keyDownAt: start, passthroughClosedAt: start))
+        #expect(await eventuallyMic { rig.latest != nil })
+        let reader = Task { for await clip in press.clips { clips.withLock { $0.append(clip) } } }
+        let capture = try #require(rig.latest)
+        let feed = { (frames: Range<Int>) in
+            for i in frames {
+                let value: Float = (20..<24).contains(i) || (220..<300).contains(i) ? 0.1 : 0
+                capture.feed(at: start + UInt64(i) * 20_000_000, frame: UInt64(i * 320), value: value)
+            }
+        }
+        feed(0..<330)
+        #expect(await eventuallyMic { mic.stats.frames16k == 330 * 320 })
+        press.release(at: start + 6_600_000_000, reason: .keyUp)
+        feed(330..<345)
+        await reader.value
+        let captured = clips.withLock { $0 }
+        let clip = try #require(captured.first)
+        #expect(captured.count == 1 && clip.cutDetail == .release && clip.pcm.start == start + 3_400_000_000)
+        #expect(clip.speechMs == 1600 && clip.droppedSpeechMs == 80 && clip.capRestart)
     }
 
     @Test func completeShortReplyEvidenceReachesMicAndKeepsFullPCM() async throws {

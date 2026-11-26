@@ -48,13 +48,31 @@ struct SpeakShortReplyTests {
     }
 
     @Test func numbersNamesAbbreviationsAndUnfinishedClausesAreNotRelaxed() throws {
+        // None is a short reply. Once 1 s of quiet is captured, two ideographs close as a long pause
+        // unless the text ends in a continuation mark; Latin text keeps waiting.
+        let longPause: Set<String> = ["三十万。", "王先生。", "因为。", "如果。"]
         for text in ["12.", "12.5.", "三十万。", "No.", "Dr.", "e.g.", "3 p.m.", "王先生。",
                      "Because.", "If.", "I think.", "因为。", "如果。", "yes...", "好的……", "好的，", "Okay,"] {
             var s = try make()
             _ = feed(&s, 0, 0.8, speech: true)
             _ = preview(&s, text: text, final: true)
-            #expect(feed(&s, 0.8, 1.8, speech: false).isEmpty)
+            #expect(feed(&s, 0.8, 1.7, speech: false).isEmpty)
+            let cuts = feed(&s, 1.7, 1.8, speech: false)
+            #expect(cuts.map(\.reason) == (longPause.contains(text) ? [.longSilence] : []))
+            if longPause.contains(text) { #expect(cuts.first?.end == ns(1.3)) }
         }
+    }
+
+    @Test func aReplyStillSettlingKeepsItsOwnPathPastTheLongPause() throws {
+        // The fully stable reply arrives 900 ms into the pause: the long-pause rule waits for it
+        // to settle, and the reply keeps its own cut.
+        var s = try make()
+        _ = feed(&s, 0, 0.8, speech: true)
+        #expect(feed(&s, 0.8, 1.7, speech: false).isEmpty)
+        #expect(preview(&s, text: "我明白了。", at: 1.7).isEmpty)
+        #expect(feed(&s, 1.7, 1.8, speech: false).isEmpty)
+        let cut = try #require(feed(&s, 1.8, 2.0, speech: false).first)
+        #expect(cut.reason == .shortReply && cut.start == 0 && cut.end == ns(1.05))
     }
 
     @Test func completeHypothesisMustRemainStableAgainAfterARevision() throws {

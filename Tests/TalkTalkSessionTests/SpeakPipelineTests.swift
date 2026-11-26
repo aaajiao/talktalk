@@ -983,17 +983,31 @@ struct SpeakPipelineTests {
             })
             let now = HostClock.now()
             await pipeline.handle(.began(at: now))
-            mic.press.cc.yield(clip(at: now, isFinal: false))
+            var plain = clip(at: now, isFinal: false)
+            plain.droppedSpeechMs = 0   // What MicIngest passes when nothing was dropped.
+            plain.faintLeadMs = 0; plain.faintCutMs = 0; plain.faintTrimmedMs = 0; plain.faintTailMs = 0
+            mic.press.cc.yield(plain)
             #expect(await until { await mt.calls == 1 })
             mic.press.cc.yield(.init(pcm: .init(samples: Array(repeating: 0.1, count: 8_000),
                 start: now + 1_000_000_000, end: now + 1_500_000_000),
-                index: 1, isFinal: true, speechMs: 300, cutReason: .release, keptBelowFloor: kept))
+                index: 1, isFinal: true, speechMs: 300, cutReason: .release, keptBelowFloor: kept,
+                droppedSpeechMs: 80, capRestart: true, faintLeadMs: 1200, faintCutMs: 150, faintTrimmedMs: 300,
+                faintTailMs: 120, faintHeldMs: 140, faintHeldMerged: true))
             await pipeline.handle(.released(at: now + 1_500_000_000, reason: .keyUp))
             #expect(await until { done.withLock { $0 } })
             let committed = log.recorded.filter { $0["ev"] as? String == "speak.clip_committed" }
+            // A clip with no dropped speech, cap restart or faint audio logs none of those fields.
+            #expect(committed.first?["dropped_speech_ms"] == nil && committed.first?["cap_restart"] == nil)
+            #expect(["faint_lead_ms", "faint_cut_ms", "faint_trimmed_ms", "faint_tail_ms", "faint_held_ms", "faint_held_merged"]
+                .allSatisfy { committed.first?[$0] == nil })
             if kept {
                 #expect(await until { await mt.calls == 2 })
                 #expect(committed.last?["speech_ms"] as? Int == 300 && committed.last?["kept_below_floor"] as? Bool == true)
+                #expect(committed.last?["dropped_speech_ms"] as? Int == 80 && committed.last?["cap_restart"] as? Bool == true)
+                #expect(committed.last?["faint_lead_ms"] as? Int == 1200 && committed.last?["faint_cut_ms"] as? Int == 150)
+                #expect(committed.last?["faint_trimmed_ms"] as? Int == 300)
+                #expect(committed.last?["faint_tail_ms"] as? Int == 120 && committed.last?["faint_held_ms"] as? Int == 140)
+                #expect(committed.last?["faint_held_merged"] as? Bool == true)
             } else {
                 // Without the segmenter's decision the pipeline still applies the 0.4 s floor.
                 #expect(committed.count == 1 && committed.first?["kept_below_floor"] == nil)
