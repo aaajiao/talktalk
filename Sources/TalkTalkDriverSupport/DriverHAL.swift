@@ -137,7 +137,7 @@ public protocol DriverHAL: Sendable {
 extension DriverHAL {
     /// Version of the driver the HAL has loaded: the `version` in 'ttdg'. The devices'
     /// `kAudioObjectPropertyFirmwareVersion` reads back empty through the HAL although the driver
-    /// sets it (M0-T8 `ttdevice` rows: `"firmware":""`; M2 DeviceDriverTests: nil), so it is only a
+    /// sets it (M0-T8 `ttdevice` rows: `"firmware":""`; M2 on-device reads: nil), so it is only a
     /// fallback. nil: the Feed is not loaded.
     public func loadedVersion() -> String? {
         if let v = diagnostics()?.version, !v.isEmpty { return v }

@@ -11,7 +11,7 @@
   - `renderComponentRows`：只为人工查看出截图；界面验收用正式应用。
   - `defaultFileIsTheArchitectureBlock`：公开的 ARCHITECTURE 已没有 §5.3 JSON 块，一直跳过；`PolicyProfile.default.json` 是唯一来源，由其他参数测试覆盖。
   - 上面的检查计数是删除前那次：删掉的 6 个当时都是跳过，实际跑过并通过的是 Swift 1826 个、引擎 144 个。删除后按用户要求没有重跑检查；删除只去掉整个测试文件或测试函数及只供它们用的辅助函数，import 保持不变。之前各条记录写的“跳过 1 个”只算了引擎，Swift 另有 5 个按条件跳过。
-  - 测试不在构建指纹里：删除后 `scripts/source-provenance.py verify` 与已签名应用的收据一致（496 个输入），不用重建。`Package.swift` 第 68–74 行和 `DriverHAL.swift` 第 140 行的注释还提到这些测试；它们在指纹里，留到下次改源码时一起改。
+  - 测试不在构建指纹里：删除后 `scripts/source-provenance.py verify` 与已签名应用的收据一致（496 个输入），不用重建。`Package.swift` 和 `DriverHAL.swift` 里还提到这些测试的注释，以及 `ComponentsWiringTests` 里只供截图用的 `AppKit`、`SwiftUI` import，已在发布后清掉。前两个文件在指纹里，改动从下一个构建起生效，已发布的 1.0.24（101）不受影响；清理后受影响的测试（`PolicyProfileTests`、`ComponentsWiringTests`、SysInput 的切换测试）和引擎单元测试（144 个，没有跳过）都通过。
 - 发布说明（英文）在 Git 忽略的 `build/release-notes-v1.0.24.md`。发布前做了多代理核对（3 个视角，每条发现配对抗核实）：说明里核实成立的 16 条都已改（数字出处、只对中文成立的规则、试用只覆盖中文译英文、遗漏的取舍和限制）；推送内容的隐私扫描没有发现问题。双语 README 已更新下载入口。
 - 发布：版本提交 `8840da3` 与删测试的提交 `e504c56` 已推送 `origin/main`。统一发布入口已签名打包，发布 [v1.0.24](https://github.com/aaajiao/talktalk/releases/tag/v1.0.24) 并设为 Latest，标签指向 `e504c56`。ZIP、签名 appcast 和校验文件的远端大小与 SHA-256 均与本地一致；公开 Latest appcast 与本地签名文件逐字节一致，指向 1.0.24（101）。发布 ZIP 内的应用与本机试用的构建二进制相同（SHA-256 `9aa8def9…`），严格签名通过。版本说明与本地文件一致。本机 `/Applications` 已是 1.0.24（101）。
 

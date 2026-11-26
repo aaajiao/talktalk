@@ -65,13 +65,13 @@ let package = Package(
         .testTarget(name: "EngineHostTests", dependencies: ["TalkTalkEngineHost", "TalkTalkCore", "TalkTalkTestSupport"],
                     exclude: ["Fixtures"]),
         .testTarget(name: "InstallerTests", dependencies: ["TalkTalkEngineHost", "TalkTalkTestSupport"]),
-        // m2 sysinput: default-input switch, record, lock and guard (§8.6). Fake-HAL tests always run;
-        // the on-device ones (they change the real default input) only with TALKTALK_TEST_AUDIO=1.
+        // m2 sysinput: default-input switch, record, lock and guard (§8.6), on a fake HAL. The
+        // real-device acceptance runs through the app.
         .testTarget(name: "SysInputTests", dependencies: ["TalkTalkAudio", "TalkTalkCore", "TalkTalkTestSupport"]),
         // m2 driver: DriverInstallation, DriverInstaller, the driver self-test and FullUninstaller
         // (§8.4, §13), plus the settings › 组件 driver section. CDriverSelfTest holds the self-test
-        // IOProcs (real-time C, checked like CAudioCore). DriverTests: the on-device cases run only
-        // with TALKTALK_TEST_DRIVER=1.
+        // IOProcs (real-time C, checked like CAudioCore). The installed driver is checked by the
+        // app's driver self-test.
         .target(
             name: "CDriverSelfTest",
             cSettings: [.unsafeFlags(["-Wfunction-effects", "-Werror=function-effects"])],
