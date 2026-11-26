@@ -2,8 +2,8 @@
 // check.sh fails when this file and versions.sh disagree.
 
 public enum EnginePins {
-    public static let appVersion = "1.0.23"
-    public static let appBuild = "91"
+    public static let appVersion = "1.0.24"
+    public static let appBuild = "101"
     public static let engineAPI = 2
     public static let engineRecipe = 1
     public static let pythonVersion = "3.14.10"
