@@ -346,14 +346,14 @@ public final class MicIngest: SpeakMicSource, @unchecked Sendable {
             current.clipContinuation.yield(.init(pcm: pcm, index: index, isFinal: cut.isFinalChunk, speechMs: cut.speechMs,
                 cutReason: Self.reason(cut.reason), cutDetail: cut.reason,
                 speechFirstMs: offset(cut.speechStart), speechLastMs: offset(cut.speechEnd),
-                previewsIgnored: cut.previewsIgnored))
+                previewsIgnored: cut.previewsIgnored, previewCjk: cut.previewCjk, keptBelowFloor: cut.keptBelowFloor))
             index += 1; previousClipEnd = max(previousClipEnd ?? 0, pcm.end)
         }
     }
     private static func reason(_ reason: SpeakSegmenter.Reason) -> SpeakClip.CutReason {
         switch reason {
         case .release: .release
-        case .silence, .clauseDip, .forcedDip: .vadDip
+        case .silence, .textSilence, .clauseDip, .forcedDip: .vadDip
         case .hardCap: .energyMinimum
         case .punctuation, .asrFinal, .stall: .limit
         case .shortReply: .shortReply

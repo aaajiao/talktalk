@@ -126,6 +126,27 @@ struct SpeakShortReplyTests {
         }
     }
 
+    @Test func replyAfterLeadingSilenceCommitsButNotAfterADroppedVoicedSegment() throws {
+        // The preview starts at the last emitted cut; only silence was left out since then.
+        var trimmed = try make()
+        _ = feed(&trimmed, 0, 2.0, speech: false)
+        _ = feed(&trimmed, 2.0, 2.6, speech: true)
+        _ = preview(&trimmed, text: "好的。", at: 2.6, from: 0, through: 2.6)
+        #expect(feed(&trimmed, 2.6, 3.099, speech: false).isEmpty)
+        let cut = try #require(feed(&trimmed, 3.099, 3.1, speech: false).first)
+        #expect(cut.reason == .shortReply && cut.start == ns(1.0) && cut.end == ns(2.85) && cut.speechMs == 600)
+        // A dropped 0.2 s voiced segment may be inside that text, so the reply waits for release.
+        var dropped = try make()
+        _ = feed(&dropped, 0, 0.5, speech: false)
+        _ = feed(&dropped, 0.5, 0.7, speech: true)
+        #expect(feed(&dropped, 0.7, 4.8, speech: false).isEmpty)
+        _ = feed(&dropped, 4.8, 5.5, speech: false)
+        _ = feed(&dropped, 5.5, 6.1, speech: true)
+        _ = preview(&dropped, text: "好的。", at: 6.1, from: 0, through: 6.1)
+        #expect(feed(&dropped, 6.1, 7.0, speech: false).isEmpty)
+        #expect(dropped.release(at: ns(7.0)).first?.reason == .release)
+    }
+
     @Test func audioGapIsNotCountedAsObservedPauseAndSubminimumSpeechStaysPending() throws {
         var gap = try make()
         _ = feed(&gap, 0, 0.8, speech: true)

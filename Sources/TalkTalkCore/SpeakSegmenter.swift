@@ -24,7 +24,8 @@ public struct SpeakCommitter: Sendable {
 }
 
 /// One press's pure cutting policy. Audio stays in the caller's floor-enforcing ring; only
-/// VAD/energy/time facts are retained here. Commits are adjacent, non-overlapping host ranges.
+/// VAD/energy/time facts are retained here. Commits are non-overlapping host ranges; leading
+/// silence left out of a clip and dropped sub-floor segments leave gaps between them.
 public struct SpeakSegmenter: Sendable {
     public struct Frame: Sendable, Equatable {
         public var start, end: HostTime
@@ -36,7 +37,7 @@ public struct SpeakSegmenter: Sendable {
         }
     }
     public enum Reason: String, Sendable {
-        case punctuation, asrFinal, silence, clauseDip, stall, forcedDip, hardCap, release, shortReply
+        case punctuation, asrFinal, silence, textSilence, clauseDip, stall, forcedDip, hardCap, release, shortReply
     }
     public struct Commit: Sendable, Equatable {
         public var start, end: HostTime
@@ -47,8 +48,15 @@ public struct SpeakSegmenter: Sendable {
         /// First and last voiced instants inside [start, end]; nil when no frame was voiced. Diagnostics only.
         public var speechStart: HostTime?
         public var speechEnd: HostTime?
-        /// Preview updates ignored as belonging to an earlier segment while this one was open. Diagnostics only.
+        /// Preview updates ignored as belonging to an earlier segment while this one, or a dropped one
+        /// just before it, was open. Diagnostics only.
         public var previewsIgnored = 0
+        /// CJK ideographs in the latest stable preview text since the last emitted cut, as held at
+        /// this cut; nil when no preview update arrived. Diagnostics only.
+        public var previewCjk: Int?
+        /// Emitted although its speech is under the release floor (see `keepsBelowFloor`); the
+        /// pipeline must not apply that floor again.
+        public var keptBelowFloor = false
     }
     public let profile: PolicyProfile.Speak
     public let committer: SpeakCommitter
@@ -61,7 +69,17 @@ public struct SpeakSegmenter: Sendable {
     private var stable = ""
     private var previewCharacters: Int?
     private var previewThrough: HostTime?
+    private var previewCjk: Int?
     private var previewsIgnored = 0
+    /// End of the last emitted commit: preview text describes the audio from here. Leading
+    /// silence left out of a clip and dropped segments after it do not move the caller's
+    /// preview, so they stay inside the text; `droppedSpeech` says a dropped one held voiced frames.
+    private var textFloor: HostTime
+    private var droppedSpeech = false
+    /// Set when the last emitted commit was a text-permitted silence cut: when that segment's
+    /// forced cut would have come due. A release remainder ending by then would have been in
+    /// that clip had the audio estimate allowed no cut there.
+    private var textSilenceDeadline: HostTime?
     private var lastStableAt: HostTime
     private var punctuationAt: HostTime?
     private var finalThrough: HostTime?
@@ -71,13 +89,21 @@ public struct SpeakSegmenter: Sendable {
     }
     private var shortPreview: ShortPreview?
     private static let shortTimestampTolerance: UInt64 = 1_000_000 // 1 ms hardware/SRC timestamp rounding
+    /// Unvoiced audio kept before a segment's first voiced frame: VAD misses soft onsets, and
+    /// the preview may already show their words. Older leading silence is left out of the clip.
+    /// The clip stays within clipMaxS, so a cut more than clipMaxS - leadKeep after that frame
+    /// keeps less of this lead, down to the press pre-roll at the hard cap.
+    private static let leadKeep: UInt64 = 1_000_000_000
+    /// SpeakVAD reports speech only after 3 voiced 20 ms frames in a row; a shorter voiced run
+    /// (a key click) does not make a remainder worth a clip of its own.
+    private static let voicedRunMin: UInt64 = 60_000_000
     public private(set) var releaseThrough: HostTime?
 
     /// Until SPEAK's stepped-ASR acceptance is complete, the caller keeps the 4.5 s profile
     /// limit. Passing profile.forceCut.clipMaxS explicitly enables the later 6 s limit.
     public init(profile: PolicyProfile.Speak, target: Lang, start: HostTime,
                 charactersPerSecond: Double? = nil, clipMaxS: Double? = nil) {
-        self.profile = profile; self.start = start; audioEnd = start; lastStableAt = start
+        self.profile = profile; self.start = start; audioEnd = start; lastStableAt = start; textFloor = start
         committer = SpeakCommitter(profile: profile, target: target, charactersPerSecond: charactersPerSecond)
         self.clipMaxS = max(0.1, clipMaxS ?? profile.forceCut.clipMaxSUntilSteppedASR)
     }
@@ -95,21 +121,25 @@ public struct SpeakSegmenter: Sendable {
         if frame.speech || frame.start - audioEnd > Self.shortTimestampTolerance { shortPreview = nil }
         frame.energy = frame.energy.isFinite ? max(0, frame.energy) : Double.greatestFiniteMagnitude
         frames.append(frame); audioEnd = frame.end
+        boundLeadingSilence()
         if let releaseThrough, audioEnd >= releaseThrough { return finish(at: releaseThrough) }
         return cuts()
     }
 
-    /// Text must describe the current uncommitted segment (the caller removes already
-    /// committed preview text). Late updates through an earlier cut are ignored.
+    /// Text must describe the audio since the last emitted cut (the caller removes already
+    /// committed preview text); leading silence left out of a clip and dropped segments since
+    /// then may be in it.
+    /// Late updates through an earlier emitted cut are ignored.
     public mutating func preview(stableText: String, through: HostTime, at now: HostTime,
                                   isFinal: Bool = false, boundary: SpeakPreviewBoundary? = nil) -> [Commit] {
         guard !finished, through > start else { return [] }
         // A callback queued before the microphone worker cut a segment can arrive after
         // the cut but before SpeakPipeline has advanced its preview floor. The floor is the
         // clip's sample-aligned end, up to one 16 kHz sample before a cut that falls between
-        // samples, so that rounding does not make the rest of the press text-blind.
-        if let boundary, boundary.from + Self.shortTimestampTolerance < start { previewsIgnored += 1; return [] }
-        let boundary = boundary.map { SpeakPreviewBoundary(from: max($0.from, start), fullyStable: $0.fullyStable) }
+        // samples, so that rounding does not make the rest of the press text-blind. Only
+        // emitted clips move that floor, so left-out leading silence or a dropped segment does not.
+        if let boundary, boundary.from + Self.shortTimestampTolerance < textFloor { previewsIgnored += 1; return [] }
+        let boundary = boundary.map { SpeakPreviewBoundary(from: max($0.from, textFloor), fullyStable: $0.fullyStable) }
         let text = stableText.trimmingCharacters(in: .whitespacesAndNewlines)
         if let boundary, boundary.fullyStable, Self.isCompleteShortReply(text) {
             let settledAt: HostTime
@@ -124,6 +154,7 @@ public struct SpeakSegmenter: Sendable {
         if text != stable { lastStableAt = now; punctuationAt = nil }
         stable = text
         previewCharacters = text.filter { $0.isLetter || $0.isNumber }.count
+        previewCjk = text.unicodeScalars.filter(\.properties.isIdeographic).count
         previewThrough = through
         if let last = text.last, profile.boundary.punct.contains(last) {
             if punctuationAt == nil { punctuationAt = now }
@@ -146,7 +177,9 @@ public struct SpeakSegmenter: Sendable {
     }
 
     /// End-of-capture (normal release or a device stop). No final clip is emitted when the
-    /// remainder contains less than the profile's 0.4 s of actual VAD speech.
+    /// remainder contains less than the profile's 0.4 s of actual VAD speech, unless the
+    /// covering preview already shows its words or it follows a text-permitted silence cut
+    /// (see keepsBelowFloor).
     public mutating func finish(at now: HostTime) -> [Commit] {
         guard !finished else { return [] }
         audioEnd = min(audioEnd, now)
@@ -159,9 +192,10 @@ public struct SpeakSegmenter: Sendable {
     private mutating func cuts(forceOnly: Bool = false) -> [Commit] {
         var out: [Commit] = []
         while audioEnd > start {
-            let cap = start + nanos(clipMaxS)
+            let clock = clockStart
+            let cap = clock + nanos(clipMaxS)
             let hard = audioEnd >= cap
-            let due = hard || Double(HostClock.ms(start, to: audioEnd)) / 1000 >= profile.forceCut.sinceLastS
+            let due = hard || Double(HostClock.ms(clock, to: audioEnd)) / 1000 >= profile.forceCut.sinceLastS
                 || speechSeconds(through: audioEnd) * committer.charactersPerSecond >= Double(profile.forceCut.cjk)
             if due, (!forceOnly || hard) {
                 let limit = min(cap, audioEnd)
@@ -190,13 +224,18 @@ public struct SpeakSegmenter: Sendable {
             // From clauseDipAfterS on, or once the preview is stale (it says nothing about the
             // audio), a dipMs pause that closes a clause and already has the release floor of
             // speech after it commits without waiting for vadSilenceMs or the forced cut.
-            let aged = Double(HostClock.ms(start, to: audioEnd)) / 1000 >= profile.boundary.clauseDipAfterS
-            if aged || HostClock.ms(lastStableAt, to: audioEnd) >= profile.boundary.stallMs, let dip = shortPauseCut() {
+            let aged = Double(HostClock.ms(clock, to: audioEnd)) / 1000 >= profile.boundary.clauseDipAfterS
+            if aged || HostClock.ms(max(lastStableAt, clock), to: audioEnd) >= profile.boundary.stallMs,
+               let dip = shortPauseCut() {
                 candidates.append((dip, aged ? .clauseDip : .stall))
             }
-            // Earliest allowed cut; a tie keeps the order above.
+            // Earliest allowed cut; a tie keeps the order above. A silence the audio estimate
+            // refuses still closes once the caught-up preview holds the character minimum.
             guard let candidate = candidates.enumerated().sorted(by: { ($0.element.0, $0.offset) < ($1.element.0, $1.offset) })
-                .map(\.element).first(where: { cut, _ in closesClause(at: cut) }) else { break }
+                .map(\.element).compactMap({ cut, reason -> (HostTime, Reason)? in
+                    if closesClause(at: cut) { return (cut, reason) }
+                    return reason == .silence && textCloses(at: cut) ? (cut, .textSilence) : nil
+                }).first else { break }
             if let c = commit(at: candidate.0, reason: candidate.1) { out.append(c) }
         }
         return out
@@ -220,8 +259,9 @@ public struct SpeakSegmenter: Sendable {
     ]
 
     private func shortReplyCut() -> HostTime? {
+        // Leading silence left out before `start` may sit inside the reply's text; a dropped voiced segment may not.
         guard releaseThrough == nil, let evidence = shortPreview,
-              evidence.from >= start, evidence.through <= audioEnd,
+              evidence.from >= (droppedSpeech ? start : textFloor), evidence.through <= audioEnd,
               audioEnd >= evidence.settledAt,
               HostClock.ms(evidence.settledAt, to: audioEnd) >= max(300, profile.boundary.punctHoldMs),
               let firstSpeech = frames.first(where: \.speech), let lastSpeech = frames.last(where: \.speech),
@@ -258,6 +298,69 @@ public struct SpeakSegmenter: Sendable {
             beginning = max(start, f.start)
         }
         return beginning
+    }
+
+    /// Where the forced-cut, hard-cap, clause-dip and stall clocks start: the press pre-roll
+    /// before the segment's first voiced frame (or before the newest audio while nothing is
+    /// voiced), never earlier than the segment. Leading silence does not use up the cap.
+    private var clockStart: HostTime {
+        let preroll = nanos(Double(max(0, profile.ptt.prerollMs)) / 1000)
+        let anchor = frames.first(where: \.speech)?.start ?? audioEnd
+        return anchor > start + preroll ? anchor - preroll : start
+    }
+
+    /// While nothing is voiced, keep only `leadKeep` of audio before the newest frame.
+    private mutating func boundLeadingSilence() {
+        guard audioEnd > start + Self.leadKeep, !frames.contains(where: \.speech) else { return }
+        let bounded = audioEnd - Self.leadKeep
+        start = bounded
+        frames.removeAll { $0.end <= bounded }
+        if !frames.isEmpty, frames[0].start < bounded { frames[0].start = bounded }
+    }
+
+    /// The caught-up preview covers the segment's last voiced frame before `cut`; no voiced
+    /// segment was dropped since the last emitted cut, so all of its text belongs to this audio.
+    private func previewCovers(_ cut: HostTime) -> Bool {
+        guard !droppedSpeech, let previewThrough,
+              let last = frames.last(where: { $0.speech && $0.start < cut }) else { return false }
+        let tolerance = UInt64(max(0, committer.minimum.previewVetoCaughtUpMs)) * 1_000_000
+        return previewThrough + tolerance >= min(cut, last.end)
+    }
+
+    /// A silence cut that the speech estimate refuses (VAD undercounts fast or soft speech):
+    /// the covering preview holds the character minimum in CJK ideographs, and the clip keeps
+    /// the release floor of speech.
+    private func textCloses(at cut: HostTime) -> Bool {
+        guard let previewCjk, previewCjk >= committer.minimum.estCjk,
+              speechSeconds(through: cut) + 1e-9 >= profile.release.commitRemainderMinSpeechS else { return false }
+        return previewCovers(cut)
+    }
+
+    /// Voiced audio under the release floor is still a clip when the covering preview shows at
+    /// least two CJK ideographs beyond leading fillers, such as a short last word after a cut,
+    /// or when it is the release remainder right after a text-permitted silence cut, ends before
+    /// that segment's forced cut would have come due and holds an onset-length voiced run: the
+    /// preview reopens at that cut and stops at key-up, so it rarely covers that remainder in time.
+    private func keepsBelowFloor(through cut: HostTime, final: Bool) -> Bool {
+        if final, let deadline = textSilenceDeadline, cut <= deadline, !droppedSpeech,
+           longestVoicedRun(through: cut) >= Self.voicedRunMin { return true }
+        guard previewCovers(cut) else { return false }
+        var rest = Substring(stable.filter { $0.isLetter || $0.isNumber })
+        let fillers = profile.fillers.filter { !$0.isEmpty }.sorted { $0.count > $1.count }
+        while let filler = fillers.first(where: { rest.hasPrefix($0) }) { rest = rest.dropFirst(filler.count) }
+        return rest.unicodeScalars.filter(\.properties.isIdeographic).count >= 2
+    }
+
+    /// The longest contiguous voiced stretch of the segment before `cut`.
+    private func longestVoicedRun(through cut: HostTime) -> UInt64 {
+        var best: UInt64 = 0, run: UInt64 = 0, runEnd: HostTime?
+        for f in frames where f.start < cut {
+            let lo = max(start, f.start), hi = min(cut, f.end)
+            guard f.speech, hi > lo else { run = 0; runEnd = nil; continue }
+            if let runEnd, lo > runEnd + Self.shortTimestampTolerance { run = 0 }
+            run += hi - lo; runEnd = hi; best = max(best, run)
+        }
+        return best
     }
 
     /// The normal commit test for a cut at `cut`, preview veto included.
@@ -339,20 +442,32 @@ public struct SpeakSegmenter: Sendable {
 
     private mutating func commit(at end: HostTime, reason: Reason, final: Bool = false) -> Commit? {
         guard end > start else { return nil }
+        let clock = clockStart
         let seconds = speechSeconds(through: end)
         let voiced = frames.filter { $0.speech && $0.start < end && $0.end > start }
-        let result = Commit(start: start, end: end, index: index, speechMs: Int((seconds * 1000).rounded()),
+        let reachesFloor = seconds + 1e-9 >= profile.release.commitRemainderMinSpeechS
+        let keep = reachesFloor || (!voiced.isEmpty && keepsBelowFloor(through: end, final: final))
+        // Cuts never pass clockStart + clipMaxS, so this bound only leaves out audio before the
+        // clock; a cut more than clipMaxS - leadKeep after the first voiced frame trims the lead.
+        let clip = nanos(clipMaxS)
+        let pcmStart = max(start, end > clip ? end - clip : 0)
+        let result = Commit(start: pcmStart, end: end, index: index, speechMs: Int((seconds * 1000).rounded()),
                             isFinalChunk: final, reason: reason,
-                            speechStart: voiced.first.map { max(start, $0.start) },
-                            speechEnd: voiced.last.map { min(end, $0.end) }, previewsIgnored: previewsIgnored)
+                            speechStart: voiced.first.map { max(pcmStart, $0.start) },
+                            speechEnd: voiced.last.map { min(end, $0.end) }, previewsIgnored: previewsIgnored,
+                            previewCjk: previewCjk, keptBelowFloor: !reachesFloor)
         start = end
-        previewsIgnored = 0
         frames.removeAll { $0.end <= end }
         if !frames.isEmpty, frames[0].start < end { frames[0].start = end }
-        stable = ""; previewCharacters = nil; previewThrough = nil; punctuationAt = nil; finalThrough = nil
+        stable = ""; previewCharacters = nil; previewCjk = nil; previewThrough = nil; punctuationAt = nil; finalThrough = nil
         shortPreview = nil
         lastStableAt = end
-        guard seconds + 1e-9 >= profile.release.commitRemainderMinSpeechS else { return nil }
+        guard keep else {
+            if !voiced.isEmpty { droppedSpeech = true }
+            return nil
+        }
+        previewsIgnored = 0; textFloor = end; droppedSpeech = false
+        textSilenceDeadline = reason == .textSilence ? clock + nanos(profile.forceCut.sinceLastS) : nil
         index += 1
         return result
     }

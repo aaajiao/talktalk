@@ -481,7 +481,9 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     }
 
     private func submit(_ clip: SpeakClip, press: UInt64, releasedAt: HostTime? = nil) {
-        guard clip.speechMs >= Int(profile.speak.release.commitRemainderMinSpeechS * 1000) else { return }
+        // The segmenter already applies the release floor; a clip it kept below it (a covered short
+        // word, or the release remainder after a text-permitted silence cut) is not dropped here.
+        guard clip.keptBelowFloor || clip.speechMs >= Int(profile.speak.release.commitRemainderMinSpeechS * 1000) else { return }
         if announcementEnabled, !announced { announced = true; requestAnnouncement() }
         let id = jobs.next(), mtJob = jobs.next(), token = epoch, committedAt = clock()
         clauses[id] = Clause(press: press, mtJob: mtJob, sourceOrder: id, committedAt: committedAt,
@@ -508,6 +510,8 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
         if let first = clip.speechFirstMs { fields["speech_first_ms"] = .int(first) }
         if let last = clip.speechLastMs { fields["speech_last_ms"] = .int(last) }
         if let ignored = clip.previewsIgnored { fields["preview_ignored"] = .int(ignored) }
+        if let cjk = clip.previewCjk { fields["preview_cjk"] = .int(cjk) }
+        if clip.keptBelowFloor { fields["kept_below_floor"] = .bool(true) }
         if let listen = selfListen() { fields["self_listen"] = .tag(listen) }
         log.event("speak.clip_committed", fields, at: committedAt)
         let previous = asrTail
@@ -531,9 +535,9 @@ public actor SpeakPipeline: PassthroughPlayoutYielding {
     private func recognize(_ clip: SpeakClip, clause id: UInt64, job: JobID, token: UInt32) async throws -> ASRFinal {
         guard active(id, token: token), let row = clauses[id] else { throw CancellationError() }
         if let primaryASR {
-            // Release tails, early short replies and force-cut fragments with less speech than a silence commit
-            // needs keep glossary hints, but not a full preceding sentence: on little audio the recognizer can
-            // repeat that sentence in place of the speech.
+            // Release tails, early short replies and any clip with less speech than the commit minimum (force-cut
+            // fragments, text-permitted silence cuts, kept sub-floor words) keep glossary hints, but not a full
+            // preceding sentence: on little audio the recognizer can repeat that sentence in place of the speech.
             let short = isShort(clip)
             let previous = (short || clip.isFinal || clip.cutReason == .release || clip.cutReason == .shortReply) ? nil
                 : lastSource.flatMap { $0.press == row.press ? $0.text : nil }

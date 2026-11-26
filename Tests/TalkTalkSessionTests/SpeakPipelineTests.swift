@@ -974,6 +974,48 @@ struct SpeakPipelineTests {
         await live.stop()
     }
 
+    @Test func clipKeptBelowTheReleaseFloorReachesRecognition() async throws {
+        for kept in [true, false] {
+            let primary = SpeakTestASR(texts: ["明天下午三点开会。", "好吗？"])
+            let mt = SpeakTestMT(), log = EventLog(inMemory: HostClock.now), done = Mutex(false)
+            let (pipeline, mic, _, _) = try fixture(mt: mt, primary: primary, whileHeld: true, log: log, onUI: { event in
+                if case .transcript(let value) = event, value.isFinal { done.withLock { $0 = true } }
+            })
+            let now = HostClock.now()
+            await pipeline.handle(.began(at: now))
+            mic.press.cc.yield(clip(at: now, isFinal: false))
+            #expect(await until { await mt.calls == 1 })
+            mic.press.cc.yield(.init(pcm: .init(samples: Array(repeating: 0.1, count: 8_000),
+                start: now + 1_000_000_000, end: now + 1_500_000_000),
+                index: 1, isFinal: true, speechMs: 300, cutReason: .release, keptBelowFloor: kept))
+            await pipeline.handle(.released(at: now + 1_500_000_000, reason: .keyUp))
+            #expect(await until { done.withLock { $0 } })
+            let committed = log.recorded.filter { $0["ev"] as? String == "speak.clip_committed" }
+            if kept {
+                #expect(await until { await mt.calls == 2 })
+                #expect(committed.last?["speech_ms"] as? Int == 300 && committed.last?["kept_below_floor"] as? Bool == true)
+            } else {
+                // Without the segmenter's decision the pipeline still applies the 0.4 s floor.
+                #expect(committed.count == 1 && committed.first?["kept_below_floor"] == nil)
+                #expect(await mt.calls == 1)
+            }
+            await pipeline.stop()
+        }
+    }
+
+    @Test func clipEndPassedBeforeThePreviewStartsStillSetsItsFloor() async throws {
+        let engine = SpeakTestLivePreview(), snapshots = Mutex<[SpeakPreview.Snapshot]>([])
+        let live = SpeakPreview(engine: engine)
+        let frames = AsyncStream<SpeakPreviewFrame>.makeStream(), now = HostClock.now()
+        // A clip was committed while the preview still waited for the previous press's final ASR.
+        await live.advance(to: now + 50_000_000)
+        await live.start(frames: frames.stream) { value in snapshots.withLock { $0.append(value) } }
+        frames.continuation.yield(.init(samples: Array(repeating: 1, count: 1600), at: now, level: 0.1))
+        #expect(await until { !snapshots.withLock { $0.isEmpty } })
+        #expect(snapshots.withLock { $0.allSatisfy { $0.from == now + 50_000_000 } })
+        await live.stop()
+    }
+
     @Test func previewShowsFullRevisionsAndUncommittedTailStaysLabelled() async throws {
         let engine = SpeakTestLivePreview()
         let snapshots = Mutex<[SpeakPreview.Snapshot]>([])

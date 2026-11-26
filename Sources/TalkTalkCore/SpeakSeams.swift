@@ -41,13 +41,19 @@ public struct SpeakClip: Sendable {
     public var speechLastMs: Int?
     /// Preview updates the segmenter ignored as older than this clip; diagnostics only.
     public var previewsIgnored: Int?
+    /// CJK ideographs in the segmenter's latest stable preview text since the previous emitted
+    /// clip, as held at the cut; diagnostics only.
+    public var previewCjk: Int?
+    /// The segmenter kept this clip although its speech is under the release floor; the
+    /// pipeline does not apply that floor again.
+    public var keptBelowFloor: Bool
     public init(pcm: PCMClip16k, index: Int, isFinal: Bool, speechMs: Int, cutReason: CutReason,
                 cutDetail: SpeakSegmenter.Reason? = nil, speechFirstMs: Int? = nil, speechLastMs: Int? = nil,
-                previewsIgnored: Int? = nil) {
+                previewsIgnored: Int? = nil, previewCjk: Int? = nil, keptBelowFloor: Bool = false) {
         self.pcm = pcm; self.index = index; self.isFinal = isFinal
         self.speechMs = speechMs; self.cutReason = cutReason
         self.cutDetail = cutDetail; self.speechFirstMs = speechFirstMs; self.speechLastMs = speechLastMs
-        self.previewsIgnored = previewsIgnored
+        self.previewsIgnored = previewsIgnored; self.previewCjk = previewCjk; self.keptBelowFloor = keptBelowFloor
     }
 }
 

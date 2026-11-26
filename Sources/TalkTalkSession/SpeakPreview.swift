@@ -22,6 +22,10 @@ public actor SpeakPreview {
     private var generation: UInt64 = 0
     private var active = false, paused = false, borrowed = false
     private var floor: HostTime = 0
+    /// A clip end passed to advance(to:) before start() made the preview active. The first
+    /// fed frame starts the floor no earlier than this; host times only grow, so an older
+    /// press's value never holds back a later one.
+    private var pendingFloor: HostTime = 0
     private var frames: [SpeakPreviewFrame] = []
     private var level: Float = 0
     private var recognizedThrough: HostTime = 0
@@ -51,7 +55,8 @@ public actor SpeakPreview {
 
     /// A committed cut discards old preview context and opens a recognizer for its successor.
     public func advance(to host: HostTime) async {
-        guard active, host > floor else { return }
+        guard active else { pendingFloor = max(pendingFloor, host); return }
+        guard host > floor else { return }
         floor = host; recognizedThrough = host; finalizedThrough = host
         trimFrames(); stable.reset(); finals = ""; hypothesis = ""
         await change(open: !paused)
@@ -76,7 +81,7 @@ public actor SpeakPreview {
 
     private func feed(_ input: SpeakPreviewFrame) {
         guard active else { return }
-        if floor == 0 { floor = input.at }
+        if floor == 0 { floor = max(input.at, pendingFloor) }
         frames.append(input); level = input.level; trimFrames()
         if let stream, let frame = clipped(input) {
             frame.samples.withUnsafeBufferPointer { stream.feed($0, at: frame.at) }

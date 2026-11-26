@@ -142,4 +142,151 @@ struct SpeakCutPlacementTests {
         cuts += feed(&vetoed, 110..<205, speech: layout).map(\.commit)
         #expect(cuts.count == 1 && cuts[0].reason == .forcedDip && near(cuts[0].end, 2.08))
     }
+
+    @Test func leadingSilenceDoesNotStartTheForcedOrCapClocks() throws {
+        let profile = try profile(stallMs: 10_000)
+        // 2.2 s of silence, then 2.72 s of speech: the hard cap no longer lands inside it.
+        var s = SpeakSegmenter(profile: profile, target: .en, start: 0)
+        let cuts = feed(&s, 0..<270) { (110..<246).contains($0) }
+        #expect(cuts.count == 1 && cuts[0].frame == 263)
+        let cut = cuts[0].commit
+        // The clip keeps 1 s of audio before the first voiced frame, for a soft onset VAD missed.
+        #expect(cut.reason == .silence && near(cut.start, 1.2) && near(cut.end, 5.10))
+        #expect(cut.speechMs == 2720 && cut.speechStart == t(110))
+
+        // The head-and-clause and unbroken layouts after 2 s of silence: the forced cut and the
+        // cap count from 300 ms before the first word, and the clip still stays within 4.5 s.
+        var head = SpeakSegmenter(profile: profile, target: .en, start: 0)
+        let merged = feed(&head, 0..<315) { (100..<130).contains($0) || (157..<298).contains($0) }
+        #expect(merged.count == 1 && merged[0].frame == 305)
+        #expect(merged[0].commit.reason == .forcedDip && near(merged[0].commit.end, 6.04))
+        #expect(merged[0].commit.speechMs == 3420 && near(merged[0].commit.start, 1.54))
+        var unbroken = SpeakSegmenter(profile: profile, target: .en, start: 0)
+        let capped = feed(&unbroken, 0..<320) { (100..<130).contains($0) || $0 >= 157 }.map(\.commit)
+        #expect(capped.count == 1 && capped[0].reason == .hardCap && capped[0].end == t(307) + 25_000_000)
+        #expect(capped[0].speechMs == 3625 && capped[0].end - capped[0].start == 4_500_000_000)
+    }
+
+    @Test func caughtUpCharactersCloseAShortClauseAtASilence() throws {
+        let profile = try profile(stallMs: 10_000)
+        func run(speechFrames: Int, text: String, through: Int, frames: Range<Int>,
+                 target: Lang = .en) -> [SpeakSegmenter.Commit] {
+            var s = SpeakSegmenter(profile: profile, target: target, start: 0)
+            var cuts = feed(&s, 0..<(speechFrames + 1)) { $0 < speechFrames }.map(\.commit)
+            cuts += s.preview(stableText: text, through: t(through), at: t(speechFrames + 1),
+                              boundary: .init(from: 0, fullyStable: true))
+            return cuts + feed(&s, frames) { $0 < speechFrames }.map(\.commit)
+        }
+        // 0.7 s of speech, 9 ideographs covering it: commits at 350 ms of silence, not at 4 s.
+        let cut = run(speechFrames: 35, text: "明天下午三点开会吧", through: 35, frames: 36..<60)
+        #expect(cut.count == 1 && cut[0].reason == .textSilence && near(cut[0].end, 0.88))
+        #expect(cut[0].speechMs == 700 && cut[0].previewCjk == 9)
+        // A 1.4 s head passes the speech minimum but not the 8-character estimate.
+        let head = run(speechFrames: 70, text: "明天下午三点开会吧", through: 70, frames: 71..<95)
+        #expect(head.count == 1 && head[0].reason == .textSilence && near(head[0].end, 1.58))
+        // A German target needs 10 ideographs.
+        #expect(run(speechFrames: 35, text: "明天下午三点开会吧", through: 35, frames: 36..<190, target: .de).isEmpty)
+        let german = run(speechFrames: 35, text: "明天下午三点钟开会吧", through: 35, frames: 36..<60, target: .de)
+        #expect(german.count == 1 && german[0].reason == .textSilence && german[0].previewCjk == 10)
+        // Too few ideographs, a preview that has not reached the last word, Latin letters, or
+        // less than the 0.4 s release floor of speech: the clause still waits.
+        for (frames, text, through) in [(35, "明天下午开会", 35), (35, "明天下午三点开会吧", 20),
+                                        (35, "see you at three", 35), (15, "明天下午三点开会吧", 15)] {
+            #expect(run(speechFrames: frames, text: text, through: through, frames: (frames + 1)..<190).isEmpty)
+        }
+        // After a dropped voiced blip the text may hold its words, so the clause waits for the forced cut.
+        var dropped = SpeakSegmenter(profile: profile, target: .en, start: 0)
+        let blip: (Int) -> Bool = { $0 < 10 || (300..<335).contains($0) }
+        var late = feed(&dropped, 0..<336, speech: blip).map(\.commit)
+        late += dropped.preview(stableText: "明天下午三点开会吧", through: t(335), at: t(336),
+                                boundary: .init(from: 0, fullyStable: true))
+        late += feed(&dropped, 336..<490, speech: blip).map(\.commit)
+        #expect(late.count == 1 && late[0].reason == .forcedDip)
+    }
+
+    @Test func shortLastWordAfterATextSilenceCutIsKept() throws {
+        let profile = try profile(stallMs: 10_000)
+        // A 0.7 s clause with 8 ideographs, a 400 ms pause, then (by default) a 0.3 s last word.
+        let word: (Int) -> Bool = { (55..<70).contains($0) }
+        func run(_ text: String?, through: Int = 70, latched: Bool = false, keyUp: Int = 80,
+                 tail: @escaping (Int) -> Bool = word) -> [SpeakSegmenter.Commit] {
+            let layout: (Int) -> Bool = { $0 < 35 || tail($0) }
+            var s = SpeakSegmenter(profile: profile, target: .en, start: 0)
+            var cuts = feed(&s, 0..<36, speech: layout).map(\.commit)
+            cuts += s.preview(stableText: "明天下午三点开会", through: t(35), at: t(36),
+                              boundary: .init(from: 0, fullyStable: true))
+            cuts += feed(&s, 36..<70, speech: layout).map(\.commit)
+            if let text, let floor = cuts.first?.end {
+                cuts += s.preview(stableText: text, through: t(through), at: t(70),
+                                  boundary: .init(from: floor, fullyStable: true))
+            }
+            if latched { return cuts + feed(&s, 70..<275, speech: layout).map(\.commit) }
+            cuts += feed(&s, 70..<keyUp, speech: layout).map(\.commit)
+            cuts += s.release(at: t(keyUp))
+            return cuts + feed(&s, keyUp..<(keyUp + 10), speech: layout).map(\.commit)
+        }
+        // Key-up: the preview reopens at the cut and stops at key-up, so a remainder that ends
+        // before the clause's forced cut would have come due is kept whatever it has shown.
+        for text in ["好吗", "嗯", nil] as [String?] {
+            let released = run(text)
+            #expect(released.map(\.reason) == [.textSilence, .release] && near(released.first?.end, 0.88))
+            #expect(released.first?.keptBelowFloor == false && released.last?.keptBelowFloor == true)
+            #expect(released.last?.speechMs == 300 && released.last?.isFinalChunk == true)
+        }
+        // A 60 ms voiced run is enough; a single voiced frame (a key click) or a key-up after
+        // that forced cut would have come due is not, without a covering preview.
+        #expect(run(nil, tail: { (60..<63).contains($0) }).last?.speechMs == 60)
+        #expect(run(nil, tail: { $0 == 60 }).map(\.reason) == [.textSilence])
+        #expect(run(nil, keyUp: 205).map(\.reason) == [.textSilence])
+        #expect(run("好吗", keyUp: 205).map(\.reason) == [.textSilence, .release])
+        // Hands-free: no release, so the covering preview decides at the cap.
+        let latched = run("好吗", latched: true)
+        #expect(latched.map(\.reason) == [.textSilence, .hardCap] && latched.last?.speechMs == 300)
+        #expect(latched.last?.keptBelowFloor == true)
+        // One ideograph, only fillers, a preview short of the word, or no preview: dropped there.
+        for (text, through) in [("嗯", 70), ("那个", 70), ("好吗", 55), (nil, 70)] as [(String?, Int)] {
+            #expect(run(text, through: through, latched: true).map(\.reason) == [.textSilence])
+        }
+    }
+
+    @Test func shortLastWordAfterAnAudioSilenceCutNeedsItsPreview() throws {
+        let profile = try profile(stallMs: 10_000)
+        // A 1.9 s clause passes the commit test at its silence; a 0.3 s last word follows it.
+        let layout: (Int) -> Bool = { $0 < 95 || (120..<135).contains($0) }
+        func run(word: String?) -> [SpeakSegmenter.Commit] {
+            var s = SpeakSegmenter(profile: profile, target: .en, start: 0)
+            var cuts = feed(&s, 0..<135, speech: layout).map(\.commit)
+            if let word, let floor = cuts.first?.end {
+                cuts += s.preview(stableText: word, through: t(135), at: t(135),
+                                  boundary: .init(from: floor, fullyStable: true))
+            }
+            cuts += feed(&s, 135..<145, speech: layout).map(\.commit)
+            cuts += s.release(at: t(145))
+            return cuts + feed(&s, 145..<155, speech: layout).map(\.commit)
+        }
+        #expect(run(word: nil).map(\.reason) == [.silence])
+        let kept = run(word: "好吗")
+        #expect(kept.map(\.reason) == [.silence, .release] && kept.last?.speechMs == 300)
+        #expect(kept.last?.keptBelowFloor == true)
+    }
+
+    @Test func droppedSegmentLeavesThePreviewWithTheNextClause() throws {
+        var s = SpeakSegmenter(profile: try profile(stallMs: 10_000), target: .en, start: 0)
+        let layout: (Int) -> Bool = { $0 < 100 || (150..<160).contains($0) || (400..<500).contains($0) }
+        let first = try #require(feed(&s, 0..<130, speech: layout).first?.commit)
+        #expect(first.reason == .silence && near(first.end, 2.18))
+        let stale = SpeakPreviewBoundary(from: first.end - 2_000_000, fullyStable: true)
+        // The 0.2 s blip is dropped at the cap; the pipeline's preview still starts at `first.end`.
+        var cuts = feed(&s, 130..<200, speech: layout).map(\.commit)
+        cuts += s.preview(stableText: "旧的。", through: t(200), at: t(200), boundary: stale)
+        cuts += feed(&s, 200..<501, speech: layout).map(\.commit)
+        #expect(cuts.isEmpty)
+        cuts += s.preview(stableText: "旧的。", through: t(500), at: t(501), boundary: stale)
+        cuts += s.preview(stableText: "我们下周一开会讨论这个方案。", through: t(500), at: t(501),
+                          boundary: .init(from: first.end, fullyStable: true))
+        cuts += feed(&s, 501..<530, speech: layout).map(\.commit)
+        #expect(cuts.count == 1 && cuts[0].reason == .punctuation && cuts[0].end == t(500))
+        // The clip starts at the dropped segment's cap cut; both late updates are counted.
+        #expect(near(cuts[0].start, 7.2) && cuts[0].previewsIgnored == 2 && cuts[0].previewCjk == 13)
+    }
 }
